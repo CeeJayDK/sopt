@@ -1,0 +1,6 @@
+# screen blend
+# expect: lerp(a, 1.0, b)
+input a : float in [0, 1] grid 255
+input b : float in [0, 1] grid 255
+output r = 1.0 - (1.0 - a) * (1.0 - b)
+budget r : color8

@@ -1,0 +1,7 @@
+# common factor
+# expect: x * (a + b)
+input a : float in [0, 1]
+input b : float in [0, 1]
+input x : float in [0, 1]
+output r = x * a + x * b
+budget r : rel 1e-6

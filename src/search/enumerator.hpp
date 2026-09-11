@@ -1,0 +1,93 @@
+#pragma once
+#include <array>
+#include <cstdint>
+#include <vector>
+
+#include "ir/expr.hpp"
+#include "verify/points.hpp"
+
+namespace sopt {
+
+struct SearchConfig {
+  uint32_t maxCost = 0;         // inclusive; the driver sets target cost - 1
+  size_t maxBank = 2'000'000;   // entries (memory: ~(4*tests + 32) bytes each)
+  size_t maxHits = 10'000;
+  double timeLimitSec = 60.0;
+};
+
+struct LevelStats {
+  uint32_t cost = 0;
+  uint64_t generated = 0;
+  uint64_t added = 0;
+};
+
+struct SearchStats {
+  uint64_t generated = 0;
+  uint64_t deduped = 0;
+  uint64_t constSkipped = 0;
+  uint64_t bankSize = 0;
+  uint64_t hits = 0;
+  uint32_t completedCost = 0;  // all levels <= this were fully enumerated
+  bool limitHit = false;
+  double seconds = 0.0;
+  double firstHitSec = -1.0;
+  std::vector<LevelStats> levels;
+};
+
+struct Candidate {
+  Expr expr;
+  uint32_t cost = 0;  // DAG cost
+};
+
+// Bottom-up enumeration by increasing cost with observational-equivalence dedup:
+// one bank entry per distinct fingerprint (output on the test points).
+class Enumerator {
+ public:
+  Enumerator(const Program& prog, const PointSet& tests, const SearchConfig& cfg);
+  std::vector<Candidate> run(SearchStats& stats);
+
+ private:
+  struct Entry {
+    Op op;
+    Type type;
+    uint16_t cost;
+    bool isConst;
+    uint32_t args[3];
+    float value;
+    uint32_t input;
+  };
+
+  void addLeaf(const Entry& e, const float* fp, SearchStats& stats);
+  void tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c, SearchStats& stats);
+  bool insert(const Entry& e, const float* fp, SearchStats& stats);
+  uint64_t hashFp(const float* fp, Type t) const;
+  void growTable();
+  const float* fpOf(uint32_t idx) const { return fp_.data() + idx * n_; }
+  Expr extract(const Entry& e) const;
+  void checkLimits(SearchStats& stats);
+
+  const Program& prog_;
+  const PointSet& tests_;
+  SearchConfig cfg_;
+  size_t n_;
+  uint32_t targetCost_;
+  std::vector<float> target_;
+  std::vector<char> targetFinite_;
+  std::vector<Op> ops_;
+
+  std::vector<Entry> entries_;
+  std::vector<float> fp_;
+  std::vector<std::array<std::vector<uint32_t>, 2>> byCost_;
+  std::vector<uint32_t> table_;
+  std::vector<float> scratch_;
+  std::vector<uint32_t> hits_;
+  std::vector<char> isHit_;
+  std::vector<Entry> altHits_;  // programs whose fingerprint equals an existing hit
+  bool stop_ = false;
+  uint64_t sinceCheck_ = 0;
+  double start_ = 0.0;
+};
+
+double nowSeconds();
+
+}  // namespace sopt

@@ -1,0 +1,25 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: msvc }
+          - { os: ubuntu-latest,  name: gcc,   cxx: g++ }
+          - { os: ubuntu-latest,  name: clang, cxx: clang++ }
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.cxx }}" ]; then export CXX=${{ matrix.cxx }}; fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        # includes the golden-hash test: exact ops must match bit for bit across compilers
+        run: ctest --test-dir build -C Release --output-on-failure

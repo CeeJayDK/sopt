@@ -1,0 +1,7 @@
+# lerp with a step mask: select is exact and cheaper
+# expect: x >= 0.5 ? b : a
+input a : float in [0, 1] grid 255
+input b : float in [0, 1] grid 255
+input x : float in [0, 1]
+output r = lerp(a, b, step(0.5, x))
+budget r : color8

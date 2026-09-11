@@ -1,0 +1,5 @@
+# integer power
+# expect: x * x
+input x : float in [0, 1]
+output r = pow(x, 2.0)
+budget r : rel 1e-6

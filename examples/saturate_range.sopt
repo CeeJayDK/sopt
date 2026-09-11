@@ -1,0 +1,5 @@
+# saturate on a value already known to be in [0, 1]
+# expect: x
+input x : float in [0, 1]
+output r = saturate(x)
+budget r : exact
