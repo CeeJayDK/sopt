@@ -6,7 +6,8 @@ Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done (CI 
 MSVC/GCC/Clang, golden hashes match), plus RDNA3 cost model, `gpu` semantic profile, ISA
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 defaults to `rdna3-search`),
-and no pure helper intrinsics (lerp, step) during search (default).
+and no pure helper intrinsics (lerp, step) during search (default). Default cost model:
+rdna3.
 
 ## Working with the owner
 - Christian (CeeJay, SweetFX/ReShade). Communicates in Danish; prefers brief, direct answers.
@@ -69,8 +70,8 @@ and no pure helper intrinsics (lerp, step) during search (default).
   context effects (min(max()) -> med3, extra v_mov for some constants); `--isa` covers them.
 - `rdna3` enumerates in `rdna3-search` order by default (same cheap ops, transcendentals
   at half cost). Bench (rdna3 objective, 11 examples + 36 planted): rdna3-search 38 found,
-  rdna3 order 37, generic order 36 (loses cheap-op planted problems). `generic` is still
-  the default objective. With a separate order, dedup keeps the order-cheapest program
+  rdna3 order 37, generic order 36 (loses cheap-op planted problems). `rdna3` is the default
+  objective. With a separate order, dedup keeps the order-cheapest program
   of a value, not the objective-cheapest.
 - normalize_x (x * rsqrt(x*x + y*y), rdna3 cost 28, two inputs) is not reached by any
   order: the bank fills first.
@@ -84,7 +85,7 @@ and no pure helper intrinsics (lerp, step) during search (default).
    helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only. When M2 adds
    smoothstep/length/distance/normalize, treat them as pure helpers too.
 2. M7 search scaling continues (e.g. shared leaves for needs-sharing, reaching
-   normalize_x) — ask first. Decide whether rdna3 becomes the default objective.
+   normalize_x) — ask first.
 3. M2: float2–4, dot/length/normalize, component access; V2 exhaustive verification on
    8-bit grids and unary float inputs; error-budget classes.
 4. M3: reshadefx front end, region extraction, facts, variant `.fx` output.

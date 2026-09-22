@@ -28,7 +28,7 @@ void usage() {
       "  --no-affine       enumerate outer constants instead of solving p * v + q\n"
       "  --no-inner        don't solve inner constants (p * u(v + c) + q, u = rcp/sqrt/rsqrt)\n"
       "  --helpers         also enumerate pure helper intrinsics (lerp, step)\n"
-      "  --cost-model M    objective: generic | rdna3 (default: generic)\n"
+      "  --cost-model M    objective: rdna3 | generic (default: rdna3)\n"
       "  --order-model M   enumeration order (default: rdna3-search for rdna3, else the model)\n"
       "  --stats           print search statistics\n"
       "  --isa             rank the shown alternatives by real GPU ISA cost (fxstat + RGA)\n"

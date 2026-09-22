@@ -15,7 +15,7 @@ ctest --test-dir build -C Release --output-on-failure
 
 ```
 build/sopt examples/screen.sopt [--stats] [--top N] [--time S] [--max-bank N]
-build/sopt examples/screen.sopt --isa [--cost-model generic|rdna3] [--order-model M]
+build/sopt examples/screen.sopt --isa [--cost-model rdna3|generic] [--order-model M]
            [--no-affine] [--no-inner] [--helpers]
 build/sopt-bench --examples examples
 build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30
@@ -44,10 +44,10 @@ product under +/- contracted to fma, `a / b` as `a * rcp(b)`).
 
 ## Cost models
 
-`--cost-model generic` (default) uses the M1 placeholder weights. `rdna3` uses AMD
-RDNA3 ISA costs in quarter-VALU units (calibrated with RGA, see `src/ir/ops.cpp`),
-with free modifiers and contraction. Under `rdna3` the search does not yet reach deep
-candidates (bank limit) on its own, so the search enumerates in `rdna3-search` order
+`rdna3` (default) uses AMD RDNA3 ISA costs in quarter-VALU units (calibrated with RGA,
+see `src/ir/ops.cpp`), with free modifiers and contraction. `--cost-model generic` uses
+the M1 placeholder weights. Under `rdna3` alone the search does not reach deep
+candidates (bank limit), so it enumerates in `rdna3-search` order
 (same cheap ops, transcendentals at half cost) while rdna3 still decides hits and
 ranking. `--order-model M` picks another order (e.g. `rdna3`, `generic`).
 

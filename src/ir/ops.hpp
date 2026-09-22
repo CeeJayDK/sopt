@@ -63,8 +63,7 @@ struct CostModel {
 //   and output modifiers (neg, abs, saturate) 1, clamp = v_med3, contraction on.
 const CostModel& costGeneric();
 const CostModel& costRdna3();
-// Default is generic: under rdna3 the bank fills before deep candidates (rsqrt at 4
-// VALU-equivalents) are reached. Use rdna3 explicitly, and --isa to rank by real ISA.
+// Default is rdna3 (searched in rdna3-search order); --isa ranks by the real ISA.
 const CostModel& defaultCostModel();
 const CostModel* costModelByName(std::string_view name);
 // Enumeration order used when none is given: rdna3-search for rdna3, else the model.

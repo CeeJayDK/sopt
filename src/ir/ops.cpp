@@ -94,7 +94,7 @@ std::optional<Op> opFromCall(std::string_view name, uint8_t arity) {
 
 const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }
-const CostModel& defaultCostModel() { return kGeneric; }
+const CostModel& defaultCostModel() { return kRdna3; }
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 ? kRdna3Search : objective;
 }
