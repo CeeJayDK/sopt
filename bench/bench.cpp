@@ -163,14 +163,14 @@ int main(int argc, char** argv) {
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
       if (!opt.search.order) {
-        std::puts("unknown cost model (generic, rdna3)");
+        std::puts("unknown cost model (generic, rdna3, rdna3-search)");
         return 2;
       }
     }
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
       if (!opt.search.model) {
-        std::puts("unknown cost model (generic, rdna3)");
+        std::puts("unknown cost model (generic, rdna3, rdna3-search)");
         return 2;
       }
     } else {
@@ -182,7 +182,8 @@ int main(int argc, char** argv) {
   if (examples.empty() && planted == 0) examples = "examples";
   const CostModel& model = *opt.search.model;
   std::printf("cost model: %s%s%s\n", std::string(model.name).c_str(),
-              opt.search.order ? (", order " + std::string(opt.search.order->name)).c_str() : "",
+              (", order " + std::string((opt.search.order ? *opt.search.order
+                                                             : defaultOrderFor(model)).name)).c_str(),
               opt.search.affine ? (opt.search.inner ? ", affine, inner" : ", affine") : "");
   if (opt.search.helpers) std::printf("helpers: lerp/step enumerated\n");
 

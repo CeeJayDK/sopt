@@ -29,7 +29,7 @@ void usage() {
       "  --no-inner        don't solve inner constants (p * u(v + c) + q, u = rcp/sqrt/rsqrt)\n"
       "  --helpers         also enumerate pure helper intrinsics (lerp, step)\n"
       "  --cost-model M    objective: generic | rdna3 (default: generic)\n"
-      "  --order-model M   enumeration order, e.g. generic with --cost-model rdna3\n"
+      "  --order-model M   enumeration order (default: rdna3-search for rdna3, else the model)\n"
       "  --stats           print search statistics\n"
       "  --isa             rank the shown alternatives by real GPU ISA cost (fxstat + RGA)\n"
       "  --fxstat PATH     fxstat from ReShade Testing Initiative (default: $SOPT_FXSTAT)\n"
@@ -84,7 +84,7 @@ int main(int argc, char** argv) {
     else if (a == "--seed") opt.seed = std::strtoull(next(), nullptr, 10);
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
-      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (generic, rdna3)\n"); return 2; }
+      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (generic, rdna3, rdna3-search)\n"); return 2; }
     }
     else if (a == "--stats") stats = true;
     else if (a == "--no-affine") opt.search.affine = false;
@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
     else if (a == "--helpers") opt.search.helpers = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
-      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (generic, rdna3)\n"); return 2; }
+      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (generic, rdna3, rdna3-search)\n"); return 2; }
     }
     else if (a == "--isa") isa = true;
     else if (a == "--fxstat") isaCfg.fxstat = next();
@@ -125,8 +125,8 @@ int main(int argc, char** argv) {
   const RunResult r = optimize(prog, opt);
   char buf[128];
   std::string models(opt.search.model->name);
-  if (opt.search.order && opt.search.order != opt.search.model)
-    models += ", order " + std::string(opt.search.order->name);
+  const CostModel& ord = opt.search.order ? *opt.search.order : defaultOrderFor(*opt.search.model);
+  if (&ord != opt.search.model) models += ", order " + std::string(ord.name);
   std::printf("target:   %s = %s   (cost %u, %s)\n", prog.outputName.c_str(), r.targetText.c_str(),
               r.targetCost, models.c_str());
   std::printf("budget:   %s\n", budgetText(prog.budget, buf, sizeof(buf)));

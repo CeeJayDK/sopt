@@ -68,3 +68,8 @@ TEST(inner_rsqrt_affine) { expectRewrite("rsqrt_affine.sopt", true, 50'000, null
 TEST(inner_depth_rdna3) {
   expectRewrite("depth_reversed.sopt", true, 50'000, &costRdna3(), nullptr, true);
 }
+// rdna3 with its default order (rdna3-search): sqrt at half order cost is reached
+// after two-input products (plain rdna3 order stops before it).
+TEST(order_rdna3_search_sqrt_product) {
+  expectRewrite("sqrt_product.sopt", true, 2'000'000, &costRdna3(), nullptr, true);
+}

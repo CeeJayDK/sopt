@@ -67,6 +67,8 @@ const CostModel& costRdna3();
 // VALU-equivalents) are reached. Use rdna3 explicitly, and --isa to rank by real ISA.
 const CostModel& defaultCostModel();
 const CostModel* costModelByName(std::string_view name);
+// Enumeration order used when none is given: rdna3-search for rdna3, else the model.
+const CostModel& defaultOrderFor(const CostModel& objective);
 
 // Backend semantic profiles. The same FX source can evaluate differently:
 // HLSL lerp is a + t*(b-a), GLSL/SPIR-V mix is a*(1-t) + b*t, and mad may be fused.

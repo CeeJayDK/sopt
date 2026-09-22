@@ -47,9 +47,9 @@ product under +/- contracted to fma, `a / b` as `a * rcp(b)`).
 `--cost-model generic` (default) uses the M1 placeholder weights. `rdna3` uses AMD
 RDNA3 ISA costs in quarter-VALU units (calibrated with RGA, see `src/ir/ops.cpp`),
 with free modifiers and contraction. Under `rdna3` the search does not yet reach deep
-candidates (bank limit), so it is not the default. `--order-model generic` enumerates in
-generic-cost order while `--cost-model` still decides hits and ranking: with rdna3 this
-reaches e.g. the depth rewrite, at some loss on problems built from cheap ops only.
+candidates (bank limit) on its own, so the search enumerates in `rdna3-search` order
+(same cheap ops, transcendentals at half cost) while rdna3 still decides hits and
+ranking. `--order-model M` picks another order (e.g. `rdna3`, `generic`).
 
 ## Symbolic constants (default; `--no-affine` to disable)
 

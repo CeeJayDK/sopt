@@ -14,7 +14,7 @@ struct SearchConfig {
   size_t maxHits = 10'000;
   double timeLimitSec = 60.0;
   const CostModel* model = &defaultCostModel();  // objective: hits and ranking
-  // Enumeration levels (null = model). A cheap, uniform order model (generic) reaches
+  // Enumeration levels (null = defaultOrderFor(model)). A cheap, uniform order model (generic) reaches
   // deeper than an objective with expensive ops (rdna3 transcendentals); the objective
   // still decides what is a hit. Dedup keeps the first program of a value in order.
   const CostModel* order = nullptr;
@@ -99,7 +99,7 @@ class Enumerator {
   bool innerFit(uint32_t idx, SearchStats& stats);
   bool fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& out) const;
   uint32_t obj(uint32_t idx) const { return entries_[idx].obj; }
-  const CostModel& order() const { return cfg_.order ? *cfg_.order : *cfg_.model; }
+  const CostModel& order() const { return cfg_.order ? *cfg_.order : defaultOrderFor(*cfg_.model); }
   size_t numHits() const { return hits_.size() + altHits_.size() + affineHits_.size(); }
   uint64_t hashFp(const float* fp, Type t) const;
   void growTable();

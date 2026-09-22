@@ -67,6 +67,16 @@ const CostModel kRdna3{"rdna3",
    16, 16, 20, 20, 20, 20, 4, 4, 4, 20, 4, 4, 8, 36,
    4, 4, 4, 4, 4, 4, 4, 8, 4, 4},
   1, true};
+// Enumeration order for the rdna3 objective: the same cheap ops, transcendentals at
+// half cost (rcp/sqrt/rsqrt 8, exp/log/sin/cos/div 12, pow 20, sign 8). Ordering them
+// at full cost puts one rsqrt behind every program of ~4 VALU ops; generic order
+// reaches them but misorders cheap ops (loses planted problems). Chosen on the bench
+// against uniform op count and quarter-cost transcendentals.
+const CostModel kRdna3Search{"rdna3-search",
+  {0, 0, 1, 1, 1, 4, 4, 8, 8,
+   8, 8, 12, 12, 12, 12, 4, 4, 4, 12, 4, 4, 8, 20,
+   4, 4, 4, 4, 4, 4, 4, 8, 4, 4},
+  1, true};
 // clang-format on
 
 }  // namespace
@@ -85,10 +95,14 @@ std::optional<Op> opFromCall(std::string_view name, uint8_t arity) {
 const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }
 const CostModel& defaultCostModel() { return kGeneric; }
+const CostModel& defaultOrderFor(const CostModel& objective) {
+  return &objective == &kRdna3 ? kRdna3Search : objective;
+}
 
 const CostModel* costModelByName(std::string_view name) {
   if (name == kGeneric.name) return &kGeneric;
   if (name == kRdna3.name) return &kRdna3;
+  if (name == kRdna3Search.name) return &kRdna3Search;
   return nullptr;
 }
 
