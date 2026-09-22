@@ -63,10 +63,12 @@ struct CostModel {
 //   and output modifiers (neg, abs, saturate) 1, clamp = v_med3, contraction on.
 const CostModel& costGeneric();
 const CostModel& costRdna3();
-// Default is rdna3 (searched in rdna3-search order); --isa ranks by the real ISA.
+// nvidia: NVIDIA Ada SASS (ptxas + nvdisasm) in quarter-ALU units, MUFU at 8x.
+const CostModel& costNvidia();
+// Default is rdna3 (searched in search order); --isa / --sass rank by real machine code.
 const CostModel& defaultCostModel();
 const CostModel* costModelByName(std::string_view name);
-// Enumeration order used when none is given: rdna3-search for rdna3, else the model.
+// Enumeration order used when none is given: search for rdna3 and nvidia, else the model.
 const CostModel& defaultOrderFor(const CostModel& objective);
 
 // Backend semantic profiles. The same FX source can evaluate differently:

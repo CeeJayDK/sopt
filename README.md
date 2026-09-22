@@ -44,10 +44,11 @@ product under +/- contracted to fma, `a / b` as `a * rcp(b)`).
 
 ## Cost models
 
-`rdna3` (default) uses AMD RDNA3 ISA costs in quarter-VALU units (calibrated with RGA,
+`nvidia` uses NVIDIA Ada SASS costs (same units, transcendentals at 8x, clamp = two
+FMNMX), searched in the same `search` order. `rdna3` (default) uses AMD RDNA3 ISA costs in quarter-VALU units (calibrated with RGA,
 see `src/ir/ops.cpp`), with free modifiers and contraction. `--cost-model generic` uses
 the M1 placeholder weights. Under `rdna3` alone the search does not reach deep
-candidates (bank limit), so it enumerates in `rdna3-search` order
+candidates (bank limit), so it enumerates in `search` order
 (same cheap ops, transcendentals at half cost) while rdna3 still decides hits and
 ranking. `--order-model M` picks another order (e.g. `rdna3`, `generic`).
 
@@ -85,3 +86,21 @@ build/sopt examples/factor.sopt --isa [--asic gfx1100] [--isa-keep DIR]
 ```
 
 The ISA test in `sopt-tests` runs only when both variables are set.
+
+## NVIDIA SASS cost (`--sass`)
+
+Each shown alternative is also emitted as a PTX kernel (approximate transcendentals and
+`a / b` as `a * rcp(b)`, as graphics drivers do; mul/add left for ptxas to contract),
+compiled by `ptxas` for one GPU generation and disassembled by `nvdisasm`. The `nv`
+column is ALU + MOV + 8 x MUFU (FP32 : MUFU throughput 128 : 16 per SM, 4x on sm_75/80;
+from the CUDA programming guide, to be verified). With `--isa` too, rows are ranked by
+AMD then NVIDIA, and `!` per column shows a rewrite that does not help that vendor.
+
+```
+pip install nvidia-cuda-nvcc-cu12 nvidia-cuda-nvdisasm   # ptxas, nvdisasm; no GPU needed
+export SOPT_PTXAS=.../nvidia/cuda_nvcc/bin/ptxas SOPT_NVDISASM=.../nvidia/cu13/bin/nvdisasm
+build/sopt examples/step_lerp.sopt --isa --sass [--sm 75|86|89|120] [--sass-keep DIR]
+```
+
+This is the CUDA compiler, not the graphics driver's shader compiler (believed to share
+the backend); Nsight Graphics on real hardware is the ground truth.

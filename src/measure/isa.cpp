@@ -1,17 +1,10 @@
 #include "measure/isa.hpp"
 
-#include <algorithm>
-#include <atomic>
-#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <random>
-#include <thread>
 
-#ifdef _WIN32
-#define popen _popen
-#define pclose _pclose
-#endif
+#include "measure/tools.hpp"
 
 namespace sopt {
 namespace {
@@ -20,44 +13,12 @@ namespace fs = std::filesystem;
 
 const char* kSwizzle[4] = {"x", "y", "z", "w"};
 
-std::string runCommand(const std::string& cmd, int& status) {
-#ifdef _WIN32
-  const std::string full = "\"" + cmd + "\"";  // cmd /c strips one pair of outer quotes
-#else
-  const std::string& full = cmd;
-#endif
-  std::string out;
-  FILE* p = popen(full.c_str(), "r");
-  if (!p) {
-    status = -1;
-    return out;
-  }
-  char buf[4096];
-  size_t n;
-  while ((n = std::fread(buf, 1, sizeof(buf), p)) > 0) out.append(buf, n);
-  status = pclose(p);
-  return out;
-}
-
-std::string quote(const std::string& s) { return "\"" + s + "\""; }
-
 // Value of "key": <int> inside [begin, end) of s, or -1 (atoi skips the space).
 int jsonInt(const std::string& s, size_t begin, size_t end, const char* key) {
   const std::string k = std::string("\"") + key + "\":";
   const size_t pos = s.find(k, begin);
   if (pos == std::string::npos || pos >= end) return -1;
   return std::atoi(s.c_str() + pos + k.size());
-}
-
-std::string firstLines(const std::string& s, int lines) {
-  size_t pos = 0;
-  for (int i = 0; i < lines && pos != std::string::npos; ++i) {
-    pos = s.find('\n', pos);
-    if (pos != std::string::npos) ++pos;
-  }
-  std::string out = s.substr(0, pos == std::string::npos ? s.size() : pos);
-  while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
-  return out;
 }
 
 }  // namespace
@@ -120,47 +81,33 @@ std::vector<IsaCost> measureIsa(const std::vector<const Expr*>& exprs,
   std::vector<IsaCost> out(exprs.size());
   if (exprs.empty()) return out;
 
-  fs::path dir;
-  std::error_code ec;
-  if (!cfg.keepDir.empty()) {
-    dir = cfg.keepDir;
-  } else {
-    std::random_device rd;
-    dir = fs::temp_directory_path(ec) / ("sopt-isa-" + std::to_string(rd()));
-  }
-  fs::create_directories(dir, ec);
-  if (ec) {
-    for (auto& c : out) c.error = "cannot create " + dir.string() + ": " + ec.message();
+  std::string err;
+  const fs::path dir = makeWorkDir(cfg.keepDir, "sopt-isa-", err);
+  if (dir.empty()) {
+    for (auto& c : out) c.error = err;
     return out;
   }
 
-  std::atomic<size_t> next{0};
-  auto worker = [&] {
-    for (size_t i = next++; i < exprs.size(); i = next++) {
-      const fs::path file = dir / ("sopt_" + std::to_string(i) + ".fx");
-      {
-        std::ofstream f(file, std::ios::binary);
-        f << emitEffect(*exprs[i], inputs);
-        if (!f) {
-          out[i].error = "cannot write " + file.string();
-          continue;
-        }
+  parallelFor(exprs.size(), cfg.threads, [&](size_t i) {
+    const fs::path file = dir / ("sopt_" + std::to_string(i) + ".fx");
+    {
+      std::ofstream f(file, std::ios::binary);
+      f << emitEffect(*exprs[i], inputs);
+      if (!f) {
+        out[i].error = "cannot write " + file.string();
+        return;
       }
-      std::string cmd = quote(cfg.fxstat) + " --json --rga " + quote(cfg.rga);
-      if (!cfg.asic.empty()) cmd += " --asic " + quote(cfg.asic);
-      cmd += " " + quote(file.string()) + " 2>&1";
-      int status = 0;
-      const std::string text = runCommand(cmd, status);
-      out[i] = parseFxstatJson(text);
-      if (!out[i].ok && status != 0 && out[i].error.empty()) out[i].error = "fxstat failed";
     }
-  };
-  unsigned threads = cfg.threads ? cfg.threads : std::max(1u, std::thread::hardware_concurrency());
-  threads = static_cast<unsigned>(std::min<size_t>(threads, exprs.size()));
-  std::vector<std::thread> pool;
-  for (unsigned t = 0; t < threads; ++t) pool.emplace_back(worker);
-  for (auto& th : pool) th.join();
+    std::string cmd = quote(cfg.fxstat) + " --json --rga " + quote(cfg.rga);
+    if (!cfg.asic.empty()) cmd += " --asic " + quote(cfg.asic);
+    cmd += " " + quote(file.string()) + " 2>&1";
+    int status = 0;
+    const std::string text = runCommand(cmd, status);
+    out[i] = parseFxstatJson(text);
+    if (!out[i].ok && status != 0 && out[i].error.empty()) out[i].error = "fxstat failed";
+  });
 
+  std::error_code ec;
   if (cfg.keepDir.empty()) fs::remove_all(dir, ec);
   return out;
 }

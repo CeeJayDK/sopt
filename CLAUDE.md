@@ -5,9 +5,9 @@ to small pure arithmetic regions and presents them as user-selectable variants.
 Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done (CI green on
 MSVC/GCC/Clang, golden hashes match), plus RDNA3 cost model, `gpu` semantic profile, ISA
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
-a separate enumeration order model (`--order-model`; rdna3 defaults to `rdna3-search`),
-and no pure helper intrinsics (lerp, step) during search (default). Default cost model:
-rdna3.
+a separate enumeration order model (`--order-model`; rdna3 and nvidia default to
+`search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost model: rdna3.
 
 ## Working with the owner
 - Christian (CeeJay, SweetFX/ReShade). Communicates in Danish; prefers brief, direct answers.
@@ -20,7 +20,9 @@ rdna3.
 - CLI: `build/sopt examples/screen.sopt --stats`
 - Bench: `build/sopt-bench --examples examples [--cost-model rdna3]` and
   `build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30`
-- ISA ranking: `SOPT_FXSTAT=... SOPT_RGA=... build/sopt examples/factor.sopt --isa`.
+- ISA ranking: `SOPT_FXSTAT=... SOPT_RGA=... build/sopt examples/factor.sopt --isa`,
+  NVIDIA: `SOPT_PTXAS=... SOPT_NVDISASM=... build/sopt ... --sass` (pip:
+  nvidia-cuda-nvcc-cu12 for ptxas, nvidia-cuda-nvdisasm for nvdisasm).
   Tools: ReShade-Testing-Initiative (`build_reshade_testing_initiative.sh`, needs
   spirv-tools, flex, bison) and RGA 2.14 (`rga-linux-2.14.tgz` from GitHub releases).
 
@@ -37,8 +39,9 @@ rdna3.
   inner (default, `--no-inner`): target ~ p * u(v + c) + q for u = rcp/sqrt/rsqrt, c
   from a linear reparametrization + Gauss-Newton, then the affine fit; pure helpers
   lerp/step not enumerated unless `--helpers`, see `isPureHelper` in ops.hpp) and `driver` (CEGIS loop, stage-2 filter, V1 verification, grouping).
-- `src/measure`: emits a candidate as a ReShade FX effect, runs fxstat + RGA, parses
-  the pixel shader's ISA cost.
+- `src/measure`: `isa` emits a candidate as a ReShade FX effect, runs fxstat + RGA and
+  parses the pixel shader's ISA cost; `sass` emits a PTX kernel (inputs loaded and
+  stored back so they live in registers), runs ptxas + nvdisasm and counts SASS.
 - `bench/bench.cpp`: example suite + planted problems. `examples/*.sopt` with `# expect:`.
 
 ## Invariants (do not break)
@@ -68,13 +71,16 @@ rdna3.
 - Scalar float only; one output; verification by sampling only (V2/V3 in M2/M7).
 - `generic` costs are placeholders. `rdna3` is calibrated per op on gfx1100 but misses
   context effects (min(max()) -> med3, extra v_mov for some constants); `--isa` covers them.
-- `rdna3` enumerates in `rdna3-search` order by default (same cheap ops, transcendentals
-  at half cost). Bench (rdna3 objective, 11 examples + 36 planted): rdna3-search 38 found,
+- `rdna3` and `nvidia` enumerate in `search` order by default (rdna3's cheap ops,
+  transcendentals at half cost). Bench (rdna3 objective, 11 examples + 36 planted): search 38 found,
   rdna3 order 37, generic order 36 (loses cheap-op planted problems). `rdna3` is the default
   objective. With a separate order, dedup keeps the order-cheapest program
   of a value, not the objective-cheapest.
 - normalize_x (x * rsqrt(x*x + y*y), rdna3 cost 28, two inputs) is not reached by any
   order: the bank fills first.
+- NVIDIA data is the CUDA compiler (ptxas), not the graphics driver's; the MUFU weight
+  (8x on sm_86+, 4x on sm_75/80) is from memory of the CUDA guide's throughput table and
+  still to be verified (docs.nvidia.com is blocked from the cloud sandbox).
 - Inner fitting covers u(v + c) for u = rcp/sqrt/rsqrt only (one inner shift, no inner
   scale: exp/sin/log need one); it costs up to ~40% generation speed on planted problems.
 - Affine and inner fitting use the fingerprint points, so exact budgets rarely fit.

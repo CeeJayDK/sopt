@@ -48,7 +48,9 @@ target_link_libraries(sopt-search PUBLIC sopt-verify)
 sopt_fp_flags(sopt-search)
 
 add_library(sopt-measure
-  src/measure/isa.cpp)
+  src/measure/tools.cpp
+  src/measure/isa.cpp
+  src/measure/sass.cpp)
 target_link_libraries(sopt-measure PUBLIC sopt-ir Threads::Threads)
 sopt_fp_flags(sopt-measure)
 
@@ -69,7 +71,8 @@ if(SOPT_BUILD_TESTS)
     tests/test_eval.cpp
     tests/test_parser.cpp
     tests/test_rewrites.cpp
-    tests/test_isa.cpp)
+    tests/test_isa.cpp
+    tests/test_sass.cpp)
   target_link_libraries(sopt-tests PRIVATE sopt-search sopt-measure)
   target_compile_definitions(sopt-tests PRIVATE SOPT_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples")
   sopt_fp_flags(sopt-tests)

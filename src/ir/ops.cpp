@@ -67,12 +67,25 @@ const CostModel kRdna3{"rdna3",
    16, 16, 20, 20, 20, 20, 4, 4, 4, 20, 4, 4, 8, 36,
    4, 4, 4, 4, 4, 4, 4, 8, 4, 4},
   1, true};
-// Enumeration order for the rdna3 objective: the same cheap ops, transcendentals at
-// half cost (rcp/sqrt/rsqrt 8, exp/log/sin/cos/div 12, pow 20, sign 8). Ordering them
+// NVIDIA Ada (sm_89) SASS via ptxas + nvdisasm, in quarter-ALU units (4 = one FP32
+// instruction), MUFU at 8x (FP32 : MUFU throughput 128 : 16 per SM per clock).
+// Measured op by op like rdna3. Differences from rdna3: clamp = two FMNMX (no med3),
+// step = one FSET, sign = 3 instructions, sqrt = one MUFU.SQRT; neg/abs/saturate are
+// free modifiers (FADD/FMUL/FFMA.SAT); contraction to FFMA as on AMD. Not modeled:
+// FFMA takes one non-inline immediate, a second constant costs a MOV.
+const CostModel kNvidia{"nvidia",
+  {0, 0, 1, 1, 1, 4, 8, 12, 32,
+   32, 32, 36, 36, 36, 36, 4, 4, 4, 36, 4, 4, 4, 68,
+   4, 4, 4, 4, 4, 4, 4, 8, 8, 4},
+  1, true};
+
+// Enumeration order for the measured objectives (rdna3, nvidia): rdna3's cheap ops,
+// transcendentals at half cost (rcp/sqrt/rsqrt 8, exp/log/sin/cos/div 12, pow 20, sign 8). Ordering them
 // at full cost puts one rsqrt behind every program of ~4 VALU ops; generic order
 // reaches them but misorders cheap ops (loses planted problems). Chosen on the bench
-// against uniform op count and quarter-cost transcendentals.
-const CostModel kRdna3Search{"rdna3-search",
+// against uniform op count and quarter-cost transcendentals. For nvidia it beats
+// nvidia's own costs as order (10/11 examples vs 8/11, planted equal).
+const CostModel kSearch{"search",
   {0, 0, 1, 1, 1, 4, 4, 8, 8,
    8, 8, 12, 12, 12, 12, 4, 4, 4, 12, 4, 4, 8, 20,
    4, 4, 4, 4, 4, 4, 4, 8, 4, 4},
@@ -94,15 +107,17 @@ std::optional<Op> opFromCall(std::string_view name, uint8_t arity) {
 
 const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }
+const CostModel& costNvidia() { return kNvidia; }
 const CostModel& defaultCostModel() { return kRdna3; }
 const CostModel& defaultOrderFor(const CostModel& objective) {
-  return &objective == &kRdna3 ? kRdna3Search : objective;
+  return &objective == &kRdna3 || &objective == &kNvidia ? kSearch : objective;
 }
 
 const CostModel* costModelByName(std::string_view name) {
   if (name == kGeneric.name) return &kGeneric;
   if (name == kRdna3.name) return &kRdna3;
-  if (name == kRdna3Search.name) return &kRdna3Search;
+  if (name == kSearch.name || name == "rdna3-search") return &kSearch;
+  if (name == kNvidia.name) return &kNvidia;
   return nullptr;
 }
 

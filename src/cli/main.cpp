@@ -8,11 +8,18 @@
 
 #include "ir/parser.hpp"
 #include "measure/isa.hpp"
+#include "measure/sass.hpp"
 #include "search/driver.hpp"
 
 using namespace sopt;
 
 namespace {
+
+struct IsaCostRow {
+  bool ok = false;
+  int cost = 0;
+  std::string error;
+};
 
 void usage() {
   std::puts(
@@ -28,14 +35,19 @@ void usage() {
       "  --no-affine       enumerate outer constants instead of solving p * v + q\n"
       "  --no-inner        don't solve inner constants (p * u(v + c) + q, u = rcp/sqrt/rsqrt)\n"
       "  --helpers         also enumerate pure helper intrinsics (lerp, step)\n"
-      "  --cost-model M    objective: rdna3 | generic (default: rdna3)\n"
-      "  --order-model M   enumeration order (default: rdna3-search for rdna3, else the model)\n"
+      "  --cost-model M    objective: rdna3 | nvidia | generic (default: rdna3)\n"
+      "  --order-model M   enumeration order (default: search for rdna3/nvidia, else the model)\n"
       "  --stats           print search statistics\n"
       "  --isa             rank the shown alternatives by real GPU ISA cost (fxstat + RGA)\n"
       "  --fxstat PATH     fxstat from ReShade Testing Initiative (default: $SOPT_FXSTAT)\n"
       "  --rga PATH        AMD Radeon GPU Analyzer (default: $SOPT_RGA)\n"
       "  --asic NAME       RGA target (default: fxstat's, gfx1100 = RDNA3)\n"
-      "  --isa-keep DIR    keep the generated .fx files in DIR");
+      "  --isa-keep DIR    keep the generated .fx files in DIR\n"
+      "  --sass            rank by NVIDIA SASS cost too (ptxas + nvdisasm from the CUDA toolkit)\n"
+      "  --ptxas PATH      ptxas (default: $SOPT_PTXAS)\n"
+      "  --nvdisasm PATH   nvdisasm (default: $SOPT_NVDISASM)\n"
+      "  --sm N            NVIDIA target: 75 Turing, 86 Ampere, 89 Ada (default), 120 Blackwell\n"
+      "  --sass-keep DIR   keep the generated .ptx/.cubin files in DIR");
 }
 
 const char* budgetText(const Budget& b, char* buf, size_t n) {
@@ -65,6 +77,10 @@ int main(int argc, char** argv) {
   IsaConfig isaCfg;
   if (const char* v = std::getenv("SOPT_FXSTAT")) isaCfg.fxstat = v;
   if (const char* v = std::getenv("SOPT_RGA")) isaCfg.rga = v;
+  bool sass = false;
+  SassConfig sassCfg;
+  if (const char* v = std::getenv("SOPT_PTXAS")) sassCfg.ptxas = v;
+  if (const char* v = std::getenv("SOPT_NVDISASM")) sassCfg.nvdisasm = v;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     auto next = [&]() -> const char* {
@@ -84,7 +100,7 @@ int main(int argc, char** argv) {
     else if (a == "--seed") opt.seed = std::strtoull(next(), nullptr, 10);
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
-      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (generic, rdna3, rdna3-search)\n"); return 2; }
+      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (rdna3, nvidia, generic, search)\n"); return 2; }
     }
     else if (a == "--stats") stats = true;
     else if (a == "--no-affine") opt.search.affine = false;
@@ -92,13 +108,18 @@ int main(int argc, char** argv) {
     else if (a == "--helpers") opt.search.helpers = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
-      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (generic, rdna3, rdna3-search)\n"); return 2; }
+      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (rdna3, nvidia, generic, search)\n"); return 2; }
     }
     else if (a == "--isa") isa = true;
     else if (a == "--fxstat") isaCfg.fxstat = next();
     else if (a == "--rga") isaCfg.rga = next();
     else if (a == "--asic") isaCfg.asic = next();
     else if (a == "--isa-keep") isaCfg.keepDir = next();
+    else if (a == "--sass") sass = true;
+    else if (a == "--ptxas") sassCfg.ptxas = next();
+    else if (a == "--nvdisasm") sassCfg.nvdisasm = next();
+    else if (a == "--sm") sassCfg.sm = static_cast<int>(std::strtol(next(), nullptr, 10));
+    else if (a == "--sass-keep") sassCfg.keepDir = next();
     else if (a == "-h" || a == "--help") { usage(); return 0; }
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     else path = a;
@@ -112,7 +133,12 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "--isa needs fxstat and rga (--fxstat/--rga or SOPT_FXSTAT/SOPT_RGA)\n");
     return 2;
   }
+  if (sass && (sassCfg.ptxas.empty() || sassCfg.nvdisasm.empty())) {
+    std::fprintf(stderr, "--sass needs ptxas and nvdisasm (--ptxas/--nvdisasm or SOPT_PTXAS/SOPT_NVDISASM)\n");
+    return 2;
+  }
   isaCfg.threads = opt.threads;
+  sassCfg.threads = opt.threads;
 
   Program prog;
   try {
@@ -134,52 +160,80 @@ int main(int argc, char** argv) {
   for (const auto& p : kAllProfiles) profiles += (profiles.empty() ? "" : "/") + std::string(p.name);
   std::printf("verified: sampling, %zu points, profiles %s\n", opt.v1Points, profiles.c_str());
 
-  // Real ISA cost of the target and the shown alternatives.
+  // Real machine-code cost of the target and the shown alternatives, per vendor:
+  // AMD RDNA (fxstat + RGA) and NVIDIA (ptxas + nvdisasm).
+  struct Column {
+    std::string name;
+    IsaCostRow target;
+    std::vector<IsaCostRow> rows;
+  };
   const size_t shown = std::min(top, r.accepted.size());
-  std::vector<size_t> order(shown);
-  std::iota(order.begin(), order.end(), size_t{0});
-  std::vector<IsaCost> isaCost;
-  IsaCost targetIsa;
+  std::vector<const Expr*> exprs = {&prog.target};
+  for (size_t i = 0; i < shown; ++i) exprs.push_back(&r.accepted[i].expr);
+  std::vector<Column> cols;
   if (isa) {
-    std::vector<const Expr*> exprs = {&prog.target};
-    for (size_t i = 0; i < shown; ++i) exprs.push_back(&r.accepted[i].expr);
-    isaCost = measureIsa(exprs, prog.inputs, isaCfg);
-    targetIsa = isaCost[0];
-    isaCost.erase(isaCost.begin());
-    if (targetIsa.ok)
-      std::printf("isa:      COST %d (VALU %d, TRANS %d, VGPRs %d), %s via RGA\n", targetIsa.cost,
-                  targetIsa.valu, targetIsa.trans, targetIsa.vgprs,
+    const auto m = measureIsa(exprs, prog.inputs, isaCfg);
+    Column c{"amd", {}, {}};
+    for (const auto& x : m) c.rows.push_back({x.ok, x.cost, x.error});
+    c.target = c.rows[0];
+    c.rows.erase(c.rows.begin());
+    cols.push_back(std::move(c));
+    if (m[0].ok)
+      std::printf("amd:      COST %d (VALU %d, TRANS %d, VGPRs %d), %s via RGA\n", m[0].cost,
+                  m[0].valu, m[0].trans, m[0].vgprs,
                   isaCfg.asic.empty() ? "gfx1100" : isaCfg.asic.c_str());
     else
-      std::printf("isa:      target not measured: %s\n", targetIsa.error.c_str());
-    // Measured first, by ISA cost; static cost and the original order break ties.
-    std::stable_sort(order.begin(), order.end(), [&](size_t x, size_t y) {
-      const auto &a = isaCost[x], &b = isaCost[y];
-      if (a.ok != b.ok) return a.ok;
-      return a.ok && a.cost != b.cost ? a.cost < b.cost : false;
-    });
+      std::printf("amd:      target not measured: %s\n", m[0].error.c_str());
   }
+  if (sass) {
+    const auto m = measureSass(exprs, prog.inputs, sassCfg);
+    Column c{"nv", {}, {}};
+    for (const auto& x : m) c.rows.push_back({x.ok, x.cost, x.error});
+    c.target = c.rows[0];
+    c.rows.erase(c.rows.begin());
+    cols.push_back(std::move(c));
+    if (m[0].ok)
+      std::printf("nv:       COST %d (ALU %d, MOV %d, MUFU %d x %d, regs %d), sm_%d via ptxas\n",
+                  m[0].cost, m[0].alu, m[0].mov, m[0].mufu, mufuWeight(sassCfg.sm), m[0].regs,
+                  sassCfg.sm);
+    else
+      std::printf("nv:       target not measured: %s\n", m[0].error.c_str());
+  }
+  // Measured first, by the first vendor's cost, then the next; static cost and the
+  // original order break ties.
+  std::vector<size_t> order(shown);
+  std::iota(order.begin(), order.end(), size_t{0});
+  std::stable_sort(order.begin(), order.end(), [&](size_t x, size_t y) {
+    for (const auto& c : cols) {
+      const auto &a = c.rows[x], &b = c.rows[y];
+      if (a.ok != b.ok) return a.ok;
+      if (a.ok && a.cost != b.cost) return a.cost < b.cost;
+    }
+    return false;
+  });
   std::printf("\n");
 
   if (r.accepted.empty()) {
     std::printf("no cheaper alternative found (searched up to cost %u%s)\n",
                 r.search.completedCost, r.search.limitHit ? ", limit hit" : "");
   } else {
-    std::printf(isa ? "cost   isa  class            max |err|  max code  changed  expression\n"
-                    : "cost  class            max |err|  max code  changed  expression\n");
-    int noGain = 0, failed = 0;
+    std::printf("cost  ");
+    for (const auto& c : cols) std::printf("%4s  ", c.name.c_str());
+    std::printf("class            max |err|  max code  changed  expression\n");
+    std::vector<int> noGain(cols.size(), 0), failed(cols.size(), 0);
     for (size_t i : order) {
       const auto& a = r.accepted[i];
       std::printf("%4u  ", a.cost);
-      if (isa) {
-        const auto& c = isaCost[i];
+      for (size_t k = 0; k < cols.size(); ++k) {
+        const auto& c = cols[k].rows[i];
+        const auto& t = cols[k].target;
         if (!c.ok) {
           std::printf("%4s  ", "?");
-          ++failed;
+          ++failed[k];
         } else {
-          const bool gain = targetIsa.ok && c.cost < targetIsa.cost;
-          noGain += targetIsa.ok && !gain;
-          std::printf("%3d%c  ", c.cost, targetIsa.ok && !gain ? '!' : ' ');
+          const bool gain = t.ok && c.cost < t.cost;
+          noGain[k] += t.ok && !gain;
+          std::printf("%3d%c  ", c.cost, t.ok && !gain ? '!' : ' ');
         }
       }
       std::printf("%-15s  %9.3g  %8d  %6.3f%%  %s\n", klassName(a.klass), a.worst.maxAbs,
@@ -188,14 +242,17 @@ int main(int argc, char** argv) {
     std::printf("\n%zu alternative(s) cheaper than cost %u", r.accepted.size(), r.targetCost);
     if (r.accepted.size() > top) std::printf(", showing %zu", top);
     std::printf("\n");
-    if (noGain) std::printf("isa: %d shown alternative(s) marked ! are not cheaper in ISA\n", noGain);
-    if (failed) {
-      for (size_t i : order)
-        if (!isaCost[i].ok) {
-          std::printf("isa: %d alternative(s) not measured, e.g.: %s\n", failed,
-                      isaCost[i].error.c_str());
-          break;
-        }
+    for (size_t k = 0; k < cols.size(); ++k) {
+      if (noGain[k])
+        std::printf("%s: %d shown alternative(s) marked ! are not cheaper than the target\n",
+                    cols[k].name.c_str(), noGain[k]);
+      if (failed[k])
+        for (size_t i : order)
+          if (!cols[k].rows[i].ok) {
+            std::printf("%s: %d alternative(s) not measured, e.g.: %s\n", cols[k].name.c_str(),
+                        failed[k], cols[k].rows[i].error.c_str());
+            break;
+          }
     }
     if (r.search.limitHit)
       std::printf("note: search limit hit, levels complete up to cost %u\n", r.search.completedCost);
