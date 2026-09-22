@@ -4,8 +4,9 @@ Shader superoptimizer for ReShade FX shaders. Finds cheaper, verified alternativ
 to small pure arithmetic regions and presents them as user-selectable variants.
 Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done (CI green on
 MSVC/GCC/Clang, golden hashes match), plus RDNA3 cost model, `gpu` semantic profile, ISA
-ranking via fxstat + RGA, symbolic outer constants (`--affine`, default) and a separate
-enumeration order model (`--order-model`) and solved inner constants (`--inner`).
+ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
+a separate enumeration order model (`--order-model`), and no pure helper intrinsics
+(lerp, step) during search (default).
 
 ## Working with the owner
 - Christian (CeeJay, SweetFX/ReShade). Communicates in Danish; prefers brief, direct answers.
@@ -32,8 +33,9 @@ enumeration order model (`--order-model`) and solved inner constants (`--inner`)
   at the goal check, affine chains / two-constant mad, lerp / sign flips / c / v not
   stored; `--order-model`: levels by one cost model, hits/ranking by the objective,
   entries with objective cost >= target not stored, level lists sorted by objective;
-  `--inner`: target ~ p * u(v + c) + q for u = rcp/sqrt/rsqrt, c from a linear
-  reparametrization + Gauss-Newton, then the affine fit) and `driver` (CEGIS loop, stage-2 filter, V1 verification, grouping).
+  inner (default, `--no-inner`): target ~ p * u(v + c) + q for u = rcp/sqrt/rsqrt, c
+  from a linear reparametrization + Gauss-Newton, then the affine fit; pure helpers
+  lerp/step not enumerated unless `--helpers`, see `isPureHelper` in ops.hpp) and `driver` (CEGIS loop, stage-2 filter, V1 verification, grouping).
 - `src/measure`: emits a candidate as a ReShade FX effect, runs fxstat + RGA, parses
   the pixel shader's ISA cost.
 - `bench/bench.cpp`: example suite + planted problems. `examples/*.sopt` with `# expect:`.
@@ -52,6 +54,9 @@ enumeration order model (`--order-model`) and solved inner constants (`--inner`)
   Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
 - Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
   `expr.cpp`: an add/sub over a single-use mul (or div) is one fma.
+- Pure helper intrinsics (lerp, step, later smoothstep/length/...) are not enumerated
+  during search (owner's rule: their expansions are tried anyway). Single-instruction
+  intrinsics and modifiers (mad, clamp, saturate, rcp, rsqrt, ...) are.
 - Every new search technique goes behind a flag and must improve time-to-best on the
   bench (section 6 of the design) before becoming default.
 
@@ -66,15 +71,15 @@ enumeration order model (`--order-model`) and solved inner constants (`--inner`)
   `--cost-model rdna3 --order-model generic` reaches the depth example (7/7 examples) but
   loses 2 of 12 planted cheap-op problems on seed 2, so it is opt-in. With a separate
   order, dedup keeps the order-cheapest program of a value, not the objective-cheapest.
-- `--inner` covers u(v + c) for u = rcp/sqrt/rsqrt only (one inner shift, no inner
+- Inner fitting covers u(v + c) for u = rcp/sqrt/rsqrt only (one inner shift, no inner
   scale: exp/sin/log need one); it costs up to ~40% generation speed on planted problems.
 - Affine and inner fitting use the fingerprint points, so exact budgets rarely fit.
-  Without `--inner`, inner constants (the c in rcp(t + c)) must come from the constant pool.
+  With `--no-inner`, inner constants (the c in rcp(t + c)) must come from the constant pool.
 
 ## Next (per docs/design.md)
-1. Owner's idea (agreed to discuss): don't enumerate pure helper intrinsics (lerp, step;
-   later smoothstep, length, ...) but only their expansions; keep single-instruction ones
-   (mad = fma, clamp = med3, saturate = modifier, rcp, rsqrt). Behind a flag, bench it.
+1. Optional (owner: "could"): after search, try re-writing the best candidates with pure
+   helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only. When M2 adds
+   smoothstep/length/distance/normalize, treat them as pure helpers too.
 2. M7 search scaling continues (a better order model than generic for rdna3) — ask first.
 3. M2: float2–4, dot/length/normalize, component access; V2 exhaustive verification on
    8-bit grids and unary float inputs; error-budget classes.

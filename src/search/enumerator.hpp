@@ -25,7 +25,12 @@ struct SearchConfig {
   bool affine = true;
   // Also solve an inner constant: target ~ p * u(v + c) + q, u in {rcp, sqrt, rsqrt}
   // (needs affine).
-  bool inner = false;
+  bool inner = true;
+  // Enumerate pure helper intrinsics (lerp, step). Off: they are only shorthand for
+  // their expansions (lerp = mad(t, b - a, a), step = x >= e ? 1 : 0), which the search
+  // builds anyway, so trying both wastes time. Single-instruction intrinsics (mad = fma,
+  // clamp = med3, saturate = modifier, rcp, rsqrt) are always enumerated.
+  bool helpers = false;
 };
 
 struct LevelStats {

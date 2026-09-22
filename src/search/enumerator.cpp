@@ -61,6 +61,7 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   for (size_t i = 0; i < static_cast<size_t>(Op::Count); ++i) {
     const Op op = static_cast<Op>(i);
     if (op == Op::Input || op == Op::Const) continue;
+    if (!cfg.helpers && isPureHelper(op)) continue;
     if (info(op).base || containsOp(prog.target, op)) ops_.push_back(op);
   }
   scratch_.resize(n_);

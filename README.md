@@ -15,7 +15,8 @@ ctest --test-dir build -C Release --output-on-failure
 
 ```
 build/sopt examples/screen.sopt [--stats] [--top N] [--time S] [--max-bank N]
-build/sopt examples/screen.sopt --isa [--cost-model generic|rdna3] [--order-model M] [--no-affine]
+build/sopt examples/screen.sopt --isa [--cost-model generic|rdna3] [--order-model M]
+           [--no-affine] [--no-inner] [--helpers]
 build/sopt-bench --examples examples
 build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30
 ```
@@ -59,7 +60,11 @@ stored. This finds e.g. `mad(rcp(t + 0.001001001), 0.001002003, -0.0010009935)` 
 ReShade's depth linearization (`examples/depth_reversed.sopt`), which plain
 enumeration does not reach.
 
-`--inner` also solves one inner constant: `target ~ p * u(v + c) + q` for
+Pure helper intrinsics (`lerp`, `step`) are not enumerated during search: their
+expansions (`mad(t, b - a, a)`, `x >= e ? 1 : 0`) are, at the same cost. `--helpers`
+enumerates them too.
+
+It also solves one inner constant (`--no-inner` to disable): `target ~ p * u(v + c) + q` for
 `u = rcp, sqrt, rsqrt` (each is linear in a reparametrization, refined by Gauss-Newton).
 It finds e.g. `rsqrt(t + 0.6666667) * 0.57735026` for `1 / sqrt(3t + 2)`, where 2/3 is
 not in the constant pool (`examples/rational.sopt`, `examples/rsqrt_affine.sopt`).

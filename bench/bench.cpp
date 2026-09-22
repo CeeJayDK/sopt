@@ -158,7 +158,8 @@ int main(int argc, char** argv) {
     else if (a == "--time") opt.search.timeLimitSec = std::strtod(next(), nullptr);
     else if (a == "--max-bank") opt.search.maxBank = std::strtoull(next(), nullptr, 10);
     else if (a == "--no-affine") opt.search.affine = false;
-    else if (a == "--inner") opt.search.inner = true;
+    else if (a == "--no-inner") opt.search.inner = false;
+    else if (a == "--helpers") opt.search.helpers = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
       if (!opt.search.order) {
@@ -174,7 +175,7 @@ int main(int argc, char** argv) {
       }
     } else {
       std::puts("usage: sopt-bench [--examples DIR] [--planted N --size K --inputs I] [--seed S]\n"
-                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model M] [--order-model M] [--no-affine] [--inner]");
+                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model M] [--order-model M] [--no-affine] [--no-inner] [--helpers]");
       return 2;
     }
   }
@@ -183,6 +184,7 @@ int main(int argc, char** argv) {
   std::printf("cost model: %s%s%s\n", std::string(model.name).c_str(),
               opt.search.order ? (", order " + std::string(opt.search.order->name)).c_str() : "",
               opt.search.affine ? (opt.search.inner ? ", affine, inner" : ", affine") : "");
+  if (opt.search.helpers) std::printf("helpers: lerp/step enumerated\n");
 
   int failures = 0, knownLimit = 0;
   printHeader();

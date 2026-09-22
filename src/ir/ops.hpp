@@ -36,6 +36,9 @@ struct OpInfo {
 };
 
 const OpInfo& info(Op op);
+// Intrinsics that are only shorthand for several instructions (lerp = sub + fma,
+// step = cmp + cndmask), as opposed to single instructions or modifiers.
+inline bool isPureHelper(Op op) { return op == Op::Lerp || op == Op::Step; }
 std::optional<Op> opFromCall(std::string_view name, uint8_t arity);
 
 // Static cost model. Costs are integers and every non-leaf op costs >= 1 so that

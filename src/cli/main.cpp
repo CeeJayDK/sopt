@@ -26,7 +26,8 @@ void usage() {
       "  --threads N       verification threads (default: all)\n"
       "  --seed N          random seed (default 1)\n"
       "  --no-affine       enumerate outer constants instead of solving p * v + q\n"
-      "  --inner           also solve inner constants: p * u(v + c) + q, u = rcp/sqrt/rsqrt\n"
+      "  --no-inner        don't solve inner constants (p * u(v + c) + q, u = rcp/sqrt/rsqrt)\n"
+      "  --helpers         also enumerate pure helper intrinsics (lerp, step)\n"
       "  --cost-model M    objective: generic | rdna3 (default: generic)\n"
       "  --order-model M   enumeration order, e.g. generic with --cost-model rdna3\n"
       "  --stats           print search statistics\n"
@@ -87,7 +88,8 @@ int main(int argc, char** argv) {
     }
     else if (a == "--stats") stats = true;
     else if (a == "--no-affine") opt.search.affine = false;
-    else if (a == "--inner") opt.search.inner = true;
+    else if (a == "--no-inner") opt.search.inner = false;
+    else if (a == "--helpers") opt.search.helpers = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
       if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (generic, rdna3)\n"); return 2; }
