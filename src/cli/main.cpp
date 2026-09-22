@@ -25,6 +25,7 @@ void usage() {
       "  --time S          search time limit per iteration in seconds (default 60)\n"
       "  --threads N       verification threads (default: all)\n"
       "  --seed N          random seed (default 1)\n"
+      "  --affine          solve outer constants (p * v + q) instead of enumerating them\n"
       "  --cost-model M    generic | rdna3 (default: generic)\n"
       "  --stats           print search statistics\n"
       "  --isa             rank the shown alternatives by real GPU ISA cost (fxstat + RGA)\n"
@@ -83,6 +84,7 @@ int main(int argc, char** argv) {
       if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (generic, rdna3)\n"); return 2; }
     }
     else if (a == "--stats") stats = true;
+    else if (a == "--affine") opt.search.affine = true;
     else if (a == "--isa") isa = true;
     else if (a == "--fxstat") isaCfg.fxstat = next();
     else if (a == "--rga") isaCfg.rga = next();
@@ -200,6 +202,9 @@ int main(int argc, char** argv) {
                 s.seconds > 0 ? s.generated / s.seconds / 1e6 : 0.0, (unsigned long long)s.deduped,
                 (unsigned long long)s.constSkipped, (unsigned long long)s.bankSize,
                 (unsigned long long)s.hits, s.firstHitSec);
+    if (opt.search.affine)
+      std::printf("affine: %llu hits via a solved outer map, %llu chain entries pruned\n",
+                  (unsigned long long)s.affineHits, (unsigned long long)s.affinePruned);
     std::printf("time: search %.3fs, verify %.3fs, total %.3fs\n", r.searchSec, r.verifySec,
                 r.totalSec);
     std::printf("level  generated      added\n");

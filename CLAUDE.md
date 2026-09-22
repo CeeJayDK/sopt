@@ -2,8 +2,9 @@
 
 Shader superoptimizer for ReShade FX shaders. Finds cheaper, verified alternatives
 to small pure arithmetic regions and presents them as user-selectable variants.
-Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done, plus RDNA3
-cost model, `gpu` semantic profile and ISA ranking via fxstat + RGA (pulled forward).
+Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done (CI green on
+MSVC/GCC/Clang, golden hashes match), plus RDNA3 cost model, `gpu` semantic profile, ISA
+ranking via fxstat + RGA, and the first symbolic-constant technique (`--affine`).
 
 ## Working with the owner
 - Christian (CeeJay, SweetFX/ReShade). Communicates in Danish; prefers brief, direct answers.
@@ -26,7 +27,8 @@ cost model, `gpu` semantic profile and ISA ranking via fxstat + RGA (pulled forw
   hash-consed Expr DAG, `.sopt` parser, printer.
 - `src/verify`: test/sample point generation, block evaluation, metrics, budget checks.
 - `src/search`: `enumerator` (bottom-up by cost, observational equivalence on
-  fingerprints) and `driver` (CEGIS loop, stage-2 filter, V1 verification, grouping).
+  fingerprints; `--affine`: outer p * v + q solved by least squares at the goal check,
+  affine chains / two-constant mad, lerp / sign flips / c / v not stored) and `driver` (CEGIS loop, stage-2 filter, V1 verification, grouping).
 - `src/measure`: emits a candidate as a ReShade FX effect, runs fxstat + RGA, parses
   the pixel shader's ISA cost.
 - `bench/bench.cpp`: example suite + planted problems. `examples/*.sopt` with `# expect:`.
@@ -55,11 +57,15 @@ cost model, `gpu` semantic profile and ISA ranking via fxstat + RGA (pulled forw
 - Scalar float only; one output; verification by sampling only (V2/V3 in M2/M7).
 - `generic` costs are placeholders. `rdna3` is calibrated per op on gfx1100 but misses
   context effects (min(max()) -> med3, extra v_mov for some constants); `--isa` covers them.
-- Under `rdna3` the bank fills before ~4 VALU-equivalents (rsqrt, the depth example
-  are not reached), so `generic` stays default. Constants dominate the bank.
+- Under `rdna3` the bank fills before ~4 VALU-equivalents, so `generic` stays default.
+  With `--affine`, rsqrt is reached under rdna3; the depth example (5 VALU-equivalents)
+  is reached only under generic.
+- `--affine` fits constants on the fingerprint points: exact budgets rarely fit, and
+  inner constants (the c in rcp(t + c)) must still come from the constant pool.
 
 ## Next (per docs/design.md)
-1. Confirm CI green on MSVC (golden hashes) — M0 criterion not yet verified on Windows.
+1. M7 search scaling continues (symbolic constants beyond the outer affine map; separating
+   enumeration order from the cost objective so rdna3 can reach deep candidates) — ask first.
 2. M2: float2–4, dot/length/normalize, component access; V2 exhaustive verification on
    8-bit grids and unary float inputs; error-budget classes.
 3. M3: reshadefx front end, region extraction, facts, variant `.fx` output.

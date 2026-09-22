@@ -157,6 +157,7 @@ int main(int argc, char** argv) {
     else if (a == "--v1") opt.v1Points = std::strtoull(next(), nullptr, 10);
     else if (a == "--time") opt.search.timeLimitSec = std::strtod(next(), nullptr);
     else if (a == "--max-bank") opt.search.maxBank = std::strtoull(next(), nullptr, 10);
+    else if (a == "--affine") opt.search.affine = true;
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
       if (!opt.search.model) {
@@ -165,13 +166,14 @@ int main(int argc, char** argv) {
       }
     } else {
       std::puts("usage: sopt-bench [--examples DIR] [--planted N --size K --inputs I] [--seed S]\n"
-                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model generic|rdna3]");
+                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model generic|rdna3] [--affine]");
       return 2;
     }
   }
   if (examples.empty() && planted == 0) examples = "examples";
   const CostModel& model = *opt.search.model;
-  std::printf("cost model: %s\n", std::string(model.name).c_str());
+  std::printf("cost model: %s%s\n", std::string(model.name).c_str(),
+              opt.search.affine ? ", affine" : "");
 
   int failures = 0, knownLimit = 0;
   printHeader();

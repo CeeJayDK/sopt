@@ -100,7 +100,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
       // Same fingerprint as a hit: not needed in the bank, but it may differ from the
       // hit outside the test points, so keep it as an alternative for verification.
       if (isHit_[idx] && e.op != Op::Input && e.op != Op::Const &&
-          hits_.size() + altHits_.size() < cfg_.maxHits) {
+          numHits() < cfg_.maxHits) {
         altHits_.push_back(e);
         ++stats.hits;
       }
@@ -128,13 +128,93 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
       hits_.push_back(idx);
       ++stats.hits;
       if (stats.firstHitSec < 0) stats.firstHitSec = nowSeconds() - start_;
+    } else if (cfg_.affine && !e.affine && numHits() < cfg_.maxHits) {
+      // An affine step's base is in the bank and gets its own (cheaper) fit.
+      affineFit(idx, stats);
     }
   }
   return true;
 }
 
+// target ~ p * v + q: least squares over the finite target points, then the budget
+// check on the float result of the wrapper. Cheaper wrappers (v + q, v * p, q - v) are
+// preferred when they also pass.
+bool Enumerator::affineFit(uint32_t idx, SearchStats& stats) {
+  const Entry& e = entries_[idx];
+  const CostModel& model = *cfg_.model;
+  const float* v = fpOf(idx);
+  double mv = 0, mg = 0, svg0 = 0, svv0 = 0;
+  size_t m = 0;
+  for (size_t i = 0; i < n_; ++i) {
+    if (!targetFinite_[i]) continue;
+    if (!std::isfinite(v[i])) return false;
+    mv += v[i];
+    mg += target_[i];
+    svv0 += double(v[i]) * v[i];
+    svg0 += double(v[i]) * target_[i];
+    ++m;
+  }
+  if (m < 2) return false;
+  mv /= static_cast<double>(m);
+  mg /= static_cast<double>(m);
+  double svv = 0, svg = 0;
+  for (size_t i = 0; i < n_; ++i) {
+    if (!targetFinite_[i]) continue;
+    const double dv = v[i] - mv;
+    svv += dv * dv;
+    svg += dv * (target_[i] - mg);
+  }
+  if (!(svv > 0)) return false;  // constant fingerprint: nothing to scale
+  const double pd = svg / svv;
+
+  auto passes = [&](Op w, float p, float q) {
+    if (!std::isfinite(p) || !std::isfinite(q)) return false;
+    for (size_t i = 0; i < n_; ++i) {
+      if (!targetFinite_[i]) continue;
+      float r;
+      switch (w) {
+        case Op::Add: r = v[i] + q; break;
+        case Op::Mul: r = v[i] * p; break;
+        case Op::Sub: r = q - v[i]; break;
+        default: r = v[i] * p + q; break;  // mad, reference profile
+      }
+      if (!pointWithinBudget(prog_.budget, target_[i], r)) return false;
+    }
+    return true;
+  };
+  // The full fit is the best any wrapper can do (in the least-squares sense).
+  const AffineHit full{idx, Op::Mad, static_cast<float>(pd), static_cast<float>(mg - pd * mv)};
+  if (full.p == 0.0f || !passes(Op::Mad, full.p, full.q)) return false;
+
+  // Cheaper wrappers, each with its own least-squares constant.
+  const AffineHit tries[] = {
+      {idx, Op::Add, 1.0f, static_cast<float>(mg - mv)},
+      {idx, Op::Mul, static_cast<float>(svg0 / svv0), 0.0f},
+      {idx, Op::Sub, -1.0f, static_cast<float>(mg + mv)},
+      full};
+  auto wrapCost = [&](Op w) -> uint32_t {
+    if ((w == Op::Add || w == Op::Sub) && model.fusesIntoAdd(e.op)) return model.fusedAdd;
+    return model[w];
+  };
+  const AffineHit* best = nullptr;
+  uint32_t bestCost = targetCost_;
+  for (const auto& h : tries) {
+    const uint32_t c = e.cost + wrapCost(h.wrap);
+    if (c < bestCost && (&h == &tries[3] || passes(h.wrap, h.p, h.q))) {
+      best = &h;
+      bestCost = c;
+    }
+  }
+  if (!best) return false;
+  affineHits_.push_back(*best);
+  ++stats.hits;
+  ++stats.affineHits;
+  if (stats.firstHitSec < 0) stats.firstHitSec = nowSeconds() - start_;
+  return true;
+}
+
 void Enumerator::checkLimits(SearchStats& stats) {
-  if (entries_.size() >= cfg_.maxBank || hits_.size() + altHits_.size() >= cfg_.maxHits ||
+  if (entries_.size() >= cfg_.maxBank || numHits() >= cfg_.maxHits ||
       nowSeconds() - start_ > cfg_.timeLimitSec) {
     stop_ = true;
     stats.limitHit = true;
@@ -157,10 +237,45 @@ void Enumerator::tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c
     ++stats.constSkipped;
     return;
   }
+  bool affine = false;
+  if (cfg_.affine) {
+    // An op with a single non-constant operand v that is affine in v. The outer affine
+    // map is solved at the goal check, so only single steps (needed inside nonlinear
+    // ops, e.g. rcp(t + c)) are kept: no chains, no two-constant mad/lerp.
+    const uint32_t args[3] = {a, b, c};
+    int nonConst = 0;
+    uint32_t base = 0;
+    for (uint8_t k = 0; k < oi.arity; ++k)
+      if (!entries_[args[k]].isConst) {
+        ++nonConst;
+        base = args[k];
+      }
+    const bool step = nonConst == 1 &&
+                      (op == Op::Neg || op == Op::Add || op == Op::Sub || op == Op::Mul ||
+                       op == Op::Mad || op == Op::Lerp || (op == Op::Div && entries_[b].isConst));
+    // A pure sign flip (-v, 0 - v, v * -1) is absorbed by the outer map and by the
+    // consumer (sub for add, max for min, ...), so it is not stored either.
+    auto isConst = [&](uint32_t i, float val) { return entries_[i].isConst && entries_[i].value == val; };
+    const bool flip = op == Op::Neg || (op == Op::Sub && isConst(a, 0.0f)) ||
+                      (op == Op::Mul && (isConst(a, -1.0f) || isConst(b, -1.0f))) ||
+                      (op == Op::Div && isConst(b, -1.0f));
+    // c / v is a scaled 1 / v: keep only the reciprocal itself.
+    if (op == Op::Div && nonConst == 1 && entries_[a].isConst && !isConst(a, 1.0f)) {
+      ++stats.affinePruned;
+      return;
+    }
+    if (step) {
+      if (oi.arity == 3 || entries_[base].affine || flip) {
+        ++stats.affinePruned;
+        return;
+      }
+      affine = true;
+    }
+  }
   evalArray(op, fpOf(a), oi.arity > 1 ? fpOf(b) : nullptr, oi.arity > 2 ? fpOf(c) : nullptr,
             scratch_.data(), n_, kProfileRef);
   canonicalize(scratch_.data(), n_);
-  Entry e{op, oi.result, cost, false, {a, b, c}, 0.0f, 0};
+  Entry e{op, oi.result, cost, false, {a, b, c}, 0.0f, 0, affine};
   insert(e, scratch_.data(), stats);
 }
 
@@ -239,7 +354,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
 
   stats.bankSize = entries_.size();
   stats.seconds = nowSeconds() - start_;
-  out.reserve(hits_.size() + altHits_.size());
+  out.reserve(numHits());
   auto emit = [&](const Entry& e) {
     Candidate cand;
     cand.expr = extract(e);
@@ -248,6 +363,12 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
   };
   for (uint32_t idx : hits_) emit(entries_[idx]);
   for (const Entry& e : altHits_) emit(e);
+  for (const AffineHit& h : affineHits_) {
+    Candidate cand;
+    cand.expr = extract(h);
+    cand.cost = dagCost(cand.expr, *cfg_.model);
+    out.push_back(std::move(cand));
+  }
   return out;
 }
 
@@ -274,10 +395,9 @@ void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Se
   }
 }
 
-Expr Enumerator::extract(const Entry& rootEntry) const {
-  ExprBuilder b;
+uint32_t Enumerator::build(ExprBuilder& b, const Entry& rootEntry) const {
   std::unordered_map<uint32_t, uint32_t> memo;
-  auto build = [&](auto&& self, const Entry& e) -> uint32_t {
+  auto rec = [&](auto&& self, const Entry& e) -> uint32_t {
     if (e.op == Op::Input) return b.input(e.input);
     if (e.op == Op::Const) return b.constant(e.value);
     const auto& oi = info(e.op);
@@ -293,7 +413,25 @@ Expr Enumerator::extract(const Entry& rootEntry) const {
     }
     return b.op(e.op, a[0], a[1], a[2]);
   };
-  return b.finish(build(build, rootEntry));
+  return rec(rec, rootEntry);
+}
+
+Expr Enumerator::extract(const Entry& rootEntry) const {
+  ExprBuilder b;
+  return b.finish(build(b, rootEntry));
+}
+
+Expr Enumerator::extract(const AffineHit& h) const {
+  ExprBuilder b;
+  const uint32_t v = build(b, entries_[h.idx]);
+  uint32_t r;
+  switch (h.wrap) {
+    case Op::Add: r = b.op(Op::Add, v, b.constant(h.q)); break;
+    case Op::Mul: r = b.op(Op::Mul, v, b.constant(h.p)); break;
+    case Op::Sub: r = b.op(Op::Sub, b.constant(h.q), v); break;
+    default: r = b.op(Op::Mad, v, b.constant(h.p), b.constant(h.q)); break;
+  }
+  return b.finish(r);
 }
 
 }  // namespace sopt

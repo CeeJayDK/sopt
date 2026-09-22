@@ -15,7 +15,7 @@ ctest --test-dir build -C Release --output-on-failure
 
 ```
 build/sopt examples/screen.sopt [--stats] [--top N] [--time S] [--max-bank N]
-build/sopt examples/screen.sopt --isa [--cost-model generic|rdna3]
+build/sopt examples/screen.sopt --isa [--cost-model generic|rdna3] [--affine]
 build/sopt-bench --examples examples
 build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30
 ```
@@ -47,6 +47,15 @@ product under +/- contracted to fma, `a / b` as `a * rcp(b)`).
 RDNA3 ISA costs in quarter-VALU units (calibrated with RGA, see `src/ir/ops.cpp`),
 with free modifiers and contraction. Under `rdna3` the search does not yet reach deep
 candidates (bank limit), so it is not the default.
+
+## Symbolic constants (`--affine`)
+
+Constants are solved instead of enumerated for the outer affine map: every bank entry
+`v` is fitted as `target ~ p * v + q` (least squares on the fingerprint points, then
+the budget check), and entries that are only an affine map of another entry are not
+stored. This finds e.g. `mad(rcp(t + 0.001001001), 0.001002003, -0.0010009935)` for
+ReShade's depth linearization (`examples/depth_reversed.sopt`), which plain
+enumeration does not reach. Off by default until adopted.
 
 ## Real ISA cost (`--isa`)
 

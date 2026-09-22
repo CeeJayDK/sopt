@@ -14,6 +14,11 @@ struct SearchConfig {
   size_t maxHits = 10'000;
   double timeLimitSec = 60.0;
   const CostModel* model = &defaultCostModel();
+  // Symbolic constants, first step: the outer affine map of a candidate is solved, not
+  // enumerated. Every entry v is fitted as target ~ p * v + q (least squares), and
+  // entries that are only an affine map of another (chains such as (v*c1 + c2)*c3,
+  // two-constant mad/lerp) are not added to the bank.
+  bool affine = false;
 };
 
 struct LevelStats {
@@ -28,6 +33,8 @@ struct SearchStats {
   uint64_t constSkipped = 0;
   uint64_t bankSize = 0;
   uint64_t hits = 0;
+  uint64_t affinePruned = 0;
+  uint64_t affineHits = 0;
   uint32_t completedCost = 0;  // all levels <= this were fully enumerated
   bool limitHit = false;
   double seconds = 0.0;
@@ -56,16 +63,28 @@ class Enumerator {
     uint32_t args[3];
     float value;
     uint32_t input;
+    bool affine = false;  // single affine step (v + c, v * c, -v, ...) of a non-constant entry
+  };
+  // Hit through a solved outer affine map: wrap(entries_[idx]) with op Add (v + q),
+  // Mul (v * p), Sub (q - v) or Mad (mad(v, p, q)).
+  struct AffineHit {
+    uint32_t idx;
+    Op wrap;
+    float p, q;
   };
 
   void addLeaf(const Entry& e, const float* fp, SearchStats& stats);
   void tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c, SearchStats& stats);
   bool insert(const Entry& e, const float* fp, SearchStats& stats);
   void enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, SearchStats& stats);
+  bool affineFit(uint32_t idx, SearchStats& stats);
+  size_t numHits() const { return hits_.size() + altHits_.size() + affineHits_.size(); }
   uint64_t hashFp(const float* fp, Type t) const;
   void growTable();
   const float* fpOf(uint32_t idx) const { return fp_.data() + idx * n_; }
   Expr extract(const Entry& e) const;
+  Expr extract(const AffineHit& h) const;
+  uint32_t build(ExprBuilder& b, const Entry& e) const;
   void checkLimits(SearchStats& stats);
 
   const Program& prog_;
@@ -85,6 +104,8 @@ class Enumerator {
   std::vector<uint32_t> hits_;
   std::vector<char> isHit_;
   std::vector<Entry> altHits_;  // programs whose fingerprint equals an existing hit
+  std::vector<AffineHit> affineHits_;
+  std::vector<float> fitScratch_;
   bool stop_ = false;
   uint64_t sinceCheck_ = 0;
   double start_ = 0.0;

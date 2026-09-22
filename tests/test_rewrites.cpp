@@ -10,7 +10,7 @@ namespace {
 
 // M1 done criterion: the enumerator finds each known rewrite on its own, i.e. an
 // accepted alternative at least as cheap as the "# expect:" expression.
-void expectRewrite(const char* file) {
+void expectRewrite(const char* file, bool affine = false, size_t maxBank = 2'000'000) {
   const std::string path = std::string(SOPT_EXAMPLES_DIR) + "/" + file;
   const Program prog = loadProgram(path);
   const std::string expect = readExpect(path);
@@ -19,6 +19,8 @@ void expectRewrite(const char* file) {
 
   Options opt;
   opt.v1Points = 1u << 16;
+  opt.search.affine = affine;
+  opt.search.maxBank = maxBank;
   const RunResult r = optimize(prog, opt);
   CHECK(!r.accepted.empty());
   if (r.accepted.empty()) return;
@@ -39,3 +41,13 @@ TEST(rewrite_pow2) { expectRewrite("pow2.sopt"); }
 TEST(rewrite_rsqrt) { expectRewrite("rsqrt.sopt"); }
 TEST(rewrite_saturate_range) { expectRewrite("saturate_range.sopt"); }
 TEST(rewrite_factor) { expectRewrite("factor.sopt"); }
+
+// Symbolic constants (--affine): the same rewrites, plus ones that need solved constants.
+TEST(affine_step_lerp) { expectRewrite("step_lerp.sopt", true); }
+TEST(affine_screen) { expectRewrite("screen.sopt", true); }
+TEST(affine_pow2) { expectRewrite("pow2.sopt", true); }
+TEST(affine_rsqrt) { expectRewrite("rsqrt.sopt", true); }
+TEST(affine_saturate_range) { expectRewrite("saturate_range.sopt", true); }
+TEST(affine_factor) { expectRewrite("factor.sopt", true); }
+// Not reachable without --affine: K * rcp(t + c) + K2 with fitted K, K2.
+TEST(affine_depth_reversed) { expectRewrite("depth_reversed.sopt", true, 300'000); }
