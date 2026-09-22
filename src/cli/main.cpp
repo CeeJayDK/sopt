@@ -26,6 +26,7 @@ void usage() {
       "  --threads N       verification threads (default: all)\n"
       "  --seed N          random seed (default 1)\n"
       "  --no-affine       enumerate outer constants instead of solving p * v + q\n"
+      "  --inner           also solve inner constants: p * u(v + c) + q, u = rcp/sqrt/rsqrt\n"
       "  --cost-model M    objective: generic | rdna3 (default: generic)\n"
       "  --order-model M   enumeration order, e.g. generic with --cost-model rdna3\n"
       "  --stats           print search statistics\n"
@@ -86,6 +87,7 @@ int main(int argc, char** argv) {
     }
     else if (a == "--stats") stats = true;
     else if (a == "--no-affine") opt.search.affine = false;
+    else if (a == "--inner") opt.search.inner = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
       if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (generic, rdna3)\n"); return 2; }
@@ -211,8 +213,10 @@ int main(int argc, char** argv) {
                 (unsigned long long)s.constSkipped, (unsigned long long)s.bankSize,
                 (unsigned long long)s.hits, s.firstHitSec);
     if (opt.search.affine)
-      std::printf("affine: %llu hits via a solved outer map, %llu chain entries pruned\n",
-                  (unsigned long long)s.affineHits, (unsigned long long)s.affinePruned);
+      std::printf("affine: %llu hits via a solved outer map, %llu via an inner constant, "
+                  "%llu chain entries pruned\n",
+                  (unsigned long long)s.affineHits, (unsigned long long)s.innerHits,
+                  (unsigned long long)s.affinePruned);
     if (s.objPruned)
       std::printf("objective: %llu entries pruned (cost >= target)\n", (unsigned long long)s.objPruned);
     std::printf("time: search %.3fs, verify %.3fs, total %.3fs\n", r.searchSec, r.verifySec,

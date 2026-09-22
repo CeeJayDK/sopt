@@ -1,0 +1,5 @@
+# 1 / sqrt(3t + 2) = rsqrt(3) * rsqrt(t + 2/3): the inner constant 2/3 is not in the pool.
+# expect: rsqrt(t + 0.6666667) * 0.57735026
+input t : float in [0, 1]
+output r = 1.0 / sqrt(3.0 * t + 2.0)
+budget r : rel 1e-5

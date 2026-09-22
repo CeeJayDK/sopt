@@ -64,6 +64,7 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
     if (info(op).base || containsOp(prog.target, op)) ops_.push_back(op);
   }
   scratch_.resize(n_);
+  fitScratch_.resize(n_);
   table_.assign(1u << 16, kEmpty);
 }
 
@@ -128,9 +129,9 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
       hits_.push_back(idx);
       ++stats.hits;
       if (stats.firstHitSec < 0) stats.firstHitSec = nowSeconds() - start_;
-    } else if (cfg_.affine && !e.affine && numHits() < cfg_.maxHits) {
+    } else if (cfg_.affine && !e.affine && !e.isConst && numHits() < cfg_.maxHits) {
       // An affine step's base is in the bank and gets its own (cheaper) fit.
-      affineFit(idx, stats);
+      if (!affineFit(idx, stats) && cfg_.inner) innerFit(idx, stats);
     }
   }
   return true;
@@ -138,11 +139,10 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
 
 // target ~ p * v + q: least squares over the finite target points, then the budget
 // check on the float result of the wrapper. Cheaper wrappers (v + q, v * p, q - v) are
-// preferred when they also pass.
-bool Enumerator::affineFit(uint32_t idx, SearchStats& stats) {
-  const Entry& e = entries_[idx];
+// preferred when they also pass. top is v's op (a mul/div under an add/sub contracts)
+// and baseObj its objective cost.
+bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& out) const {
   const CostModel& model = *cfg_.model;
-  const float* v = fpOf(idx);
   double mv = 0, mg = 0, svg0 = 0, svv0 = 0;
   size_t m = 0;
   for (size_t i = 0; i < n_; ++i) {
@@ -183,34 +183,195 @@ bool Enumerator::affineFit(uint32_t idx, SearchStats& stats) {
     return true;
   };
   // The full fit is the best any wrapper can do (in the least-squares sense).
-  const AffineHit full{idx, Op::Mad, static_cast<float>(pd), static_cast<float>(mg - pd * mv)};
+  const AffineHit full{0, Op::Mad, static_cast<float>(pd), static_cast<float>(mg - pd * mv)};
   if (full.p == 0.0f || !passes(Op::Mad, full.p, full.q)) return false;
 
   // Cheaper wrappers, each with its own least-squares constant.
   const AffineHit tries[] = {
-      {idx, Op::Add, 1.0f, static_cast<float>(mg - mv)},
-      {idx, Op::Mul, static_cast<float>(svg0 / svv0), 0.0f},
-      {idx, Op::Sub, -1.0f, static_cast<float>(mg + mv)},
+      {0, Op::Add, 1.0f, static_cast<float>(mg - mv)},
+      {0, Op::Mul, static_cast<float>(svg0 / svv0), 0.0f},
+      {0, Op::Sub, -1.0f, static_cast<float>(mg + mv)},
       full};
   auto wrapCost = [&](Op w) -> uint32_t {
-    if ((w == Op::Add || w == Op::Sub) && model.fusesIntoAdd(e.op)) return model.fusedAdd;
+    if ((w == Op::Add || w == Op::Sub) && model.fusesIntoAdd(top)) return model.fusedAdd;
     return model[w];
   };
   const AffineHit* best = nullptr;
   uint32_t bestCost = targetCost_;
   for (const auto& h : tries) {
-    const uint32_t c = e.obj + wrapCost(h.wrap);
+    const uint32_t c = baseObj + wrapCost(h.wrap);
     if (c < bestCost && (&h == &tries[3] || passes(h.wrap, h.p, h.q))) {
       best = &h;
       bestCost = c;
     }
   }
   if (!best) return false;
-  affineHits_.push_back(*best);
+  out.wrap = best->wrap;
+  out.p = best->p;
+  out.q = best->q;
+  return true;
+}
+
+bool Enumerator::affineFit(uint32_t idx, SearchStats& stats) {
+  const Entry& e = entries_[idx];
+  AffineHit h{idx, Op::Mad, 0.0f, 0.0f};
+  if (!fitWrap(fpOf(idx), e.op, e.obj, h)) return false;
+  affineHits_.push_back(h);
   ++stats.hits;
   ++stats.affineHits;
   if (stats.firstHitSec < 0) stats.firstHitSec = nowSeconds() - start_;
   return true;
+}
+
+namespace {
+
+// Least squares min |A x - b| for k <= 5 unknowns: column-scaled normal equations and
+// Gaussian elimination with partial pivoting.
+bool solveLsq(double ata[5][5], double atb[5], int k, double* x) {
+  double d[5];
+  for (int i = 0; i < k; ++i) {
+    if (!(ata[i][i] > 0)) return false;
+    d[i] = 1.0 / std::sqrt(ata[i][i]);
+  }
+  double m[5][6];
+  for (int i = 0; i < k; ++i) {
+    for (int j = 0; j < k; ++j) m[i][j] = ata[i][j] * d[i] * d[j];
+    m[i][k] = atb[i] * d[i];
+  }
+  for (int c = 0; c < k; ++c) {
+    int piv = c;
+    for (int r = c + 1; r < k; ++r)
+      if (std::fabs(m[r][c]) > std::fabs(m[piv][c])) piv = r;
+    if (std::fabs(m[piv][c]) < 1e-12) return false;
+    for (int j = 0; j <= k; ++j) std::swap(m[c][j], m[piv][j]);
+    for (int r = 0; r < k; ++r) {
+      if (r == c) continue;
+      const double f = m[r][c] / m[c][c];
+      for (int j = c; j <= k; ++j) m[r][j] -= f * m[c][j];
+    }
+  }
+  for (int i = 0; i < k; ++i) x[i] = m[i][k] / m[i][i] * d[i];
+  return true;
+}
+
+}  // namespace
+
+// target ~ p * u(v + c) + q with u in {rcp, sqrt, rsqrt}: c is solved in closed form,
+// since each template is linear in a reparametrization (g = target):
+//   rcp:   g v = -c g + q v + (p + q c)
+//   sqrt:  g^2 = 2q g + p^2 v + (p^2 c - q^2)
+//   rsqrt: g^2 v = -c g^2 + 2q g v + 2qc g - q^2 v + (p^2 - q^2 c)
+// then p, q are refitted on w = u(v + c) by fitWrap.
+bool Enumerator::innerFit(uint32_t idx, SearchStats& stats) {
+  const Entry& e = entries_[idx];
+  const CostModel& model = *cfg_.model;
+  const float* v = fpOf(idx);
+  const uint32_t addCost = model.fusesIntoAdd(e.op) ? model.fusedAdd : model[Op::Add];
+  bool found = false;
+  for (Op u : {Op::Rcp, Op::Sqrt, Op::Rsqrt}) {
+    if (std::find(ops_.begin(), ops_.end(), u) == ops_.end()) continue;
+    const uint32_t baseObj = e.obj + addCost + model[u];
+    if (baseObj + 1 >= targetCost_) continue;
+    const int k = u == Op::Rsqrt ? 5 : 3;
+    double ata[5][5] = {}, atb[5] = {}, x[5];
+    for (size_t i = 0; i < n_; ++i) {
+      if (!targetFinite_[i]) continue;
+      if (!std::isfinite(v[i])) return false;
+      const double g = target_[i], vi = v[i];
+      double col[5], rhs;
+      if (u == Op::Rcp) {
+        col[0] = -g; col[1] = vi; col[2] = 1.0; rhs = g * vi;
+      } else if (u == Op::Sqrt) {
+        col[0] = g; col[1] = vi; col[2] = 1.0; rhs = g * g;
+      } else {
+        col[0] = -g * g; col[1] = g * vi; col[2] = g; col[3] = -vi; col[4] = 1.0; rhs = g * g * vi;
+      }
+      for (int r = 0; r < k; ++r) {
+        for (int c = 0; c < k; ++c) ata[r][c] += col[r] * col[c];
+        atb[r] += col[r] * rhs;
+      }
+    }
+    if (!solveLsq(ata, atb, k, x)) continue;
+    {
+      // Prefilter: a real template match fits the linear system almost exactly.
+      double rr = 0, bb = 0;
+      for (size_t i = 0; i < n_; ++i) {
+        if (!targetFinite_[i]) continue;
+        const double g = target_[i], vi = v[i];
+        double r;
+        if (u == Op::Rcp) r = -x[0] * g + x[1] * vi + x[2] - g * vi;
+        else if (u == Op::Sqrt) r = x[0] * g + x[1] * vi + x[2] - g * g;
+        else r = -x[0] * g * g + x[1] * g * vi + x[2] * g - x[3] * vi + x[4] - g * g * vi;
+        const double b = u == Op::Rcp ? g * vi : (u == Op::Sqrt ? g * g : g * g * vi);
+        rr += r * r;
+        bb += b * b;
+      }
+      if (!(rr <= 1e-6 * bb)) continue;
+    }
+    double cd = x[0];
+    if (u == Op::Sqrt) {
+      if (!(x[1] > 0)) continue;
+      cd = (x[2] + 0.25 * x[0] * x[0]) / x[1];
+    }
+    // The reparametrized fit is not the true least-squares fit (rsqrt's is only
+    // approximately so); refine (p, q, c) with a few Gauss-Newton steps on
+    // r = p * u(v + c) + q - g.
+    {
+      auto uf = [&](double z, double& du) {
+        if (u == Op::Rcp) { du = -1.0 / (z * z); return 1.0 / z; }
+        const double sq = std::sqrt(z);
+        if (u == Op::Sqrt) { du = 0.5 / sq; return sq; }
+        du = -0.5 / (z * sq);
+        return 1.0 / sq;
+      };
+      double pp = 0, qq = 0;
+      for (int it = 0; it < 6 && std::isfinite(cd); ++it) {
+        double jtj[5][5] = {}, jtr[5] = {}, dx[5];
+        bool ok = true;
+        // Linear p, q for the current c (closed form), then one step in (p, q, c).
+        double sw = 0, sg = 0, sww = 0, swg = 0;
+        size_t m = 0;
+        for (size_t i = 0; i < n_ && ok; ++i) {
+          if (!targetFinite_[i]) continue;
+          double du;
+          const double w = uf(double(v[i]) + cd, du);
+          ok = std::isfinite(w) && std::isfinite(du);
+          sw += w; sg += target_[i]; sww += w * w; swg += w * target_[i]; ++m;
+        }
+        const double den = double(m) * sww - sw * sw;
+        if (!ok || !(den > 0)) break;
+        pp = (double(m) * swg - sw * sg) / den;
+        qq = (sg - pp * sw) / double(m);
+        for (size_t i = 0; i < n_; ++i) {
+          if (!targetFinite_[i]) continue;
+          double du;
+          const double w = uf(double(v[i]) + cd, du);
+          const double col[3] = {w, 1.0, pp * du};
+          const double r = pp * w + qq - target_[i];
+          for (int a = 0; a < 3; ++a) {
+            for (int b = 0; b < 3; ++b) jtj[a][b] += col[a] * col[b];
+            jtr[a] -= col[a] * r;
+          }
+        }
+        if (!solveLsq(jtj, jtr, 3, dx)) break;
+        cd += dx[2];
+        if (std::fabs(dx[2]) <= 1e-9 * std::max(1.0, std::fabs(cd))) break;
+      }
+    }
+    const float c = static_cast<float>(cd);
+    if (!std::isfinite(c) || c == 0.0f) continue;  // c == 0: u(v) is in the bank itself
+    for (size_t i = 0; i < n_; ++i) fitScratch_[i] = c;
+    evalArray(Op::Add, v, fitScratch_.data(), nullptr, fitScratch_.data(), n_, kProfileRef);
+    evalArray(u, fitScratch_.data(), nullptr, nullptr, fitScratch_.data(), n_, kProfileRef);
+    AffineHit h{idx, Op::Mad, 0.0f, 0.0f, u, c};
+    if (!fitWrap(fitScratch_.data(), u, baseObj, h)) continue;
+    affineHits_.push_back(h);
+    ++stats.hits;
+    ++stats.innerHits;
+    if (stats.firstHitSec < 0) stats.firstHitSec = nowSeconds() - start_;
+    found = true;
+  }
+  return found;
 }
 
 void Enumerator::checkLimits(SearchStats& stats) {
@@ -464,7 +625,11 @@ Expr Enumerator::extract(const Entry& rootEntry) const {
 
 Expr Enumerator::extract(const AffineHit& h) const {
   ExprBuilder b;
-  const uint32_t v = build(b, entries_[h.idx]);
+  uint32_t v = build(b, entries_[h.idx]);
+  if (h.inner != Op::Count) {
+    v = h.c < 0.0f ? b.op(Op::Sub, v, b.constant(-h.c)) : b.op(Op::Add, v, b.constant(h.c));
+    v = b.op(h.inner, v);
+  }
   uint32_t r;
   switch (h.wrap) {
     case Op::Add: r = b.op(Op::Add, v, b.constant(h.q)); break;

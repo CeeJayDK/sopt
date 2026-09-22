@@ -11,7 +11,8 @@ namespace {
 // M1 done criterion: the enumerator finds each known rewrite on its own, i.e. an
 // accepted alternative at least as cheap as the "# expect:" expression.
 void expectRewrite(const char* file, bool affine = false, size_t maxBank = 2'000'000,
-                   const CostModel* model = nullptr, const CostModel* order = nullptr) {
+                   const CostModel* model = nullptr, const CostModel* order = nullptr,
+                   bool inner = false) {
   const std::string path = std::string(SOPT_EXAMPLES_DIR) + "/" + file;
   const Program prog = loadProgram(path);
   const std::string expect = readExpect(path);
@@ -25,6 +26,7 @@ void expectRewrite(const char* file, bool affine = false, size_t maxBank = 2'000
   opt.search.maxBank = maxBank;
   opt.search.model = model;
   opt.search.order = order;
+  opt.search.inner = inner;
   const RunResult r = optimize(prog, opt);
   CHECK(!r.accepted.empty());
   if (r.accepted.empty()) return;
@@ -58,4 +60,11 @@ TEST(affine_depth_reversed) { expectRewrite("depth_reversed.sopt", true, 300'000
 // rdna3 objective with generic enumeration order: reaches rcp(t + c) (5 VALU-equivalents).
 TEST(order_generic_depth_rdna3) {
   expectRewrite("depth_reversed.sopt", true, 300'000, &costRdna3(), &costGeneric());
+}
+// Inner constants (--inner): the pole / shift is solved, not taken from the pool.
+TEST(inner_rational) { expectRewrite("rational.sopt", true, 50'000, nullptr, nullptr, true); }
+TEST(inner_rsqrt_affine) { expectRewrite("rsqrt_affine.sopt", true, 50'000, nullptr, nullptr, true); }
+// rdna3 without --order-model: rcp(t + c) is solved directly on the input.
+TEST(inner_depth_rdna3) {
+  expectRewrite("depth_reversed.sopt", true, 50'000, &costRdna3(), nullptr, true);
 }

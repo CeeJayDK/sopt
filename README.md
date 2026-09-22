@@ -59,6 +59,11 @@ stored. This finds e.g. `mad(rcp(t + 0.001001001), 0.001002003, -0.0010009935)` 
 ReShade's depth linearization (`examples/depth_reversed.sopt`), which plain
 enumeration does not reach.
 
+`--inner` also solves one inner constant: `target ~ p * u(v + c) + q` for
+`u = rcp, sqrt, rsqrt` (each is linear in a reparametrization, refined by Gauss-Newton).
+It finds e.g. `rsqrt(t + 0.6666667) * 0.57735026` for `1 / sqrt(3t + 2)`, where 2/3 is
+not in the constant pool (`examples/rational.sopt`, `examples/rsqrt_affine.sopt`).
+
 ## Real ISA cost (`--isa`)
 
 Ranks the shown alternatives by the pixel shader's ISA cost on AMD RDNA3: each one

@@ -1,0 +1,6 @@
+# Rational function whose pole -2/3 is not in the constant pool (pool has 3, 1/3, 2, 0.5, ...).
+# (t + 1) / (3t + 2) = 1/3 + (1/9) / (t + 2/3): the inner constant must be solved.
+# expect: mad(rcp(t + 0.6666667), 0.11111111, 0.33333334)
+input t : float in [0, 1]
+output r = (t + 1.0) / (3.0 * t + 2.0)
+budget r : rel 1e-5

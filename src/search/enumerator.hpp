@@ -23,6 +23,9 @@ struct SearchConfig {
   // entries that are only an affine map of another (chains such as (v*c1 + c2)*c3,
   // two-constant mad/lerp) are not added to the bank.
   bool affine = true;
+  // Also solve an inner constant: target ~ p * u(v + c) + q, u in {rcp, sqrt, rsqrt}
+  // (needs affine).
+  bool inner = false;
 };
 
 struct LevelStats {
@@ -38,6 +41,7 @@ struct SearchStats {
   uint64_t bankSize = 0;
   uint64_t hits = 0;
   uint64_t affinePruned = 0;
+  uint64_t innerHits = 0;
   uint64_t objPruned = 0;  // objective cost already >= target
   uint64_t affineHits = 0;
   uint32_t completedCost = 0;  // all levels <= this were fully enumerated
@@ -71,12 +75,15 @@ class Enumerator {
     bool affine = false;  // single affine step (v + c, v * c, -v, ...) of a non-constant entry
     uint16_t obj = 0;     // objective (model) tree cost; cost is the order-model level
   };
-  // Hit through a solved outer affine map: wrap(entries_[idx]) with op Add (v + q),
-  // Mul (v * p), Sub (q - v) or Mad (mad(v, p, q)).
+  // Hit through a solved outer affine map: wrap(x) with op Add (x + q), Mul (x * p),
+  // Sub (q - x) or Mad (mad(x, p, q)), where x = entries_[idx], or inner(entries_[idx] + c)
+  // with a solved inner constant.
   struct AffineHit {
     uint32_t idx;
     Op wrap;
     float p, q;
+    Op inner = Op::Count;
+    float c = 0.0f;
   };
 
   void addLeaf(const Entry& e, const float* fp, SearchStats& stats);
@@ -84,6 +91,8 @@ class Enumerator {
   bool insert(const Entry& e, const float* fp, SearchStats& stats);
   void enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, SearchStats& stats);
   bool affineFit(uint32_t idx, SearchStats& stats);
+  bool innerFit(uint32_t idx, SearchStats& stats);
+  bool fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& out) const;
   uint32_t obj(uint32_t idx) const { return entries_[idx].obj; }
   const CostModel& order() const { return cfg_.order ? *cfg_.order : *cfg_.model; }
   size_t numHits() const { return hits_.size() + altHits_.size() + affineHits_.size(); }
