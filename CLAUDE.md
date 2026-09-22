@@ -68,8 +68,8 @@ enumeration order model (`--order-model`) and solved inner constants (`--inner`)
   order, dedup keeps the order-cheapest program of a value, not the objective-cheapest.
 - `--inner` covers u(v + c) for u = rcp/sqrt/rsqrt only (one inner shift, no inner
   scale: exp/sin/log need one); it costs up to ~40% generation speed on planted problems.
-- Affine fitting uses on the fingerprint points: exact budgets rarely fit, and
-  inner constants (the c in rcp(t + c)) must still come from the constant pool.
+- Affine and inner fitting use the fingerprint points, so exact budgets rarely fit.
+  Without `--inner`, inner constants (the c in rcp(t + c)) must come from the constant pool.
 
 ## Next (per docs/design.md)
 1. Owner's idea (agreed to discuss): don't enumerate pure helper intrinsics (lerp, step;
