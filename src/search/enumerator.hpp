@@ -9,16 +9,20 @@
 namespace sopt {
 
 struct SearchConfig {
-  uint32_t maxCost = 0;         // inclusive; the driver sets target cost - 1
+  uint32_t maxCost = 0;         // inclusive, in order-model units; 0 = derived from the target
   size_t maxBank = 2'000'000;   // entries (memory: ~(4*tests + 32) bytes each)
   size_t maxHits = 10'000;
   double timeLimitSec = 60.0;
-  const CostModel* model = &defaultCostModel();
+  const CostModel* model = &defaultCostModel();  // objective: hits and ranking
+  // Enumeration levels (null = model). A cheap, uniform order model (generic) reaches
+  // deeper than an objective with expensive ops (rdna3 transcendentals); the objective
+  // still decides what is a hit. Dedup keeps the first program of a value in order.
+  const CostModel* order = nullptr;
   // Symbolic constants, first step: the outer affine map of a candidate is solved, not
   // enumerated. Every entry v is fitted as target ~ p * v + q (least squares), and
   // entries that are only an affine map of another (chains such as (v*c1 + c2)*c3,
   // two-constant mad/lerp) are not added to the bank.
-  bool affine = false;
+  bool affine = true;
 };
 
 struct LevelStats {
@@ -34,6 +38,7 @@ struct SearchStats {
   uint64_t bankSize = 0;
   uint64_t hits = 0;
   uint64_t affinePruned = 0;
+  uint64_t objPruned = 0;  // objective cost already >= target
   uint64_t affineHits = 0;
   uint32_t completedCost = 0;  // all levels <= this were fully enumerated
   bool limitHit = false;
@@ -64,6 +69,7 @@ class Enumerator {
     float value;
     uint32_t input;
     bool affine = false;  // single affine step (v + c, v * c, -v, ...) of a non-constant entry
+    uint16_t obj = 0;     // objective (model) tree cost; cost is the order-model level
   };
   // Hit through a solved outer affine map: wrap(entries_[idx]) with op Add (v + q),
   // Mul (v * p), Sub (q - v) or Mad (mad(v, p, q)).
@@ -78,6 +84,8 @@ class Enumerator {
   bool insert(const Entry& e, const float* fp, SearchStats& stats);
   void enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, SearchStats& stats);
   bool affineFit(uint32_t idx, SearchStats& stats);
+  uint32_t obj(uint32_t idx) const { return entries_[idx].obj; }
+  const CostModel& order() const { return cfg_.order ? *cfg_.order : *cfg_.model; }
   size_t numHits() const { return hits_.size() + altHits_.size() + affineHits_.size(); }
   uint64_t hashFp(const float* fp, Type t) const;
   void growTable();

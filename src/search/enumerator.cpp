@@ -118,7 +118,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
   if (!stats.levels.empty()) ++stats.levels.back().added;
 
   // Goal check: does this value match the target within the budget on all test points?
-  if (e.type == Type::Float && e.cost < targetCost_) {
+  if (e.type == Type::Float && e.obj < targetCost_) {
     const float* v = fpOf(idx);
     bool ok = true;
     for (size_t i = 0; i < n_ && ok; ++i)
@@ -199,7 +199,7 @@ bool Enumerator::affineFit(uint32_t idx, SearchStats& stats) {
   const AffineHit* best = nullptr;
   uint32_t bestCost = targetCost_;
   for (const auto& h : tries) {
-    const uint32_t c = e.cost + wrapCost(h.wrap);
+    const uint32_t c = e.obj + wrapCost(h.wrap);
     if (c < bestCost && (&h == &tries[3] || passes(h.wrap, h.p, h.q))) {
       best = &h;
       bestCost = c;
@@ -272,10 +272,22 @@ void Enumerator::tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c
       affine = true;
     }
   }
+  // Objective cost; an entry that already costs as much as the target can be neither a
+  // hit nor part of one.
+  const CostModel& model = *cfg_.model;
+  uint32_t obj = model[op];
+  for (uint8_t k = 0; k < oi.arity; ++k) obj += entries_[k == 0 ? a : (k == 1 ? b : c)].obj;
+  if (model.fusedAdd && (op == Op::Add || op == Op::Sub) &&
+      (model.fusesIntoAdd(entries_[a].op) || model.fusesIntoAdd(entries_[b].op)))
+    obj = obj - model[op] + model.fusedAdd;
+  if (obj >= targetCost_) {
+    ++stats.objPruned;
+    return;
+  }
   evalArray(op, fpOf(a), oi.arity > 1 ? fpOf(b) : nullptr, oi.arity > 2 ? fpOf(c) : nullptr,
             scratch_.data(), n_, kProfileRef);
   canonicalize(scratch_.data(), n_);
-  Entry e{op, oi.result, cost, false, {a, b, c}, 0.0f, 0, affine};
+  Entry e{op, oi.result, cost, false, {a, b, c}, 0.0f, 0, affine, static_cast<uint16_t>(obj)};
   insert(e, scratch_.data(), stats);
 }
 
@@ -284,7 +296,18 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
   stats = SearchStats{};
   std::vector<Candidate> out;
   if (targetCost_ == 0) return out;
-  const uint32_t maxCost = std::min(cfg_.maxCost, targetCost_ - 1);
+  // Level bound in order units. With a separate order model, an entry of objective
+  // cost < target has order cost < R * target, R = max order/objective cost ratio.
+  const CostModel& model = *cfg_.model;
+  const CostModel& ord = order();
+  double ratio = 1.0;
+  for (Op op : ops_) ratio = std::max(ratio, double(ord[op]) / model[op]);
+  if (model.fusedAdd)
+    ratio = std::max(ratio, double(ord.fusedAdd ? ord.fusedAdd : std::max(ord[Op::Add], ord[Op::Sub])) /
+                                model.fusedAdd);
+  uint32_t maxCost = &ord == &model ? targetCost_ - 1
+                                    : static_cast<uint32_t>(ratio * (targetCost_ - 1));
+  if (cfg_.maxCost) maxCost = std::min(cfg_.maxCost, maxCost);
   byCost_.assign(maxCost + 1, {});
 
   // Level 0: inputs and constants.
@@ -302,27 +325,30 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
   }
   stats.completedCost = 0;
 
-  const CostModel& model = *cfg_.model;
   for (uint32_t cost = 1; cost <= maxCost && !stop_; ++cost) {
     stats.levels.push_back({cost, 0, 0});
     const auto c16 = static_cast<uint16_t>(cost);
     for (Op op : ops_) {
       if (stop_) break;
       const auto& oi = info(op);
-      if (model[op] > cost) continue;
-      const uint32_t r = cost - model[op];
+      if (ord[op] > cost) continue;
+      const uint32_t r = cost - ord[op];
       const auto t0 = static_cast<size_t>(oi.args[0]);
       const auto t1 = static_cast<size_t>(oi.args[1]);
       const auto t2 = static_cast<size_t>(oi.args[2]);
 
+      // Level lists are sorted by objective cost, so the loops stop as soon as the
+      // operands alone reach the target (matters with a separate order model).
+      const uint32_t opc = model[op];
       if (oi.arity == 1) {
         const auto& la = byCost_[r][t0];
-        for (size_t i = 0; i < la.size() && !stop_; ++i) tryAdd(op, c16, la[i], 0, 0, stats);
+        for (size_t i = 0; i < la.size() && !stop_ && obj(la[i]) + opc < targetCost_; ++i)
+          tryAdd(op, c16, la[i], 0, 0, stats);
       } else if (oi.arity == 2) {
-        if (model.fusedAdd && (op == Op::Add || op == Op::Sub)) {
+        if (ord.fusedAdd && (op == Op::Add || op == Op::Sub)) {
           // Contraction: an add/sub over a mul costs fusedAdd; the other pairs cost the
           // full add (fusable pairs were already generated at the cheaper level).
-          if (model.fusedAdd <= cost) enumerateBinary(op, c16, cost - model.fusedAdd, 1, stats);
+          if (ord.fusedAdd <= cost) enumerateBinary(op, c16, cost - ord.fusedAdd, 1, stats);
           enumerateBinary(op, c16, r, 0, stats);
         } else {
           enumerateBinary(op, c16, r, -1, stats);
@@ -336,10 +362,15 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
             const auto& la = byCost_[c1][t0];
             const auto& lb = byCost_[c2][t1];
             const auto& lc = byCost_[c3][t2];
+            if (lb.empty() || lc.empty()) continue;
+            const uint32_t minC = obj(lc[0]);
             for (size_t i = 0; i < la.size() && !stop_; ++i) {
+              if (obj(la[i]) + obj(lb[0]) + minC + opc >= targetCost_) break;
               size_t j0 = (sym01 && c1 == c2) ? i : 0;
               for (size_t j = j0; j < lb.size() && !stop_; ++j) {
-                for (size_t k = 0; k < lc.size() && !stop_; ++k) {
+                const uint32_t ab = obj(la[i]) + obj(lb[j]) + opc;
+                if (ab + minC >= targetCost_) break;
+                for (size_t k = 0; k < lc.size() && !stop_ && ab + obj(lc[k]) < targetCost_; ++k) {
                   if ((op == Op::Select || op == Op::Lerp) && lb[j] == lc[k]) continue;
                   tryAdd(op, c16, la[i], lb[j], lc[k], stats);
                 }
@@ -349,6 +380,9 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
         }
       }
     }
+    for (auto& list : byCost_[cost])
+      std::stable_sort(list.begin(), list.end(),
+                       [&](uint32_t x, uint32_t y) { return obj(x) < obj(y); });
     if (!stop_) stats.completedCost = cost;
   }
 
@@ -376,7 +410,11 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
 // 1 = only pairs with a mul (or div) operand, 0 = only pairs without one.
 void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, SearchStats& stats) {
   const auto& oi = info(op);
-  const CostModel& model = *cfg_.model;
+  const CostModel& model = order();
+  // Lowest objective cost the op can add (a fused add/sub is cheaper).
+  const CostModel& objective = *cfg_.model;
+  uint32_t minOp = objective[op];
+  if (objective.fusedAdd && (op == Op::Add || op == Op::Sub)) minOp = objective.fusedAdd;
   const auto t0 = static_cast<size_t>(oi.args[0]);
   const auto t1 = static_cast<size_t>(oi.args[1]);
   for (uint32_t c1 = 0; c1 <= r && !stop_; ++c1) {
@@ -384,10 +422,13 @@ void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Se
     if (oi.commutative && c1 > c2) continue;
     const auto& la = byCost_[c1][t0];
     const auto& lb = byCost_[c2][t1];
+    if (lb.empty()) continue;
     for (size_t i = 0; i < la.size() && !stop_; ++i) {
+      if (obj(la[i]) + obj(lb[0]) + minOp >= targetCost_) break;
       const bool fa = model.fusesIntoAdd(entries_[la[i]].op);
       size_t j0 = (oi.commutative && c1 == c2) ? i : 0;
       for (size_t j = j0; j < lb.size() && !stop_; ++j) {
+        if (obj(la[i]) + obj(lb[j]) + minOp >= targetCost_) break;
         if (fuse >= 0 && (fa || model.fusesIntoAdd(entries_[lb[j]].op)) != (fuse == 1)) continue;
         tryAdd(op, level, la[i], lb[j], 0, stats);
       }

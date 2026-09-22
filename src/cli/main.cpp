@@ -25,8 +25,9 @@ void usage() {
       "  --time S          search time limit per iteration in seconds (default 60)\n"
       "  --threads N       verification threads (default: all)\n"
       "  --seed N          random seed (default 1)\n"
-      "  --affine          solve outer constants (p * v + q) instead of enumerating them\n"
-      "  --cost-model M    generic | rdna3 (default: generic)\n"
+      "  --no-affine       enumerate outer constants instead of solving p * v + q\n"
+      "  --cost-model M    objective: generic | rdna3 (default: generic)\n"
+      "  --order-model M   enumeration order, e.g. generic with --cost-model rdna3\n"
       "  --stats           print search statistics\n"
       "  --isa             rank the shown alternatives by real GPU ISA cost (fxstat + RGA)\n"
       "  --fxstat PATH     fxstat from ReShade Testing Initiative (default: $SOPT_FXSTAT)\n"
@@ -84,7 +85,11 @@ int main(int argc, char** argv) {
       if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (generic, rdna3)\n"); return 2; }
     }
     else if (a == "--stats") stats = true;
-    else if (a == "--affine") opt.search.affine = true;
+    else if (a == "--no-affine") opt.search.affine = false;
+    else if (a == "--order-model") {
+      opt.search.order = costModelByName(next());
+      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (generic, rdna3)\n"); return 2; }
+    }
     else if (a == "--isa") isa = true;
     else if (a == "--fxstat") isaCfg.fxstat = next();
     else if (a == "--rga") isaCfg.rga = next();
@@ -115,8 +120,11 @@ int main(int argc, char** argv) {
 
   const RunResult r = optimize(prog, opt);
   char buf[128];
+  std::string models(opt.search.model->name);
+  if (opt.search.order && opt.search.order != opt.search.model)
+    models += ", order " + std::string(opt.search.order->name);
   std::printf("target:   %s = %s   (cost %u, %s)\n", prog.outputName.c_str(), r.targetText.c_str(),
-              r.targetCost, std::string(opt.search.model->name).c_str());
+              r.targetCost, models.c_str());
   std::printf("budget:   %s\n", budgetText(prog.budget, buf, sizeof(buf)));
   std::string profiles;
   for (const auto& p : kAllProfiles) profiles += (profiles.empty() ? "" : "/") + std::string(p.name);
@@ -205,6 +213,8 @@ int main(int argc, char** argv) {
     if (opt.search.affine)
       std::printf("affine: %llu hits via a solved outer map, %llu chain entries pruned\n",
                   (unsigned long long)s.affineHits, (unsigned long long)s.affinePruned);
+    if (s.objPruned)
+      std::printf("objective: %llu entries pruned (cost >= target)\n", (unsigned long long)s.objPruned);
     std::printf("time: search %.3fs, verify %.3fs, total %.3fs\n", r.searchSec, r.verifySec,
                 r.totalSec);
     std::printf("level  generated      added\n");

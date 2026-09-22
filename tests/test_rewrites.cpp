@@ -10,17 +10,21 @@ namespace {
 
 // M1 done criterion: the enumerator finds each known rewrite on its own, i.e. an
 // accepted alternative at least as cheap as the "# expect:" expression.
-void expectRewrite(const char* file, bool affine = false, size_t maxBank = 2'000'000) {
+void expectRewrite(const char* file, bool affine = false, size_t maxBank = 2'000'000,
+                   const CostModel* model = nullptr, const CostModel* order = nullptr) {
   const std::string path = std::string(SOPT_EXAMPLES_DIR) + "/" + file;
   const Program prog = loadProgram(path);
   const std::string expect = readExpect(path);
   CHECK(!expect.empty());
-  const uint32_t expectCost = dagCost(parseExpr(expect, prog.inputs));
+  if (!model) model = &defaultCostModel();
+  const uint32_t expectCost = dagCost(parseExpr(expect, prog.inputs), *model);
 
   Options opt;
   opt.v1Points = 1u << 16;
   opt.search.affine = affine;
   opt.search.maxBank = maxBank;
+  opt.search.model = model;
+  opt.search.order = order;
   const RunResult r = optimize(prog, opt);
   CHECK(!r.accepted.empty());
   if (r.accepted.empty()) return;
@@ -51,3 +55,7 @@ TEST(affine_saturate_range) { expectRewrite("saturate_range.sopt", true); }
 TEST(affine_factor) { expectRewrite("factor.sopt", true); }
 // Not reachable without --affine: K * rcp(t + c) + K2 with fitted K, K2.
 TEST(affine_depth_reversed) { expectRewrite("depth_reversed.sopt", true, 300'000); }
+// rdna3 objective with generic enumeration order: reaches rcp(t + c) (5 VALU-equivalents).
+TEST(order_generic_depth_rdna3) {
+  expectRewrite("depth_reversed.sopt", true, 300'000, &costRdna3(), &costGeneric());
+}

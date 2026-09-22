@@ -34,7 +34,6 @@ RunResult optimize(const Program& prog, const Options& opt) {
   for (const auto& prof : kAllProfiles) v1Target.push_back(evalAll(prog.target, v1, prof));
 
   SearchConfig cfg = opt.search;
-  if (cfg.maxCost == 0 || cfg.maxCost >= res.targetCost) cfg.maxCost = res.targetCost - 1;
 
   for (uint32_t iter = 0; iter < opt.maxIterations; ++iter) {
     res.iterations = iter + 1;
