@@ -1,4 +1,4 @@
-# sopt: shader superoptimizer (M0 + M1)
+# sopt: shader superoptimizer (M0 + M1, ISA ranking)
 
 Finds cheaper, verified alternatives to small arithmetic expressions from shaders.
 Design and roadmap: [docs/design.md](docs/design.md) (Danish).
@@ -15,6 +15,7 @@ ctest --test-dir build -C Release --output-on-failure
 
 ```
 build/sopt examples/screen.sopt [--stats] [--top N] [--time S] [--max-bank N]
+build/sopt examples/screen.sopt --isa [--cost-model generic|rdna3]
 build/sopt-bench --examples examples
 build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30
 ```
@@ -36,5 +37,30 @@ budget r : color8                 # exact | color8 [maxdiff N] | abs EPS | rel E
 Every verified alternative cheaper than the target, sorted by cost, with class
 (bit-exact / 8-bit identical / within budget), max error, max 8-bit code difference
 and the fraction of sample points whose 8-bit code changed. Verification is dense
-sampling (1M points) under three semantic profiles: `ref` (HLSL lerp, unfused mad),
-`mix` (GLSL mix formula) and `fma` (fused mad).
+sampling (1M points) under four semantic profiles: `ref` (HLSL lerp, unfused mad),
+`mix` (GLSL mix formula), `fma` (fused mad) and `gpu` (what drivers emit: a single-use
+product under +/- contracted to fma, `a / b` as `a * rcp(b)`).
+
+## Cost models
+
+`--cost-model generic` (default) uses the M1 placeholder weights. `rdna3` uses AMD
+RDNA3 ISA costs in quarter-VALU units (calibrated with RGA, see `src/ir/ops.cpp`),
+with free modifiers and contraction. Under `rdna3` the search does not yet reach deep
+candidates (bank limit), so it is not the default.
+
+## Real ISA cost (`--isa`)
+
+Ranks the shown alternatives by the pixel shader's ISA cost on AMD RDNA3: each one
+is emitted as a small ReShade FX effect and compiled with `fxstat` from
+[ReShade Testing Initiative](https://github.com/CeeJayDK/ReShade-Testing-Initiative)
+and AMD's [Radeon GPU Analyzer](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer)
+(about 0.25 s each, run in parallel). The `isa` column is fxstat's COST
+(VALU + 3 x TRANS); `!` marks alternatives that are not cheaper than the target in
+ISA, i.e. the driver already produces the same code.
+
+```
+export SOPT_FXSTAT=/path/to/rti/bin/fxstat SOPT_RGA=/path/to/rga
+build/sopt examples/factor.sopt --isa [--asic gfx1100] [--isa-keep DIR]
+```
+
+The ISA test in `sopt-tests` runs only when both variables are set.

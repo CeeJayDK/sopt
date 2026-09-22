@@ -90,9 +90,31 @@ Expr ExprBuilder::finish(uint32_t root) {
   return e;
 }
 
-uint32_t dagCost(const Expr& e) {
+std::vector<uint32_t> useCounts(const Expr& e) {
+  std::vector<uint32_t> uses(e.nodes.size(), 0);
+  for (const auto& n : e.nodes)
+    for (uint8_t k = 0; k < info(n.op).arity; ++k) ++uses[n.args[k]];
+  return uses;
+}
+
+int fusedArg(const Expr& e, uint32_t node, const std::vector<uint32_t>& uses, bool divIsMul) {
+  const Node& n = e.nodes[node];
+  if (n.op != Op::Add && n.op != Op::Sub) return -1;
+  for (int k = 0; k < 2; ++k) {
+    const uint32_t a = n.args[k];
+    const Op op = e.nodes[a].op;
+    if (uses[a] == 1 && (op == Op::Mul || (divIsMul && op == Op::Div))) return k;
+  }
+  return -1;
+}
+
+uint32_t dagCost(const Expr& e, const CostModel& m) {
+  const auto uses = m.fusedAdd ? useCounts(e) : std::vector<uint32_t>();
   uint32_t cost = 0;
-  for (const auto& n : e.nodes) cost += info(n.op).cost;
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Op op = e.nodes[i].op;
+    cost += (m.fusedAdd && fusedArg(e, i, uses, m.divIsMul) >= 0) ? m.fusedAdd : m[op];
+  }
   return cost;
 }
 

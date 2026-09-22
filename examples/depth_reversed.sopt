@@ -1,0 +1,10 @@
+# ReShade.fxh GetLinearizedDepth with default settings (reversed depth, far plane 1000).
+# t is the D24 depth texel. RDNA3: v_sub, v_fmaak, v_rcp, v_mul -> v_fma, v_rcp, v_fmaak.
+# Budget: without fma contraction the original itself is off by up to 3e-5 (cancellation
+# in 1000 - d * 999), so candidates are compared to it with abs 5e-5; with contraction
+# (gpu profile) the expected rewrite is within 2e-7 of the original.
+# Not reached yet by either cost model (bank limit, see CLAUDE.md).
+# expect: 1000.0 / mad(t, 998001.0, 999.0) - 0.001001001
+input t : float in [0, 1] grid 16777215
+output r = (1.0 - t) / (1000.0 - (1.0 - t) * 999.0)
+budget r : abs 5e-5

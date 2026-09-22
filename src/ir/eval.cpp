@@ -48,6 +48,7 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
     case Op::Sign: SOPT_LOOP1(fSign(x))
     case Op::Sqrt: SOPT_LOOP1(std::sqrt(x))
     case Op::Rsqrt: SOPT_LOOP1(1.0f / std::sqrt(x))
+    case Op::Rcp: SOPT_LOOP1(1.0f / x)
     case Op::Exp: SOPT_LOOP1(std::exp(x))
     case Op::Log: SOPT_LOOP1(std::log(x))
     case Op::Sin: SOPT_LOOP1(std::sin(x))
@@ -55,7 +56,9 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
     case Op::Add: SOPT_LOOP2(x + y)
     case Op::Sub: SOPT_LOOP2(x - y)
     case Op::Mul: SOPT_LOOP2(x * y)
-    case Op::Div: SOPT_LOOP2(x / y)
+    case Op::Div:
+      if (profile.divRcp) { SOPT_LOOP2(x * (1.0f / y)) }
+      SOPT_LOOP2(x / y)
     case Op::Min: SOPT_LOOP2(fMin(x, y))
     case Op::Max: SOPT_LOOP2(fMax(x, y))
     case Op::Step: SOPT_LOOP2(fBool(y >= x))  // step(edge, x)
@@ -71,6 +74,7 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
       SOPT_LOOP3(x * y + z)
     case Op::Lerp:
       if (profile.lerpMix) { SOPT_LOOP3(x * (1.0f - z) + y * z) }
+      if (profile.contract) { SOPT_LOOP3(std::fma(z, y - x, x)) }
       SOPT_LOOP3(x + z * (y - x))
     case Op::Clamp: SOPT_LOOP3(fMin(fMax(x, y), z))
     case Op::Select: SOPT_LOOP3(x != 0.0f ? y : z)

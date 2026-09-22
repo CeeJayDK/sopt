@@ -13,6 +13,7 @@ struct SearchConfig {
   size_t maxBank = 2'000'000;   // entries (memory: ~(4*tests + 32) bytes each)
   size_t maxHits = 10'000;
   double timeLimitSec = 60.0;
+  const CostModel* model = &defaultCostModel();
 };
 
 struct LevelStats {
@@ -60,6 +61,7 @@ class Enumerator {
   void addLeaf(const Entry& e, const float* fp, SearchStats& stats);
   void tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c, SearchStats& stats);
   bool insert(const Entry& e, const float* fp, SearchStats& stats);
+  void enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, SearchStats& stats);
   uint64_t hashFp(const float* fp, Type t) const;
   void growTable();
   const float* fpOf(uint32_t idx) const { return fp_.data() + idx * n_; }

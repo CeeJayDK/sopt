@@ -53,7 +53,7 @@ std::vector<float> constantPool(const Expr& target) {
 
 Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchConfig& cfg)
     : prog_(prog), tests_(tests), cfg_(cfg), n_(tests.size()) {
-  targetCost_ = dagCost(prog.target);
+  targetCost_ = dagCost(prog.target, *cfg.model);
   target_ = evalAll(prog.target, tests, kProfileRef);
   targetFinite_.resize(n_);
   for (size_t i = 0; i < n_; ++i) targetFinite_[i] = std::isfinite(target_[i]) ? 1 : 0;
@@ -187,14 +187,15 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
   }
   stats.completedCost = 0;
 
+  const CostModel& model = *cfg_.model;
   for (uint32_t cost = 1; cost <= maxCost && !stop_; ++cost) {
     stats.levels.push_back({cost, 0, 0});
     const auto c16 = static_cast<uint16_t>(cost);
     for (Op op : ops_) {
       if (stop_) break;
       const auto& oi = info(op);
-      if (oi.cost > cost) continue;
-      const uint32_t r = cost - oi.cost;
+      if (model[op] > cost) continue;
+      const uint32_t r = cost - model[op];
       const auto t0 = static_cast<size_t>(oi.args[0]);
       const auto t1 = static_cast<size_t>(oi.args[1]);
       const auto t2 = static_cast<size_t>(oi.args[2]);
@@ -203,15 +204,13 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
         const auto& la = byCost_[r][t0];
         for (size_t i = 0; i < la.size() && !stop_; ++i) tryAdd(op, c16, la[i], 0, 0, stats);
       } else if (oi.arity == 2) {
-        for (uint32_t c1 = 0; c1 <= r && !stop_; ++c1) {
-          const uint32_t c2 = r - c1;
-          if (oi.commutative && c1 > c2) continue;
-          const auto& la = byCost_[c1][t0];
-          const auto& lb = byCost_[c2][t1];
-          for (size_t i = 0; i < la.size() && !stop_; ++i) {
-            size_t j0 = (oi.commutative && c1 == c2) ? i : 0;
-            for (size_t j = j0; j < lb.size() && !stop_; ++j) tryAdd(op, c16, la[i], lb[j], 0, stats);
-          }
+        if (model.fusedAdd && (op == Op::Add || op == Op::Sub)) {
+          // Contraction: an add/sub over a mul costs fusedAdd; the other pairs cost the
+          // full add (fusable pairs were already generated at the cheaper level).
+          if (model.fusedAdd <= cost) enumerateBinary(op, c16, cost - model.fusedAdd, 1, stats);
+          enumerateBinary(op, c16, r, 0, stats);
+        } else {
+          enumerateBinary(op, c16, r, -1, stats);
         }
       } else {
         const bool sym01 = op == Op::Mad;  // mad(a, b, c) == mad(b, a, c)
@@ -244,12 +243,35 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
   auto emit = [&](const Entry& e) {
     Candidate cand;
     cand.expr = extract(e);
-    cand.cost = dagCost(cand.expr);
+    cand.cost = dagCost(cand.expr, *cfg_.model);
     out.push_back(std::move(cand));
   };
   for (uint32_t idx : hits_) emit(entries_[idx]);
   for (const Entry& e : altHits_) emit(e);
   return out;
+}
+
+// Binary op at this level with operand costs summing to r. fuse: -1 = all pairs,
+// 1 = only pairs with a mul (or div) operand, 0 = only pairs without one.
+void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, SearchStats& stats) {
+  const auto& oi = info(op);
+  const CostModel& model = *cfg_.model;
+  const auto t0 = static_cast<size_t>(oi.args[0]);
+  const auto t1 = static_cast<size_t>(oi.args[1]);
+  for (uint32_t c1 = 0; c1 <= r && !stop_; ++c1) {
+    const uint32_t c2 = r - c1;
+    if (oi.commutative && c1 > c2) continue;
+    const auto& la = byCost_[c1][t0];
+    const auto& lb = byCost_[c2][t1];
+    for (size_t i = 0; i < la.size() && !stop_; ++i) {
+      const bool fa = model.fusesIntoAdd(entries_[la[i]].op);
+      size_t j0 = (oi.commutative && c1 == c2) ? i : 0;
+      for (size_t j = j0; j < lb.size() && !stop_; ++j) {
+        if (fuse >= 0 && (fa || model.fusesIntoAdd(entries_[lb[j]].op)) != (fuse == 1)) continue;
+        tryAdd(op, level, la[i], lb[j], 0, stats);
+      }
+    }
+  }
 }
 
 Expr Enumerator::extract(const Entry& rootEntry) const {

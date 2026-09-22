@@ -2,7 +2,8 @@
 
 Shader superoptimizer for ReShade FX shaders. Finds cheaper, verified alternatives
 to small pure arithmetic regions and presents them as user-selectable variants.
-Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done.
+Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done, plus RDNA3
+cost model, `gpu` semantic profile and ISA ranking via fxstat + RGA (pulled forward).
 
 ## Working with the owner
 - Christian (CeeJay, SweetFX/ReShade). Communicates in Danish; prefers brief, direct answers.
@@ -13,15 +14,21 @@ Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done.
 - Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`
 - Tests: `ctest --test-dir build --output-on-failure` (or `build/sopt-tests [filter]`)
 - CLI: `build/sopt examples/screen.sopt --stats`
-- Bench: `build/sopt-bench --examples examples` and
+- Bench: `build/sopt-bench --examples examples [--cost-model rdna3]` and
   `build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30`
+- ISA ranking: `SOPT_FXSTAT=... SOPT_RGA=... build/sopt examples/factor.sopt --isa`.
+  Tools: ReShade-Testing-Initiative (`build_reshade_testing_initiative.sh`, needs
+  spirv-tools, flex, bison) and RGA 2.14 (`rga-linux-2.14.tgz` from GitHub releases).
 
 ## Layout
-- `src/ir`: op table (`ops.cpp`: costs, exactness, base set), float32 evaluator,
+- `src/ir`: op table (`ops.cpp`: exactness, base set, cost models generic/rdna3),
+  float32 evaluator,
   hash-consed Expr DAG, `.sopt` parser, printer.
 - `src/verify`: test/sample point generation, block evaluation, metrics, budget checks.
 - `src/search`: `enumerator` (bottom-up by cost, observational equivalence on
   fingerprints) and `driver` (CEGIS loop, stage-2 filter, V1 verification, grouping).
+- `src/measure`: emits a candidate as a ReShade FX effect, runs fxstat + RGA, parses
+  the pixel shader's ISA cost.
 - `bench/bench.cpp`: example suite + planted problems. `examples/*.sopt` with `# expect:`.
 
 ## Invariants (do not break)
@@ -30,10 +37,14 @@ Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done.
   inside evaluation.
 - `eval_golden_exact_ops` hashes must match on MSVC, GCC and Clang. If an exact op's
   semantics change intentionally, regenerate the hashes and say so.
-- All non-leaf op costs >= 1 (levels are well-founded). Bank entries are appended in
+- All non-leaf op costs >= 1 in every cost model, fusedAdd included (levels are
+  well-founded). Bank entries are appended in
   cost order; operands always have lower index.
 - Undefined inputs are don't-care: points where the target is not finite are skipped.
-- Inexact ops (rsqrt, pow, exp, log, sin, cos) are never classified bit-exact.
+- Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
+  Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
+- Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
+  `expr.cpp`: an add/sub over a single-use mul (or div) is one fma.
 - Every new search technique goes behind a flag and must improve time-to-best on the
   bench (section 6 of the design) before becoming default.
 
@@ -42,7 +53,10 @@ Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done.
   (bench marks them `needs-sharing`). Planned fix: shared leaves (M7).
 - Bank limit (2M entries) is reached around cost 8 with 3 inputs; ternary ops dominate.
 - Scalar float only; one output; verification by sampling only (V2/V3 in M2/M7).
-- Cost weights in `ops.cpp` are placeholders (calibration in M6).
+- `generic` costs are placeholders. `rdna3` is calibrated per op on gfx1100 but misses
+  context effects (min(max()) -> med3, extra v_mov for some constants); `--isa` covers them.
+- Under `rdna3` the bank fills before ~4 VALU-equivalents (rsqrt, the depth example
+  are not reached), so `generic` stays default. Constants dominate the bank.
 
 ## Next (per docs/design.md)
 1. Confirm CI green on MSVC (golden hashes) — M0 criterion not yet verified on Windows.

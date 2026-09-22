@@ -37,7 +37,7 @@ struct RunResult {
   uint64_t counterexamples = 0;
   uint64_t rejectedStage2 = 0;
   uint64_t rejectedV1 = 0;
-  uint64_t rejectedProfiles = 0;  // passed ref but failed mix/fma
+  uint64_t rejectedProfiles = 0;  // passed ref but failed mix/fma/gpu
   double searchSec = 0.0;
   double verifySec = 0.0;
   double totalSec = 0.0;

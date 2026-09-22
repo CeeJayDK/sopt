@@ -47,8 +47,13 @@ add_library(sopt-search
 target_link_libraries(sopt-search PUBLIC sopt-verify)
 sopt_fp_flags(sopt-search)
 
+add_library(sopt-measure
+  src/measure/isa.cpp)
+target_link_libraries(sopt-measure PUBLIC sopt-ir Threads::Threads)
+sopt_fp_flags(sopt-measure)
+
 add_executable(sopt src/cli/main.cpp)
-target_link_libraries(sopt PRIVATE sopt-search)
+target_link_libraries(sopt PRIVATE sopt-search sopt-measure)
 sopt_fp_flags(sopt)
 
 if(SOPT_BUILD_BENCH)
@@ -63,8 +68,9 @@ if(SOPT_BUILD_TESTS)
     tests/test_main.cpp
     tests/test_eval.cpp
     tests/test_parser.cpp
-    tests/test_rewrites.cpp)
-  target_link_libraries(sopt-tests PRIVATE sopt-search)
+    tests/test_rewrites.cpp
+    tests/test_isa.cpp)
+  target_link_libraries(sopt-tests PRIVATE sopt-search sopt-measure)
   target_compile_definitions(sopt-tests PRIVATE SOPT_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples")
   sopt_fp_flags(sopt-tests)
   add_test(NAME sopt-tests COMMAND sopt-tests)

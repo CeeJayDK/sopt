@@ -55,8 +55,12 @@ class ExprBuilder {
   std::unordered_map<uint64_t, std::vector<uint32_t>> map_;
 };
 
-// Static cost with sharing: every distinct node counts once.
-uint32_t dagCost(const Expr& e);
+// Static cost with sharing: every distinct node counts once. With contraction, an
+// add/sub over a single-use mul (or div) costs model.fusedAdd.
+uint32_t dagCost(const Expr& e, const CostModel& model = defaultCostModel());
+std::vector<uint32_t> useCounts(const Expr& e);
+// For an add/sub node: the operand index (0/1) that contracts into an fma, else -1.
+int fusedArg(const Expr& e, uint32_t node, const std::vector<uint32_t>& uses, bool divIsMul);
 bool containsInexact(const Expr& e);
 bool containsOp(const Expr& e, Op op);
 Type nodeType(const Expr& e, uint32_t node);

@@ -51,7 +51,22 @@ TEST(parser_errors) {
 
 TEST(parser_dag_cost_counts_shared_nodes_once) {
   const auto e = parseExpr("a * b + a * b", abcx());
-  CHECK(dagCost(e) == info(Op::Mul).cost + info(Op::Add).cost);
+  for (const CostModel* m : {&costGeneric(), &costRdna3()})
+    CHECK(dagCost(e, *m) == (*m)[Op::Mul] + (*m)[Op::Add]);  // shared mul: no contraction
+}
+
+TEST(cost_contraction) {
+  const CostModel& m = costRdna3();
+  // Single-use mul (or div) under add/sub is one fma.
+  CHECK(dagCost(parseExpr("a * b + c", abcx()), m) == m[Op::Mul] + m.fusedAdd);
+  CHECK(dagCost(parseExpr("c - a * b", abcx()), m) == m[Op::Mul] + m.fusedAdd);
+  CHECK(dagCost(parseExpr("a / b - c", abcx()), m) == m[Op::Div] + m.fusedAdd);
+  CHECK(dagCost(parseExpr("a * b + a * c", abcx()), m) == 2u * m[Op::Mul] + m.fusedAdd);
+  CHECK(dagCost(parseExpr("a * b + c", abcx()), costGeneric()) ==
+        costGeneric()[Op::Mul] + costGeneric()[Op::Add]);
+  // Every non-leaf op costs >= 1 in every model.
+  for (const CostModel* cm : {&costGeneric(), &costRdna3()})
+    for (size_t i = 2; i < static_cast<size_t>(Op::Count); ++i) CHECK(cm->cost[i] >= 1);
 }
 
 TEST(parser_program) {

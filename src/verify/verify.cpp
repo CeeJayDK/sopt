@@ -14,10 +14,24 @@ const float* BlockEvaluator::eval(const Expr& e, const PointSet& ps, size_t begi
   const size_t nn = e.nodes.size();
   scratch.resize(nn * count);
   ptr.assign(nn, nullptr);
+  const auto uses = profile.contract ? useCounts(e) : std::vector<uint32_t>();
   for (size_t i = 0; i < nn; ++i) {
     const Node& n = e.nodes[i];
     float* out = scratch.data() + i * count;
-    if (n.op == Op::Input) {
+    const int k = profile.contract ? fusedArg(e, static_cast<uint32_t>(i), uses, profile.divRcp) : -1;
+    if (k >= 0) {
+      // a*b + c as one fma; a / b + c as fma(a, rcp(b), c).
+      const Node& m = e.nodes[n.args[k]];
+      const float* p = ptr[m.args[0]];
+      const float* q = ptr[m.args[1]];
+      const float* o = ptr[n.args[1 - k]];
+      const bool div = m.op == Op::Div;
+      const float sa = (n.op == Op::Sub && k == 1) ? -1.0f : 1.0f;  // o - a*b = fma(-a, b, o)
+      const float so = (n.op == Op::Sub && k == 0) ? -1.0f : 1.0f;  // a*b - o = fma(a, b, -o)
+      for (size_t j = 0; j < count; ++j)
+        out[j] = std::fma(sa * p[j], div ? 1.0f / q[j] : q[j], so * o[j]);
+      ptr[i] = out;
+    } else if (n.op == Op::Input) {
       ptr[i] = ps.cols[n.input].data() + begin;
     } else if (n.op == Op::Const) {
       std::fill(out, out + count, n.value);

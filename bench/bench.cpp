@@ -89,10 +89,14 @@ uint32_t randomProgram(ExprBuilder& b, Rng& rng, uint32_t numInputs, uint32_t st
 }
 
 // Cost if shared subexpressions were duplicated (what v1's tree-cost bank can represent).
-uint32_t treeCost(const Expr& e, uint32_t idx) {
+// In a tree every node has one use, so any add/sub over a mul contracts.
+uint32_t treeCost(const Expr& e, uint32_t idx, const CostModel& m) {
   const Node& n = e.nodes[idx];
-  uint32_t c = info(n.op).cost;
-  for (uint8_t k = 0; k < info(n.op).arity; ++k) c += treeCost(e, n.args[k]);
+  uint32_t c = m[n.op];
+  if (n.op == Op::Add || n.op == Op::Sub)
+    for (int k = 0; k < 2; ++k)
+      if (m.fusesIntoAdd(e.nodes[n.args[k]].op)) c = m.fusedAdd;
+  for (uint8_t k = 0; k < info(n.op).arity; ++k) c += treeCost(e, n.args[k], m);
   return c;
 }
 
@@ -153,13 +157,21 @@ int main(int argc, char** argv) {
     else if (a == "--v1") opt.v1Points = std::strtoull(next(), nullptr, 10);
     else if (a == "--time") opt.search.timeLimitSec = std::strtod(next(), nullptr);
     else if (a == "--max-bank") opt.search.maxBank = std::strtoull(next(), nullptr, 10);
-    else {
+    else if (a == "--cost-model") {
+      opt.search.model = costModelByName(next());
+      if (!opt.search.model) {
+        std::puts("unknown cost model (generic, rdna3)");
+        return 2;
+      }
+    } else {
       std::puts("usage: sopt-bench [--examples DIR] [--planted N --size K --inputs I] [--seed S]\n"
-                "                  [--v1 N] [--time S] [--max-bank N]");
+                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model generic|rdna3]");
       return 2;
     }
   }
   if (examples.empty() && planted == 0) examples = "examples";
+  const CostModel& model = *opt.search.model;
+  std::printf("cost model: %s\n", std::string(model.name).c_str());
 
   int failures = 0, knownLimit = 0;
   printHeader();
@@ -171,8 +183,8 @@ int main(int argc, char** argv) {
     for (const auto& f : files) {
       const Program prog = loadProgram(f);
       const std::string expect = readExpect(f);
-      const uint32_t goal = expect.empty() ? dagCost(prog.target) - 1
-                                           : dagCost(parseExpr(expect, prog.inputs));
+      const uint32_t goal = expect.empty() ? dagCost(prog.target, model) - 1
+                                           : dagCost(parseExpr(expect, prog.inputs), model);
       const Row row = runOne(std::filesystem::path(f).stem().string(), prog, goal, opt);
       printRow(row);
       failures += !(row.found && row.bestCost <= row.goalCost);
@@ -190,10 +202,10 @@ int main(int argc, char** argv) {
     ExprBuilder b;
     const Expr plantedExpr = b.finish(randomProgram(b, rng, inputs, size));
     prog.target = obfuscate(plantedExpr, rng);
-    const uint32_t goal = dagCost(plantedExpr);
-    if (dagCost(prog.target) <= goal) continue;  // not more expensive; draw again
+    const uint32_t goal = dagCost(plantedExpr, model);
+    if (dagCost(prog.target, model) <= goal) continue;  // not more expensive; draw again
     Row row = runOne("planted_" + std::to_string(p++), prog, goal, opt);
-    const bool needsSharing = treeCost(plantedExpr, plantedExpr.root) > goal;
+    const bool needsSharing = treeCost(plantedExpr, plantedExpr.root, model) > goal;
     if (needsSharing) row.note = "needs-sharing";
     printRow(row);
     if (!(row.found && row.bestCost <= row.goalCost)) {
