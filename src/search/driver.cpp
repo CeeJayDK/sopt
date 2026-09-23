@@ -34,6 +34,7 @@ RunResult optimize(const Program& prog, const Options& opt) {
   for (const auto& prof : kAllProfiles) v1Target.push_back(evalAll(prog.target, v1, prof));
 
   SearchConfig cfg = opt.search;
+  res.v2Points = opt.v2Max ? domainSize(prog, opt.v2Max) : 0;
 
   for (uint32_t iter = 0; iter < opt.maxIterations; ++iter) {
     res.iterations = iter + 1;
@@ -117,7 +118,24 @@ RunResult optimize(const Program& prog, const Options& opt) {
           }
           continue;
         }
+        // V2: every point of a small domain, for the cheapest few.
+        bool exhaustive = false;
+        if (res.v2Points && res.accepted.size() < opt.v2Candidates) {
+          Metrics all;
+          for (const auto& prof : kAllProfiles) {
+            all.merge(compareExhaustive(prog, c.expr, prof, opt.threads));
+            if (!all.pass) break;
+          }
+          if (!all.pass) {
+            ++res.rejectedV2;
+            addCex(all.failPoint);
+            continue;
+          }
+          worst = all;
+          exhaustive = true;
+        }
         Accepted a;
+        a.exhaustive = exhaustive;
         a.text = toString(c.expr, prog.inputs);
         a.cost = c.cost;
         a.klass = classify(prog, c.expr, worst);

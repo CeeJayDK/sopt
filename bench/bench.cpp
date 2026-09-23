@@ -111,7 +111,7 @@ Expr obfuscate(const Expr& e, Rng& rng) {
     uint32_t out;
     switch (n.op) {
       case Op::Input: out = b.input(n.input); break;
-      case Op::Const: out = b.constant(n.value); break;
+      case Op::Const: out = b.constant(n.type, n.value); break;
       case Op::Lerp:  // lerp(a, b, t) -> a + t * (b - a)
         out = doit ? b.op(Op::Add, a, b.op(Op::Mul, c2, b.op(Op::Sub, c1, a))) : b.op(n.op, a, c1, c2);
         break;

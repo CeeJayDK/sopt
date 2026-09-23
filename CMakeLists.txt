@@ -72,7 +72,8 @@ if(SOPT_BUILD_TESTS)
     tests/test_parser.cpp
     tests/test_rewrites.cpp
     tests/test_isa.cpp
-    tests/test_sass.cpp)
+    tests/test_sass.cpp
+    tests/test_vector.cpp)
   target_link_libraries(sopt-tests PRIVATE sopt-search sopt-measure)
   target_compile_definitions(sopt-tests PRIVATE SOPT_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples")
   sopt_fp_flags(sopt-tests)

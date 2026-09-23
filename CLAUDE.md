@@ -2,7 +2,7 @@
 
 Shader superoptimizer for ReShade FX shaders. Finds cheaper, verified alternatives
 to small pure arithmetic regions and presents them as user-selectable variants.
-Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done (CI green on
+Full design and milestones: `docs/design.md` (Danish). Status: M0, M1, M2 done (CI green on
 MSVC/GCC/Clang, golden hashes match), plus RDNA3 cost model, `gpu` semantic profile, ISA
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 and nvidia default to
@@ -27,10 +27,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   spirv-tools, flex, bison) and RGA 2.14 (`rga-linux-2.14.tgz` from GitHub releases).
 
 ## Layout
-- `src/ir`: op table (`ops.cpp`: exactness, base set, cost models generic/rdna3),
-  float32 evaluator,
-  hash-consed Expr DAG, `.sopt` parser, printer.
-- `src/verify`: test/sample point generation, block evaluation, metrics, budget checks.
+- `src/ir`: op table (`ops.cpp`: exactness, base set, Shape, cost models generic/rdna3/
+  nvidia/search, `CostModel::opCost` per width), float32 evaluator (`evalNode` is the one
+  vector-aware node evaluation), hash-consed Expr DAG (Node: type, swizzle, up to 4
+  operands, vector constants; `inferType`), `.sopt` parser (floatN inputs, swizzles,
+  constructors), printer.
+- `src/verify`: test/sample point generation (vector inputs as scalar slots, see
+  `slotDecls`/`PointSet::slotOf`), block evaluation (component columns), metrics and
+  budget checks per component, V2 exhaustive verification (`compareExhaustive`).
 - `src/search`: `enumerator` (bottom-up by cost, observational equivalence on
   fingerprints; affine (default, `--no-affine`): outer p * v + q solved by least squares
   at the goal check, affine chains / two-constant mad, lerp / sign flips / c / v not
@@ -68,7 +72,16 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - Bank cost is tree cost: solutions that need a shared intermediate value are missed
   (bench marks them `needs-sharing`). Planned fix: shared leaves (M7).
 - Bank limit (2M entries) is reached around cost 8 with 3 inputs; ternary ops dominate.
-- Scalar float only; one output; verification by sampling only (V2/V3 in M2/M7).
+- One output (float1..4). Vector ops are enumerated only at the target's width (and
+  float1); no constructors or swizzles of computed vectors are enumerated. dot/length/
+  normalize/distance are pure helpers (not enumerated): their expansions over input
+  components are, so e.g. length(v) * length(v) -> dot expansion needs --max-bank 5000000.
+- M2 done criteria changed (owner's helper rule): c.r*a + c.g*b + c.b*c -> dot(...) and
+  sqrt(dot(v, v)) -> length(v) cost the same on GPUs; they are readability rewrites
+  (optional post-search step), not search results. Real vector wins are the examples
+  (normalize_length, length_squared).
+- V2 checks the cheapest 20 alternatives when the domain has <= 2^24 points; continuous
+  multi-input domains are sampled only (V3 in M7).
 - `generic` costs are placeholders. `rdna3` is calibrated per op on gfx1100 but misses
   context effects (min(max()) -> med3, extra v_mov for some constants); `--isa` covers them.
 - `rdna3` and `nvidia` enumerate in `search` order by default (rdna3's cheap ops,
@@ -92,9 +105,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    smoothstep/length/distance/normalize, treat them as pure helpers too.
 2. M7 search scaling continues (e.g. shared leaves for needs-sharing, reaching
    normalize_x) — ask first.
-3. M2: float2–4, dot/length/normalize, component access; V2 exhaustive verification on
-   8-bit grids and unary float inputs; error-budget classes.
-4. M3: reshadefx front end, region extraction, facts, variant `.fx` output.
+3. M3: reshadefx front end, region extraction, facts, variant `.fx` output.
 
 ## Under discussion (not decided — ask before implementing)
 - Library of small verified snippets/rewrites that humans, AI or the tool can reuse.

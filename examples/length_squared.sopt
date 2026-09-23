@@ -1,0 +1,7 @@
+# length(v) * length(v) = dot(v, v): no sqrt. dot is a pure helper, so the search finds
+# its expansion. At the edge of the default bank (found with --max-bank 5000000).
+# AMD's compiler already does this; NVIDIA's keeps the sqrt (MUFU).
+# expect: mad(v.x, v.x, mad(v.y, v.y, v.z * v.z))
+input v : float3 in [-1, 1]
+output r = length(v) * length(v)
+budget r : rel 1e-5

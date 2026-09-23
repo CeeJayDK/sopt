@@ -1,4 +1,4 @@
-# sopt: shader superoptimizer (M0 + M1, ISA ranking)
+# sopt: shader superoptimizer (M0-M2, ISA ranking)
 
 Finds cheaper, verified alternatives to small arithmetic expressions from shaders.
 Design and roadmap: [docs/design.md](docs/design.md) (Danish).
@@ -28,10 +28,33 @@ build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30
 input a : float in [0, 1] grid 255
 input b : float in [0, 1] grid 255
 output r = 1.0 - (1.0 - a) * (1.0 - b)
-budget r : color8                 # exact | color8 [maxdiff N] | abs EPS | rel EPS
+budget r : color8                 # see budgets below
 ```
 
-`rel EPS` means `|candidate - target| <= EPS * max(1, |target|)`.
+Inputs and the output can be `float`, `float2`, `float3` or `float4`; every component of
+an input has the same domain. Expressions use HLSL syntax: swizzles (`c.rgb`, `v.x`),
+constructors (`float3(a, b, c)`, `float3(s)`), scalar broadcast (`v * s`), `dot`,
+`length`, `normalize`, `distance`. Comparisons are scalar.
+
+```
+input v : float3 in [-1, 1]
+output r = normalize(v) * length(v)
+budget r : rel 1e-5
+```
+
+Budgets (per output component):
+
+| budget | meaning |
+|---|---|
+| `exact`, `condition`, `temporal`, `depth` | bit-exact |
+| `color8 [maxdiff N]`, `color10 [maxdiff N]` | 8/10-bit code values differ by at most N (default 1) |
+| `texcoord [PX]` | at most PX pixels at 3840 wide (default 0.25) |
+| `abs EPS` | `|candidate - target| <= EPS` |
+| `rel EPS` | `|candidate - target| <= EPS * max(1, |target|)` |
+
+`dot`, `length`, `normalize` and `distance` are pure helpers (no GPU has an FP32 dot
+instruction): they are evaluated and costed as their expansions, and the search builds
+the expansions (components of vector inputs are free leaves), not the helpers.
 
 ## Output
 
@@ -41,6 +64,13 @@ and the fraction of sample points whose 8-bit code changed. Verification is dens
 sampling (1M points) under four semantic profiles: `ref` (HLSL lerp, unfused mad),
 `mix` (GLSL mix formula), `fma` (fused mad) and `gpu` (what drivers emit: a single-use
 product under +/- contracted to fma, `a / b` as `a * rcp(b)`).
+
+## Exhaustive verification (V2)
+
+When the input domain is small (every grid value, or every float32 of a component in a
+narrow interval) and has at most `--v2-max` points (default 2^24, e.g. an 8-bit RGB
+input or a D24 depth value), the cheapest `--v2` (20) alternatives are checked on every
+point after sampling; the `ver` column shows `all` for those, `smp` for sampled only.
 
 ## Cost models
 

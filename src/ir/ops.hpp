@@ -6,7 +6,16 @@
 
 namespace sopt {
 
-enum class Type : uint8_t { Float, Bool };
+// Float is float1; FloatN are HLSL floatN vectors. Bool is a scalar condition.
+enum class Type : uint8_t { Float, Bool, Float2, Float3, Float4 };
+inline constexpr size_t kNumTypes = 5;
+inline constexpr uint8_t width(Type t) {
+  return t == Type::Float2 ? 2 : t == Type::Float3 ? 3 : t == Type::Float4 ? 4 : 1;
+}
+inline constexpr bool isFloat(Type t) { return t != Type::Bool; }
+inline constexpr Type floatType(unsigned w) {
+  return w == 2 ? Type::Float2 : w == 3 ? Type::Float3 : w == 4 ? Type::Float4 : Type::Float;
+}
 
 enum class Op : uint8_t {
   Input, Const,
@@ -17,18 +26,30 @@ enum class Op : uint8_t {
   Lt, Le, Gt, Ge, Eq, Ne,
   // ternary
   Mad, Lerp, Clamp, Select,
+  // vectors: pure helpers (dot = mul + fmas, length = sqrt(dot), normalize = v *
+  // rsqrt(dot(v, v)), distance = length(a - b)), component selection and construction
+  Dot, Length, Normalize, Distance, Swizzle, Construct,
   Count
 };
 
-enum class Syntax : uint8_t { Leaf, Call, Prefix, Infix, Ternary };
+enum class Syntax : uint8_t { Leaf, Call, Prefix, Infix, Ternary, Swizzle, Construct };
+
+// How an op's operand and result types relate.
+//   Comp:    componentwise on floatN; operands are float1 (broadcast) or floatN.
+//   Cmp:     scalar float comparison, result Bool.
+//   Select:  Bool condition, componentwise branches.
+//   Reduce:  floatN operands of equal width, float1 result (dot, length, distance).
+//   Same:    floatN -> floatN (normalize).
+//   Swizzle: components of one operand (Node::swz), result width = count.
+//   Construct: operands concatenated, result width = sum (2..4).
+enum class Shape : uint8_t { Leaf, Comp, Cmp, Select, Reduce, Same, Swizzle, Construct };
 
 struct OpInfo {
   std::string_view name;    // FX function name (Call) or internal name
   std::string_view symbol;  // operator symbol (Prefix/Infix)
   Syntax syntax;
-  uint8_t arity;
-  Type result;
-  std::array<Type, 3> args;
+  uint8_t arity;            // Construct: 0 = variable (Node::nargs)
+  Shape shape;
   bool commutative;
   bool exact;     // bit-exact on IEEE 754 GPUs (given a semantic profile)
   bool base;      // enumerated by default; others only if present in the target
@@ -38,7 +59,10 @@ struct OpInfo {
 const OpInfo& info(Op op);
 // Intrinsics that are only shorthand for several instructions (lerp = sub + fma,
 // step = cmp + cndmask), as opposed to single instructions or modifiers.
-inline bool isPureHelper(Op op) { return op == Op::Lerp || op == Op::Step; }
+inline bool isPureHelper(Op op) {
+  return op == Op::Lerp || op == Op::Step || op == Op::Dot || op == Op::Length ||
+         op == Op::Normalize || op == Op::Distance;
+}
 std::optional<Op> opFromCall(std::string_view name, uint8_t arity);
 
 // Static cost model. Costs are integers and every non-leaf op costs >= 1 so that
@@ -52,6 +76,11 @@ struct CostModel {
   bool divIsMul;  // a / b is lowered to a * rcp(b)
 
   uint16_t operator[](Op op) const { return cost[static_cast<size_t>(op)]; }
+  // Cost of one node of this op producing / reducing floatN (w = operand width for
+  // Reduce ops, result width otherwise). GPUs are scalar per lane: componentwise ops
+  // cost w times the scalar op; dot = mul + (w-1) fma; swizzle/construct are register
+  // moves (cost 1, like a modifier, to keep levels well-founded).
+  uint32_t opCost(Op op, unsigned w) const;
   bool fusesIntoAdd(Op operand) const {
     return fusedAdd && (operand == Op::Mul || (divIsMul && operand == Op::Div));
   }

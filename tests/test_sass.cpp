@@ -22,7 +22,7 @@ TEST(sass_emit_ptx) {
   CHECK(has(ptx, "rcp.approx.ftz.f32"));
   CHECK(has(ptx, "fma.rn.f32"));
   CHECK(has(ptx, "0f3F000000"));  // 0.5 as an exact hex immediate
-  CHECK(has(ptx, "st.global.f32 [%a2]"));
+  CHECK(has(ptx, "st.global.f32 [%a2+0]"));
 }
 
 TEST(sass_parse) {

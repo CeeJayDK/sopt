@@ -72,13 +72,12 @@ class Enumerator {
   struct Entry {
     Op op;
     Type type;
-    uint16_t cost;
+    uint16_t cost;        // order-model level
     bool isConst;
     uint32_t args[3];
-    float value;
-    uint32_t input;
+    uint32_t aux;         // Input: input index; Const: index into consts_; Swizzle: component
     bool affine = false;  // single affine step (v + c, v * c, -v, ...) of a non-constant entry
-    uint16_t obj = 0;     // objective (model) tree cost; cost is the order-model level
+    uint16_t obj = 0;     // objective (model) tree cost
   };
   // Hit through a solved outer affine map: wrap(x) with op Add (x + q), Mul (x * p),
   // Sub (q - x) or Mad (mad(x, p, q)), where x = entries_[idx], or inner(entries_[idx] + c)
@@ -91,10 +90,14 @@ class Enumerator {
     float c = 0.0f;
   };
 
-  void addLeaf(const Entry& e, const float* fp, SearchStats& stats);
-  void tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c, SearchStats& stats);
+  void tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c, SearchStats& stats,
+              uint32_t aux = 0);
   bool insert(const Entry& e, const float* fp, SearchStats& stats);
-  void enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, SearchStats& stats);
+  void enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Type ta, Type tb,
+                       SearchStats& stats);
+  void enumerateTernary(Op op, uint16_t level, uint32_t r, Type ta, Type tb, Type tc,
+                        SearchStats& stats);
+  uint32_t addConst(Type t, const float* v, SearchStats& stats);
   bool affineFit(uint32_t idx, SearchStats& stats);
   bool innerFit(uint32_t idx, SearchStats& stats);
   bool fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& out) const;
@@ -103,7 +106,10 @@ class Enumerator {
   size_t numHits() const { return hits_.size() + altHits_.size() + affineHits_.size(); }
   uint64_t hashFp(const float* fp, Type t) const;
   void growTable();
-  const float* fpOf(uint32_t idx) const { return fp_.data() + idx * n_; }
+  const float* fpOf(uint32_t idx) const { return fp_.data() + off_[idx]; }
+  size_t lenOf(Type t) const { return width(t) * n_; }
+  float constValue(uint32_t idx) const { return consts_[entries_[idx].aux][0]; }
+  const std::vector<Type>& floatTypes() const { return types_; }
   Expr extract(const Entry& e) const;
   Expr extract(const AffineHit& h) const;
   uint32_t build(ExprBuilder& b, const Entry& e) const;
@@ -112,15 +118,20 @@ class Enumerator {
   const Program& prog_;
   const PointSet& tests_;
   SearchConfig cfg_;
-  size_t n_;
+  size_t n_;       // test points
+  Type targetType_;
+  size_t tn_;      // target fingerprint length: width * n_ (component-major)
   uint32_t targetCost_;
   std::vector<float> target_;
   std::vector<char> targetFinite_;
   std::vector<Op> ops_;
+  std::vector<Type> types_;  // float types ops are enumerated for: float1, then the target's
 
   std::vector<Entry> entries_;
   std::vector<float> fp_;
-  std::vector<std::array<std::vector<uint32_t>, 2>> byCost_;
+  std::vector<uint64_t> off_;  // fingerprint offset of each entry in fp_
+  std::vector<std::array<float, 4>> consts_;
+  std::vector<std::array<std::vector<uint32_t>, kNumTypes>> byCost_;
   std::vector<uint32_t> table_;
   std::vector<float> scratch_;
   std::vector<uint32_t> hits_;

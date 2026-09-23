@@ -58,7 +58,7 @@ std::vector<Token> tokenize(std::string_view s, int line) {
       }
     }
     if (matched) continue;
-    if (std::string_view("+-*/()<>?:,=[]").find(ch) != std::string_view::npos) {
+    if (std::string_view("+-*/()<>?:,=[].").find(ch) != std::string_view::npos) {
       out.push_back({Tok::Punct, std::string(1, ch), 0.0});
       ++i;
       continue;
@@ -89,27 +89,106 @@ class ExprParser {
     ++p_;
   }
 
-  Type typeOf(uint32_t n) const { return info(b_.nodes()[n].op).result; }
-  void want(uint32_t n, Type ty, const char* what) const {
-    if (typeOf(n) != ty)
-      err(std::string(what) + (ty == Type::Bool ? " must be a comparison" : " must be float"));
+  Type typeOf(uint32_t n) const { return b_.nodes()[n].type; }
+  bool isConst(uint32_t n) const { return b_.nodes()[n].op == Op::Const; }
+
+  static std::string typeName(Type t) {
+    if (t == Type::Bool) return "bool";
+    return width(t) == 1 ? "float" : "float" + std::to_string(width(t));
+  }
+
+  // Folds a node whose operands are all constants.
+  uint32_t fold(const Node& node) {
+    const auto& ns = b_.nodes();
+    Type ts[4];
+    float buf[4][4];
+    const float* ptr[4][4];
+    for (unsigned k = 0; k < node.nargs; ++k) {
+      ts[k] = ns[node.args[k]].type;
+      for (unsigned c = 0; c < 4; ++c) {
+        buf[k][c] = ns[node.args[k]].value[c];
+        ptr[k][c] = &buf[k][c];
+      }
+    }
+    float res[4] = {0, 0, 0, 0};
+    float* out[4] = {&res[0], &res[1], &res[2], &res[3]};
+    std::vector<float> tmp;
+    evalNode(node, ts, ptr, out, 1, kProfileRef, tmp);
+    return b_.constant(node.type, res);
   }
 
   // Builds an op node, folding it if all operands are constants.
   uint32_t make(Op op, uint32_t a, uint32_t b = 0, uint32_t c = 0) {
     const auto& oi = info(op);
-    uint32_t args[3] = {a, b, c};
-    for (uint8_t k = 0; k < oi.arity; ++k) want(args[k], oi.args[k], "operand");
+    const uint32_t args[3] = {a, b, c};
+    Type ts[3];
+    for (uint8_t k = 0; k < oi.arity; ++k) ts[k] = typeOf(args[k]);
+    const auto t = inferType(op, ts, oi.arity);
+    if (!t) {
+      std::string msg = std::string("operand types don't fit ") + std::string(oi.name) + "(";
+      for (uint8_t k = 0; k < oi.arity; ++k) msg += (k ? ", " : "") + typeName(ts[k]);
+      err(msg + ")" + (oi.shape == Shape::Cmp ? ": comparisons are scalar" : ""));
+    }
     bool allConst = true;
-    for (uint8_t k = 0; k < oi.arity; ++k)
-      allConst = allConst && b_.nodes()[args[k]].op == Op::Const;
-    if (allConst && oi.result == Type::Float) {
-      const auto& ns = b_.nodes();
-      const float v = evalScalar(op, ns[a].value, oi.arity > 1 ? ns[b].value : 0.0f,
-                                 oi.arity > 2 ? ns[c].value : 0.0f, kProfileRef);
-      return b_.constant(v);
+    for (uint8_t k = 0; k < oi.arity; ++k) allConst = allConst && isConst(args[k]);
+    if (allConst && isFloat(*t)) {
+      Node node;
+      node.op = op;
+      node.type = *t;
+      node.nargs = oi.arity;
+      for (uint8_t k = 0; k < oi.arity; ++k) node.args[k] = args[k];
+      return fold(node);
     }
     return b_.op(op, a, b, c);
+  }
+
+  uint32_t makeSwizzle(uint32_t a, const std::string& letters) {
+    uint8_t comps[4];
+    if (letters.empty() || letters.size() > 4) err("bad swizzle ." + letters);
+    for (size_t k = 0; k < letters.size(); ++k) {
+      const size_t xyzw = std::string_view("xyzw").find(letters[k]);
+      const size_t rgba = std::string_view("rgba").find(letters[k]);
+      if (xyzw == std::string::npos && rgba == std::string::npos) err("bad swizzle ." + letters);
+      comps[k] = static_cast<uint8_t>(xyzw != std::string::npos ? xyzw : rgba);
+      if (comps[k] >= width(typeOf(a))) err("swizzle ." + letters + " out of range");
+    }
+    const auto count = static_cast<unsigned>(letters.size());
+    if (isConst(a)) {
+      const Node& n = b_.nodes()[a];
+      float v[4];
+      for (unsigned k = 0; k < count; ++k) v[k] = n.value[comps[k]];
+      return b_.constant(floatType(count), v);
+    }
+    return b_.swizzle(a, comps, count);
+  }
+
+  uint32_t makeConstruct(const std::vector<uint32_t>& args, unsigned w) {
+    unsigned total = 0;
+    bool allConst = true;
+    for (uint32_t a : args) {
+      if (!isFloat(typeOf(a))) err("constructor operands must be float");
+      total += width(typeOf(a));
+      allConst = allConst && isConst(a);
+    }
+    if (args.size() == 1 && total == 1) {  // float3(x): broadcast
+      if (allConst) {
+        const float v = b_.nodes()[args[0]].value[0];
+        const float vs[4] = {v, v, v, v};
+        return b_.constant(floatType(w), vs);
+      }
+      const uint8_t comps[4] = {0, 0, 0, 0};
+      return b_.swizzle(args[0], comps, w);
+    }
+    if (total != w)
+      err("float" + std::to_string(w) + " constructor needs " + std::to_string(w) + " components");
+    if (allConst) {
+      float v[4];
+      unsigned c = 0;
+      for (uint32_t a : args)
+        for (unsigned j = 0; j < width(typeOf(a)); ++j) v[c++] = b_.nodes()[a].value[j];
+      return b_.constant(floatType(w), v);
+    }
+    return b_.construct(args.data(), static_cast<unsigned>(args.size()));
   }
 
   uint32_t ternary() {
@@ -119,7 +198,7 @@ class ExprParser {
     const uint32_t x = ternary();
     expect(":");
     const uint32_t y = ternary();
-    want(cond, Type::Bool, "condition");
+    if (typeOf(cond) != Type::Bool) err("condition must be a comparison");
     return make(Op::Select, cond, x, y);
   }
 
@@ -169,6 +248,17 @@ class ExprParser {
   }
 
   uint32_t primary() {
+    uint32_t v = atom();
+    while (isPunct(".")) {
+      ++p_;
+      if (peek().kind != Tok::Ident) err("expected swizzle after '.'");
+      v = makeSwizzle(v, peek().text);
+      ++p_;
+    }
+    return v;
+  }
+
+  uint32_t atom() {
     const Token tok = peek();
     if (tok.kind == Tok::Num) {
       ++p_;
@@ -193,13 +283,15 @@ class ExprParser {
         }
       }
       expect(")");
+      if (tok.text == "float2" || tok.text == "float3" || tok.text == "float4")
+        return makeConstruct(args, static_cast<unsigned>(tok.text[5] - '0'));
       const auto op = opFromCall(tok.text, static_cast<uint8_t>(args.size()));
       if (!op)
         err("unknown function " + tok.text + " with " + std::to_string(args.size()) + " arguments");
       return make(*op, args[0], args.size() > 1 ? args[1] : 0, args.size() > 2 ? args[2] : 0);
     }
     for (uint32_t i = 0; i < inputs_.size(); ++i)
-      if (inputs_[i].name == tok.text) return b_.input(i);
+      if (inputs_[i].name == tok.text) return b_.input(i, inputs_[i].type);
     err("unknown identifier " + tok.text);
   }
 
@@ -252,10 +344,12 @@ Program parseProgram(std::string_view text) {
 
     if (t[0].text == "input") {
       if (!exprText.empty()) err("inputs must be declared before the output");
-      if (t[1].kind != Tok::Ident || !kw(2, ":") || !kw(3, "float") || !kw(4, "in") || !kw(5, "["))
-        err("expected: input <name> : float in [lo, hi] [grid N]");
+      const bool typeOk = kw(3, "float") || kw(3, "float2") || kw(3, "float3") || kw(3, "float4");
+      if (t[1].kind != Tok::Ident || !kw(2, ":") || !typeOk || !kw(4, "in") || !kw(5, "["))
+        err("expected: input <name> : float[2|3|4] in [lo, hi] [grid N]");
       InputDecl d;
       d.name = t[1].text;
+      d.type = t[3].text == "float" ? Type::Float : floatType(static_cast<unsigned>(t[3].text[5] - '0'));
       size_t p = 6;
       d.lo = parseSignedNumber(t, p, line);
       if (!kw(p, ",")) err("expected ','");
@@ -288,10 +382,18 @@ Program parseProgram(std::string_view text) {
       if (t[1].kind != Tok::Ident || !kw(2, ":")) err("expected: budget <name> : <kind>");
       if (t[1].text != prog.outputName) err("budget refers to unknown output " + t[1].text);
       size_t p = 4;
-      if (kw(3, "exact")) {
-        prog.budget.kind = Budget::Kind::Exact;
-      } else if (kw(3, "color8")) {
-        prog.budget.kind = Budget::Kind::Color8;
+      if (kw(3, "exact") || kw(3, "condition") || kw(3, "temporal") || kw(3, "depth")) {
+        prog.budget.kind = Budget::Kind::Exact;  // design 4.2: these uses are bit-exact
+      } else if (kw(3, "texcoord")) {
+        prog.budget.kind = Budget::Kind::Texcoord;
+        prog.budget.px = 0.25;
+        if (t[4].kind == Tok::Num) {
+          prog.budget.px = t[4].num;
+          p = 5;
+        }
+        prog.budget.eps = prog.budget.px / 3840.0;
+      } else if (kw(3, "color8") || kw(3, "color10")) {
+        prog.budget.kind = kw(3, "color8") ? Budget::Kind::Color8 : Budget::Kind::Color10;
         if (kw(4, "maxdiff")) {
           if (t[5].kind != Tok::Num) err("maxdiff needs a number");
           prog.budget.maxCodeDiff = static_cast<int>(t[5].num);
@@ -303,7 +405,8 @@ Program parseProgram(std::string_view text) {
         prog.budget.eps = t[4].num;
         p = 5;
       } else {
-        err("budget kind must be exact, color8, abs <eps> or rel <eps>");
+        err("budget kind must be exact, condition, temporal, depth, color8, color10, "
+            "texcoord [px], abs <eps> or rel <eps>");
       }
       if (t[p].kind != Tok::End) err("trailing tokens");
       haveBudget = true;
@@ -321,8 +424,8 @@ Program parseProgram(std::string_view text) {
   const uint32_t root = ep.parse();
   if (toks[ep.pos()].kind != Tok::End)
     throw ParseError("line " + std::to_string(exprLine) + ": trailing tokens in expression");
-  if (info(b.nodes()[root].op).result != Type::Float)
-    throw ParseError("line " + std::to_string(exprLine) + ": output must be float");
+  if (!isFloat(b.nodes()[root].type))
+    throw ParseError("line " + std::to_string(exprLine) + ": output must be float or floatN");
   prog.target = b.finish(root);
   return prog;
 }

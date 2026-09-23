@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -10,9 +11,12 @@ namespace sopt {
 
 struct Node {
   Op op = Op::Const;
-  uint32_t args[3] = {0, 0, 0};
-  float value = 0.0f;  // Op::Const
-  uint32_t input = 0;  // Op::Input
+  Type type = Type::Float;
+  uint8_t nargs = 0;                 // number of operands (Construct: 1..4)
+  uint8_t swz[4] = {0, 0, 0, 0};     // Op::Swizzle: source component per result component
+  uint32_t args[4] = {0, 0, 0, 0};
+  float value[4] = {0, 0, 0, 0};     // Op::Const, width(type) components
+  uint32_t input = 0;                // Op::Input
 };
 
 // Hash-consed DAG. Nodes are topologically ordered (args always precede users).
@@ -26,13 +30,25 @@ struct InputDecl {
   double lo = 0.0;
   double hi = 1.0;
   uint32_t grid = 0;  // 0 = continuous, N = values lo + k*(hi-lo)/N
+  Type type = Type::Float;  // float1..4; every component has the same domain
 };
 
+// Error budget per output value (design 4.2). Color8/Color10: max difference in
+// 8/10-bit code values after quantization. Texcoord: max deviation in pixels at 4K
+// width (eps = px / 3840). Exact also covers conditions, temporal feedback and depth.
 struct Budget {
-  enum class Kind { Exact, Color8, Abs, Rel } kind = Kind::Exact;
-  double eps = 0.0;
-  int maxCodeDiff = 1;  // Color8 only
+  enum class Kind { Exact, Color8, Color10, Abs, Rel, Texcoord } kind = Kind::Exact;
+  double eps = 0.0;     // Abs, Rel, Texcoord
+  int maxCodeDiff = 1;  // Color8, Color10
+  double px = 0.0;      // Texcoord: pixels at 3840 wide
+  int codeBits() const { return kind == Kind::Color10 ? 10 : 8; }
 };
+
+// Vector inputs are sampled per component: slot k of the point set is one scalar
+// component. slotDecls lists them (name.x, name.y, ...), inputSlots gives the first
+// slot of each input.
+std::vector<InputDecl> slotDecls(const std::vector<InputDecl>& inputs);
+std::vector<uint32_t> inputSlots(const std::vector<InputDecl>& inputs);
 
 struct Program {
   std::vector<InputDecl> inputs;
@@ -41,11 +57,19 @@ struct Program {
   Budget budget;
 };
 
+// Result type of an op node with the given operand types, or nullopt if they don't fit
+// (see Shape). swzCount is the number of swizzle components.
+std::optional<Type> inferType(Op op, const Type* args, unsigned nargs, unsigned swzCount = 0);
+
 class ExprBuilder {
  public:
-  uint32_t input(uint32_t index);
+  uint32_t input(uint32_t index, Type type = Type::Float);
   uint32_t constant(float v);
+  uint32_t constant(Type type, const float* v);
+  // Throws std::invalid_argument if the operand types don't fit the op.
   uint32_t op(Op op, uint32_t a, uint32_t b = 0, uint32_t c = 0);
+  uint32_t swizzle(uint32_t a, const uint8_t* comps, unsigned count);
+  uint32_t construct(const uint32_t* args, unsigned nargs);
   Expr finish(uint32_t root);
   const std::vector<Node>& nodes() const { return nodes_; }
 
@@ -64,6 +88,7 @@ int fusedArg(const Expr& e, uint32_t node, const std::vector<uint32_t>& uses, bo
 bool containsInexact(const Expr& e);
 bool containsOp(const Expr& e, Op op);
 Type nodeType(const Expr& e, uint32_t node);
+unsigned operandCount(const Node& n);
 std::string toString(const Expr& e, const std::vector<InputDecl>& inputs);
 std::string formatFloat(float v);
 

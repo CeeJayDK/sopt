@@ -1,5 +1,6 @@
 #include "measure/sass.hpp"
 
+#include <array>
 #include <bit>
 #include <cstdio>
 #include <cstdlib>
@@ -26,123 +27,196 @@ int mufuWeight(int sm) { return sm == 75 || sm == 80 ? 4 : 8; }
 
 // Mirrors what graphics compilers emit: approximate transcendentals, a / b as
 // a * rcp(b), and add/sub/mul without a rounding modifier so ptxas may contract
-// them into FFMA (as drivers do).
+// them into FFMA (as drivers do). Vectors are scalarized: one register per component,
+// swizzles and constructors are register renames.
 std::string emitPtx(const Expr& e, const std::vector<InputDecl>& inputs, int sm) {
   std::ostringstream body;
   const size_t nn = e.nodes.size();
-  std::vector<std::string> reg(nn);
-  int tmp = 0;
-  auto t = [&]() { return "%t" + std::to_string(tmp++); };
+  std::vector<std::array<std::string, 4>> reg(nn);
+  int nf = 0, np = 0;
+  auto f = [&]() { return "%f" + std::to_string(nf++); };
+  const std::vector<uint32_t> slots = inputSlots(inputs);
   for (size_t i = 0; i < nn; ++i) {
     const Node& n = e.nodes[i];
-    if (n.op == Op::Const) {
-      reg[i] = imm(n.value);
-      continue;
+    const unsigned w = width(n.type);
+    auto& d = reg[i];
+    // Component c of operand k (float1 operands broadcast).
+    auto in = [&](unsigned k, unsigned c) -> const std::string& {
+      const uint32_t j = n.args[k];
+      return reg[j][width(e.nodes[j].type) == 1 ? 0 : c];
+    };
+    switch (info(n.op).shape) {
+      case Shape::Leaf:
+        for (unsigned c = 0; c < w; ++c) {
+          if (n.op == Op::Const) {
+            d[c] = imm(n.value[c]);
+            continue;
+          }
+          // Each input is loaded once and also stored back: its value must live in a
+          // register, like a texture sample in a shader. Otherwise ptxas turns a select
+          // of two inputs into a conditional (re)load and the FSEL disappears.
+          const uint32_t slot = (n.input < slots.size() ? slots[n.input] : n.input) + c;
+          d[c] = f();
+          body << "  ld.volatile.global.f32 " << d[c] << ", [%a1+" << 4 * slot << "];\n";
+          body << "  st.global.f32 [%a2+" << 4 * (slot + 1) << "], " << d[c] << ";\n";
+        }
+        continue;
+      case Shape::Swizzle:
+        for (unsigned c = 0; c < w; ++c) d[c] = reg[n.args[0]][n.swz[c]];
+        continue;
+      case Shape::Construct: {
+        unsigned c = 0;
+        for (unsigned k = 0; k < n.nargs; ++k)
+          for (unsigned j = 0; j < width(e.nodes[n.args[k]].type); ++j) d[c++] = reg[n.args[k]][j];
+        continue;
+      }
+      case Shape::Cmp: {
+        d[0] = "%p" + std::to_string(np++);
+        static const char* cmp[] = {"lt", "le", "gt", "ge", "eq", "neu"};
+        body << "  setp." << cmp[static_cast<int>(n.op) - static_cast<int>(Op::Lt)] << ".f32 "
+             << d[0] << ", " << in(0, 0) << ", " << in(1, 0) << ";\n";
+        continue;
+      }
+      case Shape::Reduce:
+      case Shape::Same: {
+        const unsigned aw = width(e.nodes[n.args[0]].type);
+        std::array<std::string, 4> a, b;
+        for (unsigned c = 0; c < aw; ++c) {
+          a[c] = reg[n.args[0]][c];
+          b[c] = n.op == Op::Dot ? reg[n.args[1]][c] : a[c];
+        }
+        if (n.op == Op::Distance)
+          for (unsigned c = 0; c < aw; ++c) {
+            const std::string t = f();
+            body << "  sub.f32 " << t << ", " << a[c] << ", " << reg[n.args[1]][c] << ";\n";
+            a[c] = b[c] = t;
+          }
+        std::string dot = f();
+        body << "  mul.f32 " << dot << ", " << a[0] << ", " << b[0] << ";\n";
+        for (unsigned c = 1; c < aw; ++c) {
+          const std::string t = f();
+          body << "  fma.rn.f32 " << t << ", " << a[c] << ", " << b[c] << ", " << dot << ";\n";
+          dot = t;
+        }
+        if (n.op == Op::Dot) {
+          d[0] = dot;
+        } else if (n.op == Op::Normalize) {
+          const std::string r = f();
+          body << "  rsqrt.approx.ftz.f32 " << r << ", " << dot << ";\n";
+          for (unsigned c = 0; c < w; ++c) {
+            d[c] = f();
+            body << "  mul.f32 " << d[c] << ", " << a[c] << ", " << r << ";\n";
+          }
+        } else {
+          d[0] = f();
+          body << "  sqrt.approx.ftz.f32 " << d[0] << ", " << dot << ";\n";
+        }
+        continue;
+      }
+      case Shape::Comp:
+      case Shape::Select: break;
     }
-    if (n.op == Op::Input) {
-      reg[i] = "%f" + std::to_string(i);
-      // Each input is loaded once and also stored back: its value must live in a
-      // register, like a texture sample in a shader. Otherwise ptxas turns a select of
-      // two inputs into a conditional (re)load and the FSEL disappears.
-      body << "  ld.volatile.global.f32 " << reg[i] << ", [%a1+" << 4 * n.input << "];\n";
-      body << "  st.global.f32 [%a2+" << 4 * (n.input + 1) << "], " << reg[i] << ";\n";
-      continue;
-    }
-    const bool isBool = info(n.op).result == Type::Bool;
-    const std::string d = (isBool ? "%p" : "%f") + std::to_string(i);
-    reg[i] = d;
-    const std::string a = reg[n.args[0]], b = reg[n.args[1]], c = reg[n.args[2]];
-    std::string x, y;
-    switch (n.op) {
-      case Op::Neg: body << "  neg.f32 " << d << ", " << a << ";\n"; break;
-      case Op::Abs: body << "  abs.f32 " << d << ", " << a << ";\n"; break;
-      case Op::Saturate: body << "  cvt.sat.f32.f32 " << d << ", " << a << ";\n"; break;
-      case Op::Floor: body << "  cvt.rmi.f32.f32 " << d << ", " << a << ";\n"; break;
-      case Op::Frac:
-        x = t();
-        body << "  cvt.rmi.f32.f32 " << x << ", " << a << ";\n  sub.f32 " << d << ", " << a
-             << ", " << x << ";\n";
-        break;
-      case Op::Sign:
-        x = t(), y = t();
-        body << "  set.gt.f32.f32 " << x << ", " << a << ", 0f00000000;\n  set.lt.f32.f32 " << y
-             << ", " << a << ", 0f00000000;\n  sub.f32 " << d << ", " << x << ", " << y << ";\n";
-        break;
-      case Op::Sqrt: body << "  sqrt.approx.ftz.f32 " << d << ", " << a << ";\n"; break;
-      case Op::Rsqrt: body << "  rsqrt.approx.ftz.f32 " << d << ", " << a << ";\n"; break;
-      case Op::Rcp: body << "  rcp.approx.ftz.f32 " << d << ", " << a << ";\n"; break;
-      case Op::Exp:  // exp(x) = exp2(x * log2(e))
-        x = t();
-        body << "  mul.f32 " << x << ", " << a << ", 0f3FB8AA3B;\n  ex2.approx.ftz.f32 " << d
-             << ", " << x << ";\n";
-        break;
-      case Op::Log:  // log(x) = log2(x) * ln(2)
-        x = t();
-        body << "  lg2.approx.ftz.f32 " << x << ", " << a << ";\n  mul.f32 " << d << ", " << x
-             << ", 0f3F317218;\n";
-        break;
-      case Op::Sin: body << "  sin.approx.ftz.f32 " << d << ", " << a << ";\n"; break;
-      case Op::Cos: body << "  cos.approx.ftz.f32 " << d << ", " << a << ";\n"; break;
-      case Op::Add: body << "  add.f32 " << d << ", " << a << ", " << b << ";\n"; break;
-      case Op::Sub: body << "  sub.f32 " << d << ", " << a << ", " << b << ";\n"; break;
-      case Op::Mul: body << "  mul.f32 " << d << ", " << a << ", " << b << ";\n"; break;
-      case Op::Div:
-        x = t();
-        body << "  rcp.approx.ftz.f32 " << x << ", " << b << ";\n  mul.f32 " << d << ", " << a
-             << ", " << x << ";\n";
-        break;
-      case Op::Min: body << "  min.f32 " << d << ", " << a << ", " << b << ";\n"; break;
-      case Op::Max: body << "  max.f32 " << d << ", " << a << ", " << b << ";\n"; break;
-      case Op::Step:  // step(edge, x) = x >= edge
-        body << "  set.ge.f32.f32 " << d << ", " << b << ", " << a << ";\n";
-        break;
-      case Op::Pow:
-        x = t(), y = t();
-        body << "  lg2.approx.ftz.f32 " << x << ", " << a << ";\n  mul.f32 " << y << ", " << x
-             << ", " << b << ";\n  ex2.approx.ftz.f32 " << d << ", " << y << ";\n";
-        break;
-      case Op::Lt: body << "  setp.lt.f32 " << d << ", " << a << ", " << b << ";\n"; break;
-      case Op::Le: body << "  setp.le.f32 " << d << ", " << a << ", " << b << ";\n"; break;
-      case Op::Gt: body << "  setp.gt.f32 " << d << ", " << a << ", " << b << ";\n"; break;
-      case Op::Ge: body << "  setp.ge.f32 " << d << ", " << a << ", " << b << ";\n"; break;
-      case Op::Eq: body << "  setp.eq.f32 " << d << ", " << a << ", " << b << ";\n"; break;
-      case Op::Ne: body << "  setp.neu.f32 " << d << ", " << a << ", " << b << ";\n"; break;
-      case Op::Mad:
-        body << "  fma.rn.f32 " << d << ", " << a << ", " << b << ", " << c << ";\n";
-        break;
-      case Op::Lerp:  // a + t * (b - a)
-        x = t();
-        body << "  sub.f32 " << x << ", " << b << ", " << a << ";\n  fma.rn.f32 " << d << ", "
-             << c << ", " << x << ", " << a << ";\n";
-        break;
-      case Op::Clamp:
-        x = t();
-        body << "  max.f32 " << x << ", " << a << ", " << b << ";\n  min.f32 " << d << ", " << x
-             << ", " << c << ";\n";
-        break;
-      case Op::Select:
-        body << "  selp.f32 " << d << ", " << b << ", " << c << ", " << a << ";\n";
-        break;
-      case Op::Input:
-      case Op::Const:
-      case Op::Count: break;
+    for (unsigned c = 0; c < w; ++c) {
+      const std::string o = f();
+      d[c] = o;
+      const std::string a = in(0, c);
+      const std::string b = n.nargs > 1 ? in(1, c) : std::string();
+      const std::string cc = n.nargs > 2 ? in(2, c) : std::string();
+      std::string x, y;
+      switch (n.op) {
+        case Op::Neg: body << "  neg.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Abs: body << "  abs.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Saturate: body << "  cvt.sat.f32.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Floor: body << "  cvt.rmi.f32.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Frac:
+          x = f();
+          body << "  cvt.rmi.f32.f32 " << x << ", " << a << ";\n  sub.f32 " << o << ", " << a
+               << ", " << x << ";\n";
+          break;
+        case Op::Sign:
+          x = f(), y = f();
+          body << "  set.gt.f32.f32 " << x << ", " << a << ", 0f00000000;\n  set.lt.f32.f32 "
+               << y << ", " << a << ", 0f00000000;\n  sub.f32 " << o << ", " << x << ", " << y
+               << ";\n";
+          break;
+        case Op::Sqrt: body << "  sqrt.approx.ftz.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Rsqrt: body << "  rsqrt.approx.ftz.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Rcp: body << "  rcp.approx.ftz.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Exp:  // exp(x) = exp2(x * log2(e))
+          x = f();
+          body << "  mul.f32 " << x << ", " << a << ", 0f3FB8AA3B;\n  ex2.approx.ftz.f32 " << o
+               << ", " << x << ";\n";
+          break;
+        case Op::Log:  // log(x) = log2(x) * ln(2)
+          x = f();
+          body << "  lg2.approx.ftz.f32 " << x << ", " << a << ";\n  mul.f32 " << o << ", " << x
+               << ", 0f3F317218;\n";
+          break;
+        case Op::Sin: body << "  sin.approx.ftz.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Cos: body << "  cos.approx.ftz.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Add: body << "  add.f32 " << o << ", " << a << ", " << b << ";\n"; break;
+        case Op::Sub: body << "  sub.f32 " << o << ", " << a << ", " << b << ";\n"; break;
+        case Op::Mul: body << "  mul.f32 " << o << ", " << a << ", " << b << ";\n"; break;
+        case Op::Div:
+          x = f();
+          body << "  rcp.approx.ftz.f32 " << x << ", " << b << ";\n  mul.f32 " << o << ", " << a
+               << ", " << x << ";\n";
+          break;
+        case Op::Min: body << "  min.f32 " << o << ", " << a << ", " << b << ";\n"; break;
+        case Op::Max: body << "  max.f32 " << o << ", " << a << ", " << b << ";\n"; break;
+        case Op::Step:  // step(edge, x) = x >= edge
+          body << "  set.ge.f32.f32 " << o << ", " << b << ", " << a << ";\n";
+          break;
+        case Op::Pow:
+          x = f(), y = f();
+          body << "  lg2.approx.ftz.f32 " << x << ", " << a << ";\n  mul.f32 " << y << ", " << x
+               << ", " << b << ";\n  ex2.approx.ftz.f32 " << o << ", " << y << ";\n";
+          break;
+        case Op::Mad:
+          body << "  fma.rn.f32 " << o << ", " << a << ", " << b << ", " << cc << ";\n";
+          break;
+        case Op::Lerp:  // a + t * (b - a)
+          x = f();
+          body << "  sub.f32 " << x << ", " << b << ", " << a << ";\n  fma.rn.f32 " << o << ", "
+               << cc << ", " << x << ", " << a << ";\n";
+          break;
+        case Op::Clamp:
+          x = f();
+          body << "  max.f32 " << x << ", " << a << ", " << b << ";\n  min.f32 " << o << ", "
+               << x << ", " << cc << ";\n";
+          break;
+        case Op::Select:
+          body << "  selp.f32 " << o << ", " << b << ", " << cc << ", " << a << ";\n";
+          break;
+        default: break;
+      }
     }
   }
-  std::string root = reg[e.root];
-  if (e.nodes[e.root].op == Op::Const) {  // store needs a register
-    body << "  mov.f32 %r, " << root << ";\n";
-    root = "%r";
+  // Store the result; a constant component needs a register first.
+  std::string stores;
+  const unsigned rw = width(e.nodes[e.root].type);
+  unsigned outSlot = 0;
+  for (const auto& d : inputs) outSlot += width(d.type);
+  for (unsigned c = 0; c < rw; ++c) {
+    std::string r = reg[e.root][c];
+    if (r.rfind("0f", 0) == 0) {
+      const std::string t = f();
+      body << "  mov.f32 " << t << ", " << r << ";\n";
+      r = t;
+    }
+    // Component 0 at [pout]; further components after the stored-back inputs.
+    const unsigned off = c == 0 ? 0 : 4 * (outSlot + c);
+    body << "  st.global.f32 [%a2+" << off << "], " << r << ";\n";
   }
   std::ostringstream s;
   s << "// Generated by sopt: SASS measurement of one candidate.\n"
     << ".version 8.7\n.target sm_" << sm << "\n.address_size 64\n\n"
     << ".visible .entry sopt(.param .u64 pin, .param .u64 pout)\n{\n"
-    << "  .reg .u64 %a<3>;\n  .reg .f32 %f<" << nn << ">;\n  .reg .f32 %t<" << tmp + 1
-    << ">;\n  .reg .f32 %r;\n  .reg .pred %p<" << nn << ">;\n"
+    << "  .reg .u64 %a<3>;\n  .reg .f32 %f<" << std::max(nf, 1) << ">;\n  .reg .pred %p<"
+    << std::max(np, 1) << ">;\n"
     << "  ld.param.u64 %a1, [pin];\n  ld.param.u64 %a2, [pout];\n"
     << "  cvta.to.global.u64 %a1, %a1;\n  cvta.to.global.u64 %a2, %a2;\n"
-    << body.str() << "  st.global.f32 [%a2], " << root << ";\n  ret;\n}\n";
-  (void)inputs;
+    << body.str() << "  ret;\n}\n";
   return s.str();
 }
 

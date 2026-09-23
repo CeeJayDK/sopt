@@ -1,5 +1,6 @@
 #include "ir/eval.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace sopt {
@@ -39,6 +40,13 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
     case Op::Input:
     case Op::Const:
     case Op::Count:
+    // vector ops go through evalNode
+    case Op::Dot:
+    case Op::Length:
+    case Op::Normalize:
+    case Op::Distance:
+    case Op::Swizzle:
+    case Op::Construct:
       return;
     case Op::Neg: SOPT_LOOP1(-x)
     case Op::Abs: SOPT_LOOP1(std::fabs(x))
@@ -78,6 +86,78 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
       SOPT_LOOP3(x + z * (y - x))
     case Op::Clamp: SOPT_LOOP3(fMin(fMax(x, y), z))
     case Op::Select: SOPT_LOOP3(x != 0.0f ? y : z)
+  }
+}
+
+namespace {
+
+// out = dot(a, b) over w components.
+void dotArray(const float* const* a, const float* const* b, unsigned w, float* out, size_t n,
+              const Profile& p) {
+  for (size_t i = 0; i < n; ++i) out[i] = a[0][i] * b[0][i];
+  for (unsigned c = 1; c < w; ++c) {
+    if (p.madFused)
+      for (size_t i = 0; i < n; ++i) out[i] = std::fma(a[c][i], b[c][i], out[i]);
+    else
+      for (size_t i = 0; i < n; ++i) out[i] = out[i] + a[c][i] * b[c][i];
+  }
+}
+
+}  // namespace
+
+void evalNode(const Node& node, const Type* argTypes, const float* const (*arg)[4],
+              float* const* out, size_t n, const Profile& profile, std::vector<float>& tmp) {
+  const Op op = node.op;
+  const unsigned w = width(node.type);
+  switch (info(op).shape) {
+    case Shape::Leaf: return;
+    case Shape::Comp:
+    case Shape::Select:
+    case Shape::Cmp:
+      for (unsigned c = 0; c < w; ++c) {
+        const float* p[3] = {nullptr, nullptr, nullptr};
+        for (unsigned k = 0; k < node.nargs; ++k) p[k] = arg[k][width(argTypes[k]) == 1 ? 0 : c];
+        evalArray(op, p[0], p[1], p[2], out[c], n, profile);
+      }
+      return;
+    case Shape::Reduce: {
+      const unsigned aw = width(argTypes[0]);
+      const float* const* a = arg[0];
+      if (op == Op::Distance) {  // length(a - b)
+        tmp.resize(4 * n);
+        const float* d[4];
+        for (unsigned c = 0; c < aw; ++c) {
+          evalArray(Op::Sub, arg[0][c], arg[1][c], nullptr, tmp.data() + c * n, n, profile);
+          d[c] = tmp.data() + c * n;
+        }
+        dotArray(d, d, aw, out[0], n, profile);
+      } else {
+        dotArray(a, op == Op::Dot ? arg[1] : a, aw, out[0], n, profile);
+      }
+      if (op != Op::Dot) evalArray(Op::Sqrt, out[0], nullptr, nullptr, out[0], n, profile);
+      return;
+    }
+    case Shape::Same: {  // normalize
+      tmp.resize(n);
+      dotArray(arg[0], arg[0], w, tmp.data(), n, profile);
+      evalArray(Op::Rsqrt, tmp.data(), nullptr, nullptr, tmp.data(), n, profile);
+      for (unsigned c = 0; c < w; ++c)
+        evalArray(Op::Mul, arg[0][width(argTypes[0]) == 1 ? 0 : c], tmp.data(), nullptr, out[c], n,
+                  profile);
+      return;
+    }
+    case Shape::Swizzle:
+      for (unsigned c = 0; c < w; ++c) {
+        const float* src = arg[0][node.swz[c]];
+        std::copy(src, src + n, out[c]);
+      }
+      return;
+    case Shape::Construct: {
+      unsigned c = 0;
+      for (unsigned k = 0; k < node.nargs; ++k)
+        for (unsigned j = 0; j < width(argTypes[k]); ++j, ++c) std::copy(arg[k][j], arg[k][j] + n, out[c]);
+      return;
+    }
   }
 }
 

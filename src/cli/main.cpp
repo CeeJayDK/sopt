@@ -28,6 +28,8 @@ void usage() {
       "  --max-cost C      search up to cost C (default: target cost - 1)\n"
       "  --tests N         fingerprint test points (default 32)\n"
       "  --v1 N            verification sample points (default 1048576)\n"
+      "  --v2-max N        verify on every domain point if there are at most N (default 16777216, 0 = off)\n"
+      "  --v2 N            ... for the N cheapest alternatives (default 20)\n"
       "  --max-bank N      bank entry limit (default 2000000)\n"
       "  --time S          search time limit per iteration in seconds (default 60)\n"
       "  --threads N       verification threads (default: all)\n"
@@ -54,7 +56,11 @@ const char* budgetText(const Budget& b, char* buf, size_t n) {
   switch (b.kind) {
     case Budget::Kind::Exact: return "exact";
     case Budget::Kind::Color8:
-      std::snprintf(buf, n, "color8, max code diff %d", b.maxCodeDiff);
+    case Budget::Kind::Color10:
+      std::snprintf(buf, n, "color%d, max code diff %d", b.codeBits(), b.maxCodeDiff);
+      return buf;
+    case Budget::Kind::Texcoord:
+      std::snprintf(buf, n, "texcoord, %g px at 3840 (abs %g)", b.px, b.eps);
       return buf;
     case Budget::Kind::Abs: std::snprintf(buf, n, "abs %g", b.eps); return buf;
     case Budget::Kind::Rel: std::snprintf(buf, n, "rel %g", b.eps); return buf;
@@ -94,6 +100,8 @@ int main(int argc, char** argv) {
     else if (a == "--max-cost") opt.search.maxCost = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--tests") opt.numTests = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--v1") opt.v1Points = std::strtoull(next(), nullptr, 10);
+    else if (a == "--v2-max") opt.v2Max = std::strtoull(next(), nullptr, 10);
+    else if (a == "--v2") opt.v2Candidates = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--max-bank") opt.search.maxBank = std::strtoull(next(), nullptr, 10);
     else if (a == "--time") opt.search.timeLimitSec = std::strtod(next(), nullptr);
     else if (a == "--threads") opt.threads = static_cast<unsigned>(std::strtoul(next(), nullptr, 10));
@@ -158,7 +166,11 @@ int main(int argc, char** argv) {
   std::printf("budget:   %s\n", budgetText(prog.budget, buf, sizeof(buf)));
   std::string profiles;
   for (const auto& p : kAllProfiles) profiles += (profiles.empty() ? "" : "/") + std::string(p.name);
-  std::printf("verified: sampling, %zu points, profiles %s\n", opt.v1Points, profiles.c_str());
+  std::printf("verified: sampling, %zu points, profiles %s", opt.v1Points, profiles.c_str());
+  if (r.v2Points)
+    std::printf("; all %llu domain points for the cheapest %u (ver = all)",
+                (unsigned long long)r.v2Points, opt.v2Candidates);
+  std::printf("\n");
 
   // Real machine-code cost of the target and the shown alternatives, per vendor:
   // AMD RDNA (fxstat + RGA) and NVIDIA (ptxas + nvdisasm).
@@ -219,7 +231,8 @@ int main(int argc, char** argv) {
   } else {
     std::printf("cost  ");
     for (const auto& c : cols) std::printf("%4s  ", c.name.c_str());
-    std::printf("class            max |err|  max code  changed  expression\n");
+    std::printf("ver  class            max |err|  max code  changed  expression   (codes: %d-bit)\n",
+                prog.budget.codeBits());
     std::vector<int> noGain(cols.size(), 0), failed(cols.size(), 0);
     for (size_t i : order) {
       const auto& a = r.accepted[i];
@@ -236,7 +249,8 @@ int main(int argc, char** argv) {
           std::printf("%3d%c  ", c.cost, t.ok && !gain ? '!' : ' ');
         }
       }
-      std::printf("%-15s  %9.3g  %8d  %6.3f%%  %s\n", klassName(a.klass), a.worst.maxAbs,
+      std::printf("%-3s  %-15s  %9.3g  %8d  %6.3f%%  %s\n", a.exhaustive ? "all" : "smp",
+                  klassName(a.klass, prog.budget.codeBits()), a.worst.maxAbs,
                   a.worst.maxCodeDiff, 100.0 * a.worst.changedFraction(), a.text.c_str());
     }
     std::printf("\n%zu alternative(s) cheaper than cost %u", r.accepted.size(), r.targetCost);
@@ -261,10 +275,10 @@ int main(int argc, char** argv) {
   if (stats) {
     const auto& s = r.search;
     std::printf("\nstats: iterations %u, counterexamples %llu, rejected stage2 %llu, v1 %llu, "
-                "profiles %llu\n",
+                "profiles %llu, v2 %llu\n",
                 r.iterations, (unsigned long long)r.counterexamples,
                 (unsigned long long)r.rejectedStage2, (unsigned long long)r.rejectedV1,
-                (unsigned long long)r.rejectedProfiles);
+                (unsigned long long)r.rejectedProfiles, (unsigned long long)r.rejectedV2);
     std::printf("final search: %.3fs, generated %llu (%.2f M/s), deduped %llu, const-skipped %llu, "
                 "bank %llu, hits %llu, first hit %.3fs\n",
                 s.seconds, (unsigned long long)s.generated,
