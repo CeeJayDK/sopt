@@ -1023,7 +1023,7 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         const Function* f = pf->second;
         const std::string sem = upper(v.semantic);
         if (sem == "SV_POSITION" || sem == "VPOS")
-          return Range::of(0, 3840, "SV_Position (up to 4K)");
+          return Range::of(0, 16384, "SV_Position (pixels, up to the 16384 hardware limit)");
         // Pixel shader input: what the vertex shaders of its passes write, else the
         // semantic's convention.
         if (f->type == reshadefx::shader_type::pixel) {
@@ -1143,7 +1143,7 @@ Range Extractor::pixelInputRange(const Function& ps, const std::string& semantic
 // TEXCOORD0..9 are texture coordinates by convention (programmers name them so), [0, 1].
 Range semanticConvention(const std::string& semantic) {
   const std::string key = semanticKey(semantic);
-  if (key == "SV_POSITION0" || key == "VPOS0") return Range::of(0, 3840, "SV_Position (up to 4K)");
+  if (key == "SV_POSITION0" || key == "VPOS0") return Range::of(0, 16384, "SV_Position (pixels, up to the 16384 hardware limit)");
   if (key.rfind("TEXCOORD", 0) == 0) return Range::of(0, 1, "TEXCOORD semantic (convention)");
   return Range::unknown();
 }
@@ -1471,7 +1471,7 @@ void Extractor::suggest(const Leaf& l, Fact& f) const {
   if (has({"uv", "coord", "tex"})) return set(0, 1, "name looks like a texture coordinate");
   if (has({"col", "rgb", "luma", "lum"})) return set(0, 1, "name looks like a color");
   if (has({"depth"})) return set(0, 1, "name looks like depth");
-  if (has({"pos", "pixel"})) return set(0, 3840, "name looks like a pixel position");
+  if (has({"pos", "pixel"})) return set(0, 16384, "name looks like a pixel position");
   set(opt_.defaultLo, opt_.defaultHi, "no guess (the default)");
 }
 

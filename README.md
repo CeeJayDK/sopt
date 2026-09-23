@@ -70,7 +70,7 @@ and skipped.
 inputs from what the passes' vertex shaders write (`PostProcessVS` texcoord in [0, 1],
 other vertex shaders by range analysis, including out parameters of functions they
 call; where that finds nothing, TEXCOORD0..9 are [0, 1] by convention, also for members
-of struct inputs), `SV_Position` in pixels ([0, 3840]), texture fetches by format (the back buffer as
+of struct inputs), `SV_Position` in pixels ([0, 16384], the hardware limit), texture fetches by format (the back buffer as
 8-bit SDR, grid 255; depth [0, 1]), helper parameters from their call sites, and
 interval propagation over reaching definitions. Otherwise the range is *assumed*
 ([-1000, 1000]): such regions are searched, but their variants only appear in the

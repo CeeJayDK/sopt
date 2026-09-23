@@ -266,5 +266,5 @@ TEST(fx_semantic_ranges) {
   auto [b, fb] = input(36, "uv");
   CHECK(b.lo == 0.0 && b.hi == 1.0 && fb.source == "TEXCOORD semantic (convention)");
   auto [p, fp] = input(37, "vpos.x");
-  CHECK(p.lo == 0.0 && p.hi == 3840.0 && !fp.assumed);
+  CHECK(p.lo == 0.0 && p.hi == 16384.0 && !fp.assumed);
 }
