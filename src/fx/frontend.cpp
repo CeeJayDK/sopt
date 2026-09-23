@@ -1228,7 +1228,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       fact.source = r.why;
       fact.assumed = r.assumed;
       fact.fetch = l.fetch;
-      if (d.lo == d.hi) d.hi = d.lo + 1e-3 * std::max(1.0, std::fabs(d.lo));  // degenerate
+      if (d.lo == d.hi) throw Unsupported("input is a constant");  // the compiler folds it
       reg.prog.inputs.push_back(d);
       reg.facts.push_back(fact);
     }
