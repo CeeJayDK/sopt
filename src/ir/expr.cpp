@@ -238,6 +238,38 @@ uint32_t dagCost(const Expr& e, const CostModel& m) {
   return cost;
 }
 
+std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& inputs) {
+  std::vector<bool> ct(e.nodes.size(), false);
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op == Op::Const) {
+      ct[i] = true;
+    } else if (n.op == Op::Input) {
+      ct[i] = n.input < inputs.size() && inputs[n.input].compileTime;
+    } else {
+      bool all = true;
+      for (unsigned k = 0; k < operandCount(n); ++k) all = all && ct[n.args[k]];
+      ct[i] = all;
+    }
+  }
+  return ct;
+}
+
+uint32_t dagCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
+  const auto ct = compileTimeNodes(e, inputs);
+  const auto uses = m.fusedAdd ? useCounts(e) : std::vector<uint32_t>();
+  uint32_t cost = 0;
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    if (ct[i]) continue;
+    const Node& n = e.nodes[i];
+    const bool reduce = info(n.op).shape == Shape::Reduce;
+    const unsigned w = width(reduce ? e.nodes[n.args[0]].type : n.type);
+    const int f = m.fusedAdd ? fusedArg(e, i, uses, m.divIsMul) : -1;
+    cost += (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd : m.opCost(n.op, w);
+  }
+  return cost;
+}
+
 bool containsInexact(const Expr& e) {
   for (const auto& n : e.nodes)
     if (!info(n.op).exact) return true;

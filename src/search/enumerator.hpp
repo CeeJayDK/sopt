@@ -78,6 +78,9 @@ class Enumerator {
     uint32_t aux;         // Input: input index; Const: index into consts_; Swizzle: component
     bool affine = false;  // single affine step (v + c, v * c, -v, ...) of a non-constant entry
     uint16_t obj = 0;     // objective (model) tree cost
+    // Computed only from constants and compile-time inputs (not constants themselves):
+    // the compiler folds it, so its objective cost is 0.
+    bool ctime = false;
   };
   // Hit through a solved outer affine map: wrap(x) with op Add (x + q), Mul (x * p),
   // Sub (q - x) or Mad (mad(x, p, q)), where x = entries_[idx], or inner(entries_[idx] + c)

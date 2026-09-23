@@ -31,6 +31,9 @@ struct InputDecl {
   double hi = 1.0;
   uint32_t grid = 0;  // 0 = continuous, N = values lo + k*(hi-lo)/N
   Type type = Type::Float;  // float1..4; every component has the same domain
+  // A compile-time constant (a preprocessor definition the user can change): the
+  // compiler folds expressions of these, so they cost nothing.
+  bool compileTime = false;
 };
 
 // Error budget per output value (design 4.2). Color8/Color10: max difference in
@@ -83,6 +86,11 @@ class ExprBuilder {
 // Static cost with sharing: every distinct node counts once. With contraction, an
 // add/sub over a single-use mul (or div) costs model.fusedAdd.
 uint32_t dagCost(const Expr& e, const CostModel& model = defaultCostModel());
+// The same with compile-time inputs (InputDecl::compileTime): nodes computed only from
+// constants and compile-time inputs are folded by the compiler and cost nothing.
+uint32_t dagCost(const Expr& e, const CostModel& model, const std::vector<InputDecl>& inputs);
+// Per node: computed only from constants and compile-time inputs.
+std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& inputs);
 std::vector<uint32_t> useCounts(const Expr& e);
 // For an add/sub node: the operand index (0/1) that contracts into an fma, else -1.
 int fusedArg(const Expr& e, uint32_t node, const std::vector<uint32_t>& uses, bool divIsMul);

@@ -77,6 +77,15 @@ interval propagation over reaching definitions. Otherwise the range is *assumed*
 report (sampling cannot see a difference confined to a small part of a wide range),
 unless `--assumed`.
 
+**Preprocessor definitions.** Numeric definitions the user can change (those the effect
+tests with `#ifndef`, as ReShade shows them) stay symbolic: the effect is parsed a second
+time with each of them as a named compile-time input (their value is still used in
+`#if`). Variants print the name, so they stay valid for every setting, and
+sub-expressions of such inputs and constants cost nothing (the compiler folds them).
+Their range is asked for like other missing ranges (key `macro global NAME`). Other
+macros in a statement still skip it. `--no-macro-inputs` turns this off. In `.sopt`
+files, `input F : const float in [lo, hi]` declares such an input.
+
 **Missing ranges.** Every run writes `sopt-facts.txt` to the output directory: the
 ranges given so far, and each input without a known range as a commented line with a
 suggestion (from a COLOR semantic, its name, a uniform's default value, or the

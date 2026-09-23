@@ -47,8 +47,9 @@ std::string escapeCell(std::string s) {
 
 }  // namespace
 
-uint32_t compiledCost(const Expr& e, const CostModel& m) {
+uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
   const auto uses = m.fusedAdd ? useCounts(e) : std::vector<uint32_t>();
+  const auto ct = compileTimeNodes(e, inputs);
   auto isArith = [&](uint32_t i) {
     const Op op = e.nodes[i].op;
     return op != Op::Input && op != Op::Const && op != Op::Swizzle && op != Op::Construct;
@@ -63,8 +64,8 @@ uint32_t compiledCost(const Expr& e, const CostModel& m) {
   uint32_t cost = 0;
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     const Node& n = e.nodes[i];
-    if (n.op == Op::Swizzle || n.op == Op::Construct) continue;
-    if (m.fusedAdd && fusedArg(e, i, uses, m.divIsMul) >= 0) continue;
+    if (n.op == Op::Swizzle || n.op == Op::Construct || ct[i]) continue;
+    if (const int f = m.fusedAdd ? fusedArg(e, i, uses, m.divIsMul) : -1; f >= 0 && !ct[n.args[f]]) continue;
     // Source modifiers of the consuming instruction.
     if ((n.op == Op::Neg || n.op == Op::Abs) && i != e.root) continue;
     // Output modifier of the producing instruction (clamp(x, 0, 1) is saturate).

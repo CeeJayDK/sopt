@@ -138,6 +138,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   ranges (done: sopt-facts.txt + `--facts`, interactive `--ask`; user ranges apply in
   the range propagation, key "<file> <function|global> <variable>"); dataflow cut
   points to split windows: try in M7.
+- Preprocessor definitions (owner: compile-time constants): user-changeable numeric
+  ones (`used_macro_definitions`) stay symbolic via a small hook in the vendored
+  preprocessor (`symbolic_macros`: code uses become the identifier `__sopt_<name>`, a
+  uniform in the parse; `#if` keeps the value). `InputDecl::compileTime` inputs: nodes of
+  only constants/compile-time inputs cost 0 (`dagCost(e, m, inputs)`, enumerator
+  `Entry::ctime`, `compiledCost`). The plain search cannot build F-dependent constants
+  such as 1/(F-1) (depth_sym: bank limit); next: specialize to the default value, search,
+  then generalize the numeric constants into expressions of the definitions and verify.
 
 ## Next (per docs/design.md)
 0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan).

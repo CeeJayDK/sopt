@@ -72,7 +72,7 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
     : prog_(prog), tests_(tests), cfg_(cfg), n_(tests.size()) {
   targetType_ = prog.target.nodes[prog.target.root].type;
   tn_ = lenOf(targetType_);
-  targetCost_ = dagCost(prog.target, *cfg.model);
+  targetCost_ = dagCost(prog.target, *cfg.model, prog.inputs);
   target_ = evalAll(prog.target, tests, kProfileRef);
   targetFinite_.resize(tn_);
   for (size_t i = 0; i < tn_; ++i) targetFinite_[i] = std::isfinite(target_[i]) ? 1 : 0;
@@ -158,7 +158,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
       hits_.push_back(idx);
       ++stats.hits;
       if (stats.firstHitSec < 0) stats.firstHitSec = nowSeconds() - start_;
-    } else if (cfg_.affine && !e.affine && !e.isConst && numHits() < cfg_.maxHits) {
+    } else if (cfg_.affine && !e.affine && !e.isConst && !e.ctime && numHits() < cfg_.maxHits) {
       // An affine step's base is in the bank and gets its own (cheaper) fit.
       if (!affineFit(idx, stats) && cfg_.inner) innerFit(idx, stats);
     }
@@ -490,10 +490,17 @@ void Enumerator::tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c
   // Objective cost; an entry that already costs as much as the target can be neither a
   // hit nor part of one. A same-width mul/div under an add/sub contracts to fma.
   const CostModel& model = *cfg_.model;
+  // Only constants and compile-time inputs: folded by the compiler, free.
+  bool ctime = true;
+  for (uint8_t k = 0; k < oi.arity; ++k) ctime = ctime && (entries_[args[k]].isConst || entries_[args[k]].ctime);
   uint32_t obj = 0;
   for (uint8_t k = 0; k < oi.arity; ++k) obj += entries_[args[k]].obj;
-  auto fuses = [&](uint32_t x) { return model.fusesIntoAdd(entries_[x].op) && entries_[x].type == type; };
-  if (model.fusedAdd && (op == Op::Add || op == Op::Sub) && (fuses(a) || fuses(b)))
+  auto fuses = [&](uint32_t x) {
+    return !entries_[x].ctime && model.fusesIntoAdd(entries_[x].op) && entries_[x].type == type;
+  };
+  if (ctime)
+    obj = 0;
+  else if (model.fusedAdd && (op == Op::Add || op == Op::Sub) && (fuses(a) || fuses(b)))
     obj += w * model.fusedAdd;
   else
     obj += model.opCost(op, w);
@@ -513,7 +520,7 @@ void Enumerator::tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c
     }
   }
   canonicalize(out, w * n_);
-  Entry e{op, type, cost, false, {a, b, c}, aux, affine, static_cast<uint16_t>(obj)};
+  Entry e{op, type, cost, false, {a, b, c}, aux, affine, static_cast<uint16_t>(obj), ctime};
   insert(e, out, stats);
 }
 
@@ -546,12 +553,13 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
       std::copy(tests_.cols[slot + k].begin(), tests_.cols[slot + k].end(), scratch_.begin() + k * n_);
     }
     canonicalize(scratch_.data(), width(t) * n_);
-    Entry e{Op::Input, t, 0, false, {0, 0, 0}, i, false, 0};
+    const bool ct = prog_.inputs[i].compileTime;
+    Entry e{Op::Input, t, 0, false, {0, 0, 0}, i, false, 0, ct};
     if (!insert(e, scratch_.data(), stats) || width(t) == 1) continue;
     const auto vec = static_cast<uint32_t>(entries_.size() - 1);
-    const auto swzCost = static_cast<uint16_t>(model.opCost(Op::Swizzle, 1));
+    const auto swzCost = static_cast<uint16_t>(ct ? 0 : model.opCost(Op::Swizzle, 1));
     for (unsigned k = 0; k < width(t); ++k) {
-      Entry s{Op::Swizzle, Type::Float, 0, false, {vec, 0, 0}, k, false, swzCost};
+      Entry s{Op::Swizzle, Type::Float, 0, false, {vec, 0, 0}, k, false, swzCost, ct};
       insert(s, fpOf(vec) + k * n_, stats);
     }
   }
@@ -641,7 +649,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
   auto emit = [&](const Entry& e) {
     Candidate cand;
     cand.expr = extract(e);
-    cand.cost = dagCost(cand.expr, *cfg_.model);
+    cand.cost = dagCost(cand.expr, *cfg_.model, prog_.inputs);
     out.push_back(std::move(cand));
   };
   for (uint32_t idx : hits_) emit(entries_[idx]);
@@ -649,7 +657,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
   for (const AffineHit& h : affineHits_) {
     Candidate cand;
     cand.expr = extract(h);
-    cand.cost = dagCost(cand.expr, *cfg_.model);
+    cand.cost = dagCost(cand.expr, *cfg_.model, prog_.inputs);
     out.push_back(std::move(cand));
   }
   return out;

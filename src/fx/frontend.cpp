@@ -4,6 +4,7 @@
 #include <bit>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <set>
@@ -97,6 +98,10 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   pp.add_macro_definition("BUFFER_COLOR_FORMAT", "28");
   pp.add_macro_definition("BUFFER_COLOR_BIT_DEPTH", "8");
   for (const auto& [k, v] : opt.macros) pp.add_macro_definition(k, v);
+  pp.symbolic_macros.insert(opt.symbolic.begin(), opt.symbolic.end());
+  std::string decls;
+  for (const auto& m : opt.symbolic) decls += "uniform float " + std::string(kSymbolicPrefix) + m + ";\n";
+  if (!decls.empty()) pp.append_string(decls);
   pp.append_string(
       "#define tex2Doffset(s, coords, offset) tex2D(s, coords, offset)\n"
       "#define tex2Dlodoffset(s, coords, offset) tex2Dlod(s, coords, offset)\n"
@@ -119,9 +124,34 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
     return nullptr;
   }
   mapLines(pp.output(), fx->ppLines);
+  for (const auto& [k, v] : pp.used_macro_definitions()) fx->userMacros[k] = v;
+  fx->symbolic = opt.symbolic;
   fx->sourceFiles.push_back(pathString(path));
   for (const auto& f : pp.included_files()) fx->sourceFiles.push_back(pathString(f));
   return fx;
+}
+
+std::set<std::string> symbolicMacros(const fs::path& path, const LoadOptions& opt,
+                                     const Effect& plain) {
+  auto numeric = [](const std::string& v) {
+    std::string t = v;
+    while (!t.empty() && std::isspace(static_cast<unsigned char>(t.back()))) t.pop_back();
+    if (!t.empty() && (t.back() == 'f' || t.back() == 'F')) t.pop_back();
+    char* end = nullptr;
+    std::strtod(t.c_str(), &end);
+    return !t.empty() && end && *end == 0;
+  };
+  // Each alone, then together (greedily, in name order).
+  std::set<std::string> ok;
+  for (const auto& [name, value] : plain.userMacros) {
+    if (!numeric(value)) continue;
+    LoadOptions o = opt;
+    o.symbolic = ok;
+    o.symbolic.insert(name);
+    std::string err;
+    if (loadEffect(path, o, err)) ok.insert(name);
+  }
+  return ok;
 }
 
 namespace {
@@ -435,6 +465,11 @@ class Extractor {
   Budget budgetFor(const Function& f, const Statement& s, std::string& reason);
   void useKinds(uint32_t valueId, bool& cmp, bool& coord, bool& other, int depth);
   static bool outOnly(const Variable& v);
+  bool isSymbolic(uint32_t var) const {
+    const auto it = cg_.variables.find(var);
+    return it != cg_.variables.end() && it->second.kind == Variable::Kind::Uniform &&
+           it->second.name.rfind(kSymbolicPrefix, 0) == 0;
+  }
   void suggest(const Leaf& l, Fact& f) const;
   Range outParamRange(const Function& g, size_t index);
   Range pixelInputRange(const Function& ps, const std::string& semantic);
@@ -473,6 +508,7 @@ std::string Extractor::varText(uint32_t var) const {
     case Variable::Kind::Local:
     case Variable::Kind::Param: return v.name;
     case Variable::Kind::Uniform: {
+      if (v.name.rfind(kSymbolicPrefix, 0) == 0) return v.name.substr(std::strlen(kSymbolicPrefix));
       if (v.uniqueName == "V" + v.name) return v.name;
       // "VNs__name" -> "Ns::name"
       std::string ns = v.uniqueName.substr(1, v.uniqueName.size() - 1 - v.name.size());
@@ -966,6 +1002,7 @@ std::string Extractor::varKey(uint32_t var) const {
                                : fi != varFunction_.end()       ? fi->second->name
                                                                 : std::string();
   if (function.empty()) return {};
+  if (isSymbolic(var)) return "macro global " + varText(var);  // preprocessor definition
   return pathFrom(v.loc.source).filename().string() + " " + function + " " +
          (v.kind == Variable::Kind::Uniform ? varText(var) : v.name);
 }
@@ -984,6 +1021,8 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
   const auto vi = cg_.variables.find(var);
   if (vi == cg_.variables.end()) return Range::unknown();
   const Variable& v = vi->second;
+  // A preprocessor definition: the user can set any value, no fact.
+  if (isSymbolic(var)) return Range::unknown();
   switch (v.kind) {
     case Variable::Kind::Uniform: {
       double lo = NAN, hi = NAN;
@@ -1311,7 +1350,11 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
     if (it == fx_.ppLines.end()) { why = "uses a macro"; return false; }
     pp += it->second + '\n';
   }
-  if (tokens(withoutFetches(src)) != tokens(withoutFetches(pp))) { why = "uses a macro"; return false; }
+  std::vector<std::string> ppTokens = tokens(withoutFetches(pp));
+  const size_t prefixLen = std::strlen(kSymbolicPrefix);
+  for (auto& t : ppTokens)
+    if (t.rfind(kSymbolicPrefix, 0) == 0) t.erase(0, prefixLen);  // symbolic definitions
+  if (tokens(withoutFetches(src)) != ppTokens) { why = "uses a macro"; return false; }
   return true;
 }
 
@@ -1349,6 +1392,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
           if (l.mask & (1u << c)) d.name += xyzw[c];
       }
       d.type = floatType(w);
+      d.compileTime = !l.fetch && isSymbolic(l.var);
       Range r = range(l.loadValue);
       Fact fact;
       fact.input = d.name;
@@ -1400,6 +1444,9 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   if (ops < opt_.minOps) { why = "fewer than minOps operations"; return false; }
   if (ops > opt_.maxOps) { why = "more than maxOps operations"; return false; }
   if (reg.prog.inputs.empty()) { why = "constant expression"; return false; }
+  bool runtime = false;
+  for (const auto& d : reg.prog.inputs) runtime = runtime || !d.compileTime;
+  if (!runtime) { why = "compile-time constant expression"; return false; }
   return true;
 }
 
@@ -1462,6 +1509,13 @@ void Extractor::suggest(const Leaf& l, Fact& f) const {
   if (const auto it = cg_.variables.find(l.var); semantic.empty() && it != cg_.variables.end())
     semantic = it->second.semantic;
   if (upper(semantic).rfind("COLOR", 0) == 0) return set(0, 1, "COLOR semantic (usually a color)");
+  if (!l.fetch && isSymbolic(l.var)) {
+    const auto m = fx_.userMacros.find(varText(l.var));
+    const double d = m == fx_.userMacros.end() ? 0.0 : std::strtod(m->second.c_str(), nullptr);
+    if (d > 0) return set(0, 2 * d, "preprocessor definition, twice its value");
+    if (d < 0) return set(2 * d, 0, "preprocessor definition, twice its value");
+    return set(-1, 1, "preprocessor definition (value 0)");
+  }
   if (const auto it = cg_.variables.find(l.var); it != cg_.variables.end() &&
       it->second.kind == Variable::Kind::Uniform && it->second.hasDefault &&
       it->second.type.is_floating_point()) {

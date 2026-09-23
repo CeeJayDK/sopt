@@ -39,7 +39,8 @@ struct RegionResult {
 // an fma anyway (free here instead of the model's fusedAdd), and swizzles and
 // constructors are free (register moves the compiler removes). Variants are kept only
 // if this is lower than the original's, so that explicit mad() alone is no gain.
-uint32_t compiledCost(const Expr& e, const CostModel& m);
+// Nodes computed only from constants and compile-time inputs are free too.
+uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs = {});
 
 // Name of the preprocessor switch of a region: SOPT_<file stem>_<line>.
 std::string switchName(const Region& r);

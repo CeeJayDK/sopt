@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -16,6 +17,8 @@ struct LoadOptions {
   std::vector<std::filesystem::path> includePaths;
   std::vector<std::pair<std::string, std::string>> macros;  // extra definitions
   unsigned width = 1920, height = 1080;                      // BUFFER_WIDTH / BUFFER_HEIGHT
+  // Preprocessor definitions kept symbolic in code (see symbolicMacros()).
+  std::set<std::string> symbolic;
 };
 
 // One parse of an effect: the recorded dataflow graph plus the preprocessed text of
@@ -25,7 +28,20 @@ struct Effect {
   std::unique_ptr<Codegen> cg;
   std::map<std::pair<std::string, uint32_t>, std::string> ppLines;  // (file, line) -> text
   std::vector<std::string> sourceFiles;  // the effect and its includes
+  // Preprocessor definitions the effect tests with #ifdef/#ifndef (the ones ReShade lets
+  // the user change), name -> value.
+  std::map<std::string, std::string> userMacros;
+  std::set<std::string> symbolic;  // of those, the ones kept symbolic in this parse
 };
+
+// Prefix of a symbolic preprocessor definition's identifier in the parsed code.
+inline constexpr const char* kSymbolicPrefix = "__sopt_";
+
+// The user-changeable numeric preprocessor definitions of an effect that can stay
+// symbolic: its code still parses with each of them (and all together) replaced by a
+// uniform. They become compile-time inputs of regions instead of baked-in numbers.
+std::set<std::string> symbolicMacros(const std::filesystem::path& path, const LoadOptions& opt,
+                                     const Effect& plain);
 
 // Preprocesses and parses one .fx file. Returns null and sets errors on failure.
 std::unique_ptr<Effect> loadEffect(const std::filesystem::path& path, const LoadOptions& opt,

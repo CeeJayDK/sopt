@@ -52,6 +52,8 @@ void usage() {
       "  --facts FILE      ranges for inputs without facts (format: see sopt-facts.txt,\n"
       "                    which every run writes to the output directory)\n"
       "  --ask             ask for the missing ranges in the terminal (Enter = suggestion)\n"
+      "  --no-macro-inputs bake preprocessor definitions in instead of keeping the ones\n"
+      "                    users can change as compile-time inputs\n"
       "  --max-width N     largest render target width: SV_Position in [0, N], texture\n"
       "                    coordinates within 0.01 px at N (default 7680 = 8K; the\n"
       "                    hardware limit is 16384)");
@@ -85,7 +87,7 @@ int main(int argc, char** argv) {
   opt.search.maxBank = 500'000;
   opt.v1Points = 1u << 18;
   opt.maxIterations = 4;
-  bool isa = false, sass = false, allowAssumed = false, ask = false;
+  bool isa = false, sass = false, allowAssumed = false, ask = false, symbolic = true;
   fs::path factsFile;
   IsaConfig isaCfg;
   if (const char* v = std::getenv("SOPT_FXSTAT")) isaCfg.fxstat = v;
@@ -124,6 +126,7 @@ int main(int argc, char** argv) {
     else if (a == "--assumed") allowAssumed = true;
     else if (a == "--facts") factsFile = next();
     else if (a == "--ask") ask = true;
+    else if (a == "--no-macro-inputs") symbolic = false;
     else if (a == "--max-width") ropt.maxWidth = std::strtod(next(), nullptr);
     else if (a == "--sass") sass = true;
     else if (a == "--sm") sassCfg.sm = std::atoi(next());
@@ -169,7 +172,16 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "%s: parse failed\n%s", p.string().c_str(), err.c_str());
         continue;
       }
-      fx::LoadOptions alt = load;
+      // User-changeable numeric preprocessor definitions stay symbolic (compile-time
+      // inputs) where the effect still parses that way.
+      fx::LoadOptions sym = load;
+      if (symbolic) sym.symbolic = fx::symbolicMacros(p, load, *fx);
+      if (!sym.symbolic.empty()) {
+        std::string symErr;
+        if (auto s = fx::loadEffect(p, sym, symErr)) fx = std::move(s);
+        else sym.symbolic.clear();
+      }
+      fx::LoadOptions alt = sym;
       alt.width = 2560;
       alt.height = 1440;
       std::string altErr;
@@ -180,7 +192,7 @@ int main(int argc, char** argv) {
         if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
         fx::RegionResult rr;
         rr.effect = p.string();
-        rr.targetCost = dagCost(r.prog.target, *opt.search.model);
+        rr.targetCost = dagCost(r.prog.target, *opt.search.model, r.prog.inputs);
         rr.region = std::move(r);
         results.push_back(std::move(rr));
       }
@@ -324,7 +336,8 @@ int main(int argc, char** argv) {
     rr.targetCost = res.targetCost;
     rr.limitHit = res.search.limitHit;
     rr.completedCost = res.search.completedCost;
-    const uint32_t targetCompiled = fx::compiledCost(rr.region.prog.target, *opt.search.model);
+    const uint32_t targetCompiled =
+        fx::compiledCost(rr.region.prog.target, *opt.search.model, rr.region.prog.inputs);
     // A texture fetch input is its call text: a variant must not repeat it more often.
     auto count = [](const std::string& text, const std::string& what) {
       size_t n = 0;
@@ -341,7 +354,7 @@ int main(int argc, char** argv) {
           moreFetches = moreFetches || count(a.text, nm) > count(targetText, nm);
         }
       if (moreFetches) continue;
-      if (fx::compiledCost(a.expr, *opt.search.model) >= targetCompiled) {
+      if (fx::compiledCost(a.expr, *opt.search.model, rr.region.prog.inputs) >= targetCompiled) {
         ++rr.onlyContraction;
         continue;
       }

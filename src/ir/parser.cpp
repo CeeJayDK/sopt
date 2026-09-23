@@ -344,13 +344,16 @@ Program parseProgram(std::string_view text) {
 
     if (t[0].text == "input") {
       if (!exprText.empty()) err("inputs must be declared before the output");
-      const bool typeOk = kw(3, "float") || kw(3, "float2") || kw(3, "float3") || kw(3, "float4");
-      if (t[1].kind != Tok::Ident || !kw(2, ":") || !typeOk || !kw(4, "in") || !kw(5, "["))
-        err("expected: input <name> : float[2|3|4] in [lo, hi] [grid N]");
+      // "const": a compile-time constant (a preprocessor definition), folded by the compiler.
+      const size_t o = kw(3, "const") ? 1 : 0;
+      const bool typeOk = kw(3 + o, "float") || kw(3 + o, "float2") || kw(3 + o, "float3") || kw(3 + o, "float4");
+      if (t[1].kind != Tok::Ident || !kw(2, ":") || !typeOk || !kw(4 + o, "in") || !kw(5 + o, "["))
+        err("expected: input <name> : [const] float[2|3|4] in [lo, hi] [grid N]");
       InputDecl d;
       d.name = t[1].text;
-      d.type = t[3].text == "float" ? Type::Float : floatType(static_cast<unsigned>(t[3].text[5] - '0'));
-      size_t p = 6;
+      d.compileTime = o == 1;
+      d.type = t[3 + o].text == "float" ? Type::Float : floatType(static_cast<unsigned>(t[3 + o].text[5] - '0'));
+      size_t p = 6 + o;
       d.lo = parseSignedNumber(t, p, line);
       if (!kw(p, ",")) err("expected ','");
       ++p;

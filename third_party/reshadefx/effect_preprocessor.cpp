@@ -776,6 +776,14 @@ void reshadefx::preprocessor::parse_include()
 
 bool reshadefx::preprocessor::evaluate_expression()
 {
+	// sopt: symbolic macros keep their value in #if expressions
+	struct sopt_condition_scope
+	{
+		int &depth;
+		explicit sopt_condition_scope(int &d) : depth(d) { ++depth; }
+		~sopt_condition_scope() { --depth; }
+	} sopt_scope(_sopt_condition);
+
 	struct rpn_token
 	{
 		int value;
@@ -1155,6 +1163,13 @@ bool reshadefx::preprocessor::evaluate_identifier_as_macro()
 		const std::unordered_set<std::string> &hidden_macros = _input_stack[_current_input_index].hidden_macros;
 		if (hidden_macros.find(_token.literal_as_string) != hidden_macros.end())
 			return false;
+	}
+
+	// sopt: keep symbolic macros as an identifier in code
+	if (_sopt_condition == 0 && symbolic_macros.find(_token.literal_as_string) != symbolic_macros.end())
+	{
+		push("__sopt_" + _token.literal_as_string);
+		return true;
 	}
 
 	const location macro_location = _token.location;

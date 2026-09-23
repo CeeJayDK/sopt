@@ -268,3 +268,37 @@ TEST(fx_semantic_ranges) {
   auto [p, fp] = input(37, "vpos.x");
   CHECK(p.lo == 0.0 && p.hi == 7680.0 && !fp.assumed);
 }
+
+TEST(fx_macro_inputs) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_macros.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto plain = fx::loadEffect(path, lo, err);
+  CHECK(plain != nullptr);
+  if (!plain) return;
+  // Both definitions are user-changeable (#ifndef) and numeric; FIXED is not.
+  const auto sym = fx::symbolicMacros(path, lo, *plain);
+  CHECK(sym.count("TEST_FAR") == 1 && sym.count("TEST_MODE") == 1 && sym.count("FIXED") == 0);
+  lo.symbolic = sym;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  sk.keepDetails = true;
+  bool found = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
+    if (r.line != 23) continue;
+    for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+      if (r.prog.inputs[k].name == "TEST_FAR")
+        found = r.prog.inputs[k].compileTime && r.facts[k].key == "macro global TEST_FAR" &&
+                r.facts[k].suggestHi == 2000.0;
+    // TEST_FAR - 1.0 is folded by the compiler: only the fma (mul + sub) and div cost.
+    const CostModel& m = defaultCostModel();
+    CHECK(dagCost(r.prog.target, m, r.prog.inputs) == uint32_t(m[Op::Mul] + m.fusedAdd + m[Op::Div]));
+  }
+  CHECK(found);
+  // #if still uses the value (the region exists), FIXED is still a plain macro.
+  bool fixedSkipped = false;
+  for (const auto& d : sk.details) fixedSkipped = fixedSkipped || d.find("sopt_macros.fx:25: uses a macro") != std::string::npos;
+  CHECK(fixedSkipped);
+}

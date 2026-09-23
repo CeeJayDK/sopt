@@ -22,7 +22,7 @@ bool containsPoint(const PointSet& ps, const std::vector<float>& p) {
 RunResult optimize(const Program& prog, const Options& opt) {
   const double t0 = nowSeconds();
   RunResult res;
-  res.targetCost = dagCost(prog.target, *opt.search.model);
+  res.targetCost = dagCost(prog.target, *opt.search.model, prog.inputs);
   res.targetText = toString(prog.target, prog.inputs);
   if (res.targetCost == 0) return res;
 
