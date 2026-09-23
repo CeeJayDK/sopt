@@ -8,6 +8,7 @@
 #include <unordered_map>
 
 #include "ir/eval.hpp"
+#include "verify/exact.hpp"
 #include "verify/verify.hpp"
 
 namespace sopt {
@@ -76,6 +77,15 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   target_ = evalAll(prog.target, tests, kProfileRef);
   targetFinite_.resize(tn_);
   for (size_t i = 0; i < tn_; ++i) targetFinite_[i] = std::isfinite(target_[i]) ? 1 : 0;
+  // Accuracy rule: hits may also be as close to the exact value as the target is, and
+  // constants are fitted to the exact values.
+  rule_ = accuracyRule(prog.budget);
+  fit_.assign(target_.begin(), target_.end());
+  if (rule_) {
+    exact_ = evalExactAll(prog.target, tests);
+    for (size_t i = 0; i < tn_; ++i)
+      if (std::isfinite(exact_[i])) fit_[i] = exact_[i];
+  }
 
   // Ops are enumerated for float1 and the target's type only. Helpers (dot, length, ...)
   // are not enumerated, so another floatN could only reach the target through a
@@ -152,7 +162,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
     const float* v = fpOf(idx);
     bool ok = true;
     for (size_t i = 0; i < tn_ && ok; ++i)
-      ok = !targetFinite_[i] || pointWithinBudget(prog_.budget, target_[i], v[i]);
+      ok = !targetFinite_[i] || accepts(i, v[i]);
     if (ok) {
       isHit_[idx] = 1;
       hits_.push_back(idx);
@@ -188,9 +198,9 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
     if (!targetFinite_[i]) continue;
     if (!std::isfinite(v[i])) return false;
     mv += v[i];
-    mg += target_[i];
+    mg += fit_[i];
     svv0 += double(v[i]) * v[i];
-    svg0 += double(v[i]) * target_[i];
+    svg0 += double(v[i]) * fit_[i];
     ++m;
   }
   if (m < 2) return false;
@@ -201,7 +211,7 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
     if (!targetFinite_[i]) continue;
     const double dv = v[i] - mv;
     svv += dv * dv;
-    svg += dv * (target_[i] - mg);
+    svg += dv * (fit_[i] - mg);
   }
   if (!(svv > 0)) return false;  // constant fingerprint: nothing to scale
   const double pd = svg / svv;
@@ -217,7 +227,7 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
         case Op::Sub: r = q - v[i]; break;
         default: r = v[i] * p + q; break;  // mad, reference profile
       }
-      if (!pointWithinBudget(prog_.budget, target_[i], r)) return false;
+      if (!accepts(i, r)) return false;
     }
     return true;
   };
@@ -318,7 +328,7 @@ bool Enumerator::innerFit(uint32_t idx, SearchStats& stats) {
     for (size_t i = 0; i < tn_; ++i) {
       if (!targetFinite_[i]) continue;
       if (!std::isfinite(v[i])) return false;
-      const double g = target_[i], vi = v[i];
+      const double g = fit_[i], vi = v[i];
       double col[5], rhs;
       if (u == Op::Rcp) {
         col[0] = -g; col[1] = vi; col[2] = 1.0; rhs = g * vi;
@@ -338,7 +348,7 @@ bool Enumerator::innerFit(uint32_t idx, SearchStats& stats) {
       double rr = 0, bb = 0;
       for (size_t i = 0; i < tn_; ++i) {
         if (!targetFinite_[i]) continue;
-        const double g = target_[i], vi = v[i];
+        const double g = fit_[i], vi = v[i];
         double r;
         if (u == Op::Rcp) r = -x[0] * g + x[1] * vi + x[2] - g * vi;
         else if (u == Op::Sqrt) r = x[0] * g + x[1] * vi + x[2] - g * g;
@@ -377,7 +387,7 @@ bool Enumerator::innerFit(uint32_t idx, SearchStats& stats) {
           double du;
           const double w = uf(double(v[i]) + cd, du);
           ok = std::isfinite(w) && std::isfinite(du);
-          sw += w; sg += target_[i]; sww += w * w; swg += w * target_[i]; ++m;
+          sw += w; sg += fit_[i]; sww += w * w; swg += w * fit_[i]; ++m;
         }
         const double den = double(m) * sww - sw * sw;
         if (!ok || !(den > 0)) break;
@@ -388,7 +398,7 @@ bool Enumerator::innerFit(uint32_t idx, SearchStats& stats) {
           double du;
           const double w = uf(double(v[i]) + cd, du);
           const double col[3] = {w, 1.0, pp * du};
-          const double r = pp * w + qq - target_[i];
+          const double r = pp * w + qq - fit_[i];
           for (int a = 0; a < 3; ++a) {
             for (int b = 0; b < 3; ++b) jtj[a][b] += col[a] * col[b];
             jtr[a] -= col[a] * r;

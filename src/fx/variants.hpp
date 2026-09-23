@@ -23,13 +23,14 @@ struct RegionResult {
   Region region;
   std::string effect;  // the .fx it was found in
   uint32_t targetCost = 0;
-  std::vector<Variant> variants;  // cheapest first
+  std::vector<Variant> variants;  // cheapest first; less accurate ones after the others
   // Found, but some input range is assumed (not a fact): only in the report, unless
   // sopt-fx --assumed.
   std::vector<Variant> unwritten;
   bool limitHit = false;
   uint32_t onlyContraction = 0;  // cheaper only by explicit fma or free swizzles (dropped)
   int targetAmd = -1, targetNv = -1;
+  double targetExactAbs = -1;    // the original's max error vs exact math (-1: not measured)
   uint32_t measuredNoGain = 0;   // dropped: not cheaper in the measured ISA
   uint32_t completedCost = 0;
   double sec = 0.0;

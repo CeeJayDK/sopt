@@ -52,6 +52,11 @@ void usage() {
       "  --sass            same with ptxas + nvdisasm (NVIDIA; $SOPT_PTXAS, $SOPT_NVDISASM)\n"
       "  --sm N            NVIDIA target for --sass (default 89)\n"
       "  --assumed         also write variants of regions whose input ranges are assumed\n"
+      "  --no-exact-rule   variants must stay within the budget of the original (default:\n"
+      "                    also where at least as close to exact math as the original)\n"
+      "  --loose F         also list less accurate variants: within F times the budget or\n"
+      "                    the original's error vs exact math (color: one more code), if\n"
+      "                    cheaper than every accurate one; after them (default 100, 0 = off)\n"
       "                    defaults (no fact); otherwise they are only in the report\n"
       "  --facts FILE      ranges for inputs without facts (format: see sopt-facts.txt,\n"
       "                    which every run writes to the output directory)\n"
@@ -91,6 +96,7 @@ int main(int argc, char** argv) {
   opt.search.maxBank = 500'000;
   opt.v1Points = 1u << 18;
   opt.maxIterations = 4;
+  opt.loose = 100;
   bool isa = false, sass = false, allowAssumed = false, ask = false, symbolic = true;
   fs::path factsFile;
   IsaConfig isaCfg;
@@ -131,6 +137,8 @@ int main(int argc, char** argv) {
       if (!opt.search.model) { std::fprintf(stderr, "unknown cost model\n"); return 2; }
     } else if (a == "--isa") isa = true;
     else if (a == "--assumed") allowAssumed = true;
+    else if (a == "--no-exact-rule") opt.exactRule = false;
+    else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--facts") factsFile = next();
     else if (a == "--ask") ask = true;
     else if (a == "--no-macro-inputs") symbolic = false;
@@ -376,9 +384,22 @@ int main(int argc, char** argv) {
       v.exhaustive = a.exhaustive;
       rr.variants.push_back(std::move(v));
     }
-    std::stable_sort(rr.variants.begin(), rr.variants.end(),
-                     [](const fx::Variant& a, const fx::Variant& b) { return a.cost < b.cost; });
-    if (rr.variants.size() > numVariants) rr.variants.resize(numVariants);
+    if (accuracyRule(rr.region.prog.budget) && opt.exactRule) rr.targetExactAbs = res.targetExact.exactAbs;
+    // Accurate variants first (cheapest first); less accurate ones only if cheaper than
+    // every accurate one, after them: the user decides from their accuracy.
+    std::vector<fx::Variant> strict, loose;
+    for (auto& v : rr.variants) (v.klass == Klass::LessAccurate ? loose : strict).push_back(std::move(v));
+    auto byCost = [](const fx::Variant& a, const fx::Variant& b) { return a.cost < b.cost; };
+    std::stable_sort(strict.begin(), strict.end(), byCost);
+    std::stable_sort(loose.begin(), loose.end(), byCost);
+    if (strict.size() > numVariants) strict.resize(numVariants);
+    if (!strict.empty())
+      loose.erase(std::remove_if(loose.begin(), loose.end(),
+                                 [&](const fx::Variant& v) { return v.cost >= strict.front().cost; }),
+                  loose.end());
+    if (loose.size() > numVariants) loose.resize(numVariants);
+    rr.variants = std::move(strict);
+    for (auto& v : loose) rr.variants.push_back(std::move(v));
     rr.sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
     std::lock_guard<std::mutex> lock(printMu);
     const size_t n = ++done;
@@ -482,7 +503,7 @@ int main(int argc, char** argv) {
   // Every variant must still parse: SOPT_ALL = k selects variant k where it exists.
   size_t checks = 0, checkFailures = 0;
   for (const auto& e : effectsOut) {
-    for (size_t k = 0; k <= numVariants; ++k) {
+    for (size_t k = 0; k <= 2 * numVariants; ++k) {
       fx::LoadOptions lo = load;
       lo.macros.emplace_back("SOPT_ALL", std::to_string(k));
       std::string err;

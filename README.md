@@ -158,6 +158,20 @@ Budgets (per output component):
 | `abs EPS` | `|candidate - target| <= EPS` |
 | `rel EPS` | `|candidate - target| <= EPS * max(1, |target|)` |
 
+**Accuracy rule** (default; `--no-exact-rule` to disable). The target is the float32
+original, whose own rounding error can exceed the budget. So a candidate also passes
+at a point where it is at least as close to the exact (real-number) value as the
+original is, or within the budget of the exact value. Exact values are computed in
+double precision; the float32 evaluation stays the reference semantics. Candidates
+that pass only this way are classed "as accurate". Not for exact budgets. Example:
+ReShade's depth linearization with far plane F in [100, 10000] has error 4.2e-4 vs
+exact math; its cheaper rewrite (cost 29 -> 24) has 1.5e-7.
+
+**Less accurate candidates** (`--loose F`, default 100, 0 = off): candidates within F
+times the budget or F times the original's error vs exact math (color budgets: one
+more code) are listed as "less accurate", with their errors, so the user decides.
+sopt-fx writes them after the accurate variants, and only if cheaper than all of them.
+
 `dot`, `length`, `normalize` and `distance` are pure helpers (no GPU has an FP32 dot
 instruction): they are evaluated and costed as their expansions, and the search builds
 the expansions (components of vector inputs are free leaves), not the helpers.
@@ -165,7 +179,8 @@ the expansions (components of vector inputs are free leaves), not the helpers.
 ## Output
 
 Every verified alternative cheaper than the target, sorted by cost, with class
-(bit-exact / 8-bit identical / within budget), max error, max 8-bit code difference
+(bit-exact / 8-bit identical / within budget / as accurate / less accurate), max error,
+max error vs exact math (and the original's), max 8-bit code difference
 and the fraction of sample points whose 8-bit code changed. Verification is dense
 sampling (1M points) under four semantic profiles: `ref` (HLSL lerp, unfused mad),
 `mix` (GLSL mix formula), `fma` (fused mad) and `gpu` (what drivers emit: a single-use

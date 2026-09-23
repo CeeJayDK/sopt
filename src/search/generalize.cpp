@@ -11,50 +11,13 @@
 
 #include "ir/eval.hpp"
 #include "search/driver.hpp"
+#include "verify/exact.hpp"
 
 namespace sopt {
 namespace {
 
 // Copies node `i` of `src` into `b`, mapping operands through `map`; folds nodes whose
 // operands are all constants.
-uint32_t copyNode(const Expr& src, uint32_t i, const std::vector<uint32_t>& map, ExprBuilder& b) {
-  const Node& n = src.nodes[i];
-  const auto& ns = b.nodes();
-  bool allConst = n.op != Op::Input && n.op != Op::Const;
-  for (unsigned k = 0; k < operandCount(n); ++k) allConst = allConst && ns[map[n.args[k]]].op == Op::Const;
-  if (allConst) {
-    Node m = n;
-    Type ts[4];
-    float buf[4][4];
-    const float* ptr[4][4];
-    for (unsigned k = 0; k < operandCount(n); ++k) {
-      m.args[k] = map[n.args[k]];
-      ts[k] = ns[m.args[k]].type;
-      for (unsigned c = 0; c < 4; ++c) {
-        buf[k][c] = ns[m.args[k]].value[c];
-        ptr[k][c] = &buf[k][c];
-      }
-    }
-    float res[4] = {0, 0, 0, 0};
-    float* out[4] = {&res[0], &res[1], &res[2], &res[3]};
-    std::vector<float> tmp;
-    evalNode(m, ts, ptr, out, 1, kProfileRef, tmp);
-    return b.constant(n.type, res);
-  }
-  switch (n.op) {
-    case Op::Const: return b.constant(n.type, n.value);
-    case Op::Swizzle: return b.swizzle(map[n.args[0]], n.swz, width(n.type));
-    case Op::Construct: {
-      uint32_t a[4];
-      for (unsigned k = 0; k < n.nargs; ++k) a[k] = map[n.args[k]];
-      return b.construct(a, n.nargs);
-    }
-    default:
-      return b.op(n.op, map[n.args[0]], operandCount(n) > 1 ? map[n.args[1]] : 0,
-                  operandCount(n) > 2 ? map[n.args[2]] : 0);
-  }
-}
-
 // Small expressions of the compile-time inputs, by their value at the current setting.
 struct CtExpr {
   Op op = Op::Input;  // Input: aux = input index; Const: val = the constant
@@ -150,32 +113,8 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
   Program spec;
   spec.budget = prog.budget;
   spec.outputName = prog.outputName;
-  std::vector<uint32_t> newIndex(prog.inputs.size(), UINT32_MAX), oldIndex;
-  for (uint32_t i = 0; i < prog.inputs.size(); ++i)
-    if (!prog.inputs[i].compileTime) {
-      newIndex[i] = static_cast<uint32_t>(spec.inputs.size());
-      oldIndex.push_back(i);
-      spec.inputs.push_back(prog.inputs[i]);
-    }
-  {
-    ExprBuilder b;
-    std::vector<uint32_t> map(prog.target.nodes.size());
-    for (uint32_t i = 0; i < prog.target.nodes.size(); ++i) {
-      const Node& n = prog.target.nodes[i];
-      if (n.op == Op::Input) {
-        const InputDecl& d = prog.inputs[n.input];
-        if (d.compileTime) {
-          const float v[4] = {float(d.value), float(d.value), float(d.value), float(d.value)};
-          map[i] = b.constant(d.type, v);
-        } else {
-          map[i] = b.input(newIndex[n.input], d.type);
-        }
-      } else {
-        map[i] = copyNode(prog.target, i, map, b);
-      }
-    }
-    spec.target = b.finish(map[prog.target.root]);
-  }
+  std::vector<uint32_t> oldIndex;
+  spec.target = specializeCompileTime(prog.target, prog.inputs, spec.inputs, &oldIndex);
 
   Options inner = opt;
   inner.specialize = false;
@@ -224,6 +163,12 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
   const PointSet v1 = makeRandomPoints(prog, opt.v1Points, opt.seed + 2, true);
   std::vector<std::vector<float>> v1Target;
   for (const auto& prof : kAllProfiles) v1Target.push_back(evalAll(prog.target, v1, prof));
+  const bool rule = accuracyRule(prog.budget);
+  const std::vector<double> quickExact = rule ? evalExactAll(prog.target, quick) : std::vector<double>();
+  const std::vector<double> v1Exact = rule ? evalExactAll(prog.target, v1) : std::vector<double>();
+  if (rule)
+    for (size_t p = 0; p < kAllProfiles.size(); ++p)
+      res.targetExact.merge(compare(prog, prog.target, v1, kAllProfiles[p], opt.threads, &v1Target[p], &v1Exact));
 
   for (const Accepted& a : sr.accepted) {
     if (res.accepted.size() >= opt.maxAlternatives) break;
@@ -278,16 +223,16 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
         else if (n.op == Op::Input)
           map[i] = b.input(oldIndex[n.input], n.type);
         else
-          map[i] = copyNode(a.expr, i, map, b);
+          map[i] = foldCopyNode(a.expr, i, map, b);
       }
       Expr g = b.finish(map[a.expr.root]);
       const uint32_t cost = dagCost(g, *opt.search.model, prog.inputs);
       if (cost >= res.targetCost) continue;
-      if (!compare(prog, g, quick, kProfileRef, 1, &quickTarget).pass) continue;
+      if (!compare(prog, g, quick, kProfileRef, 1, &quickTarget, rule ? &quickExact : nullptr).loosePass) continue;
       Metrics worst;
-      for (size_t p = 0; p < kAllProfiles.size() && worst.pass; ++p)
-        worst.merge(compare(prog, g, v1, kAllProfiles[p], opt.threads, &v1Target[p]));
-      if (!worst.pass) {
+      for (size_t p = 0; p < kAllProfiles.size() && worst.loosePass; ++p)
+        worst.merge(compare(prog, g, v1, kAllProfiles[p], opt.threads, &v1Target[p], rule ? &v1Exact : nullptr));
+      if (!worst.loosePass) {
         ++res.rejectedV1;
         continue;
       }

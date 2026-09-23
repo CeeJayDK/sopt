@@ -264,8 +264,11 @@ SassCost parseSass(const std::string& disasm, int sm) {
   return c;
 }
 
-std::vector<SassCost> measureSass(const std::vector<const Expr*>& exprs,
-                                  const std::vector<InputDecl>& inputs, const SassConfig& cfg) {
+std::vector<SassCost> measureSass(const std::vector<const Expr*>& exprsIn,
+                                  const std::vector<InputDecl>& inputsIn, const SassConfig& cfg) {
+  const Specialized sp = specializeForCompiler(exprsIn, inputsIn);
+  const auto& exprs = sp.exprs;
+  const auto& inputs = sp.inputs;
   std::vector<SassCost> out(exprs.size());
   std::string err;
   const fs::path dir = makeWorkDir(cfg.keepDir, "sopt-sass-", err);

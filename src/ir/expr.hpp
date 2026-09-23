@@ -46,6 +46,14 @@ struct Budget {
   int maxCodeDiff = 1;  // Color8, Color10
   double px = 0.0;      // Texcoord: pixels at `width` wide (eps = px / width)
   double width = 3840.0;
+  // Owner's accuracy rule: a candidate may also differ from the float32 original where
+  // it is at least as close to the exact (real-number) value, or within the budget of
+  // it (see pointAccurate). Never for Exact budgets.
+  bool vsExact = true;
+  // Less accurate variants (owner: listed with their accuracy, the user decides): a
+  // factor > 1 also accepts candidates within `loose` times the budget (color budgets:
+  // one more code) and `loose` times the original's own error. 0 = off.
+  double loose = 0.0;
   int codeBits() const { return kind == Kind::Color10 ? 10 : 8; }
 };
 

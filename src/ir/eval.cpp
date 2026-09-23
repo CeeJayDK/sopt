@@ -161,6 +161,73 @@ void evalNode(const Node& node, const Type* argTypes, const float* const (*arg)[
   }
 }
 
+uint32_t foldCopyNode(const Expr& src, uint32_t i, const std::vector<uint32_t>& map, ExprBuilder& b) {
+  const Node& n = src.nodes[i];
+  const auto& ns = b.nodes();
+  bool allConst = n.op != Op::Input && n.op != Op::Const;
+  for (unsigned k = 0; k < operandCount(n); ++k) allConst = allConst && ns[map[n.args[k]]].op == Op::Const;
+  if (allConst) {
+    Node m = n;
+    Type ts[4];
+    float buf[4][4];
+    const float* ptr[4][4];
+    for (unsigned k = 0; k < operandCount(n); ++k) {
+      m.args[k] = map[n.args[k]];
+      ts[k] = ns[m.args[k]].type;
+      for (unsigned c = 0; c < 4; ++c) {
+        buf[k][c] = ns[m.args[k]].value[c];
+        ptr[k][c] = &buf[k][c];
+      }
+    }
+    float res[4] = {0, 0, 0, 0};
+    float* out[4] = {&res[0], &res[1], &res[2], &res[3]};
+    std::vector<float> tmp;
+    evalNode(m, ts, ptr, out, 1, kProfileRef, tmp);
+    return b.constant(n.type, res);
+  }
+  switch (n.op) {
+    case Op::Const: return b.constant(n.type, n.value);
+    case Op::Swizzle: return b.swizzle(map[n.args[0]], n.swz, width(n.type));
+    case Op::Construct: {
+      uint32_t a[4];
+      for (unsigned k = 0; k < n.nargs; ++k) a[k] = map[n.args[k]];
+      return b.construct(a, n.nargs);
+    }
+    default:
+      return b.op(n.op, map[n.args[0]], operandCount(n) > 1 ? map[n.args[1]] : 0,
+                  operandCount(n) > 2 ? map[n.args[2]] : 0);
+  }
+}
+
+Expr specializeCompileTime(const Expr& e, const std::vector<InputDecl>& inputs,
+                           std::vector<InputDecl>& remaining, std::vector<uint32_t>* oldIndex) {
+  remaining.clear();
+  std::vector<uint32_t> newIndex(inputs.size(), UINT32_MAX);
+  for (uint32_t i = 0; i < inputs.size(); ++i)
+    if (!inputs[i].compileTime) {
+      newIndex[i] = static_cast<uint32_t>(remaining.size());
+      if (oldIndex) oldIndex->push_back(i);
+      remaining.push_back(inputs[i]);
+    }
+  ExprBuilder b;
+  std::vector<uint32_t> map(e.nodes.size());
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op == Op::Input) {
+      const InputDecl& d = inputs[n.input];
+      if (d.compileTime) {
+        const float v[4] = {float(d.value), float(d.value), float(d.value), float(d.value)};
+        map[i] = b.constant(d.type, v);
+      } else {
+        map[i] = b.input(newIndex[n.input], d.type);
+      }
+    } else {
+      map[i] = foldCopyNode(e, i, map, b);
+    }
+  }
+  return b.finish(map[e.root]);
+}
+
 float evalScalar(Op op, float a, float b, float c, const Profile& profile) {
   float out = 0.0f;
   evalArray(op, &a, &b, &c, &out, 1, profile);

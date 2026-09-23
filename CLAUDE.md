@@ -73,6 +73,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   well-founded). Bank entries are appended in
   cost order; operands always have lower index.
 - Undefined inputs are don't-care: points where the target is not finite are skipped.
+- Accuracy rule (owner): besides the budget vs the float32 original, a candidate passes
+  a point if at least as close to the exact value as the original (or within the budget
+  of it). Exact values: `verify/exact` (double, only for metrics; never mixed into the
+  float32 evaluation). Not for Exact budgets. Less accurate candidates (`--loose`, owner:
+  "list them with their accuracy, the user decides") are Klass::LessAccurate; the
+  enumerator accepts them as hits, the driver caps them at maxLoose.
 - Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
   Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
 - Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
@@ -154,10 +160,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   value), normal search, then each candidate's constants are replaced by <= 4-op
   expressions of the inputs (tolerance 2e-5 rel, 12 matches per constant, <= 1024
   combos) and V1-verified over the full range (examples/depth_far.sopt). A definition
-  used as a literal (uniform initializer, DisplayDepth.fx) stays a number. ReShade.fxh:
-  the reversed-depth chain (lines 108-111) is now a window (guard
-  RESHADE_DEPTH_INPUT_IS_REVERSED), but its value gets the general rel 1e-6 budget and
-  the known rewrite (error ~3e-5) does not fit it: open question for the owner.
+  used as a literal (uniform initializer, DisplayDepth.fx) stays a number (owner: fine,
+  DisplayDepth is a setup/debug effect). ReShade.fxh: the reversed-depth chain (lines
+  108-111) is a window (guard RESHADE_DEPTH_INPUT_IS_REVERSED); owner: FAR_PLANE is almost
+  always 1000, realistic range [100, 10000]; RESHADE_DEPTH_MULTIPLIER stays 1.
 
 ## Next (per docs/design.md)
 0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan).

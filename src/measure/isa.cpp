@@ -94,8 +94,11 @@ IsaCost parseFxstatJson(const std::string& json) {
   return c;
 }
 
-std::vector<IsaCost> measureIsa(const std::vector<const Expr*>& exprs,
-                                const std::vector<InputDecl>& inputs, const IsaConfig& cfg) {
+std::vector<IsaCost> measureIsa(const std::vector<const Expr*>& exprsIn,
+                                const std::vector<InputDecl>& inputsIn, const IsaConfig& cfg) {
+  const Specialized sp = specializeForCompiler(exprsIn, inputsIn);
+  const auto& exprs = sp.exprs;
+  const auto& inputs = sp.inputs;
   std::vector<IsaCost> out(exprs.size());
   if (exprs.empty()) return out;
 

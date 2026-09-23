@@ -1,5 +1,7 @@
 #include "search/driver.hpp"
 
+#include "verify/exact.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <unordered_map>
@@ -19,7 +21,14 @@ bool containsPoint(const PointSet& ps, const std::vector<float>& p) {
 
 }  // namespace
 
-RunResult optimize(const Program& prog, const Options& opt) {
+RunResult optimize(const Program& progIn, const Options& opt) {
+  if ((!opt.exactRule && progIn.budget.vsExact) || progIn.budget.loose != opt.loose) {
+    Program p = progIn;
+    p.budget.vsExact = p.budget.vsExact && opt.exactRule;
+    p.budget.loose = opt.loose;
+    return optimize(p, opt);
+  }
+  const Program& prog = progIn;
   if (opt.specialize)
     for (const auto& d : prog.inputs)
       if (d.compileTime) return optimizeSpecialized(prog, opt);
@@ -35,6 +44,16 @@ RunResult optimize(const Program& prog, const Options& opt) {
   const std::vector<float> stage2Target = evalAll(prog.target, stage2, kProfileRef);
   std::vector<std::vector<float>> v1Target;
   for (const auto& prof : kAllProfiles) v1Target.push_back(evalAll(prog.target, v1, prof));
+  const bool rule = accuracyRule(prog.budget);
+  const std::vector<double> stage2Exact = rule ? evalExactAll(prog.target, stage2) : std::vector<double>();
+  const std::vector<double> v1Exact = rule ? evalExactAll(prog.target, v1) : std::vector<double>();
+  const std::vector<double>* s2x = rule ? &stage2Exact : nullptr;
+  const std::vector<double>* v1x = rule ? &v1Exact : nullptr;
+  if (rule) {
+    // The original's own error against the exact values (reported next to candidates').
+    for (size_t p = 0; p < kAllProfiles.size(); ++p)
+      res.targetExact.merge(compare(prog, prog.target, v1, kAllProfiles[p], opt.threads, &v1Target[p], v1x));
+  }
 
   SearchConfig cfg = opt.search;
   res.v2Points = opt.v2Max ? domainSize(prog, opt.v2Max) : 0;
@@ -64,10 +83,10 @@ RunResult optimize(const Program& prog, const Options& opt) {
     };
     std::vector<Survivor> survivors;
     for (auto& c : cands) {
-      const Metrics m = compare(prog, c.expr, stage2, kProfileRef, 1, &stage2Target);
-      if (!m.pass) {
+      const Metrics m = compare(prog, c.expr, stage2, kProfileRef, 1, &stage2Target, s2x);
+      if (!m.loosePass) {
         ++res.rejectedStage2;
-        addCex(m.failPoint);
+        addCex(m.looseFailPoint);
       } else {
         uint64_t ops = 0;
         for (const auto& n : c.expr.nodes) ops |= uint64_t{1} << static_cast<unsigned>(n.op);
@@ -98,24 +117,25 @@ RunResult optimize(const Program& prog, const Options& opt) {
 
     // V1: dense sampling under every semantic profile.
     res.accepted.clear();
+    uint32_t numStrict = 0, numLoose = 0;
     for (uint64_t h : groupOrder) {
-      if (res.accepted.size() >= opt.maxAlternatives) break;
+      if (numStrict >= opt.maxAlternatives) break;
       for (size_t idx : groups[h]) {
         auto& c = survivors[idx].cand;
         Metrics worst;
         bool refFailed = false;
         for (size_t p = 0; p < kAllProfiles.size(); ++p) {
-          const Metrics m = compare(prog, c.expr, v1, kAllProfiles[p], opt.threads, &v1Target[p]);
+          const Metrics m = compare(prog, c.expr, v1, kAllProfiles[p], opt.threads, &v1Target[p], v1x);
           worst.merge(m);
-          if (!m.pass) {
+          if (!m.loosePass) {
             refFailed = p == 0;
             break;
           }
         }
-        if (!worst.pass) {
+        if (!worst.loosePass) {
           if (refFailed) {
             ++res.rejectedV1;
-            addCex(worst.failPoint);
+            addCex(worst.looseFailPoint);
           } else {
             ++res.rejectedProfiles;
           }
@@ -127,11 +147,11 @@ RunResult optimize(const Program& prog, const Options& opt) {
           Metrics all;
           for (const auto& prof : kAllProfiles) {
             all.merge(compareExhaustive(prog, c.expr, prof, opt.threads));
-            if (!all.pass) break;
+            if (!all.loosePass) break;
           }
-          if (!all.pass) {
+          if (!all.loosePass) {
             ++res.rejectedV2;
-            addCex(all.failPoint);
+            addCex(all.looseFailPoint);
             continue;
           }
           worst = all;
@@ -144,7 +164,8 @@ RunResult optimize(const Program& prog, const Options& opt) {
         a.klass = classify(prog, c.expr, worst);
         a.worst = worst;
         a.expr = std::move(c.expr);
-        res.accepted.push_back(std::move(a));
+        if (a.klass == Klass::LessAccurate ? numLoose++ < opt.maxLoose : (++numStrict, true))
+          res.accepted.push_back(std::move(a));
         break;  // one verified member per stage-2 group
       }
     }

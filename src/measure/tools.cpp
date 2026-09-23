@@ -1,5 +1,7 @@
 #include "measure/tools.hpp"
 
+#include "ir/eval.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
@@ -76,6 +78,20 @@ std::string firstLines(const std::string& s, int lines) {
   std::string out = s.substr(0, pos == std::string::npos ? s.size() : pos);
   while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
   return out;
+}
+
+Specialized specializeForCompiler(const std::vector<const Expr*>& exprs,
+                                  const std::vector<InputDecl>& inputs) {
+  Specialized s;
+  s.exprs = exprs;
+  s.inputs = inputs;
+  bool any = false;
+  for (const auto& d : inputs) any = any || d.compileTime;
+  if (!any) return s;
+  s.storage.reserve(exprs.size());
+  for (const Expr* e : exprs) s.storage.push_back(specializeCompileTime(*e, inputs, s.inputs));
+  for (size_t i = 0; i < exprs.size(); ++i) s.exprs[i] = &s.storage[i];
+  return s;
 }
 
 }  // namespace sopt

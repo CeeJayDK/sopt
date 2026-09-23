@@ -5,6 +5,7 @@
 
 #include "ir/expr.hpp"
 #include "verify/points.hpp"
+#include "verify/verify.hpp"
 
 namespace sopt {
 
@@ -127,6 +128,15 @@ class Enumerator {
   uint32_t targetCost_;
   std::vector<float> target_;
   std::vector<char> targetFinite_;
+  bool rule_ = false;           // accuracy rule (accuracyRule(budget))
+  std::vector<double> exact_;   // exact target values on the test points (rule_)
+  std::vector<double> fit_;     // values constants are fitted to: exact_ where finite, else target_
+  // Hit test at test point i: the budget, the accuracy rule, or the loose budget (less
+  // accurate candidates are classified by the driver).
+  bool accepts(size_t i, float v) const {
+    const double* x = rule_ ? &exact_[i] : nullptr;
+    return pointAcceptable(prog_.budget, target_[i], x, v) || pointLoose(prog_.budget, target_[i], x, v);
+  }
   std::vector<Op> ops_;
   std::vector<Type> types_;  // float types ops are enumerated for: float1, then the target's
 

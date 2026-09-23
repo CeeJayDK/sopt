@@ -26,6 +26,13 @@ struct Options {
   // expressions of those inputs (e.g. 0.001001001 = 1 / (F - 1)) and verify over the
   // whole range. The search itself cannot build such constants at useful depths.
   bool specialize = true;
+  // Owner's accuracy rule (Budget::vsExact): off = candidates must stay within the
+  // budget of the float32 original everywhere.
+  bool exactRule = true;
+  // Also keep less accurate candidates (Budget::loose; 0 = off): up to maxLoose of them,
+  // classified Klass::LessAccurate.
+  double loose = 0.0;
+  uint32_t maxLoose = 10;
   unsigned threads = 0;          // 0 = hardware concurrency
   SearchConfig search;
 };
@@ -43,6 +50,7 @@ struct RunResult {
   uint32_t targetCost = 0;
   std::string targetText;
   std::vector<Accepted> accepted;
+  Metrics targetExact;  // the original's error against the exact values (accuracy rule)
   SearchStats search;  // stats of the final iteration
   uint32_t iterations = 0;
   uint64_t counterexamples = 0;

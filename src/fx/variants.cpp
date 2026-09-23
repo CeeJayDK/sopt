@@ -149,17 +149,21 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         "// statement or window; SOPT_ALL = k selects alternative k everywhere (the last\n"
         "// one where a region has fewer).\n"
         "#ifndef SOPT_ALL\n#define SOPT_ALL 0\n#endif\n";
-    uint32_t next = 1;  // next source line to copy
+    // Switches up front, outside any #if of the source.
     std::set<const RegionResult*> declared;
+    for (const Piece& p : pieces) {
+      if (!declared.insert(p.rr).second) continue;
+      const std::string sw = switchName(p.rr->region);
+      const std::string n = std::to_string(p.rr->variants.size());
+      out += "#ifndef " + sw + "\n#define " + sw + " SOPT_ALL // 0 = original, 1.." + n +
+             " = variants (larger = " + n + ")\n#endif\n";
+    }
+    uint32_t next = 1;  // next source line to copy
     for (const Piece& p : pieces) {
       const RegionResult* rr = p.rr;
       const Region& r = rr->region;
       for (; next < p.first; ++next) out += (*lines)[next - 1] + "\n";
       const std::string sw = switchName(r);
-      const std::string n = std::to_string(rr->variants.size());
-      if (declared.insert(rr).second)
-        out += "#ifndef " + sw + "\n#define " + sw + " SOPT_ALL // 0 = original, 1.." + n +
-               " = variants (larger = " + n + ")\n#endif\n";
       // A window across #if lines applies only while they compile as when it was found.
       // Its terms are parenthesized: "(A) && !defined(B)".
       const std::string guard = r.guard.empty() ? std::string() : " && " + r.guard;
@@ -178,9 +182,12 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         const bool last = k + 1 == rr->variants.size();
         out += std::string(k == 0 ? "#if " : "#elif ") + sw + (last ? " >= " : " == ") +
                std::to_string(k + 1) + guard + "\n";
-        char note[240];
+        char note[320];
         int len = std::snprintf(note, sizeof(note), " // sopt: %s, cost %u -> %u",
                                 klassName(v.klass, r.prog.budget.codeBits()), rr->targetCost, v.cost);
+        if ((v.klass == Klass::Accurate || v.klass == Klass::LessAccurate) && rr->targetExactAbs >= 0 && len > 0)
+          len += std::snprintf(note + len, sizeof(note) - len, ", max err vs exact %.2g (original %.2g)",
+                               v.worst.exactAbs, rr->targetExactAbs);
         if (v.amd >= 0 && rr->targetAmd >= 0 && len > 0 && len < 200)
           len += std::snprintf(note + len, sizeof(note) - len, ", amd %d -> %d", rr->targetAmd, v.amd);
         if (v.nv >= 0 && rr->targetNv >= 0 && len > 0 && len < 200)
@@ -245,21 +252,31 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
          r.budgetReason + "). Original cost " + std::to_string(rr.targetCost);
     if (info.amd) s += ", amd " + std::to_string(rr.targetAmd);
     if (info.nv) s += ", nv " + std::to_string(rr.targetNv);
-    s += ".\n\n| # | variant | cost |";
+    s += ".";
+    const bool exact = rr.targetExactAbs >= 0;
+    if (exact) {
+      std::snprintf(buf, sizeof(buf), " Original's max error vs exact math: %.3g.", rr.targetExactAbs);
+      s += buf;
+    }
+    s += "\n\n| # | variant | cost |";
     if (info.amd) s += " amd |";
     if (info.nv) s += " nv |";
-    s += " class | max abs err | verified |\n|---|---|---|";
+    s += std::string(" class | max abs err |") + (exact ? " vs exact |" : "") + " verified |\n|---|---|---|";
     if (info.amd) s += "---|";
     if (info.nv) s += "---|";
-    s += "---|---|---|\n";
+    s += exact ? "---|---|---|---|\n" : "---|---|---|\n";
     for (size_t k = 0; k < rr.variants.size(); ++k) {
       const Variant& v = rr.variants[k];
       s += "| " + std::to_string(k + 1) + " | `" + escapeCell(v.text) + "` | " + std::to_string(v.cost) + " |";
       if (info.amd) s += " " + std::to_string(v.amd) + " |";
       if (info.nv) s += " " + std::to_string(v.nv) + " |";
-      std::snprintf(buf, sizeof(buf), " %s | %.3g | %s |\n", klassName(v.klass, r.prog.budget.codeBits()),
-                    v.worst.maxAbs, v.exhaustive ? "all points" : "sampled");
+      std::snprintf(buf, sizeof(buf), " %s | %.3g |", klassName(v.klass, r.prog.budget.codeBits()), v.worst.maxAbs);
       s += buf;
+      if (exact) {
+        std::snprintf(buf, sizeof(buf), " %.3g |", v.worst.exactAbs);
+        s += buf;
+      }
+      s += std::string(" ") + (v.exhaustive ? "all points" : "sampled") + " |\n";
     }
     s += "\n";
   }

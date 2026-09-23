@@ -36,6 +36,10 @@ void usage() {
       "  --seed N          random seed (default 1)\n"
       "  --no-affine       enumerate outer constants instead of solving p * v + q\n"
       "  --no-inner        don't solve inner constants (p * u(v + c) + q, u = rcp/sqrt/rsqrt)\n"
+      "  --no-exact-rule   candidates must stay within the budget of the float32 original\n"
+      "                    (default: also accepted where at least as close to exact math)\n"
+      "  --loose F         also list less accurate candidates: within F times the budget or\n"
+      "                    the original's error vs exact math (default 100, 0 = off)\n"
       "  --helpers         also enumerate pure helper intrinsics (lerp, step)\n"
       "  --cost-model M    objective: rdna3 | nvidia | generic (default: rdna3)\n"
       "  --order-model M   enumeration order (default: search for rdna3/nvidia, else the model)\n"
@@ -77,6 +81,7 @@ int main(int argc, char** argv) {
   }
   std::string path;
   Options opt;
+  opt.loose = 100;
   size_t top = 20;
   bool stats = false;
   bool isa = false;
@@ -113,6 +118,8 @@ int main(int argc, char** argv) {
     else if (a == "--stats") stats = true;
     else if (a == "--no-affine") opt.search.affine = false;
     else if (a == "--no-inner") opt.search.inner = false;
+    else if (a == "--no-exact-rule") opt.exactRule = false;
+    else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--helpers") opt.search.helpers = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
@@ -171,6 +178,11 @@ int main(int argc, char** argv) {
     std::printf("; all %llu domain points for the cheapest %u (ver = all)",
                 (unsigned long long)r.v2Points, opt.v2Candidates);
   std::printf("\n");
+  const bool rule = accuracyRule(prog.budget) && opt.exactRule;
+  if (rule)
+    std::printf("accuracy: original vs exact math: max abs %.3g, rel %.3g (\"as accurate\": outside the\n"
+                "          budget of the original only where at least as close to the exact value)\n",
+                r.targetExact.exactAbs, r.targetExact.exactRel);
 
   // Real machine-code cost of the target and the shown alternatives, per vendor:
   // AMD RDNA (fxstat + RGA) and NVIDIA (ptxas + nvdisasm).
@@ -231,8 +243,8 @@ int main(int argc, char** argv) {
   } else {
     std::printf("cost  ");
     for (const auto& c : cols) std::printf("%4s  ", c.name.c_str());
-    std::printf("ver  class            max |err|  max code  changed  expression   (codes: %d-bit)\n",
-                prog.budget.codeBits());
+    std::printf("ver  class            max |err|  %smax code  changed  expression   (codes: %d-bit)\n",
+                rule ? "vs exact  " : "", prog.budget.codeBits());
     std::vector<int> noGain(cols.size(), 0), failed(cols.size(), 0);
     for (size_t i : order) {
       const auto& a = r.accepted[i];
@@ -249,9 +261,10 @@ int main(int argc, char** argv) {
           std::printf("%3d%c  ", c.cost, t.ok && !gain ? '!' : ' ');
         }
       }
-      std::printf("%-3s  %-15s  %9.3g  %8d  %6.3f%%  %s\n", a.exhaustive ? "all" : "smp",
-                  klassName(a.klass, prog.budget.codeBits()), a.worst.maxAbs,
-                  a.worst.maxCodeDiff, 100.0 * a.worst.changedFraction(), a.text.c_str());
+      std::printf("%-3s  %-15s  %9.3g  ", a.exhaustive ? "all" : "smp",
+                  klassName(a.klass, prog.budget.codeBits()), a.worst.maxAbs);
+      if (rule) std::printf("%8.3g  ", a.worst.exactAbs);
+      std::printf("%8d  %6.3f%%  %s\n", a.worst.maxCodeDiff, 100.0 * a.worst.changedFraction(), a.text.c_str());
     }
     std::printf("\n%zu alternative(s) cheaper than cost %u", r.accepted.size(), r.targetCost);
     if (r.accepted.size() > top) std::printf(", showing %zu", top);
