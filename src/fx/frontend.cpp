@@ -381,6 +381,108 @@ bool isTexFetch(const std::string& n) {
   return n.rfind("tex1D", 0) == 0 || n.rfind("tex2D", 0) == 0 || n.rfind("tex3D", 0) == 0;
 }
 
+
+// ---------------------------------------------------------------------------
+// Preprocessor conditionals around windows
+
+// Directive of a source line: "if", "ifdef", "elif", ... and its argument.
+bool directiveOf(const std::string& line, std::string& word, std::string& arg) {
+  size_t i = line.find_first_not_of(" \t");
+  if (i == std::string::npos || line[i] != '#') return false;
+  i = line.find_first_not_of(" \t", i + 1);
+  if (i == std::string::npos) return false;
+  size_t j = i;
+  while (j < line.size() && std::isalpha(static_cast<unsigned char>(line[j]))) ++j;
+  word = line.substr(i, j - i);
+  arg = line.substr(j);
+  if (const size_t c = arg.find("//"); c != std::string::npos) arg.erase(c);
+  for (size_t c = arg.find("/*"); c != std::string::npos; c = arg.find("/*")) {
+    const size_t e = arg.find("*/", c + 2);
+    arg.erase(c, e == std::string::npos ? std::string::npos : e + 2 - c);
+  }
+  arg = trim(arg);
+  return true;
+}
+
+// The preprocessor condition under which the lines [first, last] of `file` compile as
+// in this parse (a window's statements are all there or all not): for every #if group
+// with a directive inside the span, the condition of the branch taken now. Empty when
+// the span has no directives. False if a group's taken branch cannot be told.
+bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32_t last,
+               std::string& guard, std::string& why) {
+  guard.clear();
+  const std::vector<std::string>* lines = sourceLines(file);
+  if (!lines) { why = "no source text"; return false; }
+  struct Branch {
+    uint32_t line;
+    std::string cond;  // empty: #else
+  };
+  struct Group {
+    std::vector<Branch> branches;
+    uint32_t end = 0;
+  };
+  std::vector<Group> groups, stack;
+  for (uint32_t l = 1; l <= lines->size(); ++l) {
+    std::string word, arg;
+    if (!directiveOf((*lines)[l - 1], word, arg)) continue;
+    if (!arg.empty() && arg.back() == '\\') { why = "preprocessor line continuation"; return false; }
+    if (word == "if" || word == "ifdef" || word == "ifndef") {
+      const std::string c = word == "if" ? "(" + arg + ")"
+                            : word == "ifdef" ? "defined(" + arg + ")" : "!defined(" + arg + ")";
+      stack.push_back({{{l, c}}, 0});
+    } else if ((word == "elif" || word == "else") && !stack.empty()) {
+      stack.back().branches.push_back({l, word == "elif" ? "(" + arg + ")" : std::string()});
+    } else if (word == "endif" && !stack.empty()) {
+      stack.back().end = l;
+      groups.push_back(std::move(stack.back()));
+      stack.pop_back();
+    }
+  }
+  // Whether a code line in (a, b) exists / is compiled now.
+  auto lineIn = [&](uint32_t a, uint32_t b, bool compiled) {
+    for (uint32_t l = a + 1; l < b; ++l) {
+      std::string w, arg;
+      if (directiveOf((*lines)[l - 1], w, arg) || tokens((*lines)[l - 1]).empty()) continue;
+      if (!compiled) return true;
+      const auto it = fx.ppLines.find({file, l});
+      if (it != fx.ppLines.end() && !tokens(it->second).empty()) return true;
+    }
+    return false;
+  };
+  std::vector<std::string> terms;
+  for (const Group& g : groups) {
+    bool touched = g.end >= first && g.end <= last;
+    for (const Branch& b : g.branches) touched = touched || (b.line >= first && b.line <= last);
+    if (!touched) continue;
+    auto end = [&](size_t k) { return k + 1 < g.branches.size() ? g.branches[k + 1].line : g.end; };
+    // Condition of taking branch k: the earlier ones false, its own true.
+    auto takes = [&](size_t k) {
+      std::vector<std::string> t;
+      for (size_t j = 0; j < k; ++j) t.push_back("!" + g.branches[j].cond);
+      if (!g.branches[k].cond.empty()) t.push_back(g.branches[k].cond);
+      return t;
+    };
+    int taken = -1;
+    for (size_t k = 0; k < g.branches.size() && taken < 0; ++k)
+      if (lineIn(g.branches[k].line, end(k), true)) taken = static_cast<int>(k);
+    if (taken >= 0) {
+      for (auto& t : takes(taken)) terms.push_back(t);
+      continue;
+    }
+    // No branch with code is taken: none of them may be.
+    for (size_t k = 0; k < g.branches.size(); ++k) {
+      if (!lineIn(g.branches[k].line, end(k), false)) continue;
+      const auto t = takes(k);
+      if (t.empty()) { why = "preprocessor conditional"; return false; }  // #else with code
+      std::string c;
+      for (const auto& x : t) c += (c.empty() ? "" : " && ") + x;
+      terms.push_back(t.size() == 1 ? "!" + c : "!(" + c + ")");
+    }
+  }
+  for (const auto& t : terms) guard += (guard.empty() ? "" : " && ") + t;
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Region extraction
 
@@ -496,7 +598,13 @@ class Extractor {
   std::unordered_map<uint32_t, uint32_t> built_;
   bool usesPow_ = false;
   std::unordered_map<uint32_t, uint32_t> inline_;  // temporary variable -> its value
+  std::unordered_map<uint32_t, uint32_t> inlineLoad_;  // load -> value of its (chain) definition
+  bool findChain(const Statement& s, size_t length, std::vector<const Statement*>& defs);
+  bool leavesUnchanged(const Statement& s, const std::vector<const Statement*>& defs) const;
+  bool writesBetween(uint32_t var, uint32_t after, uint32_t before,
+                     const std::vector<const Statement*>& window) const;
   std::unordered_map<uint32_t, std::string> fetchText_;  // fetch value -> call text
+  std::vector<const Statement*> window_;  // statements inlined into the current region
   void mapFetches(const Statement& s, const std::string& text);
 };
 
@@ -608,6 +716,11 @@ void Extractor::collect(uint32_t id) {
       if (!isFloatType(v.type)) throw Unsupported("non-float constant");
       return;
     case K::Load: {
+      if (const auto it = inlineLoad_.find(id); it != inlineLoad_.end()) {
+        collect(it->second);
+        chainMask(v.chain, 0, 4);  // validates
+        return;
+      }
       if (const auto it = inline_.find(v.base); it != inline_.end()) {
         collect(it->second);
         chainMask(v.chain, 0, 4);  // validates
@@ -753,6 +866,10 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       break;
     }
     case K::Load: {
+      if (const auto it = inlineLoad_.find(id); it != inlineLoad_.end()) {
+        r = applyVectorChain(build(it->second, b), v.chain, 0, b, nullptr);
+        break;
+      }
       if (const auto it = inline_.find(v.base); it != inline_.end()) {
         r = applyVectorChain(build(it->second, b), v.chain, 0, b, nullptr);
         break;
@@ -1366,7 +1483,13 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   usesPow_ = false;
   reg.prog.inputs.clear();
   reg.facts.clear();
+  fetchText_.clear();
   mapFetches(s, reg.text);
+  for (const Statement* d : window_) {
+    Region shape;
+    std::string w;
+    if (shapeOf(*d, shape, w)) mapFetches(*d, shape.text);
+  }
   try {
     collect(s.value);
     if (leaves_.size() > opt_.maxInputs) throw Unsupported("too many inputs");
@@ -1460,7 +1583,6 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
 // Texture fetches of a statement, matched to their call text in the statement: both
 // are in source order when no fetch is nested in another's arguments.
 void Extractor::mapFetches(const Statement& s, const std::string& text) {
-  fetchText_.clear();
   std::unordered_set<uint32_t> tree;
   treeValues(s.value, tree);
   std::vector<std::pair<uint32_t, uint32_t>> fetches;  // seq, id
@@ -1592,6 +1714,100 @@ void Extractor::findTemps(const Statement& use, std::vector<const Statement*>& d
   }
 }
 
+// Same-variable chain (`x = 1.0 - x; x /= F - x;`): the `length` statements before `s`
+// (a store to the whole variable) that compute the value of it `s` reads, in straight-
+// line code (one block). Their loads of the variable are inlined (inlineLoad_). False if
+// an intermediate value is read elsewhere or there are fewer statements.
+bool Extractor::findChain(const Statement& s, size_t length, std::vector<const Statement*>& defs) {
+  if (s.kind != Statement::Kind::Store || !s.chain.empty()) return false;
+  const auto vi = cg_.variables.find(s.var);
+  if (vi == cg_.variables.end() ||
+      (vi->second.kind != Variable::Kind::Local && vi->second.kind != Variable::Kind::Param))
+    return false;
+  const auto di = defs_.find(s.var);
+  if (di == defs_.end()) return false;
+  const Statement* cur = &s;
+  while (defs.size() < length) {
+    if (cur->kind == Statement::Kind::Init) return false;
+    std::unordered_set<uint32_t> tree;
+    treeValues(cur->value, tree);
+    std::vector<uint32_t> loads;
+    uint32_t firstLoad = UINT32_MAX;
+    for (uint32_t id : tree) {
+      const auto it = cg_.values.find(id);
+      if (it == cg_.values.end() || it->second.kind != Value::Kind::Load || it->second.base != s.var) continue;
+      loads.push_back(id);
+      firstLoad = std::min(firstLoad, it->second.seq);
+    }
+    if (loads.empty()) return false;
+    const Statement* d = nullptr;  // the reaching definition
+    for (const Statement* w : di->second)
+      if (w->seq < firstLoad && (!d || w->seq > d->seq)) d = w;
+    if (!d || !d->chain.empty() || d->block != s.block || d->loc.source != s.loc.source) return false;
+    for (const Statement* w : di->second)
+      if (w->seq > d->seq && w->seq < cur->seq) return false;
+    for (const auto& [id, v] : cg_.values) {
+      if (v.seq <= d->seq || v.seq >= cur->seq || v.kind == Value::Kind::Const) continue;
+      if (v.block != s.block) return false;  // control flow in between
+      if (v.kind == Value::Kind::Load && v.base == s.var && !tree.count(id)) return false;
+      if (v.kind == Value::Kind::Call)
+        for (uint32_t a : v.args)
+          if (a == s.var) return false;  // out argument
+    }
+    Region shape;
+    std::string why;
+    if (!shapeOf(*d, shape, why)) return false;
+    for (uint32_t l : loads) inlineLoad_[l] = d->value;
+    defs.push_back(d);
+    cur = d;
+  }
+  return true;
+}
+
+// Whether a window's leaves (variables read, not inlined) have at `s` the value they
+// have where the original reads them: no write to them in between outside the window,
+// and no window statement (removed in variants) writing them before the read.
+bool Extractor::leavesUnchanged(const Statement& s, const std::vector<const Statement*>& defs) const {
+  std::vector<const Statement*> window = defs;
+  window.push_back(&s);
+  for (const Statement* w : window) {
+    std::unordered_set<uint32_t> tree;
+    treeValues(w->value, tree);
+    // A texture fetch is copied as its call text: its arguments must not read an
+    // inlined (removed) value.
+    for (uint32_t id : tree) {
+      const auto it = cg_.values.find(id);
+      if (it == cg_.values.end() || it->second.kind != Value::Kind::Intrinsic || !isTexFetch(it->second.name))
+        continue;
+      std::unordered_set<uint32_t> args;
+      for (uint32_t a : it->second.args) treeValues(a, args);
+      for (uint32_t a : args) {
+        const auto ai = cg_.values.find(a);
+        if (ai != cg_.values.end() && ai->second.kind == Value::Kind::Load &&
+            (inlineLoad_.count(a) || inline_.count(ai->second.base)))
+          return false;
+      }
+    }
+    for (uint32_t id : tree) {
+      const auto it = cg_.values.find(id);
+      if (it == cg_.values.end()) continue;
+      const Value& v = it->second;
+      if (v.kind != Value::Kind::Load || inlineLoad_.count(id) || inline_.count(v.base)) continue;
+      if (const auto di = defs_.find(v.base); di != defs_.end())
+        for (const Statement* x : di->second) {
+          const bool removed = std::find(defs.begin(), defs.end(), x) != defs.end();
+          if (removed && x->seq < v.seq) return false;
+          if (!removed && x->seq > v.seq && x->seq < s.seq) return false;
+        }
+      for (const auto& [cid, cv] : cg_.values)
+        if (cv.kind == Value::Kind::Call && cv.seq > v.seq && cv.seq < s.seq)
+          for (uint32_t a : cv.args)
+            if (a == v.base) return false;
+    }
+  }
+  return true;
+}
+
 std::vector<Region> Extractor::run(SkipCount& skipped) {
 #define SKIPADD(r) skipped.add((r), s.loc.source, s.loc.line)
   // Functions reachable from pixel shaders.
@@ -1629,27 +1845,45 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
       } else {
         SKIPADD(why);
       }
-      // Window: the statement with the single-use temporaries it reads.
+      // Windows: the statement with the single-use temporaries it reads, and with the
+      // statements before it that compute its variable (chains of 1, 2, ...), each also
+      // with the temporaries of the chain.
       if (opt_.maxStatements < 2) continue;
-      std::vector<const Statement*> defs;
-      inline_.clear();
-      findTemps(s, defs, 0);
-      if (defs.empty()) continue;
-      std::sort(defs.begin(), defs.end(), [](const Statement* a, const Statement* b) { return a->seq < b->seq; });
-      Region win = reg;
-      std::string text;
-      for (const Statement* d : defs) {
-        Region shape;
-        shapeOf(*d, shape, why);
-        win.removed.emplace_back(shape.line, shape.lastLine);
-        text += shape.original + "\n";
+      for (size_t length = 0; length < opt_.maxStatements; ++length) {
+        std::vector<const Statement*> defs;
+        inline_.clear();
+        inlineLoad_.clear();
+        if (length > 0 && !findChain(s, length, defs)) break;
+        const std::vector<const Statement*> chainDefs = defs;
+        findTemps(s, defs, 0);
+        for (const Statement* c : chainDefs) findTemps(*c, defs, 0);
+        if (defs.empty()) continue;
+        std::sort(defs.begin(), defs.end(), [](const Statement* a, const Statement* b) { return a->seq < b->seq; });
+        if (!leavesUnchanged(s, defs)) continue;
+        Region win = reg;
+        std::string text;
+        for (const Statement* d : defs) {
+          Region shape;
+          shapeOf(*d, shape, why);
+          win.removed.emplace_back(shape.line, shape.lastLine);
+          text += shape.original + "\n";
+        }
+        win.original = text + reg.original;
+        if (!spanGuard(fx_, reg.file, win.removed.front().first, reg.lastLine, win.guard, why)) {
+          SKIPADD("window: " + why);
+          continue;
+        }
+        window_ = defs;
+        if (buildRegion(s, win, why)) {
+          win.prog.budget = budgetFor(f, s, win.budgetReason);
+          out.push_back(std::move(win));
+        } else {
+          SKIPADD("window: " + why);
+        }
+        window_.clear();
       }
-      win.original = text + reg.original;
-      if (buildRegion(s, win, why)) {
-        win.prog.budget = budgetFor(f, s, win.budgetReason);
-        out.push_back(std::move(win));
-      }
       inline_.clear();
+      inlineLoad_.clear();
     }
   }
 #undef SKIPADD
@@ -1703,12 +1937,13 @@ std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const Re
   if (!alt) return regions;
   SkipCount ignored;
   const std::vector<Region> other = Extractor(*alt, opt).run(ignored);
-  std::map<std::tuple<std::string, uint32_t, int, size_t>, std::string> texts;
+  using Key = std::tuple<std::string, uint32_t, int, std::vector<std::pair<uint32_t, uint32_t>>>;
+  std::map<Key, std::string> texts;
   for (const auto& r : other)
-    texts[{r.file, r.line, static_cast<int>(r.kind), r.removed.size()}] = toString(r.prog.target, r.prog.inputs);
+    texts[{r.file, r.line, static_cast<int>(r.kind), r.removed}] = toString(r.prog.target, r.prog.inputs);
   std::vector<Region> kept;
   for (auto& r : regions) {
-    const auto it = texts.find({r.file, r.line, static_cast<int>(r.kind), r.removed.size()});
+    const auto it = texts.find({r.file, r.line, static_cast<int>(r.kind), r.removed});
     if (it != texts.end() && it->second != toString(r.prog.target, r.prog.inputs)) {
       skipped.add("depends on BUFFER_WIDTH/HEIGHT", r.file, r.line);
       continue;

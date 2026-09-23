@@ -88,6 +88,9 @@ struct Region {
   // Window: declarations of single-use temporaries inlined into this statement
   // (line ranges in the same file, before `line`); a variant removes them.
   std::vector<std::pair<uint32_t, uint32_t>> removed;
+  // Window across #if/#else/#endif lines: the preprocessor condition under which its
+  // statements compile as in this parse (variants apply only then). Empty otherwise.
+  std::string guard;
   Program prog;
   std::vector<Fact> facts;   // one per input
   std::string budgetReason;  // how the budget was derived

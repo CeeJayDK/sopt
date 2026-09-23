@@ -61,8 +61,13 @@ Every variant effect is re-parsed with `SOPT_ALL = 0..n`.
 **Regions.** A region is one statement (`float3 x = ...;`, `x.rgb = ...;`, `x *= ...;`,
 `return ...;`) of pure arithmetic, alone on its lines, without macros (texture fetch
 calls are copied verbatim, so macros inside them are fine), plus windows: the statement
-with the declarations of single-use temporaries it reads (same block; a variant removes
-them). Inputs are the variables and texture fetches it reads. Statements whose value
+with the declarations of single-use temporaries it reads, and with the statements
+before it that compute its own variable (chains such as `d = 1.0 - d; d /= F - d;`, in
+straight-line code, when nothing else reads the intermediate values). A variant removes
+the inlined statements. A window across `#if`/`#else`/`#endif` lines applies only while
+they compile as in the parse: its switch becomes `#if SOPT_x >= 1 && (COND)`.
+`--max-statements N` (default 4) and `--max-ops N` (default 24) bound the regions.
+Inputs are the variables and texture fetches it reads. Statements whose value
 depends on `BUFFER_WIDTH/HEIGHT` through a `static const` are found by parsing twice
 and skipped.
 

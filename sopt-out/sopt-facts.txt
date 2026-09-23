@@ -2,13 +2,3 @@
 # Given ranges are used as facts. Commented lines are inputs without a known range,
 # with a suggestion: check it, uncomment and rerun with --facts sopt-facts.txt.
 
-
-# No known range:
-# Deband.fx PS_Deband k = [-1000, 1000]   # no guess (the default); 1 region
-# Deband.fx PS_Deband sd = [-1000, 1000]   # no guess (the default); 1 region
-# Deband.fx rand x = [-1000, 1000]   # no guess (the default); 1 region
-# ReShade.fxh GetLinearizedDepth depth = [0, 1]   # name looks like depth; 1 region
-# ReShade.fxh GetLinearizedDepth texcoord = [0, 1]   # name looks like a texture coordinate; 2 regions
-# macro global RESHADE_DEPTH_INPUT_X_OFFSET = [-1, 1]   # preprocessor definition (value 0); 1 region
-# macro global RESHADE_DEPTH_INPUT_Y_OFFSET = [-1, 1]   # preprocessor definition (value 0); 1 region
-# macro global RESHADE_DEPTH_LINEARIZATION_FAR_PLANE = [0, 2000]   # preprocessor definition, twice its value; 1 region

@@ -115,8 +115,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   With `--no-inner`, inner constants (the c in rcp(t + c)) must come from the constant pool.
 
 - sopt-fx: statements need ops >= 2 and <= 24, <= 4 inputs / 8 components; returns only
-  when `return` starts the line. Same-variable chains (`x = a; x += b;`) are not
-  windows; only single-use temporaries declared once in the same block are. Fetches
+  when `return` starts the line. Windows: single-use temporaries declared once in the
+  same block, and same-variable chains (`findChain`: the root is a whole-variable store,
+  chain members in its block with no other reads of intermediate values;
+  `leavesUnchanged` checks every leaf reads the same value at the root). Windows across
+  #if lines get `Region::guard` (`spanGuard`: the taken branch of every #if group with a
+  directive in the span; variants use `#if SW >= k && guard`, removed statements
+  `#if SW < 1 || !(guard)`). --max-statements / --max-ops bound regions. Fetches
   nested in another fetch's arguments, user function calls and control flow end a
   region. Ranges are per variable (one interval for all components), unions over
   branches (no path sensitivity); back buffer assumed 8-bit SDR; pixel shader inputs
@@ -149,8 +154,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   expressions of the inputs (tolerance 2e-5 rel, 12 matches per constant, <= 1024
   combos) and V1-verified over the full range (examples/depth_far.sopt). A definition
   used as a literal (uniform initializer, DisplayDepth.fx) stays a number. ReShade.fxh:
-  the reversed-depth gain needs `depth = 1.0 - depth;` + the division (a same-variable
-  chain, not a window); the forward division alone has no gain.
+  the reversed-depth chain (lines 108-111) is now a window (guard
+  RESHADE_DEPTH_INPUT_IS_REVERSED), but its value gets the general rel 1e-6 budget and
+  the known rewrite (error ~3e-5) does not fit it: open question for the owner.
 
 ## Next (per docs/design.md)
 0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan).

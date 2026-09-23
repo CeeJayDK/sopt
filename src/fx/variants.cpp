@@ -47,6 +47,11 @@ std::string escapeCell(std::string s) {
 
 }  // namespace
 
+std::string budgetString(const Budget& b) {
+  char buf[96];
+  return budgetText(b, buf, sizeof(buf));
+}
+
 uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
   const auto uses = m.fusedAdd ? useCounts(e) : std::vector<uint32_t>();
   const auto ct = compileTimeNodes(e, inputs);
@@ -155,9 +160,12 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       if (declared.insert(rr).second)
         out += "#ifndef " + sw + "\n#define " + sw + " SOPT_ALL // 0 = original, 1.." + n +
                " = variants (larger = " + n + ")\n#endif\n";
+      // A window across #if lines applies only while they compile as when it was found.
+      // Its terms are parenthesized: "(A) && !defined(B)".
+      const std::string guard = r.guard.empty() ? std::string() : " && " + r.guard;
       if (!p.root) {
-        // A temporary inlined into the variants: only the original needs it.
-        out += "#if " + sw + " < 1\n";
+        // A statement inlined into the variants: only the original needs it.
+        out += "#if " + sw + " < 1" + (r.guard.empty() ? std::string() : " || !(" + r.guard + ")") + "\n";
         for (; next <= p.last; ++next) out += (*lines)[next - 1] + "\n";
         out += "#endif\n";
         continue;
@@ -169,7 +177,7 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         // with fewer than k variants.
         const bool last = k + 1 == rr->variants.size();
         out += std::string(k == 0 ? "#if " : "#elif ") + sw + (last ? " >= " : " == ") +
-               std::to_string(k + 1) + "\n";
+               std::to_string(k + 1) + guard + "\n";
         char note[240];
         int len = std::snprintf(note, sizeof(note), " // sopt: %s, cost %u -> %u",
                                 klassName(v.klass, r.prog.budget.codeBits()), rr->targetCost, v.cost);
@@ -224,6 +232,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
          (r.removed.empty() ? "" : std::to_string(r.removed.front().first) + "-") + std::to_string(r.line) +
          " (" + r.function + ")\n\n";
     s += "```hlsl\n" + r.original + "\n```\n\n";
+    if (!r.guard.empty()) s += "Applies only while `" + r.guard + "` (preprocessor).\n\n";
     s += "Inputs:\n";
     for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
       const auto& d = r.prog.inputs[k];

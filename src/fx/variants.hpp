@@ -40,6 +40,9 @@ struct RegionResult {
 // constructors are free (register moves the compiler removes). Variants are kept only
 // if this is lower than the original's, so that explicit mad() alone is no gain.
 // Nodes computed only from constants and compile-time inputs are free too.
+// "color8, max code diff 0", "rel 1e-06", ...
+std::string budgetString(const Budget& b);
+
 uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs = {});
 
 // Name of the preprocessor switch of a region: SOPT_<file stem>_<line>.

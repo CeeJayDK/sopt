@@ -302,3 +302,72 @@ TEST(fx_macro_inputs) {
   for (const auto& d : sk.details) fixedSkipped = fixedSkipped || d.find("sopt_macros.fx:25: uses a macro") != std::string::npos;
   CHECK(fixedSkipped);
 }
+
+TEST(fx_chain_windows) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_chain.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  auto window = [&](uint32_t line, std::vector<uint32_t> removed) -> const fx::Region* {
+    for (const auto& r : regions) {
+      if (r.line != line || r.removed.size() != removed.size()) continue;
+      bool same = true;
+      for (size_t k = 0; k < removed.size(); ++k) same = same && r.removed[k].first == removed[k];
+      if (same) return &r;
+    }
+    return nullptr;
+  };
+  // d = d * 2.0 + 1.0 with d = 1.0 - d (inside #if TEST_REV) inlined.
+  const fx::Region* rev = window(27, {25});
+  CHECK(rev != nullptr);
+  if (rev) {
+    CHECK(rev->guard == "(TEST_REV)");
+    CHECK(toString(rev->prog.target, rev->prog.inputs) == "1.0 + (1.0 - d) * 2.0");
+  }
+  // ... and the definition from the fetch: the untaken #if TEST_LOG is in between.
+  const fx::Region* full = window(27, {20, 25});
+  CHECK(full != nullptr);
+  if (full) CHECK(full->guard == "!(TEST_LOG) && (TEST_REV)");
+  // y reads the intermediate d: no chain into d = d * d.
+  CHECK(window(29, {27}) == nullptr);
+  // Plain chain without directives, up to 3 statements before the root.
+  const fx::Region* e3 = window(33, {30, 31, 32});
+  CHECK(e3 != nullptr);
+  if (e3) {
+    CHECK(e3->guard.empty());
+    CHECK(toString(e3->prog.target, e3->prog.inputs) == "(uv.y * 0.5 + 0.25) * (uv.y * 0.5 + 0.25)");
+  }
+  if (!rev) return;
+
+  // Variants apply only under the guard; the effect parses with either TEST_REV.
+  fx::RegionResult rr;
+  rr.region = *rev;
+  rr.targetCost = 10;
+  fx::Variant v;
+  v.text = "3.0 - 2.0 * d";
+  v.cost = 5;
+  rr.variants.push_back(v);
+  const fs::path out = fs::temp_directory_path() / "sopt_test_fx_chain";
+  std::error_code ec;
+  fs::remove_all(out, ec);
+  std::string errors;
+  const auto files = fx::writeVariants({rr}, out, errors);
+  CHECK(errors.empty() && files.size() == 1);
+  std::ifstream f(out / "sopt_chain.fx");
+  std::stringstream ss;
+  ss << f.rdbuf();
+  const std::string text = ss.str();
+  CHECK(text.find("#if SOPT_sopt_chain_25_27 < 1 || !((TEST_REV))\n\td = 1.0 - d;\n#endif") != std::string::npos);
+  CHECK(text.find("#if SOPT_sopt_chain_25_27 >= 1 && (TEST_REV)\n\td = 3.0 - 2.0 * d;") != std::string::npos);
+  for (const char* rev : {"0", "1"}) {
+    fx::LoadOptions o;
+    o.macros = {{"SOPT_ALL", "1"}, {"TEST_REV", rev}};
+    std::string err2;
+    CHECK(fx::loadEffect(out / "sopt_chain.fx", o, err2) != nullptr);
+  }
+  fs::remove_all(out, ec);
+}

@@ -42,6 +42,10 @@ void usage() {
       "  --v1 N            verification sample points (default 262144)\n"
       "  --jobs N          regions searched in parallel (default: all cores)\n"
       "  --max-inputs N    skip statements reading more variables (default 4)\n"
+      "  --max-ops N       skip regions with more operations (default 24)\n"
+      "  --max-statements N  statements per window: a statement with the single-use\n"
+      "                    temporaries it reads or the statements before it that compute\n"
+      "                    its variable (default 4; 1 = single statements only)\n"
       "  --cost-model M    rdna3 | nvidia | generic (default rdna3)\n"
       "  --isa             measure original and variants with fxstat + RGA (AMD); variants\n"
       "                    must be cheaper for some measured vendor ($SOPT_FXSTAT, $SOPT_RGA)\n"
@@ -119,6 +123,9 @@ int main(int argc, char** argv) {
     else if (a == "--v1") opt.v1Points = std::strtoull(next(), nullptr, 10);
     else if (a == "--jobs") jobs = std::max(1ul, std::strtoul(next(), nullptr, 10));
     else if (a == "--max-inputs") ropt.maxInputs = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
+    else if (a == "--max-ops") ropt.maxOps = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
+    else if (a == "--max-statements")
+      ropt.maxStatements = std::max<uint32_t>(1, static_cast<uint32_t>(std::strtoul(next(), nullptr, 10)));
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
       if (!opt.search.model) { std::fprintf(stderr, "unknown cost model\n"); return 2; }
@@ -314,6 +321,8 @@ int main(int argc, char** argv) {
                   r.removed.empty() ? "" : (std::to_string(r.removed.front().first) + "-").c_str(), r.line,
                   r.lhs.c_str(),
                   toString(r.prog.target, r.prog.inputs).c_str(), rr.targetCost);
+      std::printf("    budget %s (%s)\n", fx::budgetString(r.prog.budget).c_str(), r.budgetReason.c_str());
+      if (!r.guard.empty()) std::printf("    only while %s\n", r.guard.c_str());
       for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
         const auto& d = r.prog.inputs[k];
         std::printf("    %s in [%g, %g]%s  %s%s\n", d.name.c_str(), d.lo, d.hi,

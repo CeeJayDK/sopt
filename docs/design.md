@@ -231,7 +231,7 @@ budget r : color8
 ### M3: FX front end og første rigtige kørsel
 **Leverer:**
 - reshadefx-codegen, der bygger IR.
-- Region extraction: vinduer på ≤ k ops mellem texture-fetches og control flow.
+- Region extraction: vinduer på ≤ k ops mellem texture-fetches og control flow. Vinduer er et statement med de single-use temporaries, det læser, og med kæder af statements på samme variabel (`d = 1.0 - d; d /= ...`). Vinduer hen over `#if`-linjer gælder kun under samme betingelse (`#if SOPT_x >= 1 && (COND)`).
 - Facts:
   - BackBuffer-range afhængigt af farverum
   - `ui_min`/`ui_max`
