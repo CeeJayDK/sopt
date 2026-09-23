@@ -35,12 +35,13 @@ struct InputDecl {
 
 // Error budget per output value (design 4.2). Color8/Color10: max difference in
 // 8/10-bit code values after quantization. Texcoord: max deviation in pixels at 4K
-// width (eps = px / 3840). Exact also covers conditions, temporal feedback and depth.
+// width by default (eps = px / width). Exact also covers conditions, temporal feedback and depth.
 struct Budget {
   enum class Kind { Exact, Color8, Color10, Abs, Rel, Texcoord } kind = Kind::Exact;
   double eps = 0.0;     // Abs, Rel, Texcoord
   int maxCodeDiff = 1;  // Color8, Color10
-  double px = 0.0;      // Texcoord: pixels at 3840 wide
+  double px = 0.0;      // Texcoord: pixels at `width` wide (eps = px / width)
+  double width = 3840.0;
   int codeBits() const { return kind == Kind::Color10 ? 10 : 8; }
 };
 

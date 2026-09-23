@@ -60,7 +60,7 @@ const char* budgetText(const Budget& b, char* buf, size_t n) {
       std::snprintf(buf, n, "color%d, max code diff %d", b.codeBits(), b.maxCodeDiff);
       return buf;
     case Budget::Kind::Texcoord:
-      std::snprintf(buf, n, "texcoord, %g px at 3840 (abs %g)", b.px, b.eps);
+      std::snprintf(buf, n, "texcoord, %g px at %g wide (abs %g)", b.px, b.width, b.eps);
       return buf;
     case Budget::Kind::Abs: std::snprintf(buf, n, "abs %g", b.eps); return buf;
     case Budget::Kind::Rel: std::snprintf(buf, n, "rel %g", b.eps); return buf;

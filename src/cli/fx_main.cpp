@@ -51,7 +51,9 @@ void usage() {
       "                    defaults (no fact); otherwise they are only in the report\n"
       "  --facts FILE      ranges for inputs without facts (format: see sopt-facts.txt,\n"
       "                    which every run writes to the output directory)\n"
-      "  --ask             ask for the missing ranges in the terminal (Enter = suggestion)");
+      "  --ask             ask for the missing ranges in the terminal (Enter = suggestion)\n"
+      "  --max-width N     largest render target width: SV_Position in [0, N] (default\n"
+      "                    7680 = 8K; the hardware limit is 16384)");
 }
 
 void collect(const fs::path& p, std::vector<fs::path>& out) {
@@ -121,6 +123,7 @@ int main(int argc, char** argv) {
     else if (a == "--assumed") allowAssumed = true;
     else if (a == "--facts") factsFile = next();
     else if (a == "--ask") ask = true;
+    else if (a == "--max-width") ropt.maxWidth = std::strtod(next(), nullptr);
     else if (a == "--sass") sass = true;
     else if (a == "--sm") sassCfg.sm = std::atoi(next());
     else if (a == "-h" || a == "--help") { usage(); return 0; }

@@ -345,7 +345,7 @@ Range clampR(const Range& a, double lo, double hi) {
 }
 
 std::string semanticKey(std::string s);
-Range semanticConvention(const std::string& semantic);
+Range semanticConvention(const std::string& semantic, double maxWidth);
 
 bool isTexFetch(const std::string& n) {
   return n.rfind("tex1D", 0) == 0 || n.rfind("tex2D", 0) == 0 || n.rfind("tex3D", 0) == 0;
@@ -1023,12 +1023,12 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         const Function* f = pf->second;
         const std::string sem = upper(v.semantic);
         if (sem == "SV_POSITION" || sem == "VPOS")
-          return Range::of(0, 16384, "SV_Position (pixels, up to the 16384 hardware limit)");
+          return Range::of(0, opt_.maxWidth, "SV_Position (pixels, up to --max-width)");
         // Pixel shader input: what the vertex shaders of its passes write, else the
         // semantic's convention.
         if (f->type == reshadefx::shader_type::pixel) {
           const Range r = pixelInputRange(*f, sem);
-          return r.known ? r : semanticConvention(sem);
+          return r.known ? r : semanticConvention(sem, opt_.maxWidth);
         }
         // Helper function parameter: union over the call sites.
         if (!varBusy_.insert(var).second) return Range::unknown();
@@ -1141,9 +1141,9 @@ Range Extractor::pixelInputRange(const Function& ps, const std::string& semantic
 
 // Ranges that semantics imply for pixel shader inputs: SV_Position is in pixels;
 // TEXCOORD0..9 are texture coordinates by convention (programmers name them so), [0, 1].
-Range semanticConvention(const std::string& semantic) {
+Range semanticConvention(const std::string& semantic, double maxWidth) {
   const std::string key = semanticKey(semantic);
-  if (key == "SV_POSITION0" || key == "VPOS0") return Range::of(0, 16384, "SV_Position (pixels, up to the 16384 hardware limit)");
+  if (key == "SV_POSITION0" || key == "VPOS0") return Range::of(0, maxWidth, "SV_Position (pixels, up to --max-width)");
   if (key.rfind("TEXCOORD", 0) == 0) return Range::of(0, 1, "TEXCOORD semantic (convention)");
   return Range::unknown();
 }
@@ -1235,7 +1235,8 @@ Budget Extractor::budgetFor(const Function& f, const Statement& s, std::string& 
   } else if (coord && !other) {
     b.kind = Budget::Kind::Texcoord;
     b.px = opt_.texcoordPx;
-    b.eps = opt_.texcoordPx / 3840.0;
+    b.width = opt_.texcoordWidth;
+    b.eps = opt_.texcoordPx / opt_.texcoordWidth;
     reason = "used as texture coordinate";
   } else {
     b.kind = Budget::Kind::Rel;
@@ -1361,7 +1362,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
                    : kv == cg_.variables.end() ? 3
                    : kv->second.kind == Variable::Kind::Uniform ? 0
                    : kv->second.kind == Variable::Kind::Param ? 1 : 3;
-      if (!r.known && !l.semantic.empty()) r = semanticConvention(l.semantic);
+      if (!r.known && !l.semantic.empty()) r = semanticConvention(l.semantic, opt_.maxWidth);
       if (!r.known || r.assumed) {
         const auto u = opt_.userRanges ? opt_.userRanges->find(fact.key) : UserRanges::const_iterator();
         if (opt_.userRanges && u != opt_.userRanges->end()) {
@@ -1471,7 +1472,7 @@ void Extractor::suggest(const Leaf& l, Fact& f) const {
   if (has({"uv", "coord", "tex"})) return set(0, 1, "name looks like a texture coordinate");
   if (has({"col", "rgb", "luma", "lum"})) return set(0, 1, "name looks like a color");
   if (has({"depth"})) return set(0, 1, "name looks like depth");
-  if (has({"pos", "pixel"})) return set(0, 16384, "name looks like a pixel position");
+  if (has({"pos", "pixel"})) return set(0, opt_.maxWidth, "name looks like a pixel position");
   set(opt_.defaultLo, opt_.defaultHi, "no guess (the default)");
 }
 
