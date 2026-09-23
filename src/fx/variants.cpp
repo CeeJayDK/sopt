@@ -1,6 +1,7 @@
 #include "fx/variants.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <fstream>
 #include <map>

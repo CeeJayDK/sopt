@@ -1,6 +1,7 @@
 #include "fx/frontend.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cctype>
 #include <cmath>
 #include <fstream>
@@ -8,6 +9,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 
