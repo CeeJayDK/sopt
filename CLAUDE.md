@@ -138,8 +138,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   (sampling misses rare-event differences, e.g. CRT.fx corner()). The static cost
   model gains only survive `compiledCost`; with --isa/--sass most remaining
   single-statement gains in SweetFX turn out to be compiler-done already.
-- Result on reshade-shaders + legacy + SweetFX (with chain windows): 53 effects, 0 parse
-  failures, 731 regions, 18 with gains; all variants compile (165 HLSL/SPIR-V builds).
+- Result on reshade-shaders + legacy + SweetFX (chain windows, accuracy rule, loose 100):
+  53 effects, 0 parse failures, 731 regions, 22 with gains (new: FilmicPass.fx:87-90
+  sigmoid 1 / (1 + exp(a / 2)) as a rational, less accurate 6.5e-5, amd 10 -> 7,
+  nv 19 -> 13); all variants compile (231 HLSL/SPIR-V builds). With the facts file
+  (depth [0, 1], FAR_PLANE [100, 10000]) sopt-fx finds ReShade.fxh's reversed depth
+  rewrite itself: as accurate (1.3e-7 vs exact, original 2.3e-4), amd 7 -> 6, nv 12 -> 11.
   Earlier, slim + SweetFX: 33 effects, 283 regions, 11 with measured gains (Daltonize 0*x terms: NVIDIA only; Vignette XOR dot: AMD 3 -> 2,
   NVIDIA 4 -> 3); all variants compile to HLSL and SPIR-V (spirv-val) for every switch.
 
