@@ -1,6 +1,7 @@
 #include "verify/points.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 
 namespace sopt {
@@ -27,7 +28,8 @@ std::vector<float> specialValues(const InputDecl& d, const Expr& target) {
   // test exactly at them and next to them.
   for (const auto& n : target.nodes) {
     if (n.op != Op::Const) continue;
-    const float c = n.value;
+    for (unsigned k = 0; k < width(n.type); ++k) {
+    const float c = n.value[k];
     addIfInside(c);
     if (d.grid > 0 && d.hi > d.lo) {
       const double step = (d.hi - d.lo) / d.grid;
@@ -36,6 +38,7 @@ std::vector<float> specialValues(const InputDecl& d, const Expr& target) {
     } else {
       addIfInside(std::nextafter(c, -INFINITY));
       addIfInside(std::nextafter(c, INFINITY));
+    }
     }
   }
   std::sort(v.begin(), v.end());
@@ -57,10 +60,12 @@ float neighbour(const InputDecl& d, float v, Rng& rng) {
   return r;
 }
 
+// Vector inputs are sampled per component (slots, see slotDecls).
 std::vector<std::vector<float>> specialPoints(const Program& prog, Rng& rng) {
-  const size_t n = prog.inputs.size();
+  const std::vector<InputDecl> slots = slotDecls(prog.inputs);
+  const size_t n = slots.size();
   std::vector<std::vector<float>> specials(n);
-  for (size_t i = 0; i < n; ++i) specials[i] = specialValues(prog.inputs[i], prog.target);
+  for (size_t i = 0; i < n; ++i) specials[i] = specialValues(slots[i], prog.target);
 
   std::vector<std::vector<float>> pts;
   // All inputs at the k-th special value (lo, hi, mid, 0, 1, ...).
@@ -77,7 +82,7 @@ std::vector<std::vector<float>> specialPoints(const Program& prog, Rng& rng) {
       for (int edge = 0; edge < 2; ++edge) {
         std::vector<float> p(n);
         for (size_t j = 0; j < n; ++j) {
-          const auto& d = prog.inputs[j];
+          const auto& d = slots[j];
           const bool lo = (j == i) == (edge == 0);
           p[j] = snap(d, lo ? d.lo : d.hi);
         }
@@ -90,7 +95,7 @@ std::vector<std::vector<float>> specialPoints(const Program& prog, Rng& rng) {
   for (size_t i = 0; i < n; ++i) {
     for (float sv : specials[i]) {
       std::vector<float> p(n);
-      for (size_t k = 0; k < n; ++k) p[k] = sampleInput(prog.inputs[k], rng);
+      for (size_t k = 0; k < n; ++k) p[k] = sampleInput(slots[k], rng);
       p[i] = sv;
       pts.push_back(p);
     }
@@ -99,8 +104,8 @@ std::vector<std::vector<float>> specialPoints(const Program& prog, Rng& rng) {
   for (size_t i = 0; i < n; ++i) {
     for (size_t j = i + 1; j < n; ++j) {
       std::vector<float> p(n);
-      for (size_t k = 0; k < n; ++k) p[k] = sampleInput(prog.inputs[k], rng);
-      p[j] = snap(prog.inputs[j], neighbour(prog.inputs[i], p[i], rng));
+      for (size_t k = 0; k < n; ++k) p[k] = sampleInput(slots[k], rng);
+      p[j] = snap(slots[j], neighbour(slots[i], p[i], rng));
       pts.push_back(p);
     }
   }
@@ -134,16 +139,43 @@ float sampleInput(const InputDecl& d, Rng& rng) {
   return snap(d, d.lo + (d.hi - d.lo) * rng.uniform());
 }
 
+namespace {
+
+// Monotone map of float32 to uint32 (for enumerating every float in an interval).
+uint32_t orderedBits(float f) {
+  const uint32_t b = std::bit_cast<uint32_t>(f);
+  return (b & 0x80000000u) ? ~b : (b | 0x80000000u);
+}
+float fromOrdered(uint32_t o) {
+  return std::bit_cast<float>((o & 0x80000000u) ? (o & 0x7fffffffu) : ~o);
+}
+
+}  // namespace
+
+uint64_t domainCount(const InputDecl& d) {
+  if (d.hi <= d.lo) return 1;
+  if (d.grid > 0) return static_cast<uint64_t>(d.grid) + 1;
+  return uint64_t{orderedBits(static_cast<float>(d.hi))} - orderedBits(static_cast<float>(d.lo)) + 1;
+}
+
+float domainValue(const InputDecl& d, uint64_t k) {
+  if (d.hi <= d.lo) return static_cast<float>(d.lo);
+  if (d.grid > 0) return snap(d, d.lo + (d.hi - d.lo) * static_cast<double>(k) / d.grid);
+  return fromOrdered(orderedBits(static_cast<float>(d.lo)) + static_cast<uint32_t>(k));
+}
+
 PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed) {
   Rng rng(seed);
+  const std::vector<InputDecl> slots = slotDecls(prog.inputs);
   PointSet ps;
-  ps.cols.resize(prog.inputs.size());
+  ps.cols.resize(slots.size());
+  ps.slot = inputSlots(prog.inputs);
   auto specials = specialPoints(prog, rng);
   const size_t maxSpecial = std::max<size_t>(1, (count * 2) / 3);
   for (size_t i = 0; i < specials.size() && i < maxSpecial; ++i) ps.add(specials[i]);
   while (ps.size() < count) {
-    std::vector<float> p(prog.inputs.size());
-    for (size_t i = 0; i < p.size(); ++i) p[i] = sampleInput(prog.inputs[i], rng);
+    std::vector<float> p(slots.size());
+    for (size_t i = 0; i < p.size(); ++i) p[i] = sampleInput(slots[i], rng);
     ps.add(p);
   }
   return ps;
@@ -151,8 +183,10 @@ PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed) {
 
 PointSet makeRandomPoints(const Program& prog, size_t count, uint64_t seed, bool withSpecials) {
   Rng rng(seed);
+  const std::vector<InputDecl> slots = slotDecls(prog.inputs);
   PointSet ps;
-  ps.cols.resize(prog.inputs.size());
+  ps.cols.resize(slots.size());
+  ps.slot = inputSlots(prog.inputs);
   for (auto& c : ps.cols) c.reserve(count);
   if (withSpecials) {
     for (const auto& p : specialPoints(prog, rng)) {
@@ -161,8 +195,7 @@ PointSet makeRandomPoints(const Program& prog, size_t count, uint64_t seed, bool
     }
   }
   while (ps.size() < count) {
-    for (size_t i = 0; i < prog.inputs.size(); ++i)
-      ps.cols[i].push_back(sampleInput(prog.inputs[i], rng));
+    for (size_t i = 0; i < slots.size(); ++i) ps.cols[i].push_back(sampleInput(slots[i], rng));
   }
   return ps;
 }

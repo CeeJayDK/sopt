@@ -1,0 +1,6 @@
+# x component of normalize(float2(x, y)): rsqrt + mul instead of sqrt + div.
+# expect: x * rsqrt(mad(x, x, y * y))
+input x : float in [0.01, 1]
+input y : float in [0.01, 1]
+output r = x / sqrt(x * x + y * y)
+budget r : rel 1e-5

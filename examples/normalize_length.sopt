@@ -1,0 +1,5 @@
+# normalize(v) * length(v) is v again (up to rounding): the whole region disappears.
+# expect: v
+input v : float3 in [-1, 1]
+output r = normalize(v) * length(v)
+budget r : rel 1e-5

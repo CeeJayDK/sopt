@@ -1,0 +1,6 @@
+# Two square roots of a product: one transcendental instead of two.
+# expect: sqrt(x * y)
+input x : float in [0.01, 1]
+input y : float in [0.01, 1]
+output r = sqrt(x) * sqrt(y)
+budget r : rel 1e-5

@@ -5,7 +5,9 @@
 
 #include "ir/eval.hpp"
 #include "test.hpp"
+#include "ir/parser.hpp"
 #include "verify/points.hpp"
+#include "verify/verify.hpp"
 
 using namespace sopt;
 
@@ -106,4 +108,52 @@ TEST(eval_golden_exact_ops) {
   CHECK(ref == 0x7c1269b1ff7b7dd0ull);
   CHECK(mix == 0xb2700fe4fe4159deull);
   CHECK(fma == 0x674ea0f74ef564ebull);
+}
+
+TEST(eval_gpu_profile) {
+  // a / b is a * rcp(b) on the GPU: differs from IEEE division for some inputs.
+  int diffs = 0;
+  Rng rng(3);
+  for (int i = 0; i < 10000; ++i) {
+    const float a = static_cast<float>(rng.uniform()), b = static_cast<float>(rng.uniform() + 0.1);
+    diffs += !same(ev(Op::Div, a, b, 0, kProfileRef), ev(Op::Div, a, b, 0, kProfileGpu));
+    CHECK(same(ev(Op::Div, a, b, 0, kProfileGpu), a * (1.0f / b)));
+  }
+  CHECK(diffs > 0);
+  CHECK(ev(Op::Rcp, 4.0f) == 0.25f);
+  // lerp contracted: fma(t, b - a, a).
+  CHECK(same(ev(Op::Lerp, 0.1f, 0.7f, 0.3f, kProfileGpu), std::fma(0.3f, 0.7f - 0.1f, 0.1f)));
+}
+
+TEST(eval_gpu_contraction) {
+  // The verifier contracts a single-use mul (or div) under add/sub into one fma.
+  std::vector<InputDecl> in = {{"a", 0, 1, 0}, {"b", 0, 1, 0}, {"c", 0, 1, 0}};
+  PointSet ps;
+  ps.cols.resize(3);
+  Rng rng(5);
+  for (int i = 0; i < 1000; ++i)
+    ps.add({static_cast<float>(rng.uniform()), static_cast<float>(rng.uniform()),
+            static_cast<float>(rng.uniform() + 0.5)});
+  struct Case {
+    const char* text;
+    float (*gpu)(float, float, float);
+  };
+  const Case cases[] = {
+      {"a * b + c", [](float a, float b, float c) { return std::fma(a, b, c); }},
+      {"a * b - c", [](float a, float b, float c) { return std::fma(a, b, -c); }},
+      {"c - a * b", [](float a, float b, float c) { return std::fma(-a, b, c); }},
+      {"a / c - b", [](float a, float b, float c) { return std::fma(a, 1.0f / c, -b); }},
+      // shared product: not contracted
+      {"a * b + a * b", [](float a, float b, float) { return a * b + a * b; }},
+  };
+  int contractedDiffs = 0;
+  for (const auto& cs : cases) {
+    const auto ref = evalAll(parseExpr(cs.text, in), ps, kProfileRef);
+    const auto gpu = evalAll(parseExpr(cs.text, in), ps, kProfileGpu);
+    for (size_t i = 0; i < ps.size(); ++i) {
+      CHECK(same(gpu[i], cs.gpu(ps.cols[0][i], ps.cols[1][i], ps.cols[2][i])));
+      contractedDiffs += !same(gpu[i], ref[i]);
+    }
+  }
+  CHECK(contractedDiffs > 0);
 }

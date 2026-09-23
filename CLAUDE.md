@@ -2,7 +2,13 @@
 
 Shader superoptimizer for ReShade FX shaders. Finds cheaper, verified alternatives
 to small pure arithmetic regions and presents them as user-selectable variants.
-Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done.
+Full design and milestones: `docs/design.md` (Danish). Status: M0, M1, M2 done (CI green on
+MSVC/GCC/Clang, golden hashes match); M3 implemented (`sopt-fx`: FX front end, regions,
+facts, budgets, variant .fx), waiting for the owner's manual test in ReShade; plus RDNA3 cost model, `gpu` semantic profile, ISA
+ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
+a separate enumeration order model (`--order-model`; rdna3 and nvidia default to
+`search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost model: rdna3.
 
 ## Working with the owner
 - Christian (CeeJay, SweetFX/ReShade). Communicates in Danish; prefers brief, direct answers.
@@ -13,15 +19,48 @@ Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done.
 - Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`
 - Tests: `ctest --test-dir build --output-on-failure` (or `build/sopt-tests [filter]`)
 - CLI: `build/sopt examples/screen.sopt --stats`
-- Bench: `build/sopt-bench --examples examples` and
+- FX: `build/sopt-fx -I <reshade-shaders>/Shaders -o out <dir or .fx>... [--isa --sass]`
+  (`--list --skips` shows regions, facts and why statements were skipped)
+- Bench: `build/sopt-bench --examples examples [--cost-model rdna3]` and
   `build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30`
+- ISA ranking: `SOPT_FXSTAT=... SOPT_RGA=... build/sopt examples/factor.sopt --isa`,
+  NVIDIA: `SOPT_PTXAS=... SOPT_NVDISASM=... build/sopt ... --sass` (pip:
+  nvidia-cuda-nvcc-cu12 for ptxas, nvidia-cuda-nvdisasm for nvdisasm).
+  Tools: ReShade-Testing-Initiative (`build_reshade_testing_initiative.sh`, needs
+  spirv-tools, flex, bison) and RGA 2.14 (`rga-linux-2.14.tgz` from GitHub releases).
 
 ## Layout
-- `src/ir`: op table (`ops.cpp`: costs, exactness, base set), float32 evaluator,
-  hash-consed Expr DAG, `.sopt` parser, printer.
-- `src/verify`: test/sample point generation, block evaluation, metrics, budget checks.
+- `src/ir`: op table (`ops.cpp`: exactness, base set, Shape, cost models generic/rdna3/
+  nvidia/search, `CostModel::opCost` per width), float32 evaluator (`evalNode` is the one
+  vector-aware node evaluation), hash-consed Expr DAG (Node: type, swizzle, up to 4
+  operands, vector constants; `inferType`), `.sopt` parser (floatN inputs, swizzles,
+  constructors), printer.
+- `src/verify`: test/sample point generation (vector inputs as scalar slots, see
+  `slotDecls`/`PointSet::slotOf`), block evaluation (component columns), metrics and
+  budget checks per component, V2 exhaustive verification (`compareExhaustive`).
 - `src/search`: `enumerator` (bottom-up by cost, observational equivalence on
-  fingerprints) and `driver` (CEGIS loop, stage-2 filter, V1 verification, grouping).
+  fingerprints; affine (default, `--no-affine`): outer p * v + q solved by least squares
+  at the goal check, affine chains / two-constant mad, lerp / sign flips / c / v not
+  stored; `--order-model`: levels by one cost model, hits/ranking by the objective,
+  entries with objective cost >= target not stored, level lists sorted by objective;
+  inner (default, `--no-inner`): target ~ p * u(v + c) + q for u = rcp/sqrt/rsqrt, c
+  from a linear reparametrization + Gauss-Newton, then the affine fit; pure helpers
+  lerp/step not enumerated unless `--helpers`, see `isPureHelper` in ops.hpp) and `driver` (CEGIS loop, stage-2 filter, V1 verification, grouping).
+- `src/measure`: `isa` emits a candidate as a ReShade FX effect, runs fxstat + RGA and
+  parses the pixel shader's ISA cost; `sass` emits a PTX kernel (inputs loaded and
+  stored back so they live in registers), runs ptxas + nvdisasm and counts SASS.
+- `third_party/reshadefx`: ReShade 6.8.0 FX lexer/preprocessor/parser, unmodified
+  (built as C++17). `src/fx/codegen`: its codegen interface recorded as a dataflow graph
+  (values with seq/block, statements Init/Store/Return, loops, samplers, uniforms).
+- `src/fx/frontend`: `loadEffect` (ReShade's predefined macros; `ppLines` maps source
+  lines to preprocessed text), `extractRegions`: pixel-reachable functions, statement
+  text checks (alone on its lines, no macros outside fetch calls), IR building (leaves =
+  variable + member chain with used components, or texture fetch call text), windows
+  (single-use temporaries inlined), ranges (`Range`, reaching definitions, loops),
+  budget from use, and a second parse at 2560x1440 to drop resolution-dependent ones.
+- `src/fx/variants`: `compiledCost` (contraction, modifiers, swizzles free), variant
+  files (switch per region, `SOPT_ALL`, overlap resolution), Markdown report.
+  `src/cli/fx_main.cpp`: sopt-fx (parallel search, filters, --isa/--sass, re-parse).
 - `bench/bench.cpp`: example suite + planted problems. `examples/*.sopt` with `# expect:`.
 
 ## Invariants (do not break)
@@ -30,10 +69,17 @@ Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done.
   inside evaluation.
 - `eval_golden_exact_ops` hashes must match on MSVC, GCC and Clang. If an exact op's
   semantics change intentionally, regenerate the hashes and say so.
-- All non-leaf op costs >= 1 (levels are well-founded). Bank entries are appended in
+- All non-leaf op costs >= 1 in every cost model, fusedAdd included (levels are
+  well-founded). Bank entries are appended in
   cost order; operands always have lower index.
 - Undefined inputs are don't-care: points where the target is not finite are skipped.
-- Inexact ops (rsqrt, pow, exp, log, sin, cos) are never classified bit-exact.
+- Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
+  Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
+- Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
+  `expr.cpp`: an add/sub over a single-use mul (or div) is one fma.
+- Pure helper intrinsics (lerp, step, later smoothstep/length/...) are not enumerated
+  during search (owner's rule: their expansions are tried anyway). Single-instruction
+  intrinsics and modifiers (mad, clamp, saturate, rcp, rsqrt, ...) are.
 - Every new search technique goes behind a flag and must improve time-to-best on the
   bench (section 6 of the design) before becoming default.
 
@@ -41,13 +87,54 @@ Full design and milestones: `docs/design.md` (Danish). Status: M0 + M1 done.
 - Bank cost is tree cost: solutions that need a shared intermediate value are missed
   (bench marks them `needs-sharing`). Planned fix: shared leaves (M7).
 - Bank limit (2M entries) is reached around cost 8 with 3 inputs; ternary ops dominate.
-- Scalar float only; one output; verification by sampling only (V2/V3 in M2/M7).
-- Cost weights in `ops.cpp` are placeholders (calibration in M6).
+- One output (float1..4). Vector ops are enumerated only at the target's width (and
+  float1); no constructors or swizzles of computed vectors are enumerated. dot/length/
+  normalize/distance are pure helpers (not enumerated): their expansions over input
+  components are, so e.g. length(v) * length(v) -> dot expansion needs --max-bank 5000000.
+- M2 done criteria changed (owner's helper rule): c.r*a + c.g*b + c.b*c -> dot(...) and
+  sqrt(dot(v, v)) -> length(v) cost the same on GPUs; they are readability rewrites
+  (optional post-search step), not search results. Real vector wins are the examples
+  (normalize_length, length_squared).
+- V2 checks the cheapest 20 alternatives when the domain has <= 2^24 points; continuous
+  multi-input domains are sampled only (V3 in M7).
+- `generic` costs are placeholders. `rdna3` is calibrated per op on gfx1100 but misses
+  context effects (min(max()) -> med3, extra v_mov for some constants); `--isa` covers them.
+- `rdna3` and `nvidia` enumerate in `search` order by default (rdna3's cheap ops,
+  transcendentals at half cost). Bench (rdna3 objective, 11 examples + 36 planted): search 38 found,
+  rdna3 order 37, generic order 36 (loses cheap-op planted problems). `rdna3` is the default
+  objective. With a separate order, dedup keeps the order-cheapest program
+  of a value, not the objective-cheapest.
+- normalize_x (x * rsqrt(x*x + y*y), rdna3 cost 28, two inputs) is not reached by any
+  order: the bank fills first.
+- NVIDIA data is the CUDA compiler (ptxas), not the graphics driver's; the MUFU weight
+  (8x on sm_86+, 4x on sm_75/80) is from memory of the CUDA guide's throughput table and
+  still to be verified (docs.nvidia.com is blocked from the cloud sandbox).
+- Inner fitting covers u(v + c) for u = rcp/sqrt/rsqrt only (one inner shift, no inner
+  scale: exp/sin/log need one); it costs up to ~40% generation speed on planted problems.
+- Affine and inner fitting use the fingerprint points, so exact budgets rarely fit.
+  With `--no-inner`, inner constants (the c in rcp(t + c)) must come from the constant pool.
+
+- sopt-fx: statements need ops >= 2 and <= 24, <= 4 inputs / 8 components; returns only
+  when `return` starts the line. Same-variable chains (`x = a; x += b;`) are not
+  windows; only single-use temporaries declared once in the same block are. Fetches
+  nested in another fetch's arguments, user function calls and control flow end a
+  region. Ranges are per variable (one interval for all components), unions over
+  branches (no path sensitivity); back buffer assumed 8-bit SDR; TEXCOORD assumed
+  [0, 1] (full-screen pass). Variants of regions with assumed ranges are not written
+  (sampling misses rare-event differences, e.g. CRT.fx corner()). The static cost
+  model gains only survive `compiledCost`; with --isa/--sass most remaining
+  single-statement gains in SweetFX turn out to be compiler-done already.
+- Result on reshade-shaders (slim) + SweetFX: 33 effects, 0 parse failures, 283 regions,
+  11 with measured gains (Daltonize 0*x terms: NVIDIA only; Vignette XOR dot: AMD 3 -> 2,
+  NVIDIA 4 -> 3); all variants compile to HLSL and SPIR-V (spirv-val) for every switch.
 
 ## Next (per docs/design.md)
-1. Confirm CI green on MSVC (golden hashes) — M0 criterion not yet verified on Windows.
-2. M2: float2–4, dot/length/normalize, component access; V2 exhaustive verification on
-   8-bit grids and unary float inputs; error-budget classes.
+0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan).
+1. Optional (owner: "could"): after search, try re-writing the best candidates with pure
+   helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only. When M2 adds
+   smoothstep/length/distance/normalize, treat them as pure helpers too.
+2. M7 search scaling continues (e.g. shared leaves for needs-sharing, reaching
+   normalize_x) — ask first.
 3. M3: reshadefx front end, region extraction, facts, variant `.fx` output.
 
 ## Under discussion (not decided — ask before implementing)

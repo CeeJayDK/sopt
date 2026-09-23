@@ -47,8 +47,42 @@ add_library(sopt-search
 target_link_libraries(sopt-search PUBLIC sopt-verify)
 sopt_fp_flags(sopt-search)
 
+add_library(sopt-measure
+  src/measure/tools.cpp
+  src/measure/isa.cpp
+  src/measure/sass.cpp)
+target_link_libraries(sopt-measure PUBLIC sopt-ir Threads::Threads)
+sopt_fp_flags(sopt-measure)
+
+# ReShade FX front end (vendored from ReShade, BSD-3), used as the parser for sopt-fx.
+add_library(reshadefx STATIC
+  third_party/reshadefx/effect_expression.cpp
+  third_party/reshadefx/effect_lexer.cpp
+  third_party/reshadefx/effect_parser_exp.cpp
+  third_party/reshadefx/effect_parser_stmt.cpp
+  third_party/reshadefx/effect_preprocessor.cpp
+  third_party/reshadefx/effect_symbol_table.cpp)
+target_include_directories(reshadefx PUBLIC third_party/reshadefx)
+set_target_properties(reshadefx PROPERTIES CXX_STANDARD 17)
+if(MSVC)
+  target_compile_options(reshadefx PRIVATE /fp:precise /utf-8)
+else()
+  target_compile_options(reshadefx PRIVATE -ffp-contract=off -fno-fast-math)
+endif()
+
+add_library(sopt-fx-lib
+  src/fx/codegen.cpp
+  src/fx/frontend.cpp
+  src/fx/variants.cpp)
+target_link_libraries(sopt-fx-lib PUBLIC reshadefx sopt-search)
+sopt_fp_flags(sopt-fx-lib)
+
+add_executable(sopt-fx src/cli/fx_main.cpp)
+target_link_libraries(sopt-fx PRIVATE sopt-fx-lib sopt-measure)
+sopt_fp_flags(sopt-fx)
+
 add_executable(sopt src/cli/main.cpp)
-target_link_libraries(sopt PRIVATE sopt-search)
+target_link_libraries(sopt PRIVATE sopt-search sopt-measure)
 sopt_fp_flags(sopt)
 
 if(SOPT_BUILD_BENCH)
@@ -63,9 +97,15 @@ if(SOPT_BUILD_TESTS)
     tests/test_main.cpp
     tests/test_eval.cpp
     tests/test_parser.cpp
-    tests/test_rewrites.cpp)
-  target_link_libraries(sopt-tests PRIVATE sopt-search)
-  target_compile_definitions(sopt-tests PRIVATE SOPT_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples")
+    tests/test_rewrites.cpp
+    tests/test_isa.cpp
+    tests/test_sass.cpp
+    tests/test_vector.cpp
+    tests/test_fx.cpp)
+  target_link_libraries(sopt-tests PRIVATE sopt-search sopt-measure sopt-fx-lib)
+  target_compile_definitions(sopt-tests PRIVATE SOPT_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples"
+    SOPT_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
   sopt_fp_flags(sopt-tests)
   add_test(NAME sopt-tests COMMAND sopt-tests)
 endif()
+
