@@ -3,9 +3,6 @@
 namespace sopt {
 namespace {
 
-constexpr Type F = Type::Float;
-constexpr Type B = Type::Bool;
-
 // clang-format off
 const std::array<OpInfo, static_cast<size_t>(Op::Count)> kInfo = {{
   //  name         sym   syntax             ar shape           comm   exact  base   prec
