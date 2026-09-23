@@ -49,7 +49,8 @@ region) and writes to the output directory:
   ```
 
   `SOPT_ALL = k` (preprocessor definition in ReShade) selects variant k of every
-  region at once. Point ReShade at the output directory: effects find the changed
+  region at once (the last variant where a region has fewer; a switch set on its own
+  wins). Point ReShade at the output directory: effects find the changed
   headers next to them, the rest through the normal include paths.
 - `sopt-report.md`: each region's original, inputs with their ranges and where they
   come from, the budget, and the variants with cost, class and error; regions without
@@ -65,8 +66,10 @@ them). Inputs are the variables and texture fetches it reads. Statements whose v
 depends on `BUFFER_WIDTH/HEIGHT` through a `static const` are found by parsing twice
 and skipped.
 
-**Facts (input ranges).** `ui_min`/`ui_max` (and `ui_type = "color"`), `TEXCOORD` in
-[0, 1], `SV_Position` in [0, 3840], texture fetches by format (the back buffer as
+**Facts (input ranges).** `ui_min`/`ui_max` (and `ui_type = "color"`), pixel shader
+inputs from what the passes' vertex shaders write (`PostProcessVS` texcoord in [0, 1],
+other vertex shaders by range analysis, including out parameters of functions they
+call), `SV_Position` in [0, 3840], texture fetches by format (the back buffer as
 8-bit SDR, grid 255; depth [0, 1]), helper parameters from their call sites, and
 interval propagation over reaching definitions. Otherwise the range is *assumed*
 ([-1000, 1000]): such regions are searched, but their variants only appear in the
@@ -81,8 +84,8 @@ coordinates: 0.01 px at 3840. Otherwise rel 1e-6.
 `a * b + c` becomes an fma, neg/abs are source modifiers, saturate and clamp(x, 0, 1)
 an output modifier, swizzles and constructors are free. With `--isa` / `--sass` the
 original and the variants are compiled (fxstat + RGA, ptxas + nvdisasm); a variant is
-kept only if no vendor gets slower and one gets faster, and variants are ranked by
-measured cost.
+kept if some vendor gets faster (it may be slower on another; the report shows both),
+and variants are ranked by their summed relative gain.
 
 ## Input format (`.sopt`)
 

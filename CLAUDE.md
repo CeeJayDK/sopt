@@ -119,8 +119,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   windows; only single-use temporaries declared once in the same block are. Fetches
   nested in another fetch's arguments, user function calls and control flow end a
   region. Ranges are per variable (one interval for all components), unions over
-  branches (no path sensitivity); back buffer assumed 8-bit SDR; TEXCOORD assumed
-  [0, 1] (full-screen pass). Variants of regions with assumed ranges are not written
+  branches (no path sensitivity); back buffer assumed 8-bit SDR; pixel shader inputs
+  come from the passes' vertex shaders (PostProcessVS texcoord = [0, 1] by name). Variants of regions with assumed ranges are not written
   (sampling misses rare-event differences, e.g. CRT.fx corner()). The static cost
   model gains only survive `compiledCost`; with --isa/--sass most remaining
   single-statement gains in SweetFX turn out to be compiler-done already.
@@ -128,8 +128,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   11 with measured gains (Daltonize 0*x terms: NVIDIA only; Vignette XOR dot: AMD 3 -> 2,
   NVIDIA 4 -> 3); all variants compile to HLSL and SPIR-V (spirv-val) for every switch.
 
+- Owner's decisions (M3 review): variants are kept if faster for any measured vendor
+  (per-vendor code via `__VENDOR__`/`__DEVICE__` later, M5); `SOPT_ALL = k` uses the
+  last variant where a region has fewer; constant-input regions are skipped; assumed
+  ranges: track facts further (done for vertex shaders) and ask the user for missing
+  ranges (form to be agreed); dataflow cut points to split windows: try in M7.
+
 ## Next (per docs/design.md)
 0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan).
+   Pending: the user-facing way to supply missing ranges.
 1. Optional (owner: "could"): after search, try re-writing the best candidates with pure
    helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only. When M2 adds
    smoothstep/length/distance/normalize, treat them as pure helpers too.

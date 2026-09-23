@@ -379,6 +379,17 @@ class Extractor {
       }
       for (uint32_t p : f->params) paramOf_[p] = f.get();
     }
+    for (const auto& [id, v] : cg_.values) {
+      if (v.kind != Value::Kind::Call) continue;
+      const Function* g = cg_.function(v.name);
+      if (!g) continue;
+      for (size_t k = 0; k < v.args.size() && k < g->params.size(); ++k) {
+        const auto pv = cg_.variables.find(g->params[k]);
+        if (pv != cg_.variables.end() && pv->second.type.has(reshadefx::type::q_out) &&
+            cg_.variables.count(v.args[k]))
+          outArgOf_[v.args[k]] = {g, k, v.seq};
+      }
+    }
   }
 
   std::vector<Region> run(SkipCount& skipped);
@@ -414,6 +425,15 @@ class Extractor {
   Range samplerRange(uint32_t valueId);
   Budget budgetFor(const Function& f, const Statement& s, std::string& reason);
   void useKinds(uint32_t valueId, bool& cmp, bool& coord, bool& other, int depth);
+  static bool outOnly(const Variable& v);
+  Range outParamRange(const Function& g, size_t index);
+  Range pixelInputRange(const Function& ps, const std::string& semantic);
+  struct OutArg {
+    const Function* callee = nullptr;
+    size_t index = 0;
+    uint32_t seq = 0;  // of the call
+  };
+  std::unordered_map<uint32_t, OutArg> outArgOf_;  // temporary variable -> call
 
   const Effect& fx_;
   const Codegen& cg_;
@@ -952,16 +972,21 @@ Range Extractor::varRange(uint32_t var, uint32_t seq, uint32_t block) {
     case Variable::Kind::Param:
     case Variable::Kind::Local: {
       // Range on entry: parameters from their semantic or call sites, locals none.
+      // A temporary passed as out/inout argument: after the call, the callee's value.
+      if (const auto oa = outArgOf_.find(var); oa != outArgOf_.end() && seq > oa->second.seq)
+        return outParamRange(*oa->second.callee, oa->second.index);
       auto entry = [&]() -> Range {
-        if (v.kind != Variable::Kind::Param) return Range::unknown();
-        const std::string sem = upper(v.semantic);
-        if (sem.rfind("TEXCOORD", 0) == 0) return Range::of(0, 1, "TEXCOORD (full-screen pass)");
-        if (sem == "SV_POSITION" || sem == "VPOS" || sem == "POSITION")
-          return Range::of(0, 3840, "SV_Position (up to 4K)");
-        // Helper function parameter: union over the call sites.
+        if (v.kind != Variable::Kind::Param || outOnly(v)) return Range::unknown();
         const auto pf = paramOf_.find(var);
-        if (pf == paramOf_.end() || !varBusy_.insert(var).second) return Range::unknown();
+        if (pf == paramOf_.end()) return Range::unknown();
         const Function* f = pf->second;
+        const std::string sem = upper(v.semantic);
+        if (sem == "SV_POSITION" || sem == "VPOS")
+          return Range::of(0, 3840, "SV_Position (up to 4K)");
+        // Pixel shader input: what the vertex shaders of its passes write.
+        if (f->type == reshadefx::shader_type::pixel) return pixelInputRange(*f, sem);
+        // Helper function parameter: union over the call sites.
+        if (!varBusy_.insert(var).second) return Range::unknown();
         const size_t index = std::find(f->params.begin(), f->params.end(), var) - f->params.begin();
         Range r;
         bool any = false;
@@ -1007,12 +1032,66 @@ Range Extractor::varRange(uint32_t var, uint32_t seq, uint32_t block) {
         full = full || reach[k]->chain.empty();
       }
       localBusy_.erase(key);
-      if (!killed && v.kind == Variable::Kind::Param) return unite(r, entry());
+      if (!killed && v.kind == Variable::Kind::Param && !outOnly(v)) return unite(r, entry());
       return full ? r : Range::unknown();
     }
     case Variable::Kind::Global: break;
   }
   return Range::unknown();
+}
+
+bool Extractor::outOnly(const Variable& v) {
+  return v.type.has(reshadefx::type::q_out) && !v.type.has(reshadefx::type::q_in);
+}
+
+// "TEXCOORD0" and "TEXCOORD" are the same semantic.
+std::string semanticKey(std::string s) {
+  s = upper(s);
+  size_t d = s.size();
+  while (d > 0 && std::isdigit(static_cast<unsigned char>(s[d - 1]))) --d;
+  const std::string index = s.substr(d);
+  return s.substr(0, d) + (index.empty() ? "0" : std::to_string(std::stoul(index)));
+}
+
+// Range of a function's out parameter after it returns. ReShade's PostProcessVS draws a
+// full-screen triangle: its texcoord is 0..2 at the vertices, 0..1 on screen.
+Range Extractor::outParamRange(const Function& g, size_t index) {
+  if (index >= g.params.size()) return Range::unknown();
+  const uint32_t p = g.params[index];
+  const Variable& pv = cg_.variables.at(p);
+  if (g.name == "PostProcessVS" && semanticKey(pv.semantic) == "TEXCOORD0")
+    return Range::of(0, 1, "TEXCOORD from PostProcessVS");
+  // All its definitions (the end of the function is after all of them).
+  Range r = varRange(p, UINT32_MAX, UINT32_MAX);
+  if (r.known && r.why != "constant") r.why = "vertex shader " + g.name;
+  return r;
+}
+
+// A pixel shader input: the union over the passes that use the shader of what their
+// vertex shader writes to the same semantic.
+Range Extractor::pixelInputRange(const Function& ps, const std::string& semantic) {
+  const std::string key = semanticKey(semantic);
+  Range r;
+  bool any = false;
+  for (const auto& t : cg_.mod().techniques)
+    for (const auto& pass : t.passes) {
+      if (pass.ps_entry_point != ps.uniqueName) continue;
+      const Function* vs = cg_.function(pass.vs_entry_point);
+      if (!vs) return Range::unknown();
+      Range out;
+      bool found = false;
+      for (size_t k = 0; k < vs->params.size(); ++k) {
+        const Variable& pv = cg_.variables.at(vs->params[k]);
+        if (pv.type.has(reshadefx::type::q_out) && semanticKey(pv.semantic) == key) {
+          out = outParamRange(*vs, k);
+          found = true;
+        }
+      }
+      if (!found) return Range::unknown();
+      r = any ? unite(r, out) : out;
+      any = true;
+    }
+  return any ? r : Range::unknown();
 }
 
 // How the value stored by a statement is used: in comparisons, as texture coordinates,

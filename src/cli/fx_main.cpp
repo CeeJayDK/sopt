@@ -41,8 +41,8 @@ void usage() {
       "  --jobs N          regions searched in parallel (default: all cores)\n"
       "  --max-inputs N    skip statements reading more variables (default 4)\n"
       "  --cost-model M    rdna3 | nvidia | generic (default rdna3)\n"
-      "  --isa             measure original and variants with fxstat + RGA (AMD); keep\n"
-      "                    variants that are cheaper there ($SOPT_FXSTAT, $SOPT_RGA)\n"
+      "  --isa             measure original and variants with fxstat + RGA (AMD); variants\n"
+      "                    must be cheaper for some measured vendor ($SOPT_FXSTAT, $SOPT_RGA)\n"
       "  --sass            same with ptxas + nvdisasm (NVIDIA; $SOPT_PTXAS, $SOPT_NVDISASM)\n"
       "  --sm N            NVIDIA target for --sass (default 89)\n"
       "  --assumed         also write variants of regions whose input ranges are assumed\n"
@@ -232,8 +232,9 @@ int main(int argc, char** argv) {
     std::fflush(stdout);
   });
 
-  // Measured machine code: a variant stays only if no measured vendor gets slower and
-  // one gets faster (design 4.5); equal everywhere means the compiler already does it.
+  // Measured machine code: a variant stays if some measured vendor gets faster (it may be
+  // slower on another: the report shows both); equal or slower everywhere means no gain,
+  // equal usually because the compiler already does it.
   if (isa || sass) {
     info.amd = isa;
     info.nv = sass;
@@ -258,20 +259,26 @@ int main(int argc, char** argv) {
       }
       std::vector<fx::Variant> kept;
       for (auto& v : rr.variants) {
-        bool worse = false, better = false, measured = false;
+        bool better = false, measured = false;
         for (auto [t, c] : {std::pair{rr.targetAmd, v.amd}, std::pair{rr.targetNv, v.nv}}) {
           if (t < 0 || c < 0) continue;
           measured = true;
-          worse = worse || c > t;
           better = better || c < t;
         }
-        if (measured && (worse || !better)) ++rr.measuredNoGain;
+        if (measured && !better) ++rr.measuredNoGain;
         else kept.push_back(std::move(v));
       }
-      // Measured cost first (AMD, then NVIDIA), static cost breaks ties.
-      std::stable_sort(kept.begin(), kept.end(), [](const fx::Variant& a, const fx::Variant& b) {
-        if (a.amd != b.amd) return a.amd >= 0 && (b.amd < 0 || a.amd < b.amd);
-        if (a.nv != b.nv) return a.nv >= 0 && (b.nv < 0 || a.nv < b.nv);
+      // Largest measured gain first (sum over vendors of the relative change), static
+      // cost breaks ties.
+      auto gain = [&](const fx::Variant& v) {
+        double g = 0;
+        for (auto [t, c] : {std::pair{rr.targetAmd, v.amd}, std::pair{rr.targetNv, v.nv}})
+          if (t > 0 && c >= 0) g += double(t - c) / t;
+        return g;
+      };
+      std::stable_sort(kept.begin(), kept.end(), [&](const fx::Variant& a, const fx::Variant& b) {
+        const double ga = gain(a), gb = gain(b);
+        if (ga != gb) return ga > gb;
         return a.cost < b.cost;
       });
       rr.variants = std::move(kept);

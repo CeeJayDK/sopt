@@ -165,11 +165,11 @@ TEST(fx_search_and_variants) {
   ss << f.rdbuf();
   const std::string text = ss.str();
   CHECK(text.find("#ifndef SOPT_sopt_test_4\n#define SOPT_sopt_test_4 SOPT_ALL") != std::string::npos);
-  CHECK(text.find("\tfloat3 r = c; // sopt: bit-exact") != std::string::npos);
+  CHECK(text.find("#if SOPT_sopt_test_4 >= 1\n\tfloat3 r = c; // sopt: bit-exact") != std::string::npos);
   CHECK(text.find("#else\n\tfloat3 r = c * 0.5 + c * 0.5;\n#endif") != std::string::npos);
   // The effect, copied next to the changed header, parses with either switch value.
   fs::copy_file(kEffect, out / "sopt_test.fx", fs::copy_options::overwrite_existing, ec);
-  for (const char* all : {"0", "1"}) {
+  for (const char* all : {"0", "1", "3"}) {
     fx::LoadOptions lo;
     lo.macros.emplace_back("SOPT_ALL", all);
     std::string err;

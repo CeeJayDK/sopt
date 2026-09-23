@@ -255,6 +255,8 @@ budget r : color8
 ### M5: Vendor-facts
 **Leverer:** Probe-effect, facts-database og markering af fact-afhængige kandidater i rapporten.
 
+En variant er interessant, hvis den er hurtigere for mindst én vendor; den kan være langsommere for en anden. Sådanne varianter kan vælges pr. vendor/device med `__VENDOR__` (0x1002 AMD, 0x10DE NVIDIA, 0x8086 Intel) og `__DEVICE__`.
+
 **Færdig når:**
 - Matricen er udfyldt for 3 vendors × (DX11, Vulkan, OpenGL).
 - Mindst én fact-afhængig rewrite klassificeres korrekt.
@@ -263,6 +265,10 @@ budget r : color8
 **Leverer:** Micro-benchmarks pr. op, backend og vendor, som giver vægte i JSON.
 
 **Færdig når:** Den statiske cost forudsiger rækkefølgen af de målte varianter bedre end et uvægtet op-count.
+
+Idéer til data (ejeren):
+- Intel Shader Analyzer (udgået, repo på GitHub) kan måske give Intel-tal.
+- Et måleværktøj til rigtig hardware, som andre kan køre, evt. et ReShade-addon: installeret (opt-in) måler det shaders og rapporterer tallene tilbage, så cost pr. vendor og device kan udledes af målinger.
 
 ### M7: Skalering af søgningen
 Kun de teknikker, som benchmarks viser behov for. Kandidater:
@@ -273,6 +279,7 @@ Kun de teknikker, som benchmarks viser behov for. Kandidater:
 - søgning med et begrænset op-sæt først
 - V3-verifikation
 - større vinduer
+- snitpunkter (dominatorer i dataflowet): værdier, som al senere beregning afhænger af, deler en stor funktion i stykker, der søges hver for sig. Afprøves og evalueres (ejerens idé).
 
 ### M8: Regel-mining og vertex-shader hoisting
 - **Regel-mining:** Kør enumeratoren over hele korpusset og generalisér fundene til regler med preconditions. Fjern regler, som backends allerede anvender. Reglerne kan derefter anvendes hurtigt online uden søgning.
