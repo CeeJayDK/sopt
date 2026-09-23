@@ -76,6 +76,21 @@ interval propagation over reaching definitions. Otherwise the range is *assumed*
 report (sampling cannot see a difference confined to a small part of a wide range),
 unless `--assumed`.
 
+**Missing ranges.** Every run writes `sopt-facts.txt` to the output directory: the
+ranges given so far, and each input without a known range as a commented line with a
+suggestion (from its name, a uniform's default value, or the texture it reads):
+
+```
+CRT.fx corner coord = [0, 1]
+# CRT.fx intersect xy = [-1000, 1000]   # no guess (the default); 2 regions
+```
+
+Uncomment or edit lines and rerun with `--facts sopt-facts.txt`. `--ask` asks in the
+terminal instead (Enter takes the suggestion, `s` skips, `q` stops), uniforms and
+parameters first; after each answer the effects are read again, so values computed
+from it get a range too. A range is a fact for the variable wherever the analysis
+has none (key: file, function or `global` for uniforms, variable).
+
 **Budget from use.** Pixel shader output to an 8-bit target without blending: 8-bit
 identical (color8, max code diff 0). Used in a comparison: exact. Only used as texture
 coordinates: 0.01 px at 3840. Otherwise rel 1e-6.

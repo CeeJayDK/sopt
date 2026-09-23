@@ -94,6 +94,8 @@ reshadefx::codegen::id Codegen::define_uniform(const reshadefx::location& loc,
   v.uniqueName = info.unique_name;
   v.type = info.type;
   v.annotations = info.annotations;
+  v.hasDefault = info.has_initializer_value;
+  v.defaultValue = info.initializer_value;
   v.loc = loc;
   _module.uniforms.push_back(info);
   return res;

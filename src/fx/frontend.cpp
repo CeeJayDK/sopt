@@ -377,7 +377,9 @@ class Extractor {
         if (s.kind != Statement::Kind::Return) defs_[s.var].push_back(&s);
         stmtUses_[s.value].push_back(&s);
       }
-      for (uint32_t p : f->params) paramOf_[p] = f.get();
+      for (uint32_t p : f->params) paramOf_[p] = f.get(), varFunction_[p] = f.get();
+      for (const auto& st : f->stmts)
+        if (st.kind != Statement::Kind::Return) varFunction_.emplace(st.var, f.get());
     }
     for (const auto& [id, v] : cg_.values) {
       if (v.kind != Value::Kind::Call) continue;
@@ -422,10 +424,14 @@ class Extractor {
 
   Range range(uint32_t valueId);
   Range varRange(uint32_t var, uint32_t seq, uint32_t block);
+  Range varRangeRaw(uint32_t var, uint32_t seq, uint32_t block);
+  std::string varKey(uint32_t var) const;  // UserRanges key of a variable
+  std::unordered_map<uint32_t, const Function*> varFunction_;  // local/param -> function
   Range samplerRange(uint32_t valueId);
   Budget budgetFor(const Function& f, const Statement& s, std::string& reason);
   void useKinds(uint32_t valueId, bool& cmp, bool& coord, bool& other, int depth);
   static bool outOnly(const Variable& v);
+  void suggest(const Leaf& l, Fact& f) const;
   Range outParamRange(const Function& g, size_t index);
   Range pixelInputRange(const Function& ps, const std::string& semantic);
   struct OutArg {
@@ -939,7 +945,31 @@ Range Extractor::range(uint32_t id) {
   return r;
 }
 
+// "<file> <function> <name>" (uniforms: function "global").
+std::string Extractor::varKey(uint32_t var) const {
+  const auto vi = cg_.variables.find(var);
+  if (vi == cg_.variables.end()) return {};
+  const Variable& v = vi->second;
+  const auto fi = varFunction_.find(var);
+  const std::string function = v.kind == Variable::Kind::Uniform ? "global"
+                               : fi != varFunction_.end()       ? fi->second->name
+                                                                : std::string();
+  if (function.empty()) return {};
+  return pathFrom(v.loc.source).filename().string() + " " + function + " " +
+         (v.kind == Variable::Kind::Uniform ? varText(var) : v.name);
+}
+
+// The analysed range, or the user's where the analysis has no fact.
 Range Extractor::varRange(uint32_t var, uint32_t seq, uint32_t block) {
+  Range r = varRangeRaw(var, seq, block);
+  if ((!r.known || r.assumed) && opt_.userRanges) {
+    const auto u = opt_.userRanges->find(varKey(var));
+    if (u != opt_.userRanges->end()) r = Range::of(u->second.first, u->second.second, "user (facts file)");
+  }
+  return r;
+}
+
+Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
   const auto vi = cg_.variables.find(var);
   if (vi == cg_.variables.end()) return Range::unknown();
   const Variable& v = vi->second;
@@ -1297,10 +1327,26 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       Range r = range(l.loadValue);
       Fact fact;
       fact.input = d.name;
-      if (!r.known) {
-        r = Range::of(opt_.defaultLo, opt_.defaultHi, "assumed");
-        r.assumed = true;
+      const bool plainVar = !l.fetch && cg_.variables.count(l.var) && l.prefix == varText(l.var);
+      fact.key = plainVar ? varKey(l.var) : std::string();
+      if (fact.key.empty())
+        fact.key = pathFrom(reg.file).filename().string() + " " + reg.function + " " + l.prefix;
+      // Ask for uniforms and parameters first: other values are often computed from them.
+      const auto kv = cg_.variables.find(l.var);
+      fact.order = l.fetch ? 2
+                   : kv == cg_.variables.end() ? 3
+                   : kv->second.kind == Variable::Kind::Uniform ? 0
+                   : kv->second.kind == Variable::Kind::Param ? 1 : 3;
+      if (!r.known || r.assumed) {
+        const auto u = opt_.userRanges ? opt_.userRanges->find(fact.key) : UserRanges::const_iterator();
+        if (opt_.userRanges && u != opt_.userRanges->end()) {
+          r = Range::of(u->second.first, u->second.second, "user (facts file)");
+        } else if (!r.known) {
+          r = Range::of(opt_.defaultLo, opt_.defaultHi, "assumed");
+          r.assumed = true;
+        }
       }
+      if (r.assumed) suggest(l, fact);
       d.lo = r.lo;
       d.hi = r.hi;
       d.grid = r.grid;
@@ -1366,6 +1412,38 @@ void Extractor::mapFetches(const Statement& s, const std::string& text) {
   }
   if (calls.size() != fetches.size()) return;
   for (size_t k = 0; k < calls.size(); ++k) fetchText_[fetches[k].second] = calls[k];
+}
+
+// A range to suggest for an input without facts, from its name, a uniform's default
+// value or the texture it is read from.
+void Extractor::suggest(const Leaf& l, Fact& f) const {
+  std::string n;
+  for (char c : l.prefix) n += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const size_t dot = n.find_last_of(".:");
+  const std::string last = dot == std::string::npos ? n : n.substr(dot + 1);
+  auto has = [&](std::initializer_list<const char*> words) {
+    for (const char* w : words)
+      if (last.find(w) != std::string::npos) return true;
+    return false;
+  };
+  auto set = [&](double lo, double hi, const char* why) {
+    f.suggestLo = lo;
+    f.suggestHi = hi;
+    f.suggestWhy = why;
+  };
+  if (l.fetch) return set(0, 1, "texture read (float format)");
+  if (const auto it = cg_.variables.find(l.var); it != cg_.variables.end() &&
+      it->second.kind == Variable::Kind::Uniform && it->second.hasDefault &&
+      it->second.type.is_floating_point()) {
+    const double d = it->second.defaultValue.as_float[0];
+    if (d > 0) return set(0, 2 * d, "uniform, twice its default");
+    if (d < 0) return set(2 * d, 0, "uniform, twice its default");
+  }
+  if (has({"uv", "coord", "tex"})) return set(0, 1, "name looks like a texture coordinate");
+  if (has({"col", "rgb", "luma", "lum"})) return set(0, 1, "name looks like a color");
+  if (has({"depth"})) return set(0, 1, "name looks like depth");
+  if (has({"pos", "pixel"})) return set(0, 3840, "name looks like a pixel position");
+  set(opt_.defaultLo, opt_.defaultHi, "no guess (the default)");
 }
 
 // Values of a statement's tree (through Chain bases and operands).
@@ -1488,6 +1566,45 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
 }
 
 }  // namespace
+
+bool parseRange(const std::string& text, double& lo, double& hi) {
+  std::string t;
+  for (char c : text) t += (c == '[' || c == ']' || c == ',') ? ' ' : c;
+  std::istringstream in(t);
+  if (!(in >> lo >> hi)) return false;
+  std::string rest;
+  if (in >> rest) return false;
+  if (lo > hi) std::swap(lo, hi);
+  return true;
+}
+
+bool readUserRanges(const fs::path& file, UserRanges& out, std::string& error) {
+  std::ifstream f(file);
+  if (!f) {
+    error = "cannot read " + file.string();
+    return false;
+  }
+  std::string line;
+  for (int no = 1; std::getline(f, line); ++no) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (const size_t h = line.find('#'); h != std::string::npos) line.erase(h);
+    const std::string t = trim(line);
+    if (t.empty()) continue;
+    const size_t eq = t.rfind('=');
+    std::istringstream key(eq == std::string::npos ? std::string() : t.substr(0, eq));
+    std::string file_, function, input;
+    double lo = 0, hi = 0;
+    key >> file_ >> function;
+    std::getline(key, input);
+    input = trim(input);
+    if (eq == std::string::npos || input.empty() || !parseRange(t.substr(eq + 1), lo, hi)) {
+      error = file.string() + ":" + std::to_string(no) + ": expected '<file> <function> <input> = [lo, hi]'";
+      return false;
+    }
+    out[file_ + " " + function + " " + input] = {lo, hi};
+  }
+  return true;
+}
 
 std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const RegionOptions& opt,
                                    SkipCount& skipped) {

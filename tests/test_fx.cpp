@@ -201,3 +201,38 @@ TEST(fx_compiled_cost) {
   CHECK(cost("-x*y+z") == cost("mad"));
   CHECK(cost("clamp01") == cost("mul"));
 }
+
+TEST(fx_user_ranges) {
+  double lo = 0, hi = 0;
+  CHECK(fx::parseRange("[0, 0.5]", lo, hi) && lo == 0.0 && hi == 0.5);
+  CHECK(fx::parseRange("2 -1", lo, hi) && lo == -1.0 && hi == 2.0);
+  CHECK(!fx::parseRange("[0, x]", lo, hi));
+
+  const fs::path file = fs::temp_directory_path() / "sopt_test_facts.txt";
+  {
+    std::ofstream f(file);
+    f << "# comment\nsopt_test.fx global Plain = [0.25, 0.75]  # user\n\n";
+  }
+  fx::UserRanges user;
+  std::string err;
+  CHECK(fx::readUserRanges(file, user, err));
+  CHECK(user.count("sopt_test.fx global Plain") == 1);
+  fs::remove(file);
+
+  // gate = luma * Strength + Plain: Plain had no fact, now the user's range.
+  fx::LoadOptions lo2;
+  auto e = fx::loadEffect(kEffect, lo2, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  ro.userRanges = &user;
+  fx::SkipCount sk;
+  bool found = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, ro, sk))
+    if (r.line == 26 && fs::path(r.file).filename() == "sopt_test.fx")
+      for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+        if (r.prog.inputs[k].name == "Plain")
+          found = r.prog.inputs[k].lo == 0.25 && r.prog.inputs[k].hi == 0.75 && !r.facts[k].assumed &&
+                  r.facts[k].key == "sopt_test.fx global Plain";
+  CHECK(found);
+}

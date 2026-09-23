@@ -1,10 +1,12 @@
 #include <algorithm>
+#include <cctype>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <mutex>
 #include <set>
@@ -46,7 +48,10 @@ void usage() {
       "  --sass            same with ptxas + nvdisasm (NVIDIA; $SOPT_PTXAS, $SOPT_NVDISASM)\n"
       "  --sm N            NVIDIA target for --sass (default 89)\n"
       "  --assumed         also write variants of regions whose input ranges are assumed\n"
-      "                    defaults (no fact); otherwise they are only in the report");
+      "                    defaults (no fact); otherwise they are only in the report\n"
+      "  --facts FILE      ranges for inputs without facts (format: see sopt-facts.txt,\n"
+      "                    which every run writes to the output directory)\n"
+      "  --ask             ask for the missing ranges in the terminal (Enter = suggestion)");
 }
 
 void collect(const fs::path& p, std::vector<fs::path>& out) {
@@ -77,7 +82,8 @@ int main(int argc, char** argv) {
   opt.search.maxBank = 500'000;
   opt.v1Points = 1u << 18;
   opt.maxIterations = 4;
-  bool isa = false, sass = false, allowAssumed = false;
+  bool isa = false, sass = false, allowAssumed = false, ask = false;
+  fs::path factsFile;
   IsaConfig isaCfg;
   if (const char* v = std::getenv("SOPT_FXSTAT")) isaCfg.fxstat = v;
   if (const char* v = std::getenv("SOPT_RGA")) isaCfg.rga = v;
@@ -113,6 +119,8 @@ int main(int argc, char** argv) {
       if (!opt.search.model) { std::fprintf(stderr, "unknown cost model\n"); return 2; }
     } else if (a == "--isa") isa = true;
     else if (a == "--assumed") allowAssumed = true;
+    else if (a == "--facts") factsFile = next();
+    else if (a == "--ask") ask = true;
     else if (a == "--sass") sass = true;
     else if (a == "--sm") sassCfg.sm = std::atoi(next());
     else if (a == "-h" || a == "--help") { usage(); return 0; }
@@ -125,37 +133,159 @@ int main(int argc, char** argv) {
   }
   const auto t0 = std::chrono::steady_clock::now();
 
+  // User-supplied ranges for inputs without facts.
+  fx::UserRanges userRanges;
+  if (!factsFile.empty()) {
+    std::string err;
+    if (!fx::readUserRanges(factsFile, userRanges, err)) {
+      std::fprintf(stderr, "%s\n", err.c_str());
+      return 2;
+    }
+  }
+  ropt.userRanges = &userRanges;
+
   // Front end: every effect twice (two resolutions, see extractRegions).
   fx::ReportInfo info;
   info.costModel = std::string(opt.search.model->name);
-  info.skipped.keepDetails = skips;
   std::vector<fx::RegionResult> results;
-  std::set<std::tuple<std::string, uint32_t, size_t>> seen;
   std::vector<std::pair<fs::path, std::vector<std::string>>> effectFiles;  // effect, its sources
-  for (const auto& p : inputs) {
-    std::string err;
-    auto fx = fx::loadEffect(p, load, err);
-    if (!fx) {
-      info.failed.emplace_back(p.string(), err);
-      std::fprintf(stderr, "%s: parse failed\n%s", p.string().c_str(), err.c_str());
-      continue;
+  auto extractAll = [&]() {
+    info.effects.clear();
+    info.failed.clear();
+    info.skipped = fx::SkipCount();
+    info.skipped.keepDetails = skips;
+    results.clear();
+    effectFiles.clear();
+    std::set<std::tuple<std::string, uint32_t, size_t>> seen;
+    for (const auto& p : inputs) {
+      std::string err;
+      auto fx = fx::loadEffect(p, load, err);
+      if (!fx) {
+        info.failed.emplace_back(p.string(), err);
+        std::fprintf(stderr, "%s: parse failed\n%s", p.string().c_str(), err.c_str());
+        continue;
+      }
+      fx::LoadOptions alt = load;
+      alt.width = 2560;
+      alt.height = 1440;
+      std::string altErr;
+      auto fx2 = fx::loadEffect(p, alt, altErr);
+      info.effects.push_back(p.string());
+      effectFiles.emplace_back(p, fx->sourceFiles);
+      for (auto& r : fx::extractRegions(*fx, fx2.get(), ropt, info.skipped)) {
+        if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
+        fx::RegionResult rr;
+        rr.effect = p.string();
+        rr.targetCost = dagCost(r.prog.target, *opt.search.model);
+        rr.region = std::move(r);
+        results.push_back(std::move(rr));
+      }
     }
-    fx::LoadOptions alt = load;
-    alt.width = 2560;
-    alt.height = 1440;
-    std::string altErr;
-    auto fx2 = fx::loadEffect(p, alt, altErr);
-    info.effects.push_back(p.string());
-    effectFiles.emplace_back(p, fx->sourceFiles);
-    for (auto& r : fx::extractRegions(*fx, fx2.get(), ropt, info.skipped)) {
-      if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
-      fx::RegionResult rr;
-      rr.effect = p.string();
-      rr.targetCost = dagCost(r.prog.target, *opt.search.model);
-      rr.region = std::move(r);
-      results.push_back(std::move(rr));
+  };
+  extractAll();
+
+  // Inputs still without a range: ask (--ask), and list them in sopt-facts.txt with a
+  // suggestion so they can be filled in and passed back with --facts.
+  struct Missing {
+    const fx::Fact* fact = nullptr;
+    size_t regions = 0;
+    std::string example;
+  };
+  auto missingRanges = [&]() {
+    std::map<std::string, Missing> m;
+    for (const auto& rr : results)
+      for (const auto& f : rr.region.facts)
+        if (f.assumed) {
+          Missing& x = m[f.key];
+          if (!x.fact) {
+            x.fact = &f;
+            x.example = fs::path(rr.region.file).filename().string() + ":" +
+                        std::to_string(rr.region.line) + ": " + rr.region.lhs + " " +
+                        toString(rr.region.prog.target, rr.region.prog.inputs);
+          }
+          ++x.regions;
+        }
+    return m;
+  };
+  auto missing = missingRanges();
+  if (ask && !missing.empty()) {
+    // One question at a time, uniforms and parameters first; after each answer the
+    // effects are read again, since values computed from the answer get a range too.
+    std::printf("%zu inputs have no known range. Type a range (\"0 1\" or \"[0, 1]\"), Enter for\n"
+                "the suggestion, \"s\" to skip (keep the assumed default), \"q\" to stop asking.\n",
+                missing.size());
+    std::set<std::string> asked;
+    for (size_t k = 1;; ++k) {
+      const std::pair<const std::string, Missing>* next = nullptr;
+      size_t open = 0;
+      for (const auto& e : missing) {
+        if (asked.count(e.first)) continue;
+        ++open;
+        auto rank = [](const Missing& m) { return std::make_pair(m.fact->order, -int(m.regions)); };
+        if (!next || rank(e.second) < rank(next->second)) next = &e;
+      }
+      if (!next) break;
+      const std::string key = next->first;
+      const Missing& x = next->second;
+      asked.insert(key);
+      std::printf("\n[%zu, %zu open] %s  (%zu region%s, e.g. %s)\n  suggestion [%g, %g]: %s\n> ", k,
+                  open, key.c_str(), x.regions, x.regions == 1 ? "" : "s",
+                  x.example.substr(0, 160).c_str(), x.fact->suggestLo, x.fact->suggestHi,
+                  x.fact->suggestWhy.c_str());
+      std::fflush(stdout);
+      bool quit = false, answered = false;
+      for (;;) {
+        std::string answer;
+        if (!std::getline(std::cin, answer)) {
+          quit = true;
+          break;
+        }
+        while (!answer.empty() && std::isspace(static_cast<unsigned char>(answer.back()))) answer.pop_back();
+        double lo = 0, hi = 0;
+        if (answer == "q") quit = true;
+        else if (answer == "s") {
+        } else if (answer.empty()) {
+          userRanges[key] = {x.fact->suggestLo, x.fact->suggestHi};
+          answered = true;
+        } else if (fx::parseRange(answer, lo, hi)) {
+          userRanges[key] = {lo, hi};
+          answered = true;
+        } else {
+          std::printf("  not a range, try again> ");
+          std::fflush(stdout);
+          continue;
+        }
+        break;
+      }
+      if (quit) break;
+      if (answered) {
+        extractAll();
+        missing = missingRanges();
+      }
+    }
+    std::printf("\n");
+  }
+  {
+    std::error_code ec;
+    fs::create_directories(outDir, ec);
+    std::ofstream f(outDir / "sopt-facts.txt", std::ios::binary);
+    f << "# Input ranges for sopt-fx --facts: <file> <function> <input> = [lo, hi]\n"
+         "# Given ranges are used as facts. Commented lines are inputs without a known range,\n"
+         "# with a suggestion: check it, uncomment and rerun with --facts sopt-facts.txt.\n\n";
+    char buf[64];
+    for (const auto& [key, r] : userRanges) {
+      std::snprintf(buf, sizeof(buf), "[%.9g, %.9g]", r.first, r.second);
+      f << key << " = " << buf << "\n";
+    }
+    if (!missing.empty()) f << "\n# No known range:\n";
+    for (const auto& [key, x] : missing) {
+      std::snprintf(buf, sizeof(buf), "[%.9g, %.9g]", x.fact->suggestLo, x.fact->suggestHi);
+      f << "# " << key << " = " << buf << "   # " << x.fact->suggestWhy << "; " << x.regions
+        << " region" << (x.regions == 1 ? "" : "s") << "\n";
     }
   }
+  std::printf("%zu inputs without a known range (listed in %s)\n", missing.size(),
+              (outDir / "sopt-facts.txt").string().c_str());
   std::printf("%zu effects parsed, %zu failed, %zu regions\n", info.effects.size(),
               info.failed.size(), results.size());
   if (skips)

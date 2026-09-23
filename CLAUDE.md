@@ -132,11 +132,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   (per-vendor code via `__VENDOR__`/`__DEVICE__` later, M5); `SOPT_ALL = k` uses the
   last variant where a region has fewer; constant-input regions are skipped; assumed
   ranges: track facts further (done for vertex shaders) and ask the user for missing
-  ranges (form to be agreed); dataflow cut points to split windows: try in M7.
+  ranges (done: sopt-facts.txt + `--facts`, interactive `--ask`; user ranges apply in
+  the range propagation, key "<file> <function|global> <variable>"); dataflow cut
+  points to split windows: try in M7.
 
 ## Next (per docs/design.md)
 0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan).
-   Pending: the user-facing way to supply missing ranges.
 1. Optional (owner: "could"): after search, try re-writing the best candidates with pure
    helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only. When M2 adds
    smoothstep/length/distance/normalize, treat them as pure helpers too.

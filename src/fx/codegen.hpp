@@ -37,6 +37,8 @@ struct Variable {
   std::vector<reshadefx::annotation> annotations; // Uniform
   reshadefx::location loc;
   uint32_t initializer = 0;                       // value id, if any
+  bool hasDefault = false;                        // Uniform: initial value
+  reshadefx::constant defaultValue{};
 };
 
 struct Statement {

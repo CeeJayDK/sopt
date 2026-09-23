@@ -253,7 +253,8 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
   }
   s += "## Variants on assumed ranges (not written)\n\n"
        "Some input has no known range, so the variant was verified on the default range "
-       "only and may be wrong for real values. Add facts (ui_min/ui_max) or use --assumed.\n\n";
+       "only and may be wrong for real values. Give the ranges in sopt-facts.txt (--facts) or\n"
+       "with --ask, add ui_min/ui_max, or use --assumed.\n\n";
   for (const auto& rr : results) {
     if (rr.unwritten.empty()) continue;
     const Region& r = rr.region;

@@ -37,7 +37,22 @@ struct Fact {
   bool fetch = false;  // the input is a texture fetch (its FX call text)
   std::string source;  // "ui_min/ui_max", "TEXCOORD", "BackBuffer (8-bit)", "assumed", ...
   bool assumed = false;
+  // Key for a user-given range (see UserRanges): "<file name> <function> <variable>".
+  std::string key;
+  // For assumed ranges: a suggestion for the user and why.
+  double suggestLo = 0, suggestHi = 0;
+  std::string suggestWhy;
+  int order = 3;  // asking order: uniforms, parameters, fetches, other variables
 };
+
+// Ranges the user supplied for inputs without facts, by Fact::key. File format, one per
+// line ('#' starts a comment):
+//   CRT.fx corner coord = [0, 0.1]
+using UserRanges = std::map<std::string, std::pair<double, double>>;
+// Reads a facts file into `out`; returns false and sets `error` on a malformed line.
+bool readUserRanges(const std::filesystem::path& file, UserRanges& out, std::string& error);
+// Parses "[lo, hi]", "lo hi" or "lo, hi".
+bool parseRange(const std::string& text, double& lo, double& hi);
 
 // One statement of a pixel shader whose value is pure arithmetic over variables:
 //   Init:   float3 x = <rhs>;
@@ -71,6 +86,7 @@ struct RegionOptions {
   double defaultLo = -1000.0, defaultHi = 1000.0;  // range when nothing is known
   double relEps = 1e-6;       // budget for values with a general use
   double texcoordPx = 0.01;   // budget for values only used as texture coordinates
+  const UserRanges* userRanges = nullptr;  // ranges for inputs without facts
 };
 
 struct SkipCount {
