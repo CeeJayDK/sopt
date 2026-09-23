@@ -120,7 +120,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   nested in another fetch's arguments, user function calls and control flow end a
   region. Ranges are per variable (one interval for all components), unions over
   branches (no path sensitivity); back buffer assumed 8-bit SDR; pixel shader inputs
-  come from the passes' vertex shaders (PostProcessVS texcoord = [0, 1] by name). Variants of regions with assumed ranges are not written
+  come from the passes' vertex shaders (PostProcessVS texcoord = [0, 1] by name), else
+  semantic conventions (owner): TEXCOORD0..9 = [0, 1] as a fact, SV_Position = pixels,
+  COLOR only a suggestion [0, 1] (often abused); struct input members by their semantic. Variants of regions with assumed ranges are not written
   (sampling misses rare-event differences, e.g. CRT.fx corner()). The static cost
   model gains only survive `compiledCost`; with --isa/--sass most remaining
   single-statement gains in SweetFX turn out to be compiler-done already.

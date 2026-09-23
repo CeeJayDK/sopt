@@ -344,6 +344,9 @@ Range clampR(const Range& a, double lo, double hi) {
   return derived(std::clamp(a.lo, lo, hi), std::clamp(a.hi, lo, hi), {&a});
 }
 
+std::string semanticKey(std::string s);
+Range semanticConvention(const std::string& semantic);
+
 bool isTexFetch(const std::string& n) {
   return n.rfind("tex1D", 0) == 0 || n.rfind("tex2D", 0) == 0 || n.rfind("tex3D", 0) == 0;
 }
@@ -410,6 +413,7 @@ class Extractor {
     uint32_t input = 0;          // IR input index
     std::vector<uint8_t> remap;  // component -> input component
     bool fetch = false;          // texture fetch: prefix is its call text
+    std::string semantic;        // of the struct member the prefix ends in, if any
   };
   Leaf& fetchLeaf(uint32_t id);
 
@@ -490,6 +494,7 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
   if (auto it = cg_.variables.find(v.base); it != cg_.variables.end()) var = &it->second;
   if (!var) throw Unsupported("load of a non-variable");
   std::string text = varText(v.base);
+  std::string semantic;
   reshadefx::type t = var->type;
   size_t i = 0;
   for (; i < v.chain.size(); ++i) {
@@ -497,6 +502,7 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
     if (!op.from.is_array() && !op.from.is_struct() && !op.from.is_matrix()) break;
     if (op.op == reshadefx::expression::operation::op_member) {
       text += "." + cg_.structMemberName(op.from.struct_definition, op.index);
+      semantic = cg_.structMemberSemantic(op.from.struct_definition, op.index);
     } else if (op.op == reshadefx::expression::operation::op_constant_index && op.from.is_array()) {
       text += "[" + std::to_string(op.index) + "]";
     } else {
@@ -512,6 +518,11 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
   l.var = v.base;
   l.prefix = text;
   l.type = t;
+  // Semantics of pixel shader inputs only (members of an entry point's struct parameter).
+  if (var->kind == Variable::Kind::Param) {
+    const auto pf = paramOf_.find(v.base);
+    if (pf != paramOf_.end() && pf->second->type == reshadefx::shader_type::pixel) l.semantic = semantic;
+  }
   leaves_.push_back(l);
   return leaves_.back();
 }
@@ -1013,8 +1024,12 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         const std::string sem = upper(v.semantic);
         if (sem == "SV_POSITION" || sem == "VPOS")
           return Range::of(0, 3840, "SV_Position (up to 4K)");
-        // Pixel shader input: what the vertex shaders of its passes write.
-        if (f->type == reshadefx::shader_type::pixel) return pixelInputRange(*f, sem);
+        // Pixel shader input: what the vertex shaders of its passes write, else the
+        // semantic's convention.
+        if (f->type == reshadefx::shader_type::pixel) {
+          const Range r = pixelInputRange(*f, sem);
+          return r.known ? r : semanticConvention(sem);
+        }
         // Helper function parameter: union over the call sites.
         if (!varBusy_.insert(var).second) return Range::unknown();
         const size_t index = std::find(f->params.begin(), f->params.end(), var) - f->params.begin();
@@ -1122,6 +1137,15 @@ Range Extractor::pixelInputRange(const Function& ps, const std::string& semantic
       any = true;
     }
   return any ? r : Range::unknown();
+}
+
+// Ranges that semantics imply for pixel shader inputs: SV_Position is in pixels;
+// TEXCOORD0..9 are texture coordinates by convention (programmers name them so), [0, 1].
+Range semanticConvention(const std::string& semantic) {
+  const std::string key = semanticKey(semantic);
+  if (key == "SV_POSITION0" || key == "VPOS0") return Range::of(0, 3840, "SV_Position (up to 4K)");
+  if (key.rfind("TEXCOORD", 0) == 0) return Range::of(0, 1, "TEXCOORD semantic (convention)");
+  return Range::unknown();
 }
 
 // How the value stored by a statement is used: in comparisons, as texture coordinates,
@@ -1337,6 +1361,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
                    : kv == cg_.variables.end() ? 3
                    : kv->second.kind == Variable::Kind::Uniform ? 0
                    : kv->second.kind == Variable::Kind::Param ? 1 : 3;
+      if (!r.known && !l.semantic.empty()) r = semanticConvention(l.semantic);
       if (!r.known || r.assumed) {
         const auto u = opt_.userRanges ? opt_.userRanges->find(fact.key) : UserRanges::const_iterator();
         if (opt_.userRanges && u != opt_.userRanges->end()) {
@@ -1432,6 +1457,10 @@ void Extractor::suggest(const Leaf& l, Fact& f) const {
     f.suggestWhy = why;
   };
   if (l.fetch) return set(0, 1, "texture read (float format)");
+  std::string semantic = l.semantic;
+  if (const auto it = cg_.variables.find(l.var); semantic.empty() && it != cg_.variables.end())
+    semantic = it->second.semantic;
+  if (upper(semantic).rfind("COLOR", 0) == 0) return set(0, 1, "COLOR semantic (usually a color)");
   if (const auto it = cg_.variables.find(l.var); it != cg_.variables.end() &&
       it->second.kind == Variable::Kind::Uniform && it->second.hasDefault &&
       it->second.type.is_floating_point()) {

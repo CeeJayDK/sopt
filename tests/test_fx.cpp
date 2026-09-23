@@ -236,3 +236,35 @@ TEST(fx_user_ranges) {
                   r.facts[k].key == "sopt_test.fx global Plain";
   CHECK(found);
 }
+
+TEST(fx_semantic_ranges) {
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_semantics.fx", lo, err);
+  CHECK(e != nullptr);
+  if (!e) {
+    std::printf("  %s\n", err.c_str());
+    return;
+  }
+  fx::SkipCount sk;
+  auto input = [&](uint32_t line, const std::string& name) -> std::pair<InputDecl, fx::Fact> {
+    for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
+      if (r.line == line)
+        for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+          if (r.prog.inputs[k].name == name) return {r.prog.inputs[k], r.facts[k]};
+    return {};
+  };
+  // Struct member with TEXCOORD0: the convention, [0, 1].
+  auto [a, fa] = input(23, "i.uv");
+  CHECK(a.lo == 0.0 && a.hi == 1.0 && !fa.assumed && fa.source == "TEXCOORD semantic (convention)");
+  // COLOR0: no fact, but [0, 1] is suggested.
+  auto [t, ft] = input(24, "i.tint.xyz");
+  CHECK(ft.assumed && ft.suggestLo == 0.0 && ft.suggestHi == 1.0);
+  CHECK(ft.suggestWhy.find("COLOR") != std::string::npos);
+  // The vertex shader adds a uniform without a range: its output is unknown, so the
+  // TEXCOORD convention applies; SV_Position is in pixels.
+  auto [b, fb] = input(36, "uv");
+  CHECK(b.lo == 0.0 && b.hi == 1.0 && fb.source == "TEXCOORD semantic (convention)");
+  auto [p, fp] = input(37, "vpos.x");
+  CHECK(p.lo == 0.0 && p.hi == 3840.0 && !fp.assumed);
+}
