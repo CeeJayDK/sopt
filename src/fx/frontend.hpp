@@ -34,6 +34,7 @@ std::unique_ptr<Effect> loadEffect(const std::filesystem::path& path, const Load
 // Where a region's input range comes from.
 struct Fact {
   std::string input;
+  bool fetch = false;  // the input is a texture fetch (its FX call text)
   std::string source;  // "ui_min/ui_max", "TEXCOORD", "BackBuffer (8-bit)", "assumed", ...
   bool assumed = false;
 };
@@ -52,6 +53,7 @@ struct Region {
   std::string function;      // enclosing function
   std::string lhs;           // statement text before the value: "float3 x =", "x.rgb =", "return"
   std::string original;      // original statement text (joined lines; windows: all statements)
+  std::string text;          // the (root) statement without comments, on one line
   // Window: declarations of single-use temporaries inlined into this statement
   // (line ranges in the same file, before `line`); a variant removes them.
   std::vector<std::pair<uint32_t, uint32_t>> removed;

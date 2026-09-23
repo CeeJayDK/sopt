@@ -93,12 +93,23 @@ TEST(fx_regions_and_facts) {
     CHECK(uv->facts[0].source.rfind("TEXCOORD", 0) == 0);
   }
   // The pixel shader's result goes to the 8-bit back buffer without blending.
-  const fx::Region* ret = at(l, 32);
+  const fx::Region* ret = at(l, 33);
   CHECK(ret != nullptr);
   if (ret) {
     CHECK(ret->kind == fx::Region::Kind::Return);
     CHECK(ret->prog.budget.kind == Budget::Kind::Color8);
     CHECK(ret->prog.budget.maxCodeDiff == 0);
+  }
+  // A texture fetch is an input named by its call text (macros inside it are fine).
+  const fx::Region* fetch = at(l, 32);
+  CHECK(fetch != nullptr);
+  if (fetch) {
+    bool found = false;
+    for (size_t k = 0; k < fetch->prog.inputs.size(); ++k)
+      if (fetch->facts[k].fetch)
+        found = fetch->prog.inputs[k].name == "tex2D(BackBuffer, texcoord + BUFFER_RCP_WIDTH).xyz" &&
+                fetch->prog.inputs[k].grid == 255;
+    CHECK(found);
   }
   // Statements that cannot be regions, and why.
   CHECK(skippedAt(l, 29, "uses a macro"));

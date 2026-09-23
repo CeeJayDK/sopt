@@ -155,6 +155,39 @@ std::vector<std::string> tokens(const std::string& s) {
   return out;
 }
 
+bool isIdent(char c);
+
+// Position of a texture fetch call ("tex2D(", "tex2Dlod (", ...) at i.
+bool fetchAt(const std::string& t, size_t i) {
+  if (i + 5 >= t.size() || t.compare(i, 3, "tex") != 0 || (i && isIdent(t[i - 1]))) return false;
+  if (!std::isdigit(static_cast<unsigned char>(t[i + 3])) || t[i + 4] != 'D') return false;
+  size_t j = i + 5;
+  while (j < t.size() && isIdent(t[j])) ++j;
+  while (j < t.size() && (t[j] == ' ' || t[j] == '\t')) ++j;
+  return j < t.size() && t[j] == '(';
+}
+
+// The text with every outermost texture fetch call replaced by "tex_fetch": fetches
+// are region inputs copied verbatim, so macros inside them do not matter.
+std::string withoutFetches(const std::string& t) {
+  std::string out;
+  for (size_t i = 0; i < t.size(); ++i) {
+    if (!fetchAt(t, i)) {
+      out += t[i];
+      continue;
+    }
+    size_t k = t.find('(', i);
+    int depth = 0;
+    for (; k < t.size(); ++k) {
+      if (t[k] == '(') ++depth;
+      if (t[k] == ')' && --depth == 0) break;
+    }
+    out += " tex_fetch ";
+    i = k;
+  }
+  return out;
+}
+
 // Removes comments (replaced by spaces, so columns stay) from lines [first, last].
 struct StatementText {
   uint32_t first = 0, last = 0;  // 1-based lines
@@ -363,7 +396,9 @@ class Extractor {
     uint32_t loadValue = 0;      // a load of it (for its range)
     uint32_t input = 0;          // IR input index
     std::vector<uint8_t> remap;  // component -> input component
+    bool fetch = false;          // texture fetch: prefix is its call text
   };
+  Leaf& fetchLeaf(uint32_t id);
 
   // Pass 1 / 2 over the value tree.
   void collect(uint32_t id);
@@ -396,6 +431,8 @@ class Extractor {
   std::unordered_map<uint32_t, uint32_t> built_;
   bool usesPow_ = false;
   std::unordered_map<uint32_t, uint32_t> inline_;  // temporary variable -> its value
+  std::unordered_map<uint32_t, std::string> fetchText_;  // fetch value -> call text
+  void mapFetches(const Statement& s, const std::string& text);
 };
 
 std::string Extractor::varText(uint32_t var) const {
@@ -453,6 +490,23 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
   return leaves_.back();
 }
 
+// A texture fetch of the root statement as an input, named by its call text.
+Extractor::Leaf& Extractor::fetchLeaf(uint32_t id) {
+  const auto it = fetchText_.find(id);
+  if (it == fetchText_.end()) throw Unsupported("texture fetch");
+  const Value& v = cg_.values.at(id);
+  if (!isFloatType(v.type)) throw Unsupported("non-float texture fetch");
+  for (auto& l : leaves_)
+    if (l.fetch && l.prefix == it->second) return l;
+  Leaf l;
+  l.prefix = it->second;
+  l.type = v.type;
+  l.loadValue = id;
+  l.fetch = true;
+  leaves_.push_back(l);
+  return leaves_.back();
+}
+
 // Components of a float1..4 value used by the vector part of a chain.
 uint32_t chainMask(const std::vector<reshadefx::expression::operation>& chain, size_t start,
                    unsigned rows) {
@@ -493,6 +547,11 @@ void Extractor::collect(uint32_t id) {
       return;
     }
     case K::Chain:
+      if (fetchText_.count(v.base)) {
+        Leaf& l = fetchLeaf(v.base);
+        l.mask |= chainMask(v.chain, 0, l.type.rows);
+        return;
+      }
       collect(v.base);
       chainMask(v.chain, 0, 4);  // validates
       return;
@@ -527,6 +586,11 @@ void Extractor::collect(uint32_t id) {
       return;
     }
     case K::Intrinsic: {
+      if (fetchText_.count(id)) {
+        Leaf& l = fetchLeaf(id);
+        l.mask |= (1u << l.type.rows) - 1;
+        return;
+      }
       const auto op = opFromCall(v.name, static_cast<uint8_t>(v.args.size()));
       if (!op) throw Unsupported("intrinsic " + v.name);
       if (!isFloatType(v.type)) throw Unsupported("non-float intrinsic");
@@ -625,7 +689,14 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), v.chain, vs, b, &l);
       break;
     }
-    case K::Chain: r = applyVectorChain(build(v.base, b), v.chain, 0, b, nullptr); break;
+    case K::Chain:
+      if (fetchText_.count(v.base)) {
+        const Leaf& l = fetchLeaf(v.base);
+        r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), v.chain, 0, b, &l);
+      } else {
+        r = applyVectorChain(build(v.base, b), v.chain, 0, b, nullptr);
+      }
+      break;
     case K::Unary:
       r = v.op == tokenid::minus ? b.op(Op::Neg, build(v.args[0], b)) : build(v.args[0], b);
       break;
@@ -656,6 +727,11 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       break;
     }
     case K::Intrinsic: {
+      if (fetchText_.count(id)) {
+        const Leaf& l = fetchLeaf(id);
+        r = b.input(l.input, floatType(std::popcount(l.mask)));
+        break;
+      }
       const Op op = *opFromCall(v.name, static_cast<uint8_t>(v.args.size()));
       uint32_t a[3] = {0, 0, 0};
       for (size_t k = 0; k < v.args.size(); ++k) a[k] = build(v.args[k], b);
@@ -1049,6 +1125,7 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
   if (!statementAt(*lines, s.loc.line, st, why)) return false;
   reg.lastLine = st.last;
   reg.original = st.original;
+  reg.text = st.text;
   std::string name;
   if (s.kind != Statement::Kind::Return) {
     const auto vi = cg_.variables.find(s.var);
@@ -1100,7 +1177,7 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
     if (it == fx_.ppLines.end()) { why = "uses a macro"; return false; }
     pp += it->second + '\n';
   }
-  if (tokens(src) != tokens(pp)) { why = "uses a macro"; return false; }
+  if (tokens(withoutFetches(src)) != tokens(withoutFetches(pp))) { why = "uses a macro"; return false; }
   return true;
 }
 
@@ -1112,6 +1189,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   usesPow_ = false;
   reg.prog.inputs.clear();
   reg.facts.clear();
+  mapFetches(s, reg.text);
   try {
     collect(s.value);
     if (leaves_.size() > opt_.maxInputs) throw Unsupported("too many inputs");
@@ -1149,6 +1227,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       d.grid = r.grid;
       fact.source = r.why;
       fact.assumed = r.assumed;
+      fact.fetch = l.fetch;
       if (d.lo == d.hi) d.hi = d.lo + 1e-3 * std::max(1.0, std::fabs(d.lo));  // degenerate
       reg.prog.inputs.push_back(d);
       reg.facts.push_back(fact);
@@ -1171,6 +1250,43 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   if (ops > opt_.maxOps) { why = "more than maxOps operations"; return false; }
   if (reg.prog.inputs.empty()) { why = "constant expression"; return false; }
   return true;
+}
+
+// Texture fetches of a statement, matched to their call text in the statement: both
+// are in source order when no fetch is nested in another's arguments.
+void Extractor::mapFetches(const Statement& s, const std::string& text) {
+  fetchText_.clear();
+  std::unordered_set<uint32_t> tree;
+  treeValues(s.value, tree);
+  std::vector<std::pair<uint32_t, uint32_t>> fetches;  // seq, id
+  for (uint32_t id : tree) {
+    const auto it = cg_.values.find(id);
+    if (it != cg_.values.end() && it->second.kind == Value::Kind::Intrinsic && isTexFetch(it->second.name))
+      fetches.emplace_back(it->second.seq, id);
+  }
+  if (fetches.empty()) return;
+  std::sort(fetches.begin(), fetches.end());
+  std::vector<std::string> calls;
+  for (size_t i = 0; i + 5 < text.size(); ++i) {
+    if (!fetchAt(text, i)) continue;
+    size_t j = i + 5;
+    while (j < text.size() && isIdent(text[j])) ++j;
+    while (j < text.size() && text[j] == ' ') ++j;
+    if (j >= text.size() || text[j] != '(') continue;
+    int depth = 0;
+    size_t k = j;
+    for (; k < text.size(); ++k) {
+      if (text[k] == '(') ++depth;
+      if (text[k] == ')' && --depth == 0) break;
+    }
+    if (k >= text.size()) return;
+    for (size_t m = i + 1; m < k; ++m)
+      if (fetchAt(text, m)) return;  // nested fetch
+    calls.push_back(text.substr(i, k + 1 - i));
+    i = k;
+  }
+  if (calls.size() != fetches.size()) return;
+  for (size_t k = 0; k < calls.size(); ++k) fetchText_[fetches[k].second] = calls[k];
 }
 
 // Values of a statement's tree (through Chain bases and operands).

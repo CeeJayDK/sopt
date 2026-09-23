@@ -191,8 +191,22 @@ int main(int argc, char** argv) {
     rr.limitHit = res.search.limitHit;
     rr.completedCost = res.search.completedCost;
     const uint32_t targetCompiled = fx::compiledCost(rr.region.prog.target, *opt.search.model);
+    // A texture fetch input is its call text: a variant must not repeat it more often.
+    auto count = [](const std::string& text, const std::string& what) {
+      size_t n = 0;
+      for (size_t p = text.find(what); p != std::string::npos; p = text.find(what, p + what.size())) ++n;
+      return n;
+    };
+    const std::string targetText = toString(rr.region.prog.target, rr.region.prog.inputs);
     for (const auto& a : res.accepted) {
       if (a.cost >= res.targetCost) continue;
+      bool moreFetches = false;
+      for (size_t k = 0; k < rr.region.facts.size(); ++k)
+        if (rr.region.facts[k].fetch) {
+          const std::string& nm = rr.region.prog.inputs[k].name;
+          moreFetches = moreFetches || count(a.text, nm) > count(targetText, nm);
+        }
+      if (moreFetches) continue;
       if (fx::compiledCost(a.expr, *opt.search.model) >= targetCompiled) {
         ++rr.onlyContraction;
         continue;
