@@ -85,9 +85,10 @@ struct RegionOptions {
   uint32_t maxSlots = 8;      // ... or more input components
   double defaultLo = -1000.0, defaultHi = 1000.0;  // range when nothing is known
   double relEps = 1e-6;       // budget for values with a general use
-  double texcoordPx = 0.01;   // budget for values only used as texture coordinates:
-  double texcoordWidth = 3840;  // ... texcoordPx pixels on a target this wide
-  double maxWidth = 7680;     // SV_Position range [0, maxWidth] (8K; hardware limit 16384)
+  double texcoordPx = 0.01;   // budget for values only used as texture coordinates, in
+                              // pixels on a target maxWidth wide
+  double maxWidth = 7680;     // largest target width: SV_Position range [0, maxWidth] and
+                              // the texcoord budget (8K; hardware limit 16384)
   const UserRanges* userRanges = nullptr;  // ranges for inputs without facts
 };
 

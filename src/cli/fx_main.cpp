@@ -52,8 +52,9 @@ void usage() {
       "  --facts FILE      ranges for inputs without facts (format: see sopt-facts.txt,\n"
       "                    which every run writes to the output directory)\n"
       "  --ask             ask for the missing ranges in the terminal (Enter = suggestion)\n"
-      "  --max-width N     largest render target width: SV_Position in [0, N] (default\n"
-      "                    7680 = 8K; the hardware limit is 16384)");
+      "  --max-width N     largest render target width: SV_Position in [0, N], texture\n"
+      "                    coordinates within 0.01 px at N (default 7680 = 8K; the\n"
+      "                    hardware limit is 16384)");
 }
 
 void collect(const fs::path& p, std::vector<fs::path>& out) {

@@ -1235,8 +1235,8 @@ Budget Extractor::budgetFor(const Function& f, const Statement& s, std::string& 
   } else if (coord && !other) {
     b.kind = Budget::Kind::Texcoord;
     b.px = opt_.texcoordPx;
-    b.width = opt_.texcoordWidth;
-    b.eps = opt_.texcoordPx / opt_.texcoordWidth;
+    b.width = opt_.maxWidth;
+    b.eps = opt_.texcoordPx / opt_.maxWidth;
     reason = "used as texture coordinate";
   } else {
     b.kind = Budget::Kind::Rel;

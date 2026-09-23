@@ -95,7 +95,7 @@ has none (key: file, function or `global` for uniforms, variable).
 
 **Budget from use.** Pixel shader output to an 8-bit target without blending: 8-bit
 identical (color8, max code diff 0). Used in a comparison: exact. Only used as texture
-coordinates: 0.01 px at 3840. Otherwise rel 1e-6.
+coordinates: 0.01 px at the largest width (`--max-width`, default 7680 = 8K). Otherwise rel 1e-6.
 
 **What counts as cheaper.** The static cost, after what the GPU compiler does anyway:
 `a * b + c` becomes an fma, neg/abs are source modifiers, saturate and clamp(x, 0, 1)
