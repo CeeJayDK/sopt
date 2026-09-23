@@ -3,7 +3,8 @@
 Shader superoptimizer for ReShade FX shaders. Finds cheaper, verified alternatives
 to small pure arithmetic regions and presents them as user-selectable variants.
 Full design and milestones: `docs/design.md` (Danish). Status: M0, M1, M2 done (CI green on
-MSVC/GCC/Clang, golden hashes match), plus RDNA3 cost model, `gpu` semantic profile, ISA
+MSVC/GCC/Clang, golden hashes match); M3 implemented (`sopt-fx`: FX front end, regions,
+facts, budgets, variant .fx), waiting for the owner's manual test in ReShade; plus RDNA3 cost model, `gpu` semantic profile, ISA
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 and nvidia default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
@@ -18,6 +19,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`
 - Tests: `ctest --test-dir build --output-on-failure` (or `build/sopt-tests [filter]`)
 - CLI: `build/sopt examples/screen.sopt --stats`
+- FX: `build/sopt-fx -I <reshade-shaders>/Shaders -o out <dir or .fx>... [--isa --sass]`
+  (`--list --skips` shows regions, facts and why statements were skipped)
 - Bench: `build/sopt-bench --examples examples [--cost-model rdna3]` and
   `build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30`
 - ISA ranking: `SOPT_FXSTAT=... SOPT_RGA=... build/sopt examples/factor.sopt --isa`,
@@ -46,6 +49,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - `src/measure`: `isa` emits a candidate as a ReShade FX effect, runs fxstat + RGA and
   parses the pixel shader's ISA cost; `sass` emits a PTX kernel (inputs loaded and
   stored back so they live in registers), runs ptxas + nvdisasm and counts SASS.
+- `third_party/reshadefx`: ReShade 6.8.0 FX lexer/preprocessor/parser, unmodified
+  (built as C++17). `src/fx/codegen`: its codegen interface recorded as a dataflow graph
+  (values with seq/block, statements Init/Store/Return, loops, samplers, uniforms).
+- `src/fx/frontend`: `loadEffect` (ReShade's predefined macros; `ppLines` maps source
+  lines to preprocessed text), `extractRegions`: pixel-reachable functions, statement
+  text checks (alone on its lines, no macros outside fetch calls), IR building (leaves =
+  variable + member chain with used components, or texture fetch call text), windows
+  (single-use temporaries inlined), ranges (`Range`, reaching definitions, loops),
+  budget from use, and a second parse at 2560x1440 to drop resolution-dependent ones.
+- `src/fx/variants`: `compiledCost` (contraction, modifiers, swizzles free), variant
+  files (switch per region, `SOPT_ALL`, overlap resolution), Markdown report.
+  `src/cli/fx_main.cpp`: sopt-fx (parallel search, filters, --isa/--sass, re-parse).
 - `bench/bench.cpp`: example suite + planted problems. `examples/*.sopt` with `# expect:`.
 
 ## Invariants (do not break)
@@ -99,7 +114,22 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - Affine and inner fitting use the fingerprint points, so exact budgets rarely fit.
   With `--no-inner`, inner constants (the c in rcp(t + c)) must come from the constant pool.
 
+- sopt-fx: statements need ops >= 2 and <= 24, <= 4 inputs / 8 components; returns only
+  when `return` starts the line. Same-variable chains (`x = a; x += b;`) are not
+  windows; only single-use temporaries declared once in the same block are. Fetches
+  nested in another fetch's arguments, user function calls and control flow end a
+  region. Ranges are per variable (one interval for all components), unions over
+  branches (no path sensitivity); back buffer assumed 8-bit SDR; TEXCOORD assumed
+  [0, 1] (full-screen pass). Variants of regions with assumed ranges are not written
+  (sampling misses rare-event differences, e.g. CRT.fx corner()). The static cost
+  model gains only survive `compiledCost`; with --isa/--sass most remaining
+  single-statement gains in SweetFX turn out to be compiler-done already.
+- Result on reshade-shaders (slim) + SweetFX: 33 effects, 0 parse failures, 283 regions,
+  11 with measured gains (Daltonize 0*x terms: NVIDIA only; Vignette XOR dot: AMD 3 -> 2,
+  NVIDIA 4 -> 3); all variants compile to HLSL and SPIR-V (spirv-val) for every switch.
+
 ## Next (per docs/design.md)
+0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan).
 1. Optional (owner: "could"): after search, try re-writing the best candidates with pure
    helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only. When M2 adds
    smoothstep/length/distance/normalize, treat them as pure helpers too.

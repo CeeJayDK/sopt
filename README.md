@@ -1,4 +1,4 @@
-# sopt: shader superoptimizer (M0-M2, ISA ranking)
+# sopt: shader superoptimizer (M0-M3, ISA ranking)
 
 Finds cheaper, verified alternatives to small arithmetic expressions from shaders.
 Design and roadmap: [docs/design.md](docs/design.md) (Danish).
@@ -20,6 +20,69 @@ build/sopt examples/screen.sopt --isa [--cost-model rdna3|generic] [--order-mode
 build/sopt-bench --examples examples
 build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30
 ```
+
+## ReShade FX effects (`sopt-fx`, M3)
+
+```
+build/sopt-fx -I reshade-shaders/Shaders -o sopt-out SweetFX/Shaders [--isa] [--sass]
+build/sopt-fx -I reshade-shaders/Shaders --list --skips SweetFX/Shaders/SweetFX/Vignette.fx
+```
+
+Reads every `.fx` (directories recursively) with the ReShade FX preprocessor and
+parser (vendored in `third_party/reshadefx`), finds regions in the functions that pixel
+shaders reach, searches each (in parallel, `--time 5` s and `--max-bank 500000` per
+region) and writes to the output directory:
+
+- a copy of every changed source file (headers too, and the effects that include
+  them), with one switch per region:
+
+  ```hlsl
+  #ifndef SOPT_Vignette_73
+  #define SOPT_Vignette_73 SOPT_ALL // 0 = original, 1..3 = variants
+  #endif
+  #if SOPT_Vignette_73 == 1
+  		float tc = mad(tex.y, 1.0 - (tex.x + tex.x), tex.x); // sopt: within budget, cost 21 -> 14, amd 3 -> 2, nv 4 -> 3
+  #elif ...
+  #else
+  		float tc = dot(float4(-tex.x, -tex.x, tex.x, tex.y), float4(tex.y, tex.y, 1.0, 1.0)); //XOR
+  #endif
+  ```
+
+  `SOPT_ALL = k` (preprocessor definition in ReShade) selects variant k of every
+  region at once. Point ReShade at the output directory: effects find the changed
+  headers next to them, the rest through the normal include paths.
+- `sopt-report.md`: each region's original, inputs with their ranges and where they
+  come from, the budget, and the variants with cost, class and error; regions without
+  gains; skipped statements by reason.
+
+Every variant effect is re-parsed with `SOPT_ALL = 0..n`.
+
+**Regions.** A region is one statement (`float3 x = ...;`, `x.rgb = ...;`, `x *= ...;`,
+`return ...;`) of pure arithmetic, alone on its lines, without macros (texture fetch
+calls are copied verbatim, so macros inside them are fine), plus windows: the statement
+with the declarations of single-use temporaries it reads (same block; a variant removes
+them). Inputs are the variables and texture fetches it reads. Statements whose value
+depends on `BUFFER_WIDTH/HEIGHT` through a `static const` are found by parsing twice
+and skipped.
+
+**Facts (input ranges).** `ui_min`/`ui_max` (and `ui_type = "color"`), `TEXCOORD` in
+[0, 1], `SV_Position` in [0, 3840], texture fetches by format (the back buffer as
+8-bit SDR, grid 255; depth [0, 1]), helper parameters from their call sites, and
+interval propagation over reaching definitions. Otherwise the range is *assumed*
+([-1000, 1000]): such regions are searched, but their variants only appear in the
+report (sampling cannot see a difference confined to a small part of a wide range),
+unless `--assumed`.
+
+**Budget from use.** Pixel shader output to an 8-bit target without blending: 8-bit
+identical (color8, max code diff 0). Used in a comparison: exact. Only used as texture
+coordinates: 0.01 px at 3840. Otherwise rel 1e-6.
+
+**What counts as cheaper.** The static cost, after what the GPU compiler does anyway:
+`a * b + c` becomes an fma, neg/abs are source modifiers, saturate and clamp(x, 0, 1)
+an output modifier, swizzles and constructors are free. With `--isa` / `--sass` the
+original and the variants are compiled (fxstat + RGA, ptxas + nvdisasm); a variant is
+kept only if no vendor gets slower and one gets faster, and variants are ranked by
+measured cost.
 
 ## Input format (`.sopt`)
 
