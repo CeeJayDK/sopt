@@ -351,6 +351,10 @@ class Extractor {
   std::vector<Region> run(SkipCount& skipped);
 
  private:
+  bool shapeOf(const Statement& s, Region& reg, std::string& why);
+  bool buildRegion(const Statement& s, Region& reg, std::string& why);
+  void treeValues(uint32_t id, std::unordered_set<uint32_t>& out) const;
+  void findTemps(const Statement& use, std::vector<const Statement*>& defs, int depth);
   struct Leaf {
     uint32_t var = 0;
     std::string prefix;          // FX text of variable + member/index chain
@@ -391,6 +395,7 @@ class Extractor {
   std::vector<Leaf> leaves_;
   std::unordered_map<uint32_t, uint32_t> built_;
   bool usesPow_ = false;
+  std::unordered_map<uint32_t, uint32_t> inline_;  // temporary variable -> its value
 };
 
 std::string Extractor::varText(uint32_t var) const {
@@ -476,6 +481,11 @@ void Extractor::collect(uint32_t id) {
       if (!isFloatType(v.type)) throw Unsupported("non-float constant");
       return;
     case K::Load: {
+      if (const auto it = inline_.find(v.base); it != inline_.end()) {
+        collect(it->second);
+        chainMask(v.chain, 0, 4);  // validates
+        return;
+      }
       size_t vs = 0;
       Leaf& l = leafOf(v, vs);
       l.mask |= chainMask(v.chain, vs, l.type.rows);
@@ -606,6 +616,10 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       break;
     }
     case K::Load: {
+      if (const auto it = inline_.find(v.base); it != inline_.end()) {
+        r = applyVectorChain(build(it->second, b), v.chain, 0, b, nullptr);
+        break;
+      }
       size_t vs = 0;
       const Leaf& l = leafOf(v, vs);
       r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), v.chain, vs, b, &l);
@@ -1022,6 +1036,198 @@ Budget Extractor::budgetFor(const Function& f, const Statement& s, std::string& 
   return b;
 }
 
+// Statement text and shape: fills file, lines, original, kind and lhs.
+bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
+  const std::string file = s.loc.source;
+  const std::vector<std::string>* lines = file.empty() ? nullptr : sourceLines(file);
+  if (!lines) { why = "no source text"; return false; }
+  const auto val = cg_.values.find(s.value);
+  if (val == cg_.values.end()) { why = "value is a variable"; return false; }
+  reg.file = file;
+  reg.line = s.loc.line;
+  StatementText st;
+  if (!statementAt(*lines, s.loc.line, st, why)) return false;
+  reg.lastLine = st.last;
+  reg.original = st.original;
+  std::string name;
+  if (s.kind != Statement::Kind::Return) {
+    const auto vi = cg_.variables.find(s.var);
+    if (vi == cg_.variables.end() || vi->second.kind == Variable::Kind::Global) {
+      why = "store to a global";
+      return false;
+    }
+    name = vi->second.name;
+  }
+  const std::string& body = st.text;
+  if (s.kind == Statement::Kind::Return) {
+    if (body.rfind("return", 0) != 0 || (body.size() > 6 && isIdent(body[6]))) {
+      why = "return value not at statement start";
+      return false;
+    }
+    reg.kind = Region::Kind::Return;
+    reg.lhs = "return";
+  } else {
+    char compound = 0;
+    const size_t eq = assignmentOp(body, compound);
+    if (eq == std::string::npos) { why = "no assignment"; return false; }
+    const std::string lhs = trim(body.substr(0, eq));
+    if (hasDepth0Comma(body)) { why = "several declarators"; return false; }
+    if (s.kind == Statement::Kind::Init) {
+      // "type name", possibly with qualifiers; name last.
+      if (lhs.size() < name.size() || lhs.compare(lhs.size() - name.size(), name.size(), name) != 0 ||
+          lhs.size() == name.size() || isIdent(lhs[lhs.size() - name.size() - 1]) || compound ||
+          lhs.find_first_of("[]:(") != std::string::npos) {
+        why = "declaration shape";
+        return false;
+      }
+      reg.kind = Region::Kind::Init;
+    } else {
+      if (lhs.compare(0, name.size(), name) != 0 || (lhs.size() > name.size() && isIdent(lhs[name.size()])) ||
+          lhs.find('(') != std::string::npos) {
+        why = "assignment shape";
+        return false;
+      }
+      reg.kind = Region::Kind::Store;
+    }
+    reg.lhs = lhs + " =";
+  }
+  reg.prog.outputName = name.empty() ? "r" : name;
+  // Macros: the source tokens must equal the preprocessed tokens.
+  std::string src, pp;
+  for (uint32_t l = st.first; l <= st.last; ++l) {
+    src += (*lines)[l - 1] + '\n';
+    const auto it = fx_.ppLines.find({file, l});
+    if (it == fx_.ppLines.end()) { why = "uses a macro"; return false; }
+    pp += it->second + '\n';
+  }
+  if (tokens(src) != tokens(pp)) { why = "uses a macro"; return false; }
+  return true;
+}
+
+// IR of a statement's value (with the temporaries in inline_ replaced by their
+// definitions), inputs and facts.
+bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
+  leaves_.clear();
+  built_.clear();
+  usesPow_ = false;
+  reg.prog.inputs.clear();
+  reg.facts.clear();
+  try {
+    collect(s.value);
+    if (leaves_.size() > opt_.maxInputs) throw Unsupported("too many inputs");
+    uint32_t slots = 0;
+    for (auto& l : leaves_) {
+      l.remap.assign(4, 0);
+      uint8_t k = 0;
+      for (int c = 0; c < 4; ++c)
+        if (l.mask & (1u << c)) l.remap[c] = k++;
+      slots += k;
+    }
+    if (slots > opt_.maxSlots) throw Unsupported("too many inputs");
+    for (size_t i = 0; i < leaves_.size(); ++i) {
+      Leaf& l = leaves_[i];
+      l.input = static_cast<uint32_t>(i);
+      const unsigned w = static_cast<unsigned>(std::popcount(l.mask));
+      InputDecl d;
+      d.name = l.prefix;
+      if (w < l.type.rows) {
+        static const char* xyzw = "xyzw";
+        d.name += '.';
+        for (int c = 0; c < 4; ++c)
+          if (l.mask & (1u << c)) d.name += xyzw[c];
+      }
+      d.type = floatType(w);
+      Range r = range(l.loadValue);
+      Fact fact;
+      fact.input = d.name;
+      if (!r.known) {
+        r = Range::of(opt_.defaultLo, opt_.defaultHi, "assumed");
+        r.assumed = true;
+      }
+      d.lo = r.lo;
+      d.hi = r.hi;
+      d.grid = r.grid;
+      fact.source = r.why;
+      fact.assumed = r.assumed;
+      if (d.lo == d.hi) d.hi = d.lo + 1e-3 * std::max(1.0, std::fabs(d.lo));  // degenerate
+      reg.prog.inputs.push_back(d);
+      reg.facts.push_back(fact);
+    }
+    ExprBuilder b;
+    const uint32_t root = build(s.value, b);
+    reg.prog.target = b.finish(root);
+  } catch (const Unsupported& e) {
+    why = e.what();
+    return false;
+  } catch (const std::invalid_argument&) {
+    why = "types";
+    return false;
+  }
+  const Type rt = reg.prog.target.nodes[reg.prog.target.root].type;
+  if (!isFloat(rt)) { why = "boolean value"; return false; }
+  uint32_t ops = 0;
+  for (const auto& n : reg.prog.target.nodes) ops += n.op != Op::Input && n.op != Op::Const;
+  if (ops < opt_.minOps) { why = "fewer than minOps operations"; return false; }
+  if (ops > opt_.maxOps) { why = "more than maxOps operations"; return false; }
+  if (reg.prog.inputs.empty()) { why = "constant expression"; return false; }
+  return true;
+}
+
+// Values of a statement's tree (through Chain bases and operands).
+void Extractor::treeValues(uint32_t id, std::unordered_set<uint32_t>& out) const {
+  if (!out.insert(id).second) return;
+  const auto it = cg_.values.find(id);
+  if (it == cg_.values.end()) return;
+  if (it->second.kind == Value::Kind::Chain) treeValues(it->second.base, out);
+  for (uint32_t a : it->second.args) treeValues(a, out);
+}
+
+// Temporaries that can be inlined into statement `use`: locals declared once in the
+// same block before it, read only by it, whose own inputs are not written in
+// between. Recursively for their definitions. Adds them to inline_ and `defs`.
+void Extractor::findTemps(const Statement& use, std::vector<const Statement*>& defs, int depth) {
+  if (depth > 3 || defs.size() >= opt_.maxStatements - 1) return;
+  std::unordered_set<uint32_t> tree;
+  treeValues(use.value, tree);
+  for (uint32_t id : tree) {
+    const auto vit = cg_.values.find(id);
+    if (vit == cg_.values.end()) continue;
+    const Value& v = vit->second;
+    if (v.kind != Value::Kind::Load || inline_.count(v.base)) continue;
+    const auto vi = cg_.variables.find(v.base);
+    if (vi == cg_.variables.end() || vi->second.kind != Variable::Kind::Local) continue;
+    const auto di = defs_.find(v.base);
+    if (di == defs_.end() || di->second.size() != 1) continue;
+    const Statement* d = di->second[0];
+    if (d->kind != Statement::Kind::Init || d->block != use.block || d->seq >= use.seq) continue;
+    if (d->loc.source != use.loc.source) continue;
+    bool onlyHere = true;
+    for (const auto& [lid, lv] : cg_.values)
+      if (lv.kind == Value::Kind::Load && lv.base == v.base && !tree.count(lid)) onlyHere = false;
+    if (!onlyHere) continue;
+    // Its inputs must not change between the definition and the use.
+    std::unordered_set<uint32_t> dtree;
+    treeValues(d->value, dtree);
+    bool stable = true;
+    for (uint32_t x : dtree) {
+      const auto xit = cg_.values.find(x);
+      if (xit == cg_.values.end() || xit->second.kind != Value::Kind::Load) continue;
+      const Value& xv = xit->second;
+      const auto xd = defs_.find(xv.base);
+      if (xd != defs_.end())
+        for (const Statement* w : xd->second) stable = stable && !(w->seq > d->seq && w->seq < use.seq);
+    }
+    if (!stable) continue;
+    Region shape;
+    std::string why;
+    if (!shapeOf(*d, shape, why)) continue;
+    if (defs.size() >= opt_.maxStatements - 1) return;
+    inline_[v.base] = d->value;
+    defs.push_back(d);
+    findTemps(*d, defs, depth + 1);
+  }
+}
+
 std::vector<Region> Extractor::run(SkipCount& skipped) {
 #define SKIPADD(r) skipped.add((r), s.loc.source, s.loc.line)
   // Functions reachable from pixel shaders.
@@ -1041,143 +1247,45 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
     const Function& f = *fp;
     if (!reach.count(f.uniqueName)) continue;
     for (const Statement& s : f.stmts) {
-      const std::string file = s.loc.source;
-      const std::vector<std::string>* lines = file.empty() ? nullptr : sourceLines(file);
-      if (!lines) { SKIPADD("no source text"); continue; }
       const auto val = cg_.values.find(s.value);
-      if (val == cg_.values.end()) { SKIPADD("value is a variable"); continue; }
-      if (val->second.kind == Value::Kind::Load || val->second.kind == Value::Kind::Const) {
+      if (val != cg_.values.end() &&
+          (val->second.kind == Value::Kind::Load || val->second.kind == Value::Kind::Const)) {
         SKIPADD("copy or constant");
         continue;
       }
       Region reg;
-      reg.file = file;
-      reg.line = s.loc.line;
       reg.function = f.name;
-      // Statement text and its shape.
-      StatementText st;
       std::string why;
-      if (!statementAt(*lines, s.loc.line, st, why)) { SKIPADD(why); continue; }
-      reg.lastLine = st.last;
-      reg.original = st.original;
-      std::string name;
-      if (s.kind != Statement::Kind::Return) {
-        const auto vi = cg_.variables.find(s.var);
-        if (vi == cg_.variables.end() || vi->second.kind == Variable::Kind::Global) {
-          SKIPADD("store to a global");
-          continue;
-        }
-        name = vi->second.name;
-      }
-      std::string body = st.text.substr(0, st.text.size() - 0);
-      if (s.kind == Statement::Kind::Return) {
-        if (body.rfind("return", 0) != 0 || (body.size() > 6 && isIdent(body[6]))) {
-          SKIPADD("return value not at statement start");
-          continue;
-        }
-        reg.kind = Region::Kind::Return;
-        reg.lhs = "return";
+      if (!shapeOf(s, reg, why)) { SKIPADD(why); continue; }
+      Region single = reg;
+      inline_.clear();
+      if (buildRegion(s, single, why)) {
+        single.prog.budget = budgetFor(f, s, single.budgetReason);
+        out.push_back(single);
       } else {
-        char compound = 0;
-        const size_t eq = assignmentOp(body, compound);
-        if (eq == std::string::npos) { SKIPADD("no assignment"); continue; }
-        std::string lhs = trim(body.substr(0, eq));
-        if (hasDepth0Comma(body)) { SKIPADD("several declarators"); continue; }
-        if (s.kind == Statement::Kind::Init) {
-          // "type name", possibly with qualifiers; name last.
-          if (lhs.size() < name.size() || lhs.compare(lhs.size() - name.size(), name.size(), name) != 0 ||
-              lhs.size() == name.size() || isIdent(lhs[lhs.size() - name.size() - 1]) || compound ||
-              lhs.find_first_of("[]:(") != std::string::npos) {
-            SKIPADD("declaration shape");
-            continue;
-          }
-          reg.kind = Region::Kind::Init;
-        } else {
-          if (lhs.compare(0, name.size(), name) != 0 || (lhs.size() > name.size() && isIdent(lhs[name.size()])) ||
-              lhs.find('(') != std::string::npos) {
-            SKIPADD("assignment shape");
-            continue;
-          }
-          reg.kind = Region::Kind::Store;
-        }
-        reg.lhs = lhs + " =";
+        SKIPADD(why);
       }
-      // Macros: the source tokens must equal the preprocessed tokens.
-      {
-        std::string src, pp;
-        bool ok = true;
-        for (uint32_t l = st.first; l <= st.last; ++l) {
-          src += (*lines)[l - 1] + '\n';
-          const auto it = fx_.ppLines.find({file, l});
-          if (it == fx_.ppLines.end()) { ok = false; break; }
-          pp += it->second + '\n';
-        }
-        if (!ok || tokens(src) != tokens(pp)) { SKIPADD("uses a macro"); continue; }
+      // Window: the statement with the single-use temporaries it reads.
+      if (opt_.maxStatements < 2) continue;
+      std::vector<const Statement*> defs;
+      inline_.clear();
+      findTemps(s, defs, 0);
+      if (defs.empty()) continue;
+      std::sort(defs.begin(), defs.end(), [](const Statement* a, const Statement* b) { return a->seq < b->seq; });
+      Region win = reg;
+      std::string text;
+      for (const Statement* d : defs) {
+        Region shape;
+        shapeOf(*d, shape, why);
+        win.removed.emplace_back(shape.line, shape.lastLine);
+        text += shape.original + "\n";
       }
-      // IR.
-      leaves_.clear();
-      built_.clear();
-      usesPow_ = false;
-      try {
-        collect(s.value);
-        if (leaves_.size() > opt_.maxInputs) throw Unsupported("too many inputs");
-        uint32_t slots = 0;
-        for (auto& l : leaves_) {
-          l.remap.assign(4, 0);
-          uint8_t k = 0;
-          for (int c = 0; c < 4; ++c)
-            if (l.mask & (1u << c)) l.remap[c] = k++;
-          slots += k;
-        }
-        if (slots > opt_.maxSlots) throw Unsupported("too many inputs");
-        for (size_t i = 0; i < leaves_.size(); ++i) {
-          Leaf& l = leaves_[i];
-          l.input = static_cast<uint32_t>(i);
-          const unsigned w = static_cast<unsigned>(std::popcount(l.mask));
-          InputDecl d;
-          d.name = l.prefix;
-          if (w < l.type.rows) {
-            static const char* xyzw = "xyzw";
-            d.name += '.';
-            for (int c = 0; c < 4; ++c)
-              if (l.mask & (1u << c)) d.name += xyzw[c];
-          }
-          d.type = floatType(w);
-          Range r = range(l.loadValue);
-          Fact fact;
-          fact.input = d.name;
-          if (!r.known) {
-            r = Range::of(opt_.defaultLo, opt_.defaultHi, "assumed");
-            r.assumed = true;
-          }
-          d.lo = r.lo;
-          d.hi = r.hi;
-          d.grid = r.grid;
-          fact.source = r.why;
-          fact.assumed = r.assumed;
-          if (d.lo == d.hi) d.hi = d.lo + 1e-3 * std::max(1.0, std::fabs(d.lo));  // degenerate
-          reg.prog.inputs.push_back(d);
-          reg.facts.push_back(fact);
-        }
-        ExprBuilder b;
-        const uint32_t root = build(s.value, b);
-        reg.prog.target = b.finish(root);
-      } catch (const Unsupported& e) {
-        SKIPADD(e.what());
-        continue;
-      } catch (const std::invalid_argument&) {
-        SKIPADD("types");
-        continue;
+      win.original = text + reg.original;
+      if (buildRegion(s, win, why)) {
+        win.prog.budget = budgetFor(f, s, win.budgetReason);
+        out.push_back(std::move(win));
       }
-      const Type rt = reg.prog.target.nodes[reg.prog.target.root].type;
-      if (!isFloat(rt)) { SKIPADD("boolean value"); continue; }
-      uint32_t ops = 0;
-      for (const auto& n : reg.prog.target.nodes) ops += n.op != Op::Input && n.op != Op::Const;
-      if (ops < opt_.minOps) { SKIPADD("fewer than minOps operations"); continue; }
-      if (reg.prog.inputs.empty()) { SKIPADD("constant expression"); continue; }
-      reg.prog.outputName = name.empty() ? "r" : name;
-      reg.prog.budget = budgetFor(f, s, reg.budgetReason);
-      out.push_back(std::move(reg));
+      inline_.clear();
     }
   }
 #undef SKIPADD
@@ -1192,12 +1300,12 @@ std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const Re
   if (!alt) return regions;
   SkipCount ignored;
   const std::vector<Region> other = Extractor(*alt, opt).run(ignored);
-  std::map<std::tuple<std::string, uint32_t, int>, std::string> texts;
+  std::map<std::tuple<std::string, uint32_t, int, size_t>, std::string> texts;
   for (const auto& r : other)
-    texts[{r.file, r.line, static_cast<int>(r.kind)}] = toString(r.prog.target, r.prog.inputs);
+    texts[{r.file, r.line, static_cast<int>(r.kind), r.removed.size()}] = toString(r.prog.target, r.prog.inputs);
   std::vector<Region> kept;
   for (auto& r : regions) {
-    const auto it = texts.find({r.file, r.line, static_cast<int>(r.kind)});
+    const auto it = texts.find({r.file, r.line, static_cast<int>(r.kind), r.removed.size()});
     if (it != texts.end() && it->second != toString(r.prog.target, r.prog.inputs)) {
       skipped.add("depends on BUFFER_WIDTH/HEIGHT", r.file, r.line);
       continue;

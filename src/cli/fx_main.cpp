@@ -44,7 +44,9 @@ void usage() {
       "  --isa             measure original and variants with fxstat + RGA (AMD); keep\n"
       "                    variants that are cheaper there ($SOPT_FXSTAT, $SOPT_RGA)\n"
       "  --sass            same with ptxas + nvdisasm (NVIDIA; $SOPT_PTXAS, $SOPT_NVDISASM)\n"
-      "  --sm N            NVIDIA target for --sass (default 89)");
+      "  --sm N            NVIDIA target for --sass (default 89)\n"
+      "  --assumed         also write variants of regions whose input ranges are assumed\n"
+      "                    defaults (no fact); otherwise they are only in the report");
 }
 
 void collect(const fs::path& p, std::vector<fs::path>& out) {
@@ -75,7 +77,7 @@ int main(int argc, char** argv) {
   opt.search.maxBank = 500'000;
   opt.v1Points = 1u << 18;
   opt.maxIterations = 4;
-  bool isa = false, sass = false;
+  bool isa = false, sass = false, allowAssumed = false;
   IsaConfig isaCfg;
   if (const char* v = std::getenv("SOPT_FXSTAT")) isaCfg.fxstat = v;
   if (const char* v = std::getenv("SOPT_RGA")) isaCfg.rga = v;
@@ -110,6 +112,7 @@ int main(int argc, char** argv) {
       opt.search.model = costModelByName(next());
       if (!opt.search.model) { std::fprintf(stderr, "unknown cost model\n"); return 2; }
     } else if (a == "--isa") isa = true;
+    else if (a == "--assumed") allowAssumed = true;
     else if (a == "--sass") sass = true;
     else if (a == "--sm") sassCfg.sm = std::atoi(next());
     else if (a == "-h" || a == "--help") { usage(); return 0; }
@@ -127,7 +130,7 @@ int main(int argc, char** argv) {
   info.costModel = std::string(opt.search.model->name);
   info.skipped.keepDetails = skips;
   std::vector<fx::RegionResult> results;
-  std::set<std::pair<std::string, uint32_t>> seen;
+  std::set<std::tuple<std::string, uint32_t, size_t>> seen;
   std::vector<std::pair<fs::path, std::vector<std::string>>> effectFiles;  // effect, its sources
   for (const auto& p : inputs) {
     std::string err;
@@ -145,7 +148,7 @@ int main(int argc, char** argv) {
     info.effects.push_back(p.string());
     effectFiles.emplace_back(p, fx->sourceFiles);
     for (auto& r : fx::extractRegions(*fx, fx2.get(), ropt, info.skipped)) {
-      if (!seen.insert({r.file, r.line}).second) continue;  // shared header, already found
+      if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
       fx::RegionResult rr;
       rr.effect = p.string();
       rr.targetCost = dagCost(r.prog.target, *opt.search.model);
@@ -161,7 +164,9 @@ int main(int argc, char** argv) {
   if (list) {
     for (const auto& rr : results) {
       const fx::Region& r = rr.region;
-      std::printf("%s:%u  %s %s  (cost %u)\n", r.file.c_str(), r.line, r.lhs.c_str(),
+      std::printf("%s:%s%u  %s %s  (cost %u)\n", r.file.c_str(),
+                  r.removed.empty() ? "" : (std::to_string(r.removed.front().first) + "-").c_str(), r.line,
+                  r.lhs.c_str(),
                   toString(r.prog.target, r.prog.inputs).c_str(), rr.targetCost);
       for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
         const auto& d = r.prog.inputs[k];
@@ -261,6 +266,15 @@ int main(int argc, char** argv) {
                   rr.targetNv, rr.variants.size());
     }
   }
+
+  // Sampling cannot find a difference confined to a small part of a wide assumed range
+  // (e.g. a ramp near 0 in [-1000, 1000]), so such variants are not written.
+  if (!allowAssumed)
+    for (auto& rr : results) {
+      bool assumed = false;
+      for (const auto& f : rr.region.facts) assumed = assumed || f.assumed;
+      if (assumed && !rr.variants.empty()) rr.unwritten = std::move(rr.variants), rr.variants.clear();
+    }
 
   std::sort(results.begin(), results.end(), [](const fx::RegionResult& a, const fx::RegionResult& b) {
     return std::tie(a.region.file, a.region.line) < std::tie(b.region.file, b.region.line);

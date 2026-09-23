@@ -24,6 +24,9 @@ struct RegionResult {
   std::string effect;  // the .fx it was found in
   uint32_t targetCost = 0;
   std::vector<Variant> variants;  // cheapest first
+  // Found, but some input range is assumed (not a fact): only in the report, unless
+  // sopt-fx --assumed.
+  std::vector<Variant> unwritten;
   bool limitHit = false;
   uint32_t onlyContraction = 0;  // cheaper only by explicit fma or free swizzles (dropped)
   int targetAmd = -1, targetNv = -1;

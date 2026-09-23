@@ -51,7 +51,10 @@ struct Region {
   uint32_t lastLine = 0;     // line with the terminating ';'
   std::string function;      // enclosing function
   std::string lhs;           // statement text before the value: "float3 x =", "x.rgb =", "return"
-  std::string original;      // original statement text (joined lines)
+  std::string original;      // original statement text (joined lines; windows: all statements)
+  // Window: declarations of single-use temporaries inlined into this statement
+  // (line ranges in the same file, before `line`); a variant removes them.
+  std::vector<std::pair<uint32_t, uint32_t>> removed;
   Program prog;
   std::vector<Fact> facts;   // one per input
   std::string budgetReason;  // how the budget was derived
@@ -59,6 +62,8 @@ struct Region {
 
 struct RegionOptions {
   uint32_t minOps = 2;        // skip statements with fewer IR operations
+  uint32_t maxOps = 24;       // ... or more
+  uint32_t maxStatements = 4; // statements per window (1 = single statements only)
   uint32_t maxInputs = 4;     // skip statements reading more distinct variables
   uint32_t maxSlots = 8;      // ... or more input components
   double defaultLo = -1000.0, defaultHi = 1000.0;  // range when nothing is known
