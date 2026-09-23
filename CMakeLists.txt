@@ -43,7 +43,8 @@ sopt_fp_flags(sopt-verify)
 
 add_library(sopt-search
   src/search/enumerator.cpp
-  src/search/driver.cpp)
+  src/search/driver.cpp
+  src/search/generalize.cpp)
 target_link_libraries(sopt-search PUBLIC sopt-verify)
 sopt_fp_flags(sopt-search)
 

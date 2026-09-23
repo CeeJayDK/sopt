@@ -348,7 +348,7 @@ Program parseProgram(std::string_view text) {
       const size_t o = kw(3, "const") ? 1 : 0;
       const bool typeOk = kw(3 + o, "float") || kw(3 + o, "float2") || kw(3 + o, "float3") || kw(3 + o, "float4");
       if (t[1].kind != Tok::Ident || !kw(2, ":") || !typeOk || !kw(4 + o, "in") || !kw(5 + o, "["))
-        err("expected: input <name> : [const] float[2|3|4] in [lo, hi] [grid N]");
+        err("expected: input <name> : [const] float[2|3|4] in [lo, hi] [grid N] [= value]");
       InputDecl d;
       d.name = t[1].text;
       d.compileTime = o == 1;
@@ -366,6 +366,13 @@ Program parseProgram(std::string_view text) {
         if (t[p].kind != Tok::Num || t[p].num < 1) err("grid needs a positive integer");
         d.grid = static_cast<uint32_t>(t[p].num);
         ++p;
+      }
+      if (kw(p, "=")) {  // current value of a const input
+        ++p;
+        if (!d.compileTime) err("only const inputs have a value");
+        d.value = parseSignedNumber(t, p, line);
+      } else if (d.compileTime) {
+        d.value = 0.5 * (d.lo + d.hi);
       }
       if (t[p].kind != Tok::End) err("trailing tokens");
       for (const auto& other : prog.inputs)

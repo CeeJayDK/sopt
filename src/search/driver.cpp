@@ -20,6 +20,9 @@ bool containsPoint(const PointSet& ps, const std::vector<float>& p) {
 }  // namespace
 
 RunResult optimize(const Program& prog, const Options& opt) {
+  if (opt.specialize)
+    for (const auto& d : prog.inputs)
+      if (d.compileTime) return optimizeSpecialized(prog, opt);
   const double t0 = nowSeconds();
   RunResult res;
   res.targetCost = dagCost(prog.target, *opt.search.model, prog.inputs);

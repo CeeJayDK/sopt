@@ -18,7 +18,7 @@ void expectRewrite(const char* file, bool affine = false, size_t maxBank = 2'000
   const std::string expect = readExpect(path);
   CHECK(!expect.empty());
   if (!model) model = &defaultCostModel();
-  const uint32_t expectCost = dagCost(parseExpr(expect, prog.inputs), *model);
+  const uint32_t expectCost = dagCost(parseExpr(expect, prog.inputs), *model, prog.inputs);
 
   Options opt;
   opt.v1Points = 1u << 16;
@@ -77,4 +77,9 @@ TEST(order_rdna3_search_sqrt_product) {
 // vs FSET + FADD + FFMA).
 TEST(nvidia_step_lerp) {
   expectRewrite("step_lerp.sopt", true, 2'000'000, &costNvidia(), nullptr, true);
+}
+// Compile-time input (far plane F): found at F = 1000, constants generalized into
+// expressions of F and verified over F in [2, 1000].
+TEST(specialize_depth_far) {
+  expectRewrite("depth_far.sopt", true, 50'000, &costRdna3(), nullptr, true);
 }

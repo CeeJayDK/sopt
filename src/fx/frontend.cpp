@@ -1424,6 +1424,13 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       fact.assumed = r.assumed;
       fact.fetch = l.fetch;
       if (d.lo == d.hi) throw Unsupported("input is a constant");  // the compiler folds it
+      if (d.compileTime) {
+        // The definition's current value: the search specializes on it.
+        const auto m = fx_.userMacros.find(varText(l.var));
+        d.value = m == fx_.userMacros.end() ? 0.5 * (d.lo + d.hi)
+                                            : std::strtod(m->second.c_str(), nullptr);
+        d.value = std::clamp(d.value, d.lo, d.hi);
+      }
       reg.prog.inputs.push_back(d);
       reg.facts.push_back(fact);
     }

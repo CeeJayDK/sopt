@@ -21,6 +21,11 @@ struct Options {
   uint32_t maxCexPerIteration = 64;
   uint32_t maxAlternatives = 50; // stop V1 verification after this many distinct variants
   uint64_t seed = 1;
+  // Programs with compile-time inputs (preprocessor definitions): search with them set
+  // to their current value, then generalize the candidates' numeric constants into
+  // expressions of those inputs (e.g. 0.001001001 = 1 / (F - 1)) and verify over the
+  // whole range. The search itself cannot build such constants at useful depths.
+  bool specialize = true;
   unsigned threads = 0;          // 0 = hardware concurrency
   SearchConfig search;
 };
@@ -52,5 +57,7 @@ struct RunResult {
 };
 
 RunResult optimize(const Program& prog, const Options& opt);
+// optimize() for programs with compile-time inputs (see Options::specialize).
+RunResult optimizeSpecialized(const Program& prog, const Options& opt);
 
 }  // namespace sopt

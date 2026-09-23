@@ -143,9 +143,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   preprocessor (`symbolic_macros`: code uses become the identifier `__sopt_<name>`, a
   uniform in the parse; `#if` keeps the value). `InputDecl::compileTime` inputs: nodes of
   only constants/compile-time inputs cost 0 (`dagCost(e, m, inputs)`, enumerator
-  `Entry::ctime`, `compiledCost`). The plain search cannot build F-dependent constants
-  such as 1/(F-1) (depth_sym: bank limit); next: specialize to the default value, search,
-  then generalize the numeric constants into expressions of the definitions and verify.
+  `Entry::ctime`, `compiledCost`). Search specializes (`Options::specialize`,
+  `search/generalize.cpp`): compile-time inputs set to `InputDecl::value` (the macro's
+  value), normal search, then each candidate's constants are replaced by <= 4-op
+  expressions of the inputs (tolerance 2e-5 rel, 12 matches per constant, <= 1024
+  combos) and V1-verified over the full range (examples/depth_far.sopt). A definition
+  used as a literal (uniform initializer, DisplayDepth.fx) stays a number. ReShade.fxh:
+  the reversed-depth gain needs `depth = 1.0 - depth;` + the division (a same-variable
+  chain, not a window); the forward division alone has no gain.
 
 ## Next (per docs/design.md)
 0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan).

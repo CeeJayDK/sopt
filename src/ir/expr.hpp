@@ -34,6 +34,7 @@ struct InputDecl {
   // A compile-time constant (a preprocessor definition the user can change): the
   // compiler folds expressions of these, so they cost nothing.
   bool compileTime = false;
+  double value = 0.0;  // compileTime: the current value (a preprocessor definition's)
 };
 
 // Error budget per output value (design 4.2). Color8/Color10: max difference in

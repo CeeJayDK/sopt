@@ -84,7 +84,16 @@ time with each of them as a named compile-time input (their value is still used 
 sub-expressions of such inputs and constants cost nothing (the compiler folds them).
 Their range is asked for like other missing ranges (key `macro global NAME`). Other
 macros in a statement still skip it. `--no-macro-inputs` turns this off. In `.sopt`
-files, `input F : const float in [lo, hi]` declares such an input.
+files, `input F : const float in [lo, hi] [= value]` declares such an input (value:
+the current setting, default the midpoint).
+
+The search specializes: it runs with each compile-time input set to its value, then
+replaces the numeric constants of every candidate with small expressions of the
+inputs (up to 4 operations over the inputs and 1, 2, 0.5 and the target's constants,
+matching the constant within 2e-5 relative) and verifies the result over the whole
+range. Example: `examples/depth_far.sopt` (ReShade.fxh's reversed depth, cost 29 ->
+24 on rdna3). An effect whose code needs a definition's value as a literal (e.g. as a
+uniform's initializer, DisplayDepth.fx) keeps that definition as a number.
 
 **Missing ranges.** Every run writes `sopt-facts.txt` to the output directory: the
 ranges given so far, and each input without a known range as a commented line with a

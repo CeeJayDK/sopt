@@ -197,8 +197,8 @@ int main(int argc, char** argv) {
     for (const auto& f : files) {
       const Program prog = loadProgram(f);
       const std::string expect = readExpect(f);
-      const uint32_t goal = expect.empty() ? dagCost(prog.target, model) - 1
-                                           : dagCost(parseExpr(expect, prog.inputs), model);
+      const uint32_t goal = expect.empty() ? dagCost(prog.target, model, prog.inputs) - 1
+                                           : dagCost(parseExpr(expect, prog.inputs), model, prog.inputs);
       const Row row = runOne(std::filesystem::path(f).stem().string(), prog, goal, opt);
       printRow(row);
       failures += !(row.found && row.bestCost <= row.goalCost);
@@ -216,8 +216,8 @@ int main(int argc, char** argv) {
     ExprBuilder b;
     const Expr plantedExpr = b.finish(randomProgram(b, rng, inputs, size));
     prog.target = obfuscate(plantedExpr, rng);
-    const uint32_t goal = dagCost(plantedExpr, model);
-    if (dagCost(prog.target, model) <= goal) continue;  // not more expensive; draw again
+    const uint32_t goal = dagCost(plantedExpr, model, prog.inputs);
+    if (dagCost(prog.target, model, prog.inputs) <= goal) continue;  // not more expensive; draw again
     Row row = runOne("planted_" + std::to_string(p++), prog, goal, opt);
     const bool needsSharing = treeCost(plantedExpr, plantedExpr.root, model) > goal;
     if (needsSharing) row.note = "needs-sharing";
