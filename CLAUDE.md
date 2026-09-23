@@ -132,8 +132,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   (sampling misses rare-event differences, e.g. CRT.fx corner()). The static cost
   model gains only survive `compiledCost`; with --isa/--sass most remaining
   single-statement gains in SweetFX turn out to be compiler-done already.
-- Result on reshade-shaders (slim) + SweetFX: 33 effects, 0 parse failures, 283 regions,
-  11 with measured gains (Daltonize 0*x terms: NVIDIA only; Vignette XOR dot: AMD 3 -> 2,
+- Result on reshade-shaders + legacy + SweetFX (with chain windows): 53 effects, 0 parse
+  failures, 731 regions, 18 with gains; all variants compile (165 HLSL/SPIR-V builds).
+  Earlier, slim + SweetFX: 33 effects, 283 regions, 11 with measured gains (Daltonize 0*x terms: NVIDIA only; Vignette XOR dot: AMD 3 -> 2,
   NVIDIA 4 -> 3); all variants compile to HLSL and SPIR-V (spirv-val) for every switch.
 
 - Owner's decisions (M3 review): variants are kept if faster for any measured vendor
