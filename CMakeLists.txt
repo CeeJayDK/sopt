@@ -100,9 +100,11 @@ if(SOPT_BUILD_TESTS)
     tests/test_rewrites.cpp
     tests/test_isa.cpp
     tests/test_sass.cpp
-    tests/test_vector.cpp)
-  target_link_libraries(sopt-tests PRIVATE sopt-search sopt-measure)
-  target_compile_definitions(sopt-tests PRIVATE SOPT_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples")
+    tests/test_vector.cpp
+    tests/test_fx.cpp)
+  target_link_libraries(sopt-tests PRIVATE sopt-search sopt-measure sopt-fx-lib)
+  target_compile_definitions(sopt-tests PRIVATE SOPT_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples"
+    SOPT_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
   sopt_fp_flags(sopt-tests)
   add_test(NAME sopt-tests COMMAND sopt-tests)
 endif()
