@@ -50,11 +50,17 @@ region) and writes to the output directory:
 
   `SOPT_ALL = k` (preprocessor definition in ReShade) selects variant k of every
   region at once (the last variant where a region has fewer; a switch set on its own
-  wins). Point ReShade at the output directory: effects find the changed
-  headers next to them, the rest through the normal include paths.
-- `sopt-report.md`: each region's original, inputs with their ranges and where they
-  come from, the budget, and the variants with cost, class and error; regions without
-  gains; skipped statements by reason.
+  wins). With `--isa`/`--sass`, `SOPT_AUTO = 1` makes every switch not set on its own
+  take the variant measured fastest on the GPU's vendor (`__VENDOR__`: AMD 0x1002,
+  NVIDIA 0x10DE; other vendors and regions without a gain there keep the original;
+  less accurate variants are never picked). Point ReShade at the output directory:
+  effects find the changed headers next to them, the rest through the normal include
+  paths.
+- `sopt-report.md`: each region's original (row 0) with its cost, inputs with their
+  ranges and where they come from, the budget, and the variants with cost and measured
+  instructions (with the change in %), class, error vs the original and vs exact math,
+  and which variant SOPT_AUTO picks per vendor; regions without gains; skipped
+  statements by reason.
 
 Every variant effect is re-parsed with `SOPT_ALL = 0..n`.
 

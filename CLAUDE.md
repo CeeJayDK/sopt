@@ -148,7 +148,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   NVIDIA 4 -> 3); all variants compile to HLSL and SPIR-V (spirv-val) for every switch.
 
 - Owner's decisions (M3 review): variants are kept if faster for any measured vendor
-  (per-vendor code via `__VENDOR__`/`__DEVICE__` later, M5); `SOPT_ALL = k` uses the
+  (per-vendor code: `SOPT_AUTO = 1` in variant files picks per `__VENDOR__` the
+  variant measured fastest, `vendorPick`; default 0 = unchanged; `__DEVICE__` later, M5); `SOPT_ALL = k` uses the
   last variant where a region has fewer; constant-input regions are skipped; assumed
   ranges: track facts further (done for vertex shaders) and ask the user for missing
   ranges (done: sopt-facts.txt + `--facts`, interactive `--ask`; user ranges apply in

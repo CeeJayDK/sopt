@@ -49,6 +49,10 @@ uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<Input
 // Name of the preprocessor switch of a region: SOPT_<file stem>_<line>.
 std::string switchName(const Region& r);
 
+// SOPT_AUTO: the variant (1-based) with the lowest measured cost on AMD (amd) or NVIDIA,
+// if lower than the original's; less accurate variants are never picked. 0 = none.
+int vendorPick(const RegionResult& rr, bool amd);
+
 // The statement text that replaces the region's lines for one variant.
 std::string variantStatement(const Region& r, const std::string& expr);
 

@@ -92,6 +92,20 @@ std::string switchName(const Region& r) {
   return name + std::to_string(r.line);
 }
 
+int vendorPick(const RegionResult& rr, bool amd) {
+  const int target = amd ? rr.targetAmd : rr.targetNv;
+  if (target < 0) return 0;
+  int best = 0, bestCost = target;
+  for (size_t k = 0; k < rr.variants.size(); ++k) {
+    const Variant& v = rr.variants[k];
+    const int c = amd ? v.amd : v.nv;
+    if (v.klass == Klass::LessAccurate || c < 0 || c >= bestCost) continue;
+    best = static_cast<int>(k + 1);
+    bestCost = c;
+  }
+  return best;
+}
+
 std::string variantStatement(const Region& r, const std::string& expr) {
   return r.lhs + " " + expr + ";";
 }
@@ -149,14 +163,29 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         "// statement or window; SOPT_ALL = k selects alternative k everywhere (the last\n"
         "// one where a region has fewer).\n"
         "#ifndef SOPT_ALL\n#define SOPT_ALL 0\n#endif\n";
+    bool anyPick = false;
+    for (const Piece& p : pieces) anyPick = anyPick || vendorPick(*p.rr, true) || vendorPick(*p.rr, false);
+    if (anyPick)
+      out += "// SOPT_AUTO = 1: switches not set otherwise take the variant measured fastest on\n"
+             "// the GPU's vendor (__VENDOR__: AMD 0x1002, NVIDIA 0x10DE; others: original).\n"
+             "#ifndef SOPT_AUTO\n#define SOPT_AUTO 0\n#endif\n";
     // Switches up front, outside any #if of the source.
     std::set<const RegionResult*> declared;
     for (const Piece& p : pieces) {
       if (!declared.insert(p.rr).second) continue;
       const std::string sw = switchName(p.rr->region);
       const std::string n = std::to_string(p.rr->variants.size());
-      out += "#ifndef " + sw + "\n#define " + sw + " SOPT_ALL // 0 = original, 1.." + n +
-             " = variants (larger = " + n + ")\n#endif\n";
+      const std::string note = " // 0 = original, 1.." + n + " = variants (larger = " + n + ")\n";
+      const int amd = vendorPick(*p.rr, true), nv = vendorPick(*p.rr, false);
+      if (!amd && !nv) {
+        out += "#ifndef " + sw + "\n#define " + sw + " SOPT_ALL" + note + "#endif\n";
+        continue;
+      }
+      out += "#ifndef " + sw + "\n";
+      std::string kw = "#if";
+      if (amd) out += kw + " SOPT_AUTO && __VENDOR__ == 0x1002\n#define " + sw + " " + std::to_string(amd) + "\n", kw = "#elif";
+      if (nv) out += kw + " SOPT_AUTO && __VENDOR__ == 0x10DE\n#define " + sw + " " + std::to_string(nv) + "\n";
+      out += "#else\n#define " + sw + " SOPT_ALL" + note + "#endif\n#endif\n";
     }
     uint32_t next = 1;  // next source line to copy
     for (const Piece& p : pieces) {
@@ -223,9 +252,13 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
                 info.effects.size(), info.failed.size(), results.size(), withVariants,
                 info.costModel.c_str(), info.checks, info.checkFailures, info.seconds);
   s += buf;
-  s += "Costs are the static cost model's (quarter-VALU units for rdna3). Classes: "
-       "bit-exact; 8-bit identical; within budget (max error given). Ranges marked "
-       "*assumed* are defaults, not facts: check them before using a variant.\n\n";
+  s += "Costs are the static cost model's (quarter-VALU units for rdna3); amd / nv are "
+       "measured instructions (fxstat + RGA, ptxas + nvdisasm), with the change against the "
+       "original (row 0). Classes: bit-exact; 8-bit identical; within budget; as accurate "
+       "(outside the budget only where at least as close to exact math as the original); "
+       "less accurate (listed for you to judge by its error). \"vs exact\" is the max error "
+       "against exact math. \"auto\" marks what SOPT_AUTO = 1 selects on that vendor. Ranges "
+       "marked *assumed* are defaults, not facts: check them before using a variant.\n\n";
   if (!info.failed.empty()) {
     s += "## Effects that failed to parse\n\n";
     for (const auto& [f, e] : info.failed) s += "- `" + f + "`: " + escapeCell(e.substr(0, 300)) + "\n";
@@ -258,25 +291,56 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       std::snprintf(buf, sizeof(buf), " Original's max error vs exact math: %.3g.", rr.targetExactAbs);
       s += buf;
     }
-    s += "\n\n| # | variant | cost |";
+    // Row 0 is the original; costs with the gain against it; "auto" marks what
+    // SOPT_AUTO = 1 picks per vendor.
+    const int pickAmd = vendorPick(rr, true), pickNv = vendorPick(rr, false);
+    const bool autoCol = pickAmd || pickNv;
+    auto withGain = [&](int c, int t) {
+      if (c < 0) return std::string("?");
+      std::string cell = std::to_string(c);
+      if (t > 0 && c != t) {
+        std::snprintf(buf, sizeof(buf), " (%+.0f%%)", 100.0 * (c - t) / t);
+        cell += buf;
+      }
+      return cell;
+    };
+    s += "\n\n| # | code | cost |";
     if (info.amd) s += " amd |";
     if (info.nv) s += " nv |";
-    s += std::string(" class | max abs err |") + (exact ? " vs exact |" : "") + " verified |\n|---|---|---|";
+    s += std::string(" class | max abs err |") + (exact ? " vs exact |" : "") + " verified |" +
+         (autoCol ? " auto |" : "") + "\n|---|---|---|";
     if (info.amd) s += "---|";
     if (info.nv) s += "---|";
-    s += exact ? "---|---|---|---|\n" : "---|---|---|\n";
+    s += std::string(exact ? "---|---|---|---|" : "---|---|---|") + (autoCol ? "---|" : "") + "\n";
+    s += "| 0 | `" + escapeCell(toString(r.prog.target, r.prog.inputs)) + "` | " + std::to_string(rr.targetCost) + " |";
+    if (info.amd) s += " " + withGain(rr.targetAmd, -1) + " |";
+    if (info.nv) s += " " + withGain(rr.targetNv, -1) + " |";
+    s += " original | 0 |";
+    if (exact) {
+      std::snprintf(buf, sizeof(buf), " %.3g |", rr.targetExactAbs);
+      s += buf;
+    }
+    s += std::string(" |") + (autoCol ? " |" : "") + "\n";
     for (size_t k = 0; k < rr.variants.size(); ++k) {
       const Variant& v = rr.variants[k];
-      s += "| " + std::to_string(k + 1) + " | `" + escapeCell(v.text) + "` | " + std::to_string(v.cost) + " |";
-      if (info.amd) s += " " + std::to_string(v.amd) + " |";
-      if (info.nv) s += " " + std::to_string(v.nv) + " |";
+      s += "| " + std::to_string(k + 1) + " | `" + escapeCell(v.text) + "` | " +
+           withGain(static_cast<int>(v.cost), static_cast<int>(rr.targetCost)) + " |";
+      if (info.amd) s += " " + withGain(v.amd, rr.targetAmd) + " |";
+      if (info.nv) s += " " + withGain(v.nv, rr.targetNv) + " |";
       std::snprintf(buf, sizeof(buf), " %s | %.3g |", klassName(v.klass, r.prog.budget.codeBits()), v.worst.maxAbs);
       s += buf;
       if (exact) {
         std::snprintf(buf, sizeof(buf), " %.3g |", v.worst.exactAbs);
         s += buf;
       }
-      s += std::string(" ") + (v.exhaustive ? "all points" : "sampled") + " |\n";
+      s += std::string(" ") + (v.exhaustive ? "all points" : "sampled") + " |";
+      if (autoCol) {
+        std::string a;
+        if (pickAmd == static_cast<int>(k + 1)) a = "AMD";
+        if (pickNv == static_cast<int>(k + 1)) a += a.empty() ? "NVIDIA" : ", NVIDIA";
+        s += " " + a + " |";
+      }
+      s += "\n";
     }
     s += "\n";
   }

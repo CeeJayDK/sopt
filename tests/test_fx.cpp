@@ -371,3 +371,57 @@ TEST(fx_chain_windows) {
   }
   fs::remove_all(out, ec);
 }
+
+TEST(fx_vendor_auto) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_chain.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const fx::Region* reg = nullptr;
+  auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  for (const auto& r : regions)
+    if (r.line == 27 && r.removed.empty()) reg = &r;
+  CHECK(reg != nullptr);
+  if (!reg) return;
+  // Variant 1 is fastest on NVIDIA, variant 2 on AMD, variant 3 is less accurate.
+  fx::RegionResult rr;
+  rr.region = *reg;
+  rr.targetCost = 10;
+  rr.targetAmd = 3;
+  rr.targetNv = 4;
+  const char* texts[] = {"mad(d, 2.0, 1.0)", "d + d + 1.0", "d * 2.0"};
+  const int amd[] = {3, 2, 1}, nv[] = {2, 4, 1};
+  for (int k = 0; k < 3; ++k) {
+    fx::Variant v;
+    v.text = texts[k];
+    v.cost = 5;
+    v.amd = amd[k];
+    v.nv = nv[k];
+    v.klass = k == 2 ? Klass::LessAccurate : Klass::Within;
+    rr.variants.push_back(v);
+  }
+  CHECK(fx::vendorPick(rr, true) == 2 && fx::vendorPick(rr, false) == 1);
+  const fs::path out = fs::temp_directory_path() / "sopt_test_fx_vendor";
+  std::error_code ec;
+  fs::remove_all(out, ec);
+  std::string errors;
+  CHECK(fx::writeVariants({rr}, out, errors).size() == 1);
+  std::ifstream f(out / "sopt_chain.fx");
+  std::stringstream ss;
+  ss << f.rdbuf();
+  const std::string text = ss.str();
+  CHECK(text.find("#if SOPT_AUTO && __VENDOR__ == 0x1002\n#define SOPT_sopt_chain_27 2\n"
+                  "#elif SOPT_AUTO && __VENDOR__ == 0x10DE\n#define SOPT_sopt_chain_27 1\n#else\n"
+                  "#define SOPT_sopt_chain_27 SOPT_ALL") != std::string::npos);
+  for (const char* vendor : {"0x1002", "0x10DE", "0x8086"})
+    for (const char* autoOn : {"0", "1"}) {
+      fx::LoadOptions o;
+      o.macros = {{"__VENDOR__", vendor}, {"SOPT_AUTO", autoOn}};
+      std::string err2;
+      CHECK(fx::loadEffect(out / "sopt_chain.fx", o, err2) != nullptr);
+    }
+  fs::remove_all(out, ec);
+}
