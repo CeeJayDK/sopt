@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -212,6 +213,7 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
       for (size_t k = 0; k < r.size(); ++k) c.push_back(options[k][r[k]]);
       combos.push_back(std::move(c));
     }
+    std::optional<Accepted> loose;  // the candidate kept for this search result
     for (const auto& combo : combos) {
       ExprBuilder b;
       std::vector<uint32_t> map(a.expr.nodes.size());
@@ -242,9 +244,13 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
       r.klass = classify(prog, g, worst);
       r.worst = worst;
       r.expr = std::move(g);
-      res.accepted.push_back(std::move(r));
-      break;  // the simplest generalization that holds
+      // The simplest generalization that holds; a less accurate one only if no later
+      // combination passes the budget.
+      const bool strict = r.klass != Klass::LessAccurate;
+      if (!loose || strict) loose = std::move(r);
+      if (strict) break;
     }
+    if (loose) res.accepted.push_back(std::move(*loose));
   }
   std::stable_sort(res.accepted.begin(), res.accepted.end(),
                    [](const Accepted& x, const Accepted& y) { return x.cost < y.cost; });
