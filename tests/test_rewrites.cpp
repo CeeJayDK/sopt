@@ -24,6 +24,7 @@ void expectRewrite(const char* file, bool affine = false, size_t maxBank = 2'000
   opt.v1Points = 1u << 16;
   opt.search.affine = affine;
   opt.search.maxBank = maxBank;
+  opt.search.overflow = false;  // these check what the bank alone reaches
   opt.search.model = model;
   opt.search.order = order;
   opt.search.inner = inner;

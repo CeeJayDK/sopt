@@ -31,8 +31,8 @@ struct SearchConfig {
   bool innerPrefilter = true;
   // When the bank is full, keep enumerating with the stored entries as operands and only
   // check the new values as hits (not stored): one more level of reach, no more memory.
-  // Runs until the time limit.
-  bool overflow = false;
+  // Runs until the time limit. Default (owner): bench +2 found, none lost.
+  bool overflow = true;
   // Enumerate pure helper intrinsics (lerp, step). Off: they are only shorthand for
   // their expansions (lerp = mad(t, b - a, a), step = x >= e ? 1 : 0), which the search
   // builds anyway, so trying both wastes time. Single-instruction intrinsics (mad = fma,

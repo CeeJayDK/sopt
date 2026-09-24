@@ -209,6 +209,14 @@ candidates (bank limit), so it enumerates in `search` order
 (same cheap ops, transcendentals at half cost) while rdna3 still decides hits and
 ranking. `--order-model M` picks another order (e.g. `rdna3`, `generic`).
 
+## Search past a full bank (default; `--no-overflow` to disable)
+
+When the bank is full, the search keeps combining the stored entries and checks the new
+values as hits without storing them, until the time limit (`--time`, which covers all
+CEGIS iterations together). This reaches one more level for the top operation at no
+memory cost: on the bench it found length_squared and a needs-sharing planted problem
+that the bank alone does not reach.
+
 ## Symbolic constants (default; `--no-affine` to disable)
 
 Constants are solved instead of enumerated for the outer affine map: every bank entry

@@ -5,7 +5,7 @@ Owner (2026-09-24): all worth exploring; order A1-A3, A4, then B6/B7; B8 is the
 
 Status: A1 (prefilter), A2 (verification stops at the first failure; inline budget
 check; sopt-fx verifies 20 alternatives instead of 50), A3 (distinct regions searched
-once) done. New, behind a flag: `--overflow` (see A5).
+once) done. Overflow is the default since the owner's go (`--no-overflow` to disable).
 
 Bench after A1-A3 (rdna3, 14 examples + 12 planted, same machine): same problems found,
 same time to first hit. Search instructions halved on sqrt_product, wall time ~15%

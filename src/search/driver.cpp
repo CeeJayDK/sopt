@@ -63,6 +63,9 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     const bool lastIter = iter + 1 == opt.maxIterations;
 
     double ts = nowSeconds();
+    // The time limit covers all CEGIS iterations (the overflow search runs to it); a
+    // restart after counterexamples gets what is left, at least a tenth.
+    cfg.timeLimitSec = std::max(opt.search.timeLimitSec * 0.1, opt.search.timeLimitSec - res.searchSec);
     Enumerator en(prog, tests, cfg);
     std::vector<Candidate> cands = en.run(res.search);
     res.searchSec += nowSeconds() - ts;

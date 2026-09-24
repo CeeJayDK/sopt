@@ -187,9 +187,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,
   proposals and status in docs/performance-ideas.md. Done: inner-fit monotonicity
   prefilter (`innerPrefilter`), compare() stops at a rejected candidate's first failure,
-  sopt-fx maxAlternatives 20 and one search per distinct region. `--overflow` (flag,
-  off): bench +2 found (length_squared, planted_1), runs to the time limit; ask the
-  owner whether it becomes default. Next: A4 multithreaded enumeration.
+  sopt-fx maxAlternatives 20 and one search per distinct region. Overflow (default,
+  owner; `--no-overflow`): when the bank is full, keep combining stored entries and only
+  check new values as hits; bench +2 found (length_squared, planted_1), none lost; every
+  search runs to --time, which now covers all CEGIS iterations together (tests that
+  check bank-limited behavior set overflow = false). Next: A4 multithreaded enumeration.
+  Owner: less accurate variants stay in SOPT_ALL; --loose 100 is fine for now.
 - Library of small verified snippets/rewrites that humans, AI or the tool can reuse.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).

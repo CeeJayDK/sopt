@@ -54,6 +54,8 @@ void usage() {
       "  --assumed         also write variants of regions whose input ranges are assumed\n"
       "  --no-exact-rule   variants must stay within the budget of the original (default:\n"
       "                    also where at least as close to exact math as the original)\n"
+      "  --no-overflow     stop a region's search when the bank is full (default: keep\n"
+      "                    combining the stored entries until --time)\n"
       "  --loose F         also list less accurate variants: within F times the budget or\n"
       "                    the original's error vs exact math (color: one more code), if\n"
       "                    cheaper than every accurate one; after them (default 100, 0 = off)\n"
@@ -141,6 +143,7 @@ int main(int argc, char** argv) {
     else if (a == "--assumed") allowAssumed = true;
     else if (a == "--no-exact-rule") opt.exactRule = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
+    else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--facts") factsFile = next();
     else if (a == "--ask") ask = true;
     else if (a == "--no-macro-inputs") symbolic = false;

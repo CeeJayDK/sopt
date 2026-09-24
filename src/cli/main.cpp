@@ -36,6 +36,8 @@ void usage() {
       "  --seed N          random seed (default 1)\n"
       "  --no-affine       enumerate outer constants instead of solving p * v + q\n"
       "  --no-inner        don't solve inner constants (p * u(v + c) + q, u = rcp/sqrt/rsqrt)\n"
+      "  --no-overflow     stop when the bank is full (default: keep combining the stored\n"
+      "                    entries, checking new values as hits, until --time)\n"
       "  --no-exact-rule   candidates must stay within the budget of the float32 original\n"
       "                    (default: also accepted where at least as close to exact math)\n"
       "  --loose F         also list less accurate candidates: within F times the budget or\n"
@@ -119,7 +121,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-affine") opt.search.affine = false;
     else if (a == "--no-inner") opt.search.inner = false;
     else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
-    else if (a == "--overflow") opt.search.overflow = true;
+    else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-exact-rule") opt.exactRule = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--helpers") opt.search.helpers = true;
