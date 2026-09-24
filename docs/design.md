@@ -139,6 +139,8 @@ Klassen "bit-eksakt" forudsætter, at compileren ikke contracter til FMA. Om det
 
 Transcendentale funktioner er ikke ens på CPU (libm) og GPU. De vurderes derfor kun med tolerance og klassificeres aldrig som bit-eksakte.
 
+**Nøjagtighedsregel (ejerens beslutning):** Float32-originalen har selv afrundingsfejl, som kan være større end budgettet. En kandidat godkendes derfor også i et punkt, hvis den er mindst lige så tæt på den eksakte (matematiske) værdi som originalen, eller inden for budgettet af den. Eksakte værdier beregnes i double og bruges kun til målingen; float32-evalueringen er stadig referencen. Sådanne kandidater klassificeres "as accurate". Kandidater, der er mindre nøjagtige (inden for 100× budgettet eller originalens fejl, `--loose`), vises med deres fejl som "less accurate", så brugeren selv vurderer dem.
+
 ### 4.5 Cost (tre adskilte lag)
 
 1. **Statisk cost:** heltalsvægte pr. op og pr. backend-profil (`sm3`, `dxbc`, `spirv`, `glsl`), gemt i JSON. Startværdierne er gæt, som kalibreres i M6.
@@ -255,7 +257,7 @@ budget r : color8
 ### M5: Vendor-facts
 **Leverer:** Probe-effect, facts-database og markering af fact-afhængige kandidater i rapporten.
 
-En variant er interessant, hvis den er hurtigere for mindst én vendor; den kan være langsommere for en anden. Sådanne varianter kan vælges pr. vendor/device med `__VENDOR__` (0x1002 AMD, 0x10DE NVIDIA, 0x8086 Intel) og `__DEVICE__`.
+En variant er interessant, hvis den er hurtigere for mindst én vendor; den kan være langsommere for en anden. Sådanne varianter kan vælges pr. vendor/device med `__VENDOR__` (0x1002 AMD, 0x10DE NVIDIA, 0x8086 Intel) og `__DEVICE__`. Første skridt er lavet: med målte costs får variant-filer `SOPT_AUTO` (standard 0); sat til 1 vælger hver switch den variant, der er målt hurtigst på GPU'ens vendor (AMD, NVIDIA; andre beholder originalen).
 
 **Færdig når:**
 - Matricen er udfyldt for 3 vendors × (DX11, Vulkan, OpenGL).

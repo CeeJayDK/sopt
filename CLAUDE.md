@@ -171,13 +171,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   always 1000, realistic range [100, 10000]; RESHADE_DEPTH_MULTIPLIER stays 1.
 
 ## Next (per docs/design.md)
-0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan).
+0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan);
+   test package with step-by-step TESTING.txt was sent (report checklist inside).
 1. Optional (owner: "could"): after search, try re-writing the best candidates with pure
-   helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only. When M2 adds
-   smoothstep/length/distance/normalize, treat them as pure helpers too.
-2. M7 search scaling continues (e.g. shared leaves for needs-sharing, reaching
-   normalize_x) — ask first.
-3. M3: reshadefx front end, region extraction, facts, variant `.fx` output.
+   helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only.
+2. M4: GPU benchmark harness (needs the owner's Windows machine; not testable in the
+   cloud sandbox) and backend normalization (spirv-opt; --isa/--sass already cover it
+   largely) — ask which first.
+3. M5 rest: probe effect, facts database, `__DEVICE__` paths.
+4. M7 search scaling (shared leaves for needs-sharing, cut points, V3) — ask first.
 
 ## Under discussion (not decided — ask before implementing)
 - Library of small verified snippets/rewrites that humans, AI or the tool can reuse.
