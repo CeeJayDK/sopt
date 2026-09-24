@@ -159,6 +159,8 @@ int main(int argc, char** argv) {
     else if (a == "--max-bank") opt.search.maxBank = std::strtoull(next(), nullptr, 10);
     else if (a == "--no-affine") opt.search.affine = false;
     else if (a == "--no-inner") opt.search.inner = false;
+    else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
+    else if (a == "--overflow") opt.search.overflow = true;
     else if (a == "--no-exact-rule") opt.exactRule = false;
     else if (a == "--helpers") opt.search.helpers = true;
     else if (a == "--order-model") {

@@ -90,20 +90,6 @@ void Metrics::merge(const Metrics& o) {
   exactRel = std::max(exactRel, o.exactRel);
 }
 
-bool pointWithinBudget(const Budget& b, float t, float c) {
-  if (!std::isfinite(c)) return false;
-  switch (b.kind) {
-    case Budget::Kind::Exact: return c == t;
-    case Budget::Kind::Color8:
-    case Budget::Kind::Color10:
-      return std::abs(codeN(c, b.codeBits()) - codeN(t, b.codeBits())) <= b.maxCodeDiff;
-    case Budget::Kind::Texcoord: return std::fabs(static_cast<double>(c) - t) <= b.eps;
-    case Budget::Kind::Abs: return std::fabs(static_cast<double>(c) - t) <= b.eps;
-    case Budget::Kind::Rel:
-      return std::fabs(static_cast<double>(c) - t) <= b.eps * std::max(1.0, std::fabs(double(t)));
-  }
-  return false;
-}
 
 Budget looseBudget(const Budget& b) {
   Budget l = b;
@@ -213,6 +199,9 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
       if (!looseOk && m.loosePass) {
         m.loosePass = false;
         m.looseFailPoint = ps.point(b + i);
+        // Rejected: callers only use the failing point, so the remaining points are not
+        // compared (each thread's range stops at its own first failure: deterministic).
+        return m;
       }
     }
   }

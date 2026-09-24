@@ -102,6 +102,29 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   }
   scratch_.resize(4 * n_);
   fitScratch_.resize(tn_);
+  // How far a hit may be from the target at each test point (budget, loose factor,
+  // accuracy rule, a few ulps of rounding): the inner-fit prefilter's tolerance.
+  {
+    const Budget& b = prog.budget;
+    const double scale = b.loose > 1.0 ? b.loose : 1.0;
+    monoTol_.assign(tn_, 0.0);
+    for (size_t i = 0; i < tn_; ++i) {
+      const double t = target_[i];
+      double a = 0.0;
+      switch (b.kind) {
+        case Budget::Kind::Exact: break;
+        case Budget::Kind::Color8:
+        case Budget::Kind::Color10:
+          a = (b.maxCodeDiff + (b.loose > 1.0 ? 1.5 : 0.5)) / double((1 << b.codeBits()) - 1);
+          break;
+        case Budget::Kind::Texcoord:
+        case Budget::Kind::Abs: a = scale * b.eps; break;
+        case Budget::Kind::Rel: a = scale * b.eps * std::max(1.0, std::fabs(t)); break;
+      }
+      if (rule_ && std::isfinite(exact_[i])) a += 2.0 * scale * std::fabs(t - exact_[i]);
+      monoTol_[i] = a + 4.0 * std::fabs(t) * 0x1p-23;
+    }
+  }
   table_.assign(1u << 16, kEmpty);
 }
 
@@ -148,14 +171,20 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
     pos = (pos + 1) & mask;
   }
   const auto idx = static_cast<uint32_t>(entries_.size());
+  // Bank full (overflow mode): the entry is only checked as a hit and dropped again,
+  // so the search goes on with the stored entries as operands.
+  const bool transient = cfg_.overflow && entries_.size() >= cfg_.maxBank;
+  const size_t hitsBefore = numHits();
   entries_.push_back(e);
   isHit_.push_back(0);
   off_.push_back(fp_.size());
   fp_.insert(fp_.end(), fp, fp + len);
   table_[pos] = idx;
-  if (entries_.size() * 2 > table_.size()) growTable();
-  byCost_[e.cost][static_cast<size_t>(e.type)].push_back(idx);
-  if (!stats.levels.empty()) ++stats.levels.back().added;
+  if (!transient && entries_.size() * 2 > table_.size()) growTable();
+  if (!transient) {
+    byCost_[e.cost][static_cast<size_t>(e.type)].push_back(idx);
+    if (!stats.levels.empty()) ++stats.levels.back().added;
+  }
 
   // Goal check: does this value match the target within the budget on all test points?
   if (e.type == targetType_ && e.obj < targetCost_) {
@@ -172,6 +201,19 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
       // An affine step's base is in the bank and gets its own (cheaper) fit.
       if (!affineFit(idx, stats) && cfg_.inner) innerFit(idx, stats);
     }
+  }
+  if (transient) {
+    if (numHits() > hitsBefore) {
+      ++stats.overflowKept;  // a hit (or fitted hit) refers to it: keep it
+    } else {
+      // Most recent insertion: removing it cannot break a probe chain.
+      table_[pos] = kEmpty;
+      fp_.resize(off_.back());
+      off_.pop_back();
+      isHit_.pop_back();
+      entries_.pop_back();
+    }
+    ++stats.overflowChecked;
   }
   return true;
 }
@@ -312,15 +354,44 @@ bool solveLsq(double ata[5][5], double atb[5], int k, double* x) {
 //   sqrt:  g^2 = 2q g + p^2 v + (p^2 c - q^2)
 //   rsqrt: g^2 v = -c g^2 + 2q g v + 2qc g - q^2 v + (p^2 - q^2 c)
 // then p, q are refitted on w = u(v + c) by fitWrap.
+int Enumerator::monotoneBreaks(const float* v) {
+  monoOrder_.clear();
+  for (size_t i = 0; i < tn_; ++i)
+    if (targetFinite_[i]) monoOrder_.push_back(static_cast<uint32_t>(i));
+  std::sort(monoOrder_.begin(), monoOrder_.end(), [&](uint32_t a, uint32_t b) { return v[a] < v[b]; });
+  int up = 0, down = 0;
+  for (size_t k = 0; k + 1 < monoOrder_.size(); ++k) {
+    const uint32_t a = monoOrder_[k], b = monoOrder_[k + 1];
+    const double d = double(target_[b]) - target_[a];
+    const double tol = monoTol_[a] + monoTol_[b];
+    if (v[a] == v[b]) {
+      if (std::fabs(d) > tol) return 2;  // one v, two targets: no function of v fits
+    } else if (d > tol) {
+      ++up;
+    } else if (d < -tol) {
+      ++down;
+    }
+  }
+  return std::min(up, down);
+}
+
 bool Enumerator::innerFit(uint32_t idx, SearchStats& stats) {
   const Entry& e = entries_[idx];
   const CostModel& model = *cfg_.model;
   const float* v = fpOf(idx);
+  // p * u(v + c) + q is monotonic in v (rcp: on each side of its pole, one break), so
+  // the target must be too, within the tolerance: cheap to check before fitting.
+  const int breaks = cfg_.innerPrefilter ? monotoneBreaks(v) : 0;
+  if (breaks > 1) {
+    ++stats.innerPrefiltered;
+    return false;
+  }
   const unsigned W = width(targetType_);
   const uint32_t addCost = model.fusesIntoAdd(e.op) ? W * model.fusedAdd : model.opCost(Op::Add, W);
   bool found = false;
   for (Op u : {Op::Rcp, Op::Sqrt, Op::Rsqrt}) {
     if (std::find(ops_.begin(), ops_.end(), u) == ops_.end()) continue;
+    if (breaks > 0 && u != Op::Rcp) continue;
     const uint32_t baseObj = e.obj + addCost + model.opCost(u, W);
     if (baseObj + 1 >= targetCost_) continue;
     const int k = u == Op::Rsqrt ? 5 : 3;
@@ -426,7 +497,7 @@ bool Enumerator::innerFit(uint32_t idx, SearchStats& stats) {
 }
 
 void Enumerator::checkLimits(SearchStats& stats) {
-  if (entries_.size() >= cfg_.maxBank || numHits() >= cfg_.maxHits ||
+  if ((entries_.size() >= cfg_.maxBank && !cfg_.overflow) || numHits() >= cfg_.maxHits ||
       nowSeconds() - start_ > cfg_.timeLimitSec) {
     stop_ = true;
     stats.limitHit = true;
@@ -650,7 +721,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
     for (auto& list : byCost_[cost])
       std::stable_sort(list.begin(), list.end(),
                        [&](uint32_t x, uint32_t y) { return obj(x) < obj(y); });
-    if (!stop_) stats.completedCost = cost;
+    if (!stop_ && stats.overflowChecked == 0) stats.completedCost = cost;
   }
 
   stats.bankSize = entries_.size();

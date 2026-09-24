@@ -1,4 +1,11 @@
-# Ideas for making the superoptimizer faster (not decided)
+# Making the superoptimizer faster
+
+Owner (2026-09-24): all worth exploring; order A1-A3, A4, then B6/B7; B8 is the
+"moving pivot" idea from the design phase; also use less RAM per bank entry.
+
+Status: A1 (prefilter), A2 (verification stops at the first failure; inline budget
+check; sopt-fx verifies 20 alternatives instead of 50), A3 (distinct regions searched
+once) done. New, behind a flag: `--overflow` (see A5).
 
 Measured 2026-09-24 in the cloud sandbox (4 cores), `examples/sqrt_product.sopt`
 (rdna3) and a full sopt-fx run over 53 effects.
@@ -39,6 +46,11 @@ ignored (same ranges and budget), e.g. Daltonize's 9 statements, FilmicPass 87-9
    threads, then merge and deduplicate. About 3x on 4 cores, more on a desktop CPU.
 5. **Bigger bank by default.** 2M entries is about 320 MB. Size the limit from free
    memory (e.g. 10-20M entries on a 16-32 GB machine) to reach 1-2 levels deeper.
+   Less RAM per entry: the 32 fingerprint floats (128 of ~180 bytes) must stay exact;
+   the rest (entry 32 bytes, 8-byte offset, hash slots) can shrink by ~20 bytes.
+   `--overflow` (flag): when the bank is full, keep enumerating with the stored entries
+   as operands and only check new values as hits (not stored) until the time limit:
+   one more level of reach for the top operation at no memory cost.
 
 ### B. Search changes (each behind a flag, bench decides; design section 6)
 

@@ -27,6 +27,12 @@ struct SearchConfig {
   // Also solve an inner constant: target ~ p * u(v + c) + q, u in {rcp, sqrt, rsqrt}
   // (needs affine).
   bool inner = true;
+  // Skip inner fits for entries the target is not monotonic in (see innerFit).
+  bool innerPrefilter = true;
+  // When the bank is full, keep enumerating with the stored entries as operands and only
+  // check the new values as hits (not stored): one more level of reach, no more memory.
+  // Runs until the time limit.
+  bool overflow = false;
   // Enumerate pure helper intrinsics (lerp, step). Off: they are only shorthand for
   // their expansions (lerp = mad(t, b - a, a), step = x >= e ? 1 : 0), which the search
   // builds anyway, so trying both wastes time. Single-instruction intrinsics (mad = fma,
@@ -48,6 +54,9 @@ struct SearchStats {
   uint64_t hits = 0;
   uint64_t affinePruned = 0;
   uint64_t innerHits = 0;
+  uint64_t innerPrefiltered = 0;  // entries the monotonicity check ruled out
+  uint64_t overflowChecked = 0;   // overflow mode: values checked after the bank was full
+  uint64_t overflowKept = 0;      // ... kept because they are (part of) hits
   uint64_t objPruned = 0;  // objective cost already >= target
   uint64_t affineHits = 0;
   uint32_t completedCost = 0;  // all levels <= this were fully enumerated
@@ -104,6 +113,10 @@ class Enumerator {
   uint32_t addConst(Type t, const float* v, SearchStats& stats);
   bool affineFit(uint32_t idx, SearchStats& stats);
   bool innerFit(uint32_t idx, SearchStats& stats);
+  // Direction changes of the target along v (sorted), beyond monoTol_; 2 = none fits.
+  int monotoneBreaks(const float* v);
+  std::vector<double> monoTol_;
+  std::vector<uint32_t> monoOrder_;
   bool fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& out) const;
   uint32_t obj(uint32_t idx) const { return entries_[idx].obj; }
   const CostModel& order() const { return cfg_.order ? *cfg_.order : defaultOrderFor(*cfg_.model); }

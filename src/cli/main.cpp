@@ -118,6 +118,8 @@ int main(int argc, char** argv) {
     else if (a == "--stats") stats = true;
     else if (a == "--no-affine") opt.search.affine = false;
     else if (a == "--no-inner") opt.search.inner = false;
+    else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
+    else if (a == "--overflow") opt.search.overflow = true;
     else if (a == "--no-exact-rule") opt.exactRule = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--helpers") opt.search.helpers = true;
@@ -300,9 +302,12 @@ int main(int argc, char** argv) {
                 (unsigned long long)s.hits, s.firstHitSec);
     if (opt.search.affine)
       std::printf("affine: %llu hits via a solved outer map, %llu via an inner constant, "
-                  "%llu chain entries pruned\n",
+                  "%llu chain entries pruned, %llu inner fits skipped (not monotonic)\n",
                   (unsigned long long)s.affineHits, (unsigned long long)s.innerHits,
-                  (unsigned long long)s.affinePruned);
+                  (unsigned long long)s.affinePruned, (unsigned long long)s.innerPrefiltered);
+    if (s.overflowChecked)
+      std::printf("overflow: %llu values checked after the bank was full, %llu kept\n",
+                  (unsigned long long)s.overflowChecked, (unsigned long long)s.overflowKept);
     if (s.objPruned)
       std::printf("objective: %llu entries pruned (cost >= target)\n", (unsigned long long)s.objPruned);
     std::printf("time: search %.3fs, verify %.3fs, total %.3fs\n", r.searchSec, r.verifySec,

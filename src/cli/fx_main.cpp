@@ -97,6 +97,8 @@ int main(int argc, char** argv) {
   opt.v1Points = 1u << 18;
   opt.maxIterations = 4;
   opt.loose = 100;
+  // Only the cheapest few variants per region are written: verifying 50 wastes time.
+  opt.maxAlternatives = 20;
   bool isa = false, sass = false, allowAssumed = false, ask = false, symbolic = true;
   fs::path factsFile;
   IsaConfig isaCfg;
@@ -346,10 +348,51 @@ int main(int argc, char** argv) {
   if (jobs > 1) ropt2.threads = 1;
   std::atomic<size_t> done{0};
   std::mutex printMu;
+  // Regions that differ only in their inputs' names (same expression over the same
+  // ranges, budget) are searched once: e.g. the same statement per color channel.
+  auto searchKey = [](const Program& p) {
+    std::vector<InputDecl> anon = p.inputs;
+    std::string key;
+    char buf[160];
+    for (size_t k = 0; k < anon.size(); ++k) {
+      const InputDecl& d = anon[k];
+      std::snprintf(buf, sizeof(buf), "|%d %.9g %.9g %u %d %.9g", static_cast<int>(d.type), d.lo, d.hi,
+                    d.grid, d.compileTime ? 1 : 0, d.value);
+      key += buf;
+      anon[k].name = "in" + std::to_string(k);
+    }
+    const Budget& b = p.budget;
+    std::snprintf(buf, sizeof(buf), "|%d %.9g %d %.9g %.9g %d %.9g|", static_cast<int>(b.kind), b.eps,
+                  b.maxCodeDiff, b.px, b.width, b.vsExact ? 1 : 0, b.loose);
+    return key + buf + toString(p.target, anon);
+  };
+  std::vector<size_t> firstOf(results.size());
+  std::vector<size_t> unique;
+  {
+    std::map<std::string, size_t> seen;
+    for (size_t i = 0; i < results.size(); ++i) {
+      const auto [it, fresh] = seen.emplace(searchKey(results[i].region.prog), i);
+      firstOf[i] = it->second;
+      if (fresh) unique.push_back(i);
+    }
+  }
+  std::vector<RunResult> searched(results.size());
+  std::vector<double> searchSec(results.size(), 0.0);
+  parallelFor(unique.size(), jobs, [&](size_t u) {
+    const size_t i = unique[u];
+    const auto s0 = std::chrono::steady_clock::now();
+    searched[i] = optimize(results[i].region.prog, ropt2);
+    searchSec[i] = std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
+  });
+  if (unique.size() < results.size())
+    std::printf("%zu regions searched (%zu repeat another one with other input names)\n", unique.size(),
+                results.size() - unique.size());
   parallelFor(results.size(), jobs, [&](size_t i) {
     fx::RegionResult& rr = results[i];
     const auto s0 = std::chrono::steady_clock::now();
-    RunResult res = optimize(rr.region.prog, ropt2);
+    RunResult res = searched[firstOf[i]];
+    if (firstOf[i] != i)  // the same programs over this region's input names
+      for (auto& a : res.accepted) a.text = toString(a.expr, rr.region.prog.inputs);
     rr.targetCost = res.targetCost;
     rr.limitHit = res.search.limitHit;
     rr.completedCost = res.search.completedCost;
@@ -400,7 +443,7 @@ int main(int argc, char** argv) {
     if (loose.size() > numVariants) loose.resize(numVariants);
     rr.variants = std::move(strict);
     for (auto& v : loose) rr.variants.push_back(std::move(v));
-    rr.sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
+    rr.sec = searchSec[firstOf[i]] + std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
     std::lock_guard<std::mutex> lock(printMu);
     const size_t n = ++done;
     std::printf("[%zu/%zu] %s:%u cost %u -> %s\n", n, results.size(),

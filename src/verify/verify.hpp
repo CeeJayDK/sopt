@@ -1,5 +1,8 @@
 #pragma once
+#include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <vector>
 
@@ -66,7 +69,20 @@ inline int codeN(float v, int bits) {
   return static_cast<int>(c * ((1 << bits) - 1) + 0.5);
 }
 inline int code8(float v) { return codeN(v, 8); }
-bool pointWithinBudget(const Budget& b, float target, float cand);
+inline bool pointWithinBudget(const Budget& b, float t, float c) {
+  if (!std::isfinite(c)) return false;
+  switch (b.kind) {
+    case Budget::Kind::Exact: return c == t;
+    case Budget::Kind::Color8:
+    case Budget::Kind::Color10:
+      return std::abs(codeN(c, b.codeBits()) - codeN(t, b.codeBits())) <= b.maxCodeDiff;
+    case Budget::Kind::Texcoord: return std::fabs(static_cast<double>(c) - t) <= b.eps;
+    case Budget::Kind::Abs: return std::fabs(static_cast<double>(c) - t) <= b.eps;
+    case Budget::Kind::Rel:
+      return std::fabs(static_cast<double>(c) - t) <= b.eps * std::max(1.0, std::fabs(double(t)));
+  }
+  return false;
+}
 inline bool accuracyRule(const Budget& b) { return b.vsExact && b.kind != Budget::Kind::Exact; }
 // The accuracy rule at one point: cand is at least as close to the exact value as the
 // original target is (times `scale`), or within the budget of the exact value.
