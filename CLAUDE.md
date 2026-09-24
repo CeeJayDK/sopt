@@ -184,8 +184,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 4. M7 search scaling (shared leaves for needs-sharing, cut points, V3) — ask first.
 
 ## Under discussion (not decided — ask before implementing)
-- Search/verification speed: measured profile and proposals in docs/performance-ideas.md
-  (innerFit is 58% of search; V1 loop overhead; 20% duplicate regions in the corpus).
+- Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,
+  proposals and status in docs/performance-ideas.md. Done: inner-fit monotonicity
+  prefilter (`innerPrefilter`), compare() stops at a rejected candidate's first failure,
+  sopt-fx maxAlternatives 20 and one search per distinct region. `--overflow` (flag,
+  off): bench +2 found (length_squared, planted_1), runs to the time limit; ask the
+  owner whether it becomes default. Next: A4 multithreaded enumeration.
 - Library of small verified snippets/rewrites that humans, AI or the tool can reuse.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).

@@ -7,6 +7,16 @@ Status: A1 (prefilter), A2 (verification stops at the first failure; inline budg
 check; sopt-fx verifies 20 alternatives instead of 50), A3 (distinct regions searched
 once) done. New, behind a flag: `--overflow` (see A5).
 
+Bench after A1-A3 (rdna3, 14 examples + 12 planted, same machine): same problems found,
+same time to first hit. Search instructions halved on sqrt_product, wall time ~15%
+lower (the rest is memory bound). Bench verification did not get faster: it is
+dominated by accepted candidates (up to 50, each on 1M points x 4 profiles, plus V2),
+not by rejected ones. sopt-fx now verifies 20.
+
+`--overflow` on the same bench: 2 more problems solved and none lost: length_squared
+(first hit 6.4 s; never before) and planted_1 (a needs-sharing one, 5.7 s). Cost: the
+search always runs to the time limit instead of stopping when the bank is full.
+
 Measured 2026-09-24 in the cloud sandbox (4 cores), `examples/sqrt_product.sopt`
 (rdna3) and a full sopt-fx run over 53 effects.
 
