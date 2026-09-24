@@ -172,6 +172,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   108-111) is a window (guard RESHADE_DEPTH_INPUT_IS_REVERSED); owner: FAR_PLANE is almost
   always 1000, realistic range [100, 10000]; RESHADE_DEPTH_MULTIPLIER stays 1.
 
+- Test corpus (owner): not the legacy branch (deprecated). Use packages from
+  https://github.com/crosire/reshade-shaders/blob/list/EffectPackages.ini (install paths
+  there). 2026-09-24: slim, SweetFX, AstrayFX, Daodan, OtisFX, Fubax, brussell,
+  FXShaders, qUINT, PD80, iMMERSE: 43 regions with gains; all variant files compile
+  (1535 HLSL/SPIR-V builds incl. SOPT_AUTO). Parse failures to look at: iMMERSE (all 6),
+  OtisFX (4 of 11). Test packages: unique file name per package, steps inside
+  TESTING.txt AND in the chat message.
+
 ## Next (per docs/design.md)
 0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan);
    test package with step-by-step TESTING.txt was sent (report checklist inside).
