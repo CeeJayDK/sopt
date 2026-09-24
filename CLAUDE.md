@@ -78,7 +78,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   of it). Exact values: `verify/exact` (double, only for metrics; never mixed into the
   float32 evaluation). Not for Exact budgets. Less accurate candidates (`--loose`, owner:
   "list them with their accuracy, the user decides") are Klass::LessAccurate; the
-  enumerator accepts them as hits, the driver caps them at maxLoose.
+  enumerator accepts them as hits, the driver caps them at maxLoose. Bench: same
+  results and first-hit times with and without the rule (examples + 12 planted);
+  verification ~9% slower (exact evaluation).
 - Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
   Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
 - Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
