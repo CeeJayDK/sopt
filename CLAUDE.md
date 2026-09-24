@@ -187,6 +187,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   vkd3d d3dcompiler rejects [fastopt] (ReShade's codegen emits it for loops at SM >= 4):
   patched line 1874 of its effect_codegen_hlsl.cpp to emit [loop]. This found a real bug
   (constant arrays indexed at run time got the first element's range: Fubax Waveform).
+- Owner's test method (Compare.fx, SweetFX): package with <Effect>-orig.fx / -sopt.fx
+  side by side (techniques and the file's own non-semantic textures suffixed _orig /
+  _sopt: ReShade shares textures by name; changed headers as <H>-orig/-sopt.fxh; -sopt
+  defaults SOPT_ALL 1) and one preset per effect: Capture -> orig -> Restore -> sopt ->
+  Compare (compare_mode 7, difference_scale 20). Techniques from code only (strip
+  comments and strings). Check renders in a full install tree (packages in their
+  installer folders), else headers get included twice via different paths.
+  RTI fixes pushed to CeeJayDK/ReShade-Testing-Initiative branch
+  claude/shaderlab-loop-attribute ([fastopt] patch, stale Xvfb lock, exec bits).
 
 ## Next (per docs/design.md)
 0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan);
