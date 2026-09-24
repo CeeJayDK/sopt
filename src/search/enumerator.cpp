@@ -5,11 +5,20 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <functional>
+#include <thread>
 #include <unordered_map>
 
 #include "ir/eval.hpp"
 #include "verify/exact.hpp"
 #include "verify/verify.hpp"
+
+#if defined(_MSC_VER)
+#include <xmmintrin.h>
+#define SOPT_PREFETCH(p) _mm_prefetch(reinterpret_cast<const char*>(p), _MM_HINT_T0)
+#else
+#define SOPT_PREFETCH(p) __builtin_prefetch(p)
+#endif
 
 namespace sopt {
 
@@ -101,7 +110,7 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
     if (info(op).base || containsOp(prog.target, op)) ops_.push_back(op);
   }
   scratch_.resize(4 * n_);
-  fitScratch_.resize(tn_);
+  serialScratch_.fit.resize(tn_);
   // How far a hit may be from the target at each test point (budget, loose factor,
   // accuracy rule, a few ulps of rounding): the inner-fit prefilter's tolerance.
   {
@@ -126,6 +135,18 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
     }
   }
   table_.assign(1u << 16, kEmpty);
+  // The bank grows to maxBank: reserve it (pages are only touched when used) so that
+  // appending does not copy hundreds of MB, and size the table for it.
+  {
+    const size_t cap = std::min<size_t>(cfg_.maxBank, size_t{1} << 25);
+    entries_.reserve(cap + kBatch);
+    isHit_.reserve(cap + kBatch);
+    off_.reserve(cap + kBatch);
+    fp_.reserve((cap + kBatch) * n_);
+    size_t slots = 1u << 16;
+    while (slots < 2 * cap) slots <<= 1;
+    table_.assign(slots, kEmpty);
+  }
 }
 
 uint64_t Enumerator::hashFp(const float* fp, Type t) const {
@@ -187,21 +208,10 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
   }
 
   // Goal check: does this value match the target within the budget on all test points?
-  if (e.type == targetType_ && e.obj < targetCost_) {
-    const float* v = fpOf(idx);
-    bool ok = true;
-    for (size_t i = 0; i < tn_ && ok; ++i)
-      ok = !targetFinite_[i] || accepts(i, v[i]);
-    if (ok) {
-      isHit_[idx] = 1;
-      hits_.push_back(idx);
-      ++stats.hits;
-      if (stats.firstHitSec < 0) stats.firstHitSec = nowSeconds() - start_;
-    } else if (cfg_.affine && !e.affine && !e.isConst && !e.ctime && numHits() < cfg_.maxHits) {
-      // An affine step's base is in the bank and gets its own (cheaper) fit.
-      if (!affineFit(idx, stats) && cfg_.inner) innerFit(idx, stats);
-    }
-  }
+  // Otherwise try solving an outer affine map / inner constant (fitted hits).
+  fitOut_.clear();
+  const bool direct = goalCheck(e, fpOf(idx), idx, fitOut_, serialScratch_, stats);
+  commitHits(idx, direct, fitOut_, stats);
   if (transient) {
     if (numHits() > hitsBefore) {
       ++stats.overflowKept;  // a hit (or fitted hit) refers to it: keep it
@@ -304,14 +314,40 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
   return true;
 }
 
-bool Enumerator::affineFit(uint32_t idx, SearchStats& stats) {
-  const Entry& e = entries_[idx];
+bool Enumerator::goalCheck(const Entry& e, const float* v, uint32_t idx, std::vector<AffineHit>& out,
+                           FitScratch& s, SearchStats& stats) const {
+  if (e.type != targetType_ || e.obj >= targetCost_) return false;
+  bool ok = true;
+  for (size_t i = 0; i < tn_ && ok; ++i) ok = !targetFinite_[i] || accepts(i, v[i]);
+  if (ok) return true;
+  // An affine step's base is in the bank and gets its own (cheaper) fit.
+  if (cfg_.affine && !e.affine && !e.isConst && !e.ctime && numHits() < cfg_.maxHits)
+    if (!affineFit(e, v, idx, out) && cfg_.inner) innerFit(e, v, idx, out, s, stats);
+  return false;
+}
+
+void Enumerator::commitHits(uint32_t idx, bool direct, const std::vector<AffineHit>& fitted,
+                            SearchStats& stats) {
+  if (direct) {
+    isHit_[idx] = 1;
+    hits_.push_back(idx);
+    ++stats.hits;
+  }
+  for (const AffineHit& h : fitted) {
+    if (numHits() >= cfg_.maxHits) break;
+    AffineHit k = h;
+    k.idx = idx;
+    affineHits_.push_back(k);
+    ++stats.hits;
+    ++(k.inner == Op::Count ? stats.affineHits : stats.innerHits);
+  }
+  if ((direct || !fitted.empty()) && stats.firstHitSec < 0) stats.firstHitSec = nowSeconds() - start_;
+}
+
+bool Enumerator::affineFit(const Entry& e, const float* v, uint32_t idx, std::vector<AffineHit>& out) const {
   AffineHit h{idx, Op::Mad, 0.0f, 0.0f};
-  if (!fitWrap(fpOf(idx), e.op, e.obj, h)) return false;
-  affineHits_.push_back(h);
-  ++stats.hits;
-  ++stats.affineHits;
-  if (stats.firstHitSec < 0) stats.firstHitSec = nowSeconds() - start_;
+  if (!fitWrap(v, e.op, e.obj, h)) return false;
+  out.push_back(h);
   return true;
 }
 
@@ -354,14 +390,14 @@ bool solveLsq(double ata[5][5], double atb[5], int k, double* x) {
 //   sqrt:  g^2 = 2q g + p^2 v + (p^2 c - q^2)
 //   rsqrt: g^2 v = -c g^2 + 2q g v + 2qc g - q^2 v + (p^2 - q^2 c)
 // then p, q are refitted on w = u(v + c) by fitWrap.
-int Enumerator::monotoneBreaks(const float* v) {
-  monoOrder_.clear();
+int Enumerator::monotoneBreaks(const float* v, std::vector<uint32_t>& order) const {
+  order.clear();
   for (size_t i = 0; i < tn_; ++i)
-    if (targetFinite_[i]) monoOrder_.push_back(static_cast<uint32_t>(i));
-  std::sort(monoOrder_.begin(), monoOrder_.end(), [&](uint32_t a, uint32_t b) { return v[a] < v[b]; });
+    if (targetFinite_[i]) order.push_back(static_cast<uint32_t>(i));
+  std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return v[a] < v[b]; });
   int up = 0, down = 0;
-  for (size_t k = 0; k + 1 < monoOrder_.size(); ++k) {
-    const uint32_t a = monoOrder_[k], b = monoOrder_[k + 1];
+  for (size_t k = 0; k + 1 < order.size(); ++k) {
+    const uint32_t a = order[k], b = order[k + 1];
     const double d = double(target_[b]) - target_[a];
     const double tol = monoTol_[a] + monoTol_[b];
     if (v[a] == v[b]) {
@@ -375,13 +411,12 @@ int Enumerator::monotoneBreaks(const float* v) {
   return std::min(up, down);
 }
 
-bool Enumerator::innerFit(uint32_t idx, SearchStats& stats) {
-  const Entry& e = entries_[idx];
+bool Enumerator::innerFit(const Entry& e, const float* v, uint32_t idx, std::vector<AffineHit>& out,
+                          FitScratch& s, SearchStats& stats) const {
   const CostModel& model = *cfg_.model;
-  const float* v = fpOf(idx);
   // p * u(v + c) + q is monotonic in v (rcp: on each side of its pole, one break), so
   // the target must be too, within the tolerance: cheap to check before fitting.
-  const int breaks = cfg_.innerPrefilter ? monotoneBreaks(v) : 0;
+  const int breaks = cfg_.innerPrefilter ? monotoneBreaks(v, s.order) : 0;
   if (breaks > 1) {
     ++stats.innerPrefiltered;
     return false;
@@ -482,15 +517,12 @@ bool Enumerator::innerFit(uint32_t idx, SearchStats& stats) {
     }
     const float c = static_cast<float>(cd);
     if (!std::isfinite(c) || c == 0.0f) continue;  // c == 0: u(v) is in the bank itself
-    for (size_t i = 0; i < tn_; ++i) fitScratch_[i] = c;
-    evalArray(Op::Add, v, fitScratch_.data(), nullptr, fitScratch_.data(), tn_, kProfileRef);
-    evalArray(u, fitScratch_.data(), nullptr, nullptr, fitScratch_.data(), tn_, kProfileRef);
+    for (size_t i = 0; i < tn_; ++i) s.fit[i] = c;
+    evalArray(Op::Add, v, s.fit.data(), nullptr, s.fit.data(), tn_, kProfileRef);
+    evalArray(u, s.fit.data(), nullptr, nullptr, s.fit.data(), tn_, kProfileRef);
     AffineHit h{idx, Op::Mad, 0.0f, 0.0f, u, c};
-    if (!fitWrap(fitScratch_.data(), u, baseObj, h)) continue;
-    affineHits_.push_back(h);
-    ++stats.hits;
-    ++stats.innerHits;
-    if (stats.firstHitSec < 0) stats.firstHitSec = nowSeconds() - start_;
+    if (!fitWrap(s.fit.data(), u, baseObj, h)) continue;
+    out.push_back(h);
     found = true;
   }
   return found;
@@ -504,22 +536,24 @@ void Enumerator::checkLimits(SearchStats& stats) {
   }
 }
 
+// Candidates are generated in order into a batch; flush() evaluates them in parallel,
+// inserts them in order (dedup), goal-checks the new ones in parallel and records hits
+// in order: the result does not depend on the number of threads.
 void Enumerator::tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c,
                         SearchStats& stats, uint32_t aux) {
-  ++stats.generated;
-  ++stats.levels.back().generated;
-  if (++sinceCheck_ >= 4096) {
-    sinceCheck_ = 0;
-    checkLimits(stats);
-  }
+  batch_.push_back({op, cost, a, b, c, aux});
+  if (batch_.size() >= kBatch) flush(stats);
+}
+
+Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const {
+  const Op op = it.op;
+  const uint16_t cost = it.cost;
+  const uint32_t a = it.a, b = it.b, c = it.c, aux = it.aux;
   const auto& oi = info(op);
   const uint32_t args[3] = {a, b, c};
   bool allConst = true;
   for (uint8_t k = 0; k < oi.arity; ++k) allConst = allConst && entries_[args[k]].isConst;
-  if (allConst) {
-    ++stats.constSkipped;
-    return;
-  }
+  if (allConst) return Prep::ConstSkipped;
   // Result type: componentwise ops take the widest operand (float1 operands broadcast).
   Type type = Type::Float;
   if (oi.shape == Shape::Cmp) {
@@ -556,15 +590,9 @@ void Enumerator::tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c
                       (op == Op::Mul && (isConst(a, -1.0f) || isConst(b, -1.0f))) ||
                       (op == Op::Div && isConst(b, -1.0f));
     // c / v is a scaled 1 / v: keep only the reciprocal itself.
-    if (op == Op::Div && nonConst == 1 && entries_[a].isConst && !isConst(a, 1.0f)) {
-      ++stats.affinePruned;
-      return;
-    }
+    if (op == Op::Div && nonConst == 1 && entries_[a].isConst && !isConst(a, 1.0f)) return Prep::AffinePruned;
     if (step) {
-      if (oi.arity == 3 || entries_[base].affine || flip) {
-        ++stats.affinePruned;
-        return;
-      }
+      if (oi.arity == 3 || entries_[base].affine || flip) return Prep::AffinePruned;
       affine = true;
     }
   }
@@ -585,11 +613,7 @@ void Enumerator::tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c
     obj += w * model.fusedAdd;
   else
     obj += model.opCost(op, w);
-  if (obj >= targetCost_) {
-    ++stats.objPruned;
-    return;
-  }
-  float* out = scratch_.data();
+  if (obj >= targetCost_) return Prep::ObjPruned;
   if (op == Op::Swizzle) {
     std::copy(fpOf(a) + aux * n_, fpOf(a) + (aux + 1) * n_, out);
   } else {
@@ -601,8 +625,181 @@ void Enumerator::tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c
     }
   }
   canonicalize(out, w * n_);
-  Entry e{op, type, cost, false, {a, b, c}, aux, affine, static_cast<uint16_t>(obj), ctime};
-  insert(e, out, stats);
+  e = Entry{op, type, cost, false, {a, b, c}, aux, affine, static_cast<uint16_t>(obj), ctime};
+  return Prep::Ok;
+}
+
+
+namespace {
+
+// fn(i) for i in [0, n) on up to `threads` threads (contiguous ranges).
+void parallelRange(size_t n, unsigned threads, const std::function<void(size_t, size_t, unsigned)>& fn) {
+  if (threads <= 1 || n < 256) {
+    fn(0, n, 0);
+    return;
+  }
+  threads = static_cast<unsigned>(std::min<size_t>(threads, n / 64));
+  std::vector<std::thread> pool;
+  const size_t chunk = (n + threads - 1) / threads;
+  for (unsigned t = 1; t < threads; ++t) {
+    const size_t b = t * chunk, e = std::min(n, b + chunk);
+    if (b < e) pool.emplace_back(fn, b, e, t);
+  }
+  fn(0, std::min(n, chunk), 0);
+  for (auto& th : pool) th.join();
+}
+
+}  // namespace
+
+uint32_t Enumerator::storeEntry(const Entry& e, const float* fp, bool listed, SearchStats& stats) {
+  const auto idx = static_cast<uint32_t>(entries_.size());
+  entries_.push_back(e);
+  isHit_.push_back(0);
+  off_.push_back(fp_.size());
+  fp_.insert(fp_.end(), fp, fp + lenOf(e.type));
+  const size_t mask = table_.size() - 1;
+  size_t pos = hashFp(fp, e.type) & mask;
+  while (table_[pos] != kEmpty) pos = (pos + 1) & mask;
+  table_[pos] = idx;
+  if (entries_.size() * 2 > table_.size()) growTable();
+  if (listed) {
+    byCost_[e.cost][static_cast<size_t>(e.type)].push_back(idx);
+    if (!stats.levels.empty()) ++stats.levels.back().added;
+  }
+  return idx;
+}
+
+void Enumerator::flush(SearchStats& stats) {
+  const size_t n = batch_.size();
+  if (n == 0) return;
+  const size_t stride = 4 * n_;
+  prep_.resize(n);
+  batchEntries_.resize(n);
+  batchFp_.resize(n * stride);
+  const unsigned threads = cfg_.threads ? cfg_.threads : std::max(1u, std::thread::hardware_concurrency());
+  batchHash_.resize(n);
+  batchDup_.resize(n);
+  // 1. Evaluate and look up among the entries stored before this batch (parallel; the
+  // bank does not change here).
+  parallelRange(n, threads, [&](size_t b, size_t e, unsigned) {
+    const size_t mask = table_.size() - 1;
+    for (size_t k = b; k < e; ++k) {
+      float* fp = batchFp_.data() + k * stride;
+      prep_[k] = prepare(batch_[k], batchEntries_[k], fp);
+      if (prep_[k] != Prep::Ok) continue;
+      const Type t = batchEntries_[k].type;
+      const size_t len = lenOf(t);
+      batchHash_[k] = hashFp(fp, t);
+      batchDup_[k] = kEmpty;
+      for (size_t pos = batchHash_[k] & mask; table_[pos] != kEmpty; pos = (pos + 1) & mask) {
+        const uint32_t idx = table_[pos];
+        if (entries_[idx].type == t && std::memcmp(fpOf(idx), fp, len * sizeof(float)) == 0) {
+          batchDup_[k] = idx;
+          break;
+        }
+      }
+    }
+  });
+  // 2. Dedup and store in order (serial).
+  goals_.clear();
+  pendingDups_.clear();
+  const auto batchStart = static_cast<uint32_t>(entries_.size());
+  // Entries stored in this batch, by hash (small: stays in cache).
+  localTable_.assign(4 * kBatch, kEmpty);
+  const size_t localMask = localTable_.size() - 1;
+  const size_t mainMask = table_.size() - 1;
+  for (size_t k = 0; k < n && !stop_; ++k) {
+    // The main-table slot a new entry will probe: fetch it ahead (random access).
+    if (k + 16 < n && prep_[k + 16] == Prep::Ok && batchDup_[k + 16] == kEmpty)
+      SOPT_PREFETCH(&table_[batchHash_[k + 16] & mainMask]);
+    ++stats.generated;
+    ++stats.levels.back().generated;
+    if (++sinceCheck_ >= 4096) {
+      sinceCheck_ = 0;
+      checkLimits(stats);
+    }
+    switch (prep_[k]) {
+      case Prep::ConstSkipped: ++stats.constSkipped; continue;
+      case Prep::AffinePruned: ++stats.affinePruned; continue;
+      case Prep::ObjPruned: ++stats.objPruned; continue;
+      case Prep::Ok: break;
+    }
+    const Entry& e = batchEntries_[k];
+    const float* fp = batchFp_.data() + k * stride;
+    const size_t len = lenOf(e.type);
+    // Among the entries stored before the batch (step 1), then those of this batch.
+    uint32_t dupIdx = batchDup_[k];
+    size_t lpos = batchHash_[k] & localMask;
+    if (dupIdx == kEmpty)
+      for (; localTable_[lpos] != kEmpty; lpos = (lpos + 1) & localMask) {
+        const uint32_t idx = localTable_[lpos];
+        if (entries_[idx].type == e.type && std::memcmp(fpOf(idx), fp, len * sizeof(float)) == 0) {
+          dupIdx = idx;
+          break;
+        }
+      }
+    const bool dup = dupIdx != kEmpty;
+    if (dup) {
+      ++stats.deduped;
+      if (dupIdx >= batchStart) {
+        pendingDups_.push_back({k, dupIdx});  // hit or not is known after step 3
+      } else if (isHit_[dupIdx] && numHits() < cfg_.maxHits) {
+        altHits_.push_back(e);
+        ++stats.hits;
+      }
+    }
+    if (dup) continue;
+    // Bank full (overflow mode): only checked as a hit, stored only if it is (part of) one.
+    if (cfg_.overflow && entries_.size() >= cfg_.maxBank) {
+      goals_.push_back({k, kEmpty});
+    } else {
+      const uint32_t idx = storeEntry(e, fp, true, stats);
+      localTable_[lpos] = idx;
+      goals_.push_back({k, idx});
+    }
+  }
+  // 3. Goal checks and fits of the new values (parallel; no bank changes).
+  const size_t ng = goals_.size();
+  goalDirect_.assign(ng, 0);
+  goalFits_.resize(ng);
+  if (threadScratch_.size() < threads) threadScratch_.resize(threads);
+  std::vector<SearchStats> tstats(threads);
+  parallelRange(ng, threads, [&](size_t b, size_t e, unsigned t) {
+    FitScratch& sc = threadScratch_[t];
+    sc.fit.resize(tn_);
+    for (size_t g = b; g < e; ++g) {
+      goalFits_[g].clear();
+      const size_t k = goals_[g].item;
+      goalDirect_[g] = goalCheck(batchEntries_[k], batchFp_.data() + k * stride, goals_[g].idx, goalFits_[g],
+                                 sc, tstats[t]);
+    }
+  });
+  for (const auto& ts : tstats) stats.innerPrefiltered += ts.innerPrefiltered;
+  // 4. Record hits in order (serial), with the duplicates of this batch's new entries
+  // (alternatives of a hit) where they came.
+  size_t pd = 0;
+  auto flushDups = [&](size_t upTo) {
+    for (; pd < pendingDups_.size() && pendingDups_[pd].item < upTo; ++pd)
+      if (isHit_[pendingDups_[pd].idx] && numHits() < cfg_.maxHits) {
+        altHits_.push_back(batchEntries_[pendingDups_[pd].item]);
+        ++stats.hits;
+      }
+  };
+  for (size_t g = 0; g < ng; ++g) {
+    flushDups(goals_[g].item);
+    uint32_t idx = goals_[g].idx;
+    const bool hit = goalDirect_[g] || !goalFits_[g].empty();
+    if (idx == kEmpty) {
+      ++stats.overflowChecked;
+      if (!hit) continue;
+      ++stats.overflowKept;
+      const size_t k = goals_[g].item;
+      idx = storeEntry(batchEntries_[k], batchFp_.data() + k * stride, false, stats);
+    }
+    if (hit) commitHits(idx, goalDirect_[g], goalFits_[g], stats);
+  }
+  flushDups(SIZE_MAX);
+  batch_.clear();
 }
 
 std::vector<Candidate> Enumerator::run(SearchStats& stats) {
@@ -718,6 +915,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
         }
       }
     }
+    flush(stats);
     for (auto& list : byCost_[cost])
       std::stable_sort(list.begin(), list.end(),
                        [&](uint32_t x, uint32_t y) { return obj(x) < obj(y); });

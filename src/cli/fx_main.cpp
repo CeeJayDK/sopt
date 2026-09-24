@@ -348,7 +348,7 @@ int main(int argc, char** argv) {
 
   // Search, regions in parallel (each single-threaded when jobs > 1).
   Options ropt2 = opt;
-  if (jobs > 1) ropt2.threads = 1;
+  if (jobs > 1) ropt2.threads = ropt2.search.threads = 1;  // regions in parallel instead
   std::atomic<size_t> done{0};
   std::mutex printMu;
   // Regions that differ only in their inputs' names (same expression over the same

@@ -33,6 +33,9 @@ struct SearchConfig {
   // check the new values as hits (not stored): one more level of reach, no more memory.
   // Runs until the time limit. Default (owner): bench +2 found, none lost.
   bool overflow = true;
+  // Threads for evaluating and goal-checking candidates (0 = hardware concurrency).
+  // Results do not depend on it.
+  unsigned threads = 0;
   // Enumerate pure helper intrinsics (lerp, step). Off: they are only shorthand for
   // their expansions (lerp = mad(t, b - a, a), step = x >= e ? 1 : 0), which the search
   // builds anyway, so trying both wastes time. Single-instruction intrinsics (mad = fma,
@@ -105,18 +108,59 @@ class Enumerator {
 
   void tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c, SearchStats& stats,
               uint32_t aux = 0);
+  // One generated candidate: op over bank entries a, b, c (aux: swizzle component).
+  struct Item {
+    Op op;
+    uint16_t cost;
+    uint32_t a, b, c, aux;
+  };
+  enum class Prep : uint8_t { Ok, ConstSkipped, AffinePruned, ObjPruned };
+  // Checks and evaluates a candidate into e and out (4 * n_ floats); no bank changes.
+  Prep prepare(const Item& it, Entry& e, float* out) const;
+  void flush(SearchStats& stats);
+  uint32_t storeEntry(const Entry& e, const float* fp, bool listed, SearchStats& stats);
+  static constexpr size_t kBatch = 16384;
+  std::vector<Item> batch_;
+  std::vector<Prep> prep_;
+  std::vector<Entry> batchEntries_;
+  std::vector<float> batchFp_;
+  std::vector<uint64_t> batchHash_;
+  std::vector<uint32_t> batchDup_;    // entry stored before the batch with the same value
+  std::vector<uint32_t> localTable_;  // entries stored in this batch, by hash
+  struct Goal {
+    size_t item;
+    uint32_t idx;  // bank index, kEmpty = not stored (overflow)
+  };
+  std::vector<Goal> goals_;
+  std::vector<Goal> pendingDups_;  // duplicates of entries stored in the same batch
+  std::vector<char> goalDirect_;
+  std::vector<std::vector<AffineHit>> goalFits_;
   bool insert(const Entry& e, const float* fp, SearchStats& stats);
   void enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Type ta, Type tb,
                        SearchStats& stats);
   void enumerateTernary(Op op, uint16_t level, uint32_t r, Type ta, Type tb, Type tc,
                         SearchStats& stats);
   uint32_t addConst(Type t, const float* v, SearchStats& stats);
-  bool affineFit(uint32_t idx, SearchStats& stats);
-  bool innerFit(uint32_t idx, SearchStats& stats);
+  // Per-thread scratch of the fits.
+  struct FitScratch {
+    std::vector<float> fit;
+    std::vector<uint32_t> order;
+  };
+  // Goal check of a new value v (entry e, bank index idx): true if it is a hit; else
+  // fitted hits (outer affine map, inner constant) are appended to out. No bank changes.
+  bool goalCheck(const Entry& e, const float* v, uint32_t idx, std::vector<AffineHit>& out,
+                 FitScratch& s, SearchStats& stats) const;
+  // Records the hits of entry idx found by goalCheck.
+  void commitHits(uint32_t idx, bool direct, const std::vector<AffineHit>& fitted, SearchStats& stats);
+  bool affineFit(const Entry& e, const float* v, uint32_t idx, std::vector<AffineHit>& out) const;
+  bool innerFit(const Entry& e, const float* v, uint32_t idx, std::vector<AffineHit>& out,
+                FitScratch& s, SearchStats& stats) const;
   // Direction changes of the target along v (sorted), beyond monoTol_; 2 = none fits.
-  int monotoneBreaks(const float* v);
+  int monotoneBreaks(const float* v, std::vector<uint32_t>& order) const;
   std::vector<double> monoTol_;
-  std::vector<uint32_t> monoOrder_;
+  FitScratch serialScratch_;
+  std::vector<FitScratch> threadScratch_;
+  std::vector<AffineHit> fitOut_;
   bool fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& out) const;
   uint32_t obj(uint32_t idx) const { return entries_[idx].obj; }
   const CostModel& order() const { return cfg_.order ? *cfg_.order : defaultOrderFor(*cfg_.model); }
@@ -164,7 +208,6 @@ class Enumerator {
   std::vector<char> isHit_;
   std::vector<Entry> altHits_;  // programs whose fingerprint equals an existing hit
   std::vector<AffineHit> affineHits_;
-  std::vector<float> fitScratch_;
   bool stop_ = false;
   uint64_t sinceCheck_ = 0;
   double start_ = 0.0;
