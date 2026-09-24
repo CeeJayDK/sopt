@@ -184,6 +184,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 4. M7 search scaling (shared leaves for needs-sharing, cut points, V3) — ask first.
 
 ## Under discussion (not decided — ask before implementing)
+- Search/verification speed: measured profile and proposals in docs/performance-ideas.md
+  (innerFit is 58% of search; V1 loop overhead; 20% duplicate regions in the corpus).
 - Library of small verified snippets/rewrites that humans, AI or the tool can reuse.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
