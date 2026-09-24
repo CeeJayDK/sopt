@@ -1004,12 +1004,21 @@ Range Extractor::range(uint32_t id) {
           v.type.base != reshadefx::type::t_uint)
         break;
       double lo = INFINITY, hi = -INFINITY;
-      for (unsigned k = 0; k < v.type.components() && k < 16; ++k) {
-        const double x = v.type.base == reshadefx::type::t_float ? v.constant.as_float[k]
-                         : v.type.base == reshadefx::type::t_int ? v.constant.as_int[k]
-                                                                 : v.constant.as_uint[k];
-        lo = std::min(lo, x);
-        hi = std::max(hi, x);
+      // All components; for an array, of every element (an index may pick any).
+      std::function<void(const reshadefx::constant&)> add = [&](const reshadefx::constant& c) {
+        for (unsigned k = 0; k < v.type.components() && k < 16; ++k) {
+          const double x = v.type.base == reshadefx::type::t_float ? c.as_float[k]
+                           : v.type.base == reshadefx::type::t_int ? c.as_int[k]
+                                                                   : c.as_uint[k];
+          lo = std::min(lo, x);
+          hi = std::max(hi, x);
+        }
+        for (const auto& e : c.array_data) add(e);
+      };
+      if (v.type.is_array() && !v.constant.array_data.empty()) {
+        for (const auto& e : v.constant.array_data) add(e);
+      } else {
+        add(v.constant);
       }
       r = Range::of(lo, hi, "constant");
       break;

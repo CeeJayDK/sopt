@@ -425,3 +425,23 @@ TEST(fx_vendor_auto) {
     }
   fs::remove_all(out, ec);
 }
+
+TEST(fx_constant_array_range) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_array.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  bool found = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
+    if (r.line != 12) continue;
+    for (const auto& d : r.prog.inputs)
+      if (d.name == "uv.x") {
+        found = true;
+        CHECK(d.lo <= 0.0 && d.hi >= 1.0);  // all four corners, not only corners[0]
+      }
+  }
+  CHECK(found);
+}
