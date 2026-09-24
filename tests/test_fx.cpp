@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -444,4 +445,26 @@ TEST(fx_constant_array_range) {
       }
   }
   CHECK(found);
+}
+
+TEST(fx_modern_fetch_syntax) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_fetch.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) {
+    std::printf("  %s\n", err.c_str());
+    return;
+  }
+  fx::SkipCount sk;
+  std::vector<std::string> names;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
+    for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+      if (r.facts[k].fetch) names.push_back(r.prog.inputs[k].name);
+  auto has = [&](const std::string& n) { return std::find(names.begin(), names.end(), n) != names.end(); };
+  CHECK(has("tex2D(BackBuffer, uv, int2(1, 0)).x"));
+  CHECK(has("tex2Dlod(BackBuffer, float4(uv, 0, 0), int2(0, 1)).x"));
+  CHECK(has("tex2DgatherG(BackBuffer, uv).xy"));
+  for (const auto& n : names) CHECK(n.find("offset") == std::string::npos && n.find("gather(") == std::string::npos);
 }

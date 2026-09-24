@@ -377,6 +377,47 @@ Range clampR(const Range& a, double lo, double hi) {
 std::string semanticKey(std::string s);
 Range semanticConvention(const std::string& semantic, double maxWidth);
 
+// A texture fetch call in current ReShade FX syntax (variants are written with it):
+// the deprecated texNDoffset / texNDlodoffset / tex2Dgather(s, c, comp) /
+// tex2Dgatheroffset(s, c, o, comp) become texND(s, c, o), texNDlod(s, c, o) and
+// tex2DgatherR/G/B/A(s, c[, o]). Other calls are returned unchanged.
+std::string modernFetch(const std::string& call) {
+  const size_t open = call.find('(');
+  if (open == std::string::npos || call.back() != ')') return call;
+  const std::string name = trim(call.substr(0, open));
+  std::vector<std::string> args;
+  int depth = 0;
+  size_t start = open + 1;
+  for (size_t i = open + 1; i + 1 < call.size(); ++i) {
+    const char c = call[i];
+    if (c == '(' || c == '[') ++depth;
+    if (c == ')' || c == ']') --depth;
+    if (c == ',' && depth == 0) {
+      args.push_back(trim(call.substr(start, i - start)));
+      start = i + 1;
+    }
+  }
+  args.push_back(trim(call.substr(start, call.size() - 1 - start)));
+  auto join = [](const std::string& fn, const std::vector<std::string>& a) {
+    std::string out = fn + "(";
+    for (size_t k = 0; k < a.size(); ++k) out += (k ? ", " : "") + a[k];
+    return out + ")";
+  };
+  static const char* rgba = "RGBA";
+  auto comp = [&](const std::string& c) -> std::string {
+    return c.size() == 1 && c[0] >= '0' && c[0] <= '3' ? std::string(1, rgba[c[0] - '0']) : std::string();
+  };
+  // tex1D/2D/3D: "texN" + "Dlodoffset" / "Doffset".
+  const bool texN = name.size() > 4 && name.rfind("tex", 0) == 0 && name[3] >= '1' && name[3] <= '3';
+  if (texN && name.substr(4) == "Dlodoffset" && args.size() == 3) return join(name.substr(0, 5) + "lod", args);
+  if (texN && name.substr(4) == "Doffset" && args.size() == 3) return join(name.substr(0, 5), args);
+  if (name == "tex2Dgather" && args.size() == 3 && !comp(args[2]).empty())
+    return join("tex2Dgather" + comp(args[2]), {args[0], args[1]});
+  if (name == "tex2Dgatheroffset" && args.size() == 4 && !comp(args[3]).empty())
+    return join("tex2Dgather" + comp(args[3]), {args[0], args[1], args[2]});
+  return call;
+}
+
 bool isTexFetch(const std::string& n) {
   return n.rfind("tex1D", 0) == 0 || n.rfind("tex2D", 0) == 0 || n.rfind("tex3D", 0) == 0;
 }
@@ -1618,7 +1659,7 @@ void Extractor::mapFetches(const Statement& s, const std::string& text) {
     if (k >= text.size()) return;
     for (size_t m = i + 1; m < k; ++m)
       if (fetchAt(text, m)) return;  // nested fetch
-    calls.push_back(text.substr(i, k + 1 - i));
+    calls.push_back(modernFetch(text.substr(i, k + 1 - i)));
     i = k;
   }
   if (calls.size() != fetches.size()) return;

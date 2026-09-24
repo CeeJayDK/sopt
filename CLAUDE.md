@@ -55,7 +55,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - `src/fx/frontend`: `loadEffect` (ReShade's predefined macros; `ppLines` maps source
   lines to preprocessed text), `extractRegions`: pixel-reachable functions, statement
   text checks (alone on its lines, no macros outside fetch calls), IR building (leaves =
-  variable + member chain with used components, or texture fetch call text), windows
+  variable + member chain with used components, or texture fetch call text in current
+  syntax: `modernFetch` turns deprecated tex2Doffset/tex2Dlodoffset/tex2Dgather(s, c, n)
+  into tex2D(s, c, o)/tex2Dlod(s, c, o)/tex2DgatherR..A (owner via crosire)), windows
   (single-use temporaries inlined), ranges (`Range`, reaching definitions, loops),
   budget from use, and a second parse at 2560x1440 to drop resolution-dependent ones.
 - `src/fx/variants`: `compiledCost` (contraction, modifiers, swizzles free), variant
