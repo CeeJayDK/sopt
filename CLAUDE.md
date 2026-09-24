@@ -191,7 +191,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   owner; `--no-overflow`): when the bank is full, keep combining stored entries and only
   check new values as hits; bench +2 found (length_squared, planted_1), none lost; every
   search runs to --time, which now covers all CEGIS iterations together (tests that
-  check bank-limited behavior set overflow = false). Next: A4 multithreaded enumeration.
+  check bank-limited behavior set overflow = false). A4 done: enumerator batches
+  (`flush`: parallel prepare + lookup, serial ordered dedup/store, parallel
+  goalCheck/fits, serial ordered commitHits); same results as one thread;
+  `SearchConfig::threads`. Next: B6 top-down split or B7 shared leaves.
   Owner: less accurate variants stay in SOPT_ALL; --loose 100 is fine for now.
 - Library of small verified snippets/rewrites that humans, AI or the tool can reuse.
 - Precomputing equivalent instruction forms per input domain to prune the search

@@ -6,6 +6,11 @@ Owner (2026-09-24): all worth exploring; order A1-A3, A4, then B6/B7; B8 is the
 Status: A1 (prefilter), A2 (verification stops at the first failure; inline budget
 check; sopt-fx verifies 20 alternatives instead of 50), A3 (distinct regions searched
 once) done. Overflow is the default since the owner's go (`--no-overflow` to disable).
+A4 (multithreaded enumeration) done: batches of 16384 candidates; evaluation, lookup
+among earlier entries, goal checks and fits run in parallel; dedup/store and hit
+recording stay serial and in order, so results match the single-threaded search.
+sqrt_product: 5.7 s -> 2.7 s on 4 cores; the serial store (random hash-table access)
+is now the limit.
 
 Bench after A1-A3 (rdna3, 14 examples + 12 planted, same machine): same problems found,
 same time to first hit. Search instructions halved on sqrt_product, wall time ~15%
