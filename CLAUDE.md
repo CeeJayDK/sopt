@@ -179,6 +179,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   (1535 HLSL/SPIR-V builds incl. SOPT_AUTO). Parse failures to look at: iMMERSE (all 6),
   OtisFX (4 of 11). Test packages: unique file name per package, steps inside
   TESTING.txt AND in the chat message.
+- Render check (owner's suggestion): RTI Shaderlab (`rti/shaderlab/fxrender.py`, runtime
+  built with build_runtime.sh; Wine + mingw + system python3.12 for PIL). Render the
+  original and the variant with SOPT_ALL = 0..3 on a test image, compare pixels. Each
+  effect file name must exist once on the search path (ReShade selects by name): render
+  variants from a copy of the package with the changed files laid over it. Shaderlab's
+  vkd3d d3dcompiler rejects [fastopt] (ReShade's codegen emits it for loops at SM >= 4):
+  patched line 1874 of its effect_codegen_hlsl.cpp to emit [loop]. This found a real bug
+  (constant arrays indexed at run time got the first element's range: Fubax Waveform).
 
 ## Next (per docs/design.md)
 0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan);
