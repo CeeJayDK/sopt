@@ -180,7 +180,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   FXShaders, qUINT, PD80, iMMERSE: 43 regions with gains; all variant files compile
   (1535 HLSL/SPIR-V builds incl. SOPT_AUTO). Parse failures to look at: iMMERSE (all 6),
   OtisFX (4 of 11). Test packages: unique file name per package, steps inside
-  TESTING.txt AND in the chat message.
+  TESTING.txt AND in the chat message. Owner (2026-09-25): Marty McFly
+  (martymcmodding) and originalcodr are interested; add their repos to future test
+  runs, iMMERSE especially (heavy, complex code: stress test), also METEOR.
 - Render check (owner's suggestion): RTI Shaderlab (`rti/shaderlab/fxrender.py`, runtime
   built with build_runtime.sh; Wine + mingw + system python3.12 for PIL). Render the
   original and the variant with SOPT_ALL = 0..3 on a test image, compare pixels. Each
