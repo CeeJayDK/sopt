@@ -729,7 +729,12 @@ void reshadefx::preprocessor::parse_include()
 		return;
 	}
 
-	std::filesystem::path file_name = std::filesystem::u8path(_token.literal_as_string);
+	std::string file_name_string = _token.literal_as_string;
+#ifndef _WIN32
+	// sopt: Windows path separators in #include (e.g. iMMERSE's ".\MartysMods\x.fxh") on other platforms.
+	std::replace(file_name_string.begin(), file_name_string.end(), '\\', '/');
+#endif
+	std::filesystem::path file_name = std::filesystem::u8path(file_name_string);
 	std::filesystem::path file_path = std::filesystem::u8path(_output_location.source);
 	file_path.replace_filename(file_name);
 

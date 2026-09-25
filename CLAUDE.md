@@ -50,7 +50,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   parses the pixel shader's ISA cost; `sass` emits a PTX kernel (inputs loaded and
   stored back so they live in registers), runs ptxas + nvdisasm and counts SASS.
 - `third_party/reshadefx`: ReShade 6.8.0 FX lexer/preprocessor/parser, unmodified
-  (built as C++17). `src/fx/codegen`: its codegen interface recorded as a dataflow graph
+  except `symbolic_macros` and `\` -> `/` in #include names off Windows (built as C++17). `src/fx/codegen`: its codegen interface recorded as a dataflow graph
   (values with seq/block, statements Init/Store/Return, loops, samplers, uniforms).
 - `src/fx/frontend`: `loadEffect` (ReShade's predefined macros; `ppLines` maps source
   lines to preprocessed text), `extractRegions`: pixel-reachable functions, statement
@@ -178,8 +178,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   https://github.com/crosire/reshade-shaders/blob/list/EffectPackages.ini (install paths
   there). 2026-09-24: slim, SweetFX, AstrayFX, Daodan, OtisFX, Fubax, brussell,
   FXShaders, qUINT, PD80, iMMERSE: 43 regions with gains; all variant files compile
-  (1535 HLSL/SPIR-V builds incl. SOPT_AUTO). Parse failures to look at: iMMERSE (all 6),
-  OtisFX (4 of 11). Test packages: unique file name per package, steps inside
+  (1535 HLSL/SPIR-V builds incl. SOPT_AUTO). iMMERSE parses since 2026-09-25 (backslash
+  includes): 188 regions, 4 with gains (MXAO, SOLARIS), many search-limit hits; it found
+  the chain-from-declaration bug (variant lost the declaration). Parse failures left:
+  OtisFX (4 of 11: `#include "Reshade.fxh"`, works only on case-insensitive Windows). Test packages: unique file name per package, steps inside
   TESTING.txt AND in the chat message. Owner (2026-09-25): Marty McFly
   (martymcmodding) and originalcodr are interested; add their repos to future test
   runs, iMMERSE especially (heavy, complex code: stress test), also METEOR.

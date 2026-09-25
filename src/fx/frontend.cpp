@@ -1911,6 +1911,14 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
         std::sort(defs.begin(), defs.end(), [](const Statement* a, const Statement* b) { return a->seq < b->seq; });
         if (!leavesUnchanged(s, defs)) continue;
         Region win = reg;
+        // A chain from the variable's declaration: the variant replaces the declaration.
+        for (const Statement* c : chainDefs)
+          if (c->kind == Statement::Kind::Init) {
+            Region shape;
+            shapeOf(*c, shape, why);
+            win.kind = Region::Kind::Init;
+            win.lhs = shape.lhs;
+          }
         std::string text;
         for (const Statement* d : defs) {
           Region shape;

@@ -332,7 +332,11 @@ TEST(fx_chain_windows) {
   // ... and the definition from the fetch: the untaken #if TEST_LOG is in between.
   const fx::Region* full = window(27, {20, 25});
   CHECK(full != nullptr);
-  if (full) CHECK(full->guard == "!(TEST_LOG) && (TEST_REV)");
+  if (full) {
+    CHECK(full->guard == "!(TEST_LOG) && (TEST_REV)");
+    CHECK(full->lhs == "float d =");  // from the declaration: the variant declares d
+  }
+  if (rev) CHECK(rev->lhs == "d =");
   // y reads the intermediate d: no chain into d = d * d.
   CHECK(window(29, {27}) == nullptr);
   // Plain chain without directives, up to 3 statements before the root.
@@ -340,9 +344,10 @@ TEST(fx_chain_windows) {
   CHECK(e3 != nullptr);
   if (e3) {
     CHECK(e3->guard.empty());
+    CHECK(e3->lhs == "float e =");
     CHECK(toString(e3->prog.target, e3->prog.inputs) == "(uv.y * 0.5 + 0.25) * (uv.y * 0.5 + 0.25)");
   }
-  if (!rev) return;
+  if (!rev || !e3) return;
 
   // Variants apply only under the guard; the effect parses with either TEST_REV.
   fx::RegionResult rr;
@@ -352,11 +357,16 @@ TEST(fx_chain_windows) {
   v.text = "3.0 - 2.0 * d";
   v.cost = 5;
   rr.variants.push_back(v);
+  fx::RegionResult re;  // chain from a declaration
+  re.region = *e3;
+  re.targetCost = 10;
+  v.text = "uv.y * uv.y";
+  re.variants.push_back(v);
   const fs::path out = fs::temp_directory_path() / "sopt_test_fx_chain";
   std::error_code ec;
   fs::remove_all(out, ec);
   std::string errors;
-  const auto files = fx::writeVariants({rr}, out, errors);
+  const auto files = fx::writeVariants({rr, re}, out, errors);
   CHECK(errors.empty() && files.size() == 1);
   std::ifstream f(out / "sopt_chain.fx");
   std::stringstream ss;
@@ -364,6 +374,7 @@ TEST(fx_chain_windows) {
   const std::string text = ss.str();
   CHECK(text.find("#if SOPT_sopt_chain_25_27 < 1 || !((TEST_REV))\n\td = 1.0 - d;\n#endif") != std::string::npos);
   CHECK(text.find("#if SOPT_sopt_chain_25_27 >= 1 && (TEST_REV)\n\td = 3.0 - 2.0 * d;") != std::string::npos);
+  CHECK(text.find("\tfloat e = uv.y * uv.y;") != std::string::npos);
   for (const char* rev : {"0", "1"}) {
     fx::LoadOptions o;
     o.macros = {{"SOPT_ALL", "1"}, {"TEST_REV", rev}};
@@ -467,4 +478,13 @@ TEST(fx_modern_fetch_syntax) {
   CHECK(has("tex2Dlod(BackBuffer, float4(uv, 0, 0), int2(0, 1)).x"));
   CHECK(has("tex2DgatherG(BackBuffer, uv).xy"));
   for (const auto& n : names) CHECK(n.find("offset") == std::string::npos && n.find("gather(") == std::string::npos);
+}
+
+TEST(fx_backslash_include) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_backslash.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) std::printf("  %s\n", err.c_str());
 }
