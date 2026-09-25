@@ -480,7 +480,7 @@ TEST(fx_modern_fetch_syntax) {
   for (const auto& n : names) CHECK(n.find("offset") == std::string::npos && n.find("gather(") == std::string::npos);
 }
 
-TEST(fx_backslash_include) {
+TEST(fx_windows_include_names) {
   const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_backslash.fx";
   fx::LoadOptions lo;
   std::string err;

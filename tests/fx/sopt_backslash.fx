@@ -1,5 +1,7 @@
-// Test effect for test_fx: #include with Windows path separators (as in iMMERSE).
+// Test effect for test_fx: #include names as Windows reads them: path separators
+// (iMMERSE) and letter case (OtisFX).
 #include ".\sub\sopt_sub.fxh"
+#include ".\Sub\SOPT_Case.fxh"
 
 void PostProcessVS(in uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD)
 {
@@ -10,7 +12,7 @@ void PostProcessVS(in uint id : SV_VertexID, out float4 position : SV_Position, 
 
 float4 BackslashPS(float4 vpos : SV_Position, float2 uv : TEXCOORD0) : SV_Target
 {
-	return float4(Half(uv.x), uv.y, 0.0, 1.0);
+	return float4(Half(uv.x), Third(uv.y), 0.0, 1.0);
 }
 
 technique TestBackslash { pass { VertexShader = PostProcessVS; PixelShader = BackslashPS; } }
