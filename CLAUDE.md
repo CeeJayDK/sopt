@@ -159,6 +159,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   ranges (done: sopt-facts.txt + `--facts`, interactive `--ask`; user ranges apply in
   the range propagation, key "<file> <function|global> <variable>"); dataflow cut
   points to split windows: try in M7.
+- Problem inputs (owner 2026-09-25: keep such variants, mark them, the user decides):
+  `verify/problems` (`findProblemRanges`, run on every accepted candidate in the driver)
+  finds input values where a verified variant still fails, e.g. rcp(0.01 * F - 2) at
+  F = 200, which sampling cannot hit: zeros / domain edges of rcp, div, rsqrt, sqrt, log
+  and pow operands that depend on one scalar input, a full check at each, widened to the
+  failing interval. Shown in the report, the variant comment and `sopt` output with the
+  fine ranges ("fails at F = [200, 200.00002] (NaN/inf at some), fine on ..."); never
+  picked by SOPT_AUTO. Not covered: operands of several inputs or vectors.
+  ui_min/ui_max stay facts (owner: values forced outside them are not guaranteed).
+  FAR_PLANE stays [100, 10000] (hard limits [1, int max]; the shipped ReShade.fxh depth
+  rewrite fails for F in [1, 1.2342985]).
 - Preprocessor definitions (owner: compile-time constants): user-changeable numeric
   ones (`used_macro_definitions`) stay symbolic via a small hook in the vendored
   preprocessor (`symbolic_macros`: code uses become the identifier `__sopt_<name>`, a
@@ -184,7 +195,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   since includes ignore letter case off Windows (owner: ReShade assumes Windows). Test packages: unique file name per package, steps inside
   TESTING.txt AND in the chat message. Owner (2026-09-25): Marty McFly
   (martymcmodding) and originalcodr are interested; add their repos to future test
-  runs, iMMERSE especially (heavy, complex code: stress test), also METEOR.
+  runs, iMMERSE especially (heavy, complex code: stress test), also METEOR. CorgiFX
+  (originalnicodr): 9 effects, 148 regions, 4 variants all on assumed ranges.
 - Render check (owner's suggestion): RTI Shaderlab (`rti/shaderlab/fxrender.py`, runtime
   built with build_runtime.sh; Wine + mingw + system python3.12 for PIL). Render the
   original and the variant with SOPT_ALL = 0..3 on a test image, compare pixels. Each

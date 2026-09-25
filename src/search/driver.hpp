@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "search/enumerator.hpp"
+#include "verify/problems.hpp"
 #include "verify/verify.hpp"
 
 namespace sopt {
@@ -44,6 +45,9 @@ struct Accepted {
   Klass klass = Klass::Within;
   Metrics worst;  // worst case over all semantic profiles
   bool exhaustive = false;  // verified on the whole domain (V2), worst is over all of it
+  // Input values where it still fails (e.g. a division by zero at one value); owner:
+  // kept and marked, the user decides; never picked by SOPT_AUTO.
+  std::vector<ProblemRange> problems;
 };
 
 struct RunResult {

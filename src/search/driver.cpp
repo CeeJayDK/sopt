@@ -19,6 +19,10 @@ bool containsPoint(const PointSet& ps, const std::vector<float>& p) {
   return false;
 }
 
+void markProblems(const Program& prog, RunResult& res) {
+  for (auto& a : res.accepted) a.problems = findProblemRanges(prog, a.expr, a.klass == Klass::LessAccurate);
+}
+
 }  // namespace
 
 RunResult optimize(const Program& progIn, const Options& opt) {
@@ -31,7 +35,11 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   const Program& prog = progIn;
   if (opt.specialize)
     for (const auto& d : prog.inputs)
-      if (d.compileTime) return optimizeSpecialized(prog, opt);
+      if (d.compileTime) {
+        RunResult r = optimizeSpecialized(prog, opt);
+        markProblems(prog, r);
+        return r;
+      }
   const double t0 = nowSeconds();
   RunResult res;
   res.targetCost = dagCost(prog.target, *opt.search.model, prog.inputs);
@@ -198,6 +206,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     if (!dup) grouped.push_back(std::move(a));
   }
   res.accepted = std::move(grouped);
+  markProblems(prog, res);
   res.totalSec = nowSeconds() - t0;
   return res;
 }

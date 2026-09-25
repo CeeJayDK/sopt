@@ -99,7 +99,7 @@ int vendorPick(const RegionResult& rr, bool amd) {
   for (size_t k = 0; k < rr.variants.size(); ++k) {
     const Variant& v = rr.variants[k];
     const int c = amd ? v.amd : v.nv;
-    if (v.klass == Klass::LessAccurate || c < 0 || c >= bestCost) continue;
+    if (v.klass == Klass::LessAccurate || !v.problems.empty() || c < 0 || c >= bestCost) continue;
     best = static_cast<int>(k + 1);
     bestCost = c;
   }
@@ -221,7 +221,7 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
           len += std::snprintf(note + len, sizeof(note) - len, ", amd %d -> %d", rr->targetAmd, v.amd);
         if (v.nv >= 0 && rr->targetNv >= 0 && len > 0 && len < 200)
           std::snprintf(note + len, sizeof(note) - len, ", nv %d -> %d", rr->targetNv, v.nv);
-        out += ind + variantStatement(r, v.text) + note + "\n";
+        out += ind + variantStatement(r, v.text) + note + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
       }
       out += "#else\n";
       for (; next <= p.last; ++next) out += (*lines)[next - 1] + "\n";
@@ -342,6 +342,10 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       }
       s += "\n";
     }
+    for (size_t k = 0; k < rr.variants.size(); ++k)
+      if (!rr.variants[k].problems.empty())
+        s += "\n**Variant " + std::to_string(k + 1) + "** " + rr.variants[k].problems +
+             ". Not used by SOPT_AUTO; limiting the input to the fine range avoids the problem.\n";
     s += "\n";
   }
   s += "## Variants on assumed ranges (not written)\n\n"

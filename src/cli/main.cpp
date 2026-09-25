@@ -269,6 +269,7 @@ int main(int argc, char** argv) {
                   klassName(a.klass, prog.budget.codeBits()), a.worst.maxAbs);
       if (rule) std::printf("%8.3g  ", a.worst.exactAbs);
       std::printf("%8d  %6.3f%%  %s\n", a.worst.maxCodeDiff, 100.0 * a.worst.changedFraction(), a.text.c_str());
+      if (!a.problems.empty()) std::printf("      ^ %s\n", describeProblems(prog, a.problems).c_str());
     }
     std::printf("\n%zu alternative(s) cheaper than cost %u", r.accepted.size(), r.targetCost);
     if (r.accepted.size() > top) std::printf(", showing %zu", top);

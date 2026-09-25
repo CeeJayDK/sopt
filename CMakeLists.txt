@@ -38,7 +38,8 @@ sopt_fp_flags(sopt-ir)
 add_library(sopt-verify
   src/verify/points.cpp
   src/verify/verify.cpp
-  src/verify/exact.cpp)
+  src/verify/exact.cpp
+  src/verify/problems.cpp)
 target_link_libraries(sopt-verify PUBLIC sopt-ir Threads::Threads)
 sopt_fp_flags(sopt-verify)
 

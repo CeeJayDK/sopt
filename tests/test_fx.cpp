@@ -416,6 +416,12 @@ TEST(fx_vendor_auto) {
     rr.variants.push_back(v);
   }
   CHECK(fx::vendorPick(rr, true) == 2 && fx::vendorPick(rr, false) == 1);
+  {
+    // A variant with problem inputs is never picked.
+    fx::RegionResult marked = rr;
+    marked.variants[1].problems = "fails at d = 0.5 (NaN/inf at some)";
+    CHECK(fx::vendorPick(marked, true) == 0 && fx::vendorPick(marked, false) == 1);
+  }
   const fs::path out = fs::temp_directory_path() / "sopt_test_fx_vendor";
   std::error_code ec;
   fs::remove_all(out, ec);

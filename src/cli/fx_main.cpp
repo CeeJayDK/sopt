@@ -428,6 +428,7 @@ int main(int argc, char** argv) {
       v.klass = a.klass;
       v.worst = a.worst;
       v.exhaustive = a.exhaustive;
+      v.problems = describeProblems(rr.region.prog, a.problems);
       rr.variants.push_back(std::move(v));
     }
     if (accuracyRule(rr.region.prog.budget) && opt.exactRule) rr.targetExactAbs = res.targetExact.exactAbs;
