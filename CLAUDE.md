@@ -197,6 +197,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   (martymcmodding) and originalcodr are interested; add their repos to future test
   runs, iMMERSE especially (heavy, complex code: stress test), also METEOR. CorgiFX
   (originalnicodr): 9 effects, 148 regions, 4 variants all on assumed ranges.
+  Rerun 2026-09-25 (all 12 packages): 45 regions with variants, all variant files
+  re-parse, no written variant has problem inputs. Flair.fx:599-602 and BeforeAfter.fx:93-95
+  dropped out versus the day before with identical code (commit 53f0285 rebuilt gives the
+  same): time-limited search (BeforeAfter found again with --time 10) and measurement.
 - Render check (owner's suggestion): RTI Shaderlab (`rti/shaderlab/fxrender.py`, runtime
   built with build_runtime.sh; Wine + mingw + system python3.12 for PIL). Render the
   original and the variant with SOPT_ALL = 0..3 on a test image, compare pixels. Each
