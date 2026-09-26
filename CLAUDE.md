@@ -104,6 +104,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   3e-4 where the original's is float precision; the old floor hid it); verify ~1.5x (6
   profiles). sopt-fx (ReShade.fxh, facts file): the depth variant is written as "as
   accurate, more accurate (not faster)", amd 7 -> 8, nv 12 -> 12.
+  Corpus (12 packages): 45 -> 35 regions with variants. Rightly lost: MXAO x2, Tonemap
+  (partial fractions), ColorIsolation x2 (dropped a divide-by-zero guard, abs(d) < 1e-6 ?
+  1e-6 : d), Flashlight x2 (were less accurate); by the rule, likely harmless: BloomingHDR,
+  Flair, EyeAdaption (t * (1 - t) -> t - t * t loses relative precision near t = 1 without
+  fma); falsely lost: Vignette x2 (XOR x + y - 2xy: zero crossing, both cancel). New: PD80
+  Bloom 342-343, iMMERSE FILMGRAIN 287 (faster and more accurate), AstrayFX Smart_Sharp 538.
 - Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
   Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
 - Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
