@@ -59,7 +59,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   (pixel "alu" count, canonical spirv-dis text) and ReShade's HLSL through Microsoft's fxc
   -O3 (sopt-fxc; instruction lines of the disassembly); identical code to the original =
   "same" (the compiler already does it on that backend). sopt-fx report columns spirv / dxbc
-  and variant comments.
+  and variant comments. Corpus 2026-09-26 (45 regions, 87 variants): DXBC after fxc
+  identical to the original for 16 (Daltonize's 0 * x / 1 * x terms, PerfectPerspective
+  y * 16 / 9 folding, qUINT_dof floor: fxc does them, they only help the SPIR-V path),
+  fewer for 58, more for 2 (Temporal_AA rational forms, faster in AMD/NVIDIA ISA). SPIR-V
+  identity is too strict (inputs read from the test texture differently, e.g. Daltonize
+  folds to 0 alu in both): counts only; DXBC identity is meaningful.
 - `third_party/reshadefx`: ReShade 6.8.0 FX lexer/preprocessor/parser, unmodified
   except `symbolic_macros`, `\` -> `/` and case-insensitive lookup for #include names off Windows (built as C++17). `src/fx/codegen`: its codegen interface recorded as a dataflow graph
   (values with seq/block, statements Init/Store/Return, loops, samplers, uniforms).
