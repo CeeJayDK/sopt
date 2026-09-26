@@ -3,8 +3,8 @@
 Shader superoptimizer for ReShade FX shaders. Finds cheaper, verified alternatives
 to small pure arithmetic regions and presents them as user-selectable variants.
 Full design and milestones: `docs/design.md` (Danish). Status: M0, M1, M2 done (CI green on
-MSVC/GCC/Clang, golden hashes match); M3 implemented (`sopt-fx`: FX front end, regions,
-facts, budgets, variant .fx), waiting for the owner's manual test in ReShade; plus RDNA3 cost model, `gpu` semantic profile, ISA
+MSVC/GCC/Clang, golden hashes match); M3 done (`sopt-fx`: FX front end, regions,
+facts, budgets, variant .fx), done: owner's ReShade test passed on DX11 and Vulkan; plus RDNA3 cost model, `gpu` semantic profile, ISA
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 and nvidia default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
@@ -273,9 +273,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   claude/shaderlab-loop-attribute ([fastopt] patch, stale Xvfb lock, exec bits).
 
 ## Next (per docs/design.md)
-0. M3 done criteria left: owner's manual test of variants in ReShade: DX11 passed
-   2026-09-26 (package sopt-compare-2026-09-26c, all presets black; the per-step presets
-   made it much easier); Vulkan still to do.
+0. M3 done (2026-09-26): owner's manual test of the variants in ReShade passed on DX11
+   and Vulkan (package sopt-compare-2026-09-26c, all presets black; the per-step presets
+   made it much easier).
 1. Optional (owner: "could"): after search, try re-writing the best candidates with pure
    helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only.
 2. M4: GPU benchmark harness (needs the owner's Windows machine; not testable in the
