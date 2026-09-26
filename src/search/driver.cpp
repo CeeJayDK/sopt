@@ -19,7 +19,18 @@ bool containsPoint(const PointSet& ps, const std::vector<float>& p) {
   return false;
 }
 
-void markProblems(const Program& prog, RunResult& res) {
+// Final pass over the accepted candidates: accuracy variants, problem inputs.
+void finish(const Program& prog, const Options& opt, RunResult& res) {
+  const Metrics& t = res.targetExact;
+  const bool rule = accuracyRule(prog.budget) && opt.exactRule && t.exactRel > 0.0;
+  std::vector<Accepted> kept;
+  for (auto& a : res.accepted) {
+    a.moreAccurate = opt.accuracyVariants && rule && a.klass != Klass::LessAccurate &&
+                     4.0 * a.worst.exactRel <= t.exactRel && a.worst.exactAbs <= t.exactAbs;
+    if (a.cost >= res.targetCost && !a.moreAccurate) continue;  // neither cheaper nor more accurate
+    kept.push_back(std::move(a));
+  }
+  res.accepted = std::move(kept);
   for (auto& a : res.accepted) a.problems = findProblemRanges(prog, a.expr, a.klass == Klass::LessAccurate);
 }
 
@@ -37,7 +48,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     for (const auto& d : prog.inputs)
       if (d.compileTime) {
         RunResult r = optimizeSpecialized(prog, opt);
-        markProblems(prog, r);
+        finish(prog, opt, r);
         return r;
       }
   const double t0 = nowSeconds();
@@ -64,6 +75,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   }
 
   SearchConfig cfg = opt.search;
+  cfg.rational = cfg.rational && opt.accuracyVariants;
   res.v2Points = opt.v2Max ? domainSize(prog, opt.v2Max) : 0;
 
   for (uint32_t iter = 0; iter < opt.maxIterations; ++iter) {
@@ -206,7 +218,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     if (!dup) grouped.push_back(std::move(a));
   }
   res.accepted = std::move(grouped);
-  markProblems(prog, res);
+  finish(prog, opt, res);
   res.totalSec = nowSeconds() - t0;
   return res;
 }

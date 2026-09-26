@@ -162,6 +162,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-exact-rule") opt.exactRule = false;
+    else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
     else if (a == "--helpers") opt.search.helpers = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
@@ -178,7 +179,7 @@ int main(int argc, char** argv) {
       }
     } else {
       std::puts("usage: sopt-bench [--examples DIR] [--planted N --size K --inputs I] [--seed S]\n"
-                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model M] [--order-model M] [--no-affine] [--no-inner] [--helpers] [--no-exact-rule]");
+                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model M] [--order-model M] [--no-affine] [--no-inner] [--helpers] [--no-exact-rule] [--no-accuracy-variants]");
       return 2;
     }
   }

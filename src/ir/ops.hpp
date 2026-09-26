@@ -110,13 +110,19 @@ struct Profile {
   bool madFused;
   bool contract = false;  // fuse single-use mul/div into add/sub (Expr-level, see verify)
   bool divRcp = false;    // a / b = a * (1 / b)
+  // GPU approximations: inexact ops (rcp, rsqrt, sqrt, div, exp, log, sin, cos, pow) are
+  // not correctly rounded on GPUs. +1 / -1 moves each of their results one float step up /
+  // down, so a candidate that amplifies such errors (e.g. by cancellation) shows it.
+  int ulpStep = 0;
 };
 
 inline constexpr Profile kProfileRef{"ref", false, false};
 inline constexpr Profile kProfileMix{"mix", true, false};
 inline constexpr Profile kProfileFma{"fma", false, true};
 inline constexpr Profile kProfileGpu{"gpu", false, true, true, true};
-inline constexpr std::array<Profile, 4> kAllProfiles{kProfileRef, kProfileMix, kProfileFma,
-                                                     kProfileGpu};
+inline constexpr Profile kProfileGpuUp{"gpu+", false, true, true, true, +1};
+inline constexpr Profile kProfileGpuDown{"gpu-", false, true, true, true, -1};
+inline constexpr std::array<Profile, 6> kAllProfiles{kProfileRef, kProfileMix, kProfileFma,
+                                                     kProfileGpu, kProfileGpuUp, kProfileGpuDown};
 
 }  // namespace sopt

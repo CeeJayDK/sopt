@@ -41,7 +41,7 @@ struct Metrics {
   uint64_t codeChanged = 0;   // points whose 8-bit code differs
   uint64_t viaExact = 0;      // points accepted only by the accuracy rule
   double exactAbs = 0.0;      // max |value - exact value| (when the rule applies)
-  double exactRel = 0.0;      // ... relative to max(1, |exact value|)
+  double exactRel = 0.0;      // ... relative to |exact value| (relBase)
   std::vector<float> failPoint;  // first failing point, if any
   uint64_t valueHash = 0;        // order-independent hash of candidate values
 
@@ -69,6 +69,11 @@ inline int codeN(float v, int bits) {
   return static_cast<int>(c * ((1 << bits) - 1) + 0.5);
 }
 inline int code8(float v) { return codeN(v, 8); }
+// Denominator of relative errors: |t| itself, also for small values (owner, 2026-09-26: a
+// max(1, |t|) floor made rel budgets absolute below 1 and hid e.g. cancellation at small
+// linear depths). Near zero crossings candidates pass by the accuracy rule instead.
+inline double relBase(double t) { return std::max(std::fabs(t), 1e-30); }
+
 inline bool pointWithinBudget(const Budget& b, float t, float c) {
   if (!std::isfinite(c)) return false;
   switch (b.kind) {
@@ -79,7 +84,7 @@ inline bool pointWithinBudget(const Budget& b, float t, float c) {
     case Budget::Kind::Texcoord: return std::fabs(static_cast<double>(c) - t) <= b.eps;
     case Budget::Kind::Abs: return std::fabs(static_cast<double>(c) - t) <= b.eps;
     case Budget::Kind::Rel:
-      return std::fabs(static_cast<double>(c) - t) <= b.eps * std::max(1.0, std::fabs(double(t)));
+      return std::fabs(static_cast<double>(c) - t) <= b.eps * relBase(t);
   }
   return false;
 }

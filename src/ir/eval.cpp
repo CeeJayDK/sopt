@@ -32,10 +32,26 @@ inline float fBool(bool v) { return v ? 1.0f : 0.0f; }
   }                                           \
   return;
 
+// One float step up / down (Profile::ulpStep) for inexact results; zeros and non-finite
+// values stay (GPUs return exact 0 for sqrt(0) etc.).
+inline float fStep(float v, int dir) {
+  if (v == 0.0f || !std::isfinite(v)) return v;
+  return std::nextafter(v, dir > 0 ? INFINITY : -INFINITY);
+}
+
 }  // namespace
 
 void evalArray(Op op, const float* a, const float* b, const float* c, float* out, size_t n,
                const Profile& profile) {
+  if (profile.ulpStep != 0 && !info(op).exact && op != Op::Div) {
+    Profile p = profile;
+    p.ulpStep = 0;
+    evalArray(op, a, b, c, out, n, p);
+    if (op == Op::Sqrt || op == Op::Rsqrt || op == Op::Rcp || op == Op::Exp || op == Op::Log ||
+        op == Op::Sin || op == Op::Cos || op == Op::Pow)
+      for (size_t i = 0; i < n; ++i) out[i] = fStep(out[i], profile.ulpStep);
+    return;
+  }
   switch (op) {
     case Op::Input:
     case Op::Const:
@@ -65,6 +81,11 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
     case Op::Sub: SOPT_LOOP2(x - y)
     case Op::Mul: SOPT_LOOP2(x * y)
     case Op::Div:
+      if (profile.ulpStep != 0) {  // GPU division: a * rcp(b) with an approximate rcp
+        const int d = profile.ulpStep;
+        if (profile.divRcp) { SOPT_LOOP2(x * fStep(1.0f / y, d)) }
+        SOPT_LOOP2(fStep(x / y, d))
+      }
       if (profile.divRcp) { SOPT_LOOP2(x * (1.0f / y)) }
       SOPT_LOOP2(x / y)
     case Op::Min: SOPT_LOOP2(fMin(x, y))

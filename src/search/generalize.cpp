@@ -229,7 +229,7 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
       }
       Expr g = b.finish(map[a.expr.root]);
       const uint32_t cost = dagCost(g, *opt.search.model, prog.inputs);
-      if (cost >= res.targetCost) continue;
+      if (cost >= res.targetCost + (opt.accuracyVariants ? opt.accuracySlack : 0)) continue;
       if (!compare(prog, g, quick, kProfileRef, 1, &quickTarget, rule ? &quickExact : nullptr).loosePass) continue;
       Metrics worst;
       for (size_t p = 0; p < kAllProfiles.size() && worst.loosePass; ++p)

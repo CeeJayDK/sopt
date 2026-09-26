@@ -38,6 +38,7 @@ void usage() {
       "  --no-inner        don't solve inner constants (p * u(v + c) + q, u = rcp/sqrt/rsqrt)\n"
       "  --no-overflow     stop when the bank is full (default: keep combining the stored\n"
       "                    entries, checking new values as hits, until --time)\n"
+      "  --no-accuracy-variants  do not keep candidates that are only more accurate (not cheaper)\n"
       "  --no-exact-rule   candidates must stay within the budget of the float32 original\n"
       "                    (default: also accepted where at least as close to exact math)\n"
       "  --loose F         also list less accurate candidates: within F times the budget or\n"
@@ -123,6 +124,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-exact-rule") opt.exactRule = false;
+    else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--helpers") opt.search.helpers = true;
     else if (a == "--order-model") {
@@ -269,6 +271,7 @@ int main(int argc, char** argv) {
                   klassName(a.klass, prog.budget.codeBits()), a.worst.maxAbs);
       if (rule) std::printf("%8.3g  ", a.worst.exactAbs);
       std::printf("%8d  %6.3f%%  %s\n", a.worst.maxCodeDiff, 100.0 * a.worst.changedFraction(), a.text.c_str());
+      if (a.moreAccurate) std::printf("      ^ more accurate than the original (accuracy variant)\n");
       if (!a.problems.empty()) std::printf("      ^ %s\n", describeProblems(prog, a.problems).c_str());
     }
     std::printf("\n%zu alternative(s) cheaper than cost %u", r.accepted.size(), r.targetCost);

@@ -92,6 +92,14 @@ std::string switchName(const Region& r) {
   return name + std::to_string(r.line);
 }
 
+// Class text of a variant: "within budget", "as accurate, more accurate (not faster)", ...
+std::string variantClass(const Variant& v, int codeBits) {
+  std::string s = klassName(v.klass, codeBits);
+  if (v.moreAccurate) s += ", more accurate";
+  if (v.accuracyOnly) s += " (not faster)";
+  return s;
+}
+
 int vendorPick(const RegionResult& rr, bool amd) {
   const int target = amd ? rr.targetAmd : rr.targetNv;
   if (target < 0) return 0;
@@ -99,7 +107,7 @@ int vendorPick(const RegionResult& rr, bool amd) {
   for (size_t k = 0; k < rr.variants.size(); ++k) {
     const Variant& v = rr.variants[k];
     const int c = amd ? v.amd : v.nv;
-    if (v.klass == Klass::LessAccurate || !v.problems.empty() || c < 0 || c >= bestCost) continue;
+    if (v.klass == Klass::LessAccurate || !v.problems.empty() || v.accuracyOnly || c < 0 || c >= bestCost) continue;
     best = static_cast<int>(k + 1);
     bestCost = c;
   }
@@ -213,7 +221,7 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
                std::to_string(k + 1) + guard + "\n";
         char note[320];
         int len = std::snprintf(note, sizeof(note), " // sopt: %s, cost %u -> %u",
-                                klassName(v.klass, r.prog.budget.codeBits()), rr->targetCost, v.cost);
+                                variantClass(v, r.prog.budget.codeBits()).c_str(), rr->targetCost, v.cost);
         if ((v.klass == Klass::Accurate || v.klass == Klass::LessAccurate) && rr->targetExactAbs >= 0 && len > 0)
           len += std::snprintf(note + len, sizeof(note) - len, ", max err vs exact %.2g (original %.2g)",
                                v.worst.exactAbs, rr->targetExactAbs);
@@ -256,7 +264,9 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
        "measured instructions (fxstat + RGA, ptxas + nvdisasm), with the change against the "
        "original (row 0). Classes: bit-exact; 8-bit identical; within budget; as accurate "
        "(outside the budget only where at least as close to exact math as the original); "
-       "less accurate (listed for you to judge by its error). \"vs exact\" is the max error "
+       "less accurate (listed for you to judge by its error); \"more accurate\": at most a "
+       "quarter of the original's error against exact math, \"(not faster)\": kept for its "
+       "accuracy at up to one instruction more. \"vs exact\" is the max error "
        "against exact math. \"auto\" marks what SOPT_AUTO = 1 selects on that vendor. Ranges "
        "marked *assumed* are defaults, not facts: check them before using a variant.\n\n";
   if (!info.failed.empty()) {
@@ -327,7 +337,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
            withGain(static_cast<int>(v.cost), static_cast<int>(rr.targetCost)) + " |";
       if (info.amd) s += " " + withGain(v.amd, rr.targetAmd) + " |";
       if (info.nv) s += " " + withGain(v.nv, rr.targetNv) + " |";
-      std::snprintf(buf, sizeof(buf), " %s | %.3g |", klassName(v.klass, r.prog.budget.codeBits()), v.worst.maxAbs);
+      std::snprintf(buf, sizeof(buf), " %s | %.3g |", variantClass(v, r.prog.budget.codeBits()).c_str(), v.worst.maxAbs);
       s += buf;
       if (exact) {
         std::snprintf(buf, sizeof(buf), " %.3g |", v.worst.exactAbs);

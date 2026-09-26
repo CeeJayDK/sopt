@@ -83,6 +83,21 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   enumerator accepts them as hits, the driver caps them at maxLoose. Bench: same
   results and first-hit times with and without the rule (examples + 12 planted);
   verification ~9% slower (exact evaluation).
+- GPU approximations (owner, 2026-09-26): profiles `gpu+` / `gpu-` (Profile::ulpStep) move
+  every inexact op's result (rcp, rsqrt, div as a * rcp(b), exp, log, sin, cos, pow; not
+  sqrt, which the op table counts exact) one float step up / down; verification runs 6
+  profiles. Rel budgets are relative to |t| itself (`relBase`: max(|t|, 1e-30); the old
+  max(1, |t|) floor made them absolute below 1). Both together reject the partial fraction
+  depth rewrite (cancellation near t = 1).
+- Accuracy variants (owner, 2026-09-26; `Options::accuracyVariants`, default on,
+  `--no-accuracy-variants`): `Accepted::moreAccurate` = error vs exact at most 1/4 of the
+  original's (rel, and abs not worse), needs the accuracy rule. Kept up to
+  `accuracySlack` (8) above the target's static cost; sopt-fx keeps them when not faster if
+  at most 1 instruction slower per measured vendor (`Variant::accuracyOnly`, listed last,
+  "more accurate (not faster)", max 2 per region, never SOPT_AUTO). Search side:
+  `SearchConfig::rational` emits the inner rcp fit p / (v + c) + q also as
+  (v - r) * rcp(mad(v, 1/q, c/q)) (no final cancellation; r snapped to a zero of the target,
+  near-integer constants rounded). Found: ReShade depth (t - 1) * rcp(mad(t, 1 - F, -1)).
 - Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
   Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
 - Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in

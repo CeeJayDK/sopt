@@ -27,6 +27,9 @@ struct SearchConfig {
   // Also solve an inner constant: target ~ p * u(v + c) + q, u in {rcp, sqrt, rsqrt}
   // (needs affine).
   bool inner = true;
+  // With an inner rcp fit p / (v + c) + q, also emit (v - r) * rcp(mad(v, 1/q, c/q)): the
+  // same function without the final cancellation (accuracy variants, owner 2026-09-26).
+  bool rational = true;
   // Skip inner fits for entries the target is not monotonic in (see innerFit).
   bool innerPrefilter = true;
   // When the bank is full, keep enumerating with the stored entries as operands and only
@@ -104,6 +107,9 @@ class Enumerator {
     float p, q;
     Op inner = Op::Count;
     float c = 0.0f;
+    // SearchConfig::rational: (v - r) * rcp(mad(v, a, b)) instead of the wrapper.
+    bool rational = false;
+    float r = 0.0f, a = 0.0f, b = 0.0f;
   };
 
   void tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c, SearchStats& stats,

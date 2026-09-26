@@ -162,7 +162,7 @@ Budgets (per output component):
 | `color8 [maxdiff N]`, `color10 [maxdiff N]` | 8/10-bit code values differ by at most N (default 1) |
 | `texcoord [PX]` | at most PX pixels at 3840 wide (default 0.25) |
 | `abs EPS` | `|candidate - target| <= EPS` |
-| `rel EPS` | `|candidate - target| <= EPS * max(1, |target|)` |
+| `rel EPS` | `|candidate - target| <= EPS * |target|` (also for small values; near zero candidates pass by the accuracy rule) |
 
 **Accuracy rule** (default; `--no-exact-rule` to disable). The target is the float32
 original, whose own rounding error can exceed the budget. So a candidate also passes
@@ -188,9 +188,16 @@ Every verified alternative cheaper than the target, sorted by cost, with class
 (bit-exact / 8-bit identical / within budget / as accurate / less accurate), max error,
 max error vs exact math (and the original's), max 8-bit code difference
 and the fraction of sample points whose 8-bit code changed. Verification is dense
-sampling (1M points) under four semantic profiles: `ref` (HLSL lerp, unfused mad),
-`mix` (GLSL mix formula), `fma` (fused mad) and `gpu` (what drivers emit: a single-use
-product under +/- contracted to fma, `a / b` as `a * rcp(b)`).
+sampling (1M points) under six semantic profiles: `ref` (HLSL lerp, unfused mad),
+`mix` (GLSL mix formula), `fma` (fused mad), `gpu` (what drivers emit: a single-use
+product under +/- contracted to fma, `a / b` as `a * rcp(b)`), and `gpu+` / `gpu-` (`gpu`
+with every rcp, rsqrt, division, exp, log, sin, cos and pow result one float step up /
+down, as GPU approximations are not correctly rounded).
+
+Accuracy variants: a candidate that is not cheaper but has at most a quarter of the
+original's error against exact math is kept as "more accurate" (sopt-fx: if at most one
+instruction slower per measured vendor; never picked by `SOPT_AUTO`).
+`--no-accuracy-variants` turns this off.
 
 ## Exhaustive verification (V2)
 

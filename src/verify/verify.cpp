@@ -113,7 +113,7 @@ bool pointAccurate(const Budget& b, float t, double x, float c, double scale) {
     case Budget::Kind::Texcoord:
     case Budget::Kind::Abs: return std::fabs(c - x) <= std::max(b.eps, scale * std::fabs(t - x));
     case Budget::Kind::Rel:
-      return std::fabs(c - x) <= std::max(b.eps * std::max(1.0, std::fabs(x)), scale * std::fabs(t - x));
+      return std::fabs(c - x) <= std::max(b.eps * relBase(x), scale * std::fabs(t - x));
   }
   return false;
 }
@@ -177,7 +177,7 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
           const double x = xv[comp][i];
           const double d = std::isfinite(c) ? std::fabs(c - x) : INFINITY;
           m.exactAbs = std::max(m.exactAbs, d);
-          m.exactRel = std::max(m.exactRel, d / std::max(1.0, std::fabs(x)));
+          m.exactRel = std::max(m.exactRel, d / relBase(x));
         }
         if (!std::isfinite(c)) {
           m.bitExact = false;

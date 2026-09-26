@@ -128,7 +128,7 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
           break;
         case Budget::Kind::Texcoord:
         case Budget::Kind::Abs: a = scale * b.eps; break;
-        case Budget::Kind::Rel: a = scale * b.eps * std::max(1.0, std::fabs(t)); break;
+        case Budget::Kind::Rel: a = scale * b.eps * relBase(t); break;
       }
       if (rule_ && std::isfinite(exact_[i])) a += 2.0 * scale * std::fabs(t - exact_[i]);
       monoTol_[i] = a + 4.0 * std::fabs(t) * 0x1p-23;
@@ -520,6 +520,45 @@ bool Enumerator::innerFit(const Entry& e, const float* v, uint32_t idx, std::vec
     for (size_t i = 0; i < tn_; ++i) s.fit[i] = c;
     evalArray(Op::Add, v, s.fit.data(), nullptr, s.fit.data(), tn_, kProfileRef);
     evalArray(u, s.fit.data(), nullptr, nullptr, s.fit.data(), tn_, kProfileRef);
+    if (u == Op::Rcp && cfg_.rational) {
+      // p / (v + c) + q = q (v - r) / (v + c), r = -(c + p / q) = (v - r) * rcp(mad(v, 1/q, c/q)):
+      // no cancellation near the zero r. p, q by least squares on w = rcp(v + c).
+      double sw = 0, sg = 0, sww = 0, swg = 0;
+      size_t m = 0;
+      for (size_t i = 0; i < tn_; ++i) {
+        if (!targetFinite_[i]) continue;
+        const double w = s.fit[i];
+        sw += w; sg += fit_[i]; sww += w * w; swg += w * fit_[i]; ++m;
+      }
+      const double den = double(m) * sww - sw * sw;
+      const double p = den > 0 ? (double(m) * swg - sw * sg) / den : 0.0;
+      const double q = m ? (sg - p * sw) / double(m) : 0.0;
+      AffineHit rh{idx, Op::Mad, 0.0f, 0.0f, u, c};
+      rh.rational = true;
+      rh.r = static_cast<float>(-(double(c) + p / q));
+      rh.a = static_cast<float>(1.0 / q);
+      rh.b = static_cast<float>(double(c) / q);
+      // Constants a float step or two from an integer are that integer (-0.99999994 = -1).
+      for (float* k : {&rh.a, &rh.b}) {
+        const float n = std::nearbyint(*k);
+        if (n != 0.0f && std::fabs(*k - n) <= 4.0f * std::fabs(n) * 0x1p-23f) *k = n;
+      }
+      // The zero is exact where the target is exactly 0 (e.g. 1 - t at t = 1): snap r to it.
+      for (size_t i = 0; i < tn_; ++i)
+        if (targetFinite_[i] && target_[i] == 0.0f && std::fabs(double(v[i]) - rh.r) <= 1e-4 * std::max(1.0, std::fabs(double(rh.r))))
+          rh.r = v[i];
+      bool ok = q != 0.0 && std::isfinite(rh.r) && std::isfinite(rh.a) && std::isfinite(rh.b) && rh.a != 0.0f;
+      for (size_t i = 0; i < tn_ && ok; ++i) {
+        if (!targetFinite_[i]) continue;
+        const float num = v[i] - rh.r;
+        const float dn = v[i] * rh.a + rh.b;
+        ok = accepts(i, num * (1.0f / dn));
+      }
+      if (ok) {
+        out.push_back(rh);
+        found = true;
+      }
+    }
     AffineHit h{idx, Op::Mad, 0.0f, 0.0f, u, c};
     if (!fitWrap(s.fit.data(), u, baseObj, h)) continue;
     out.push_back(h);
@@ -1039,6 +1078,11 @@ Expr Enumerator::extract(const Entry& rootEntry) const {
 Expr Enumerator::extract(const AffineHit& h) const {
   ExprBuilder b;
   uint32_t v = build(b, entries_[h.idx]);
+  if (h.rational) {
+    const uint32_t num = h.r < 0.0f ? b.op(Op::Add, v, b.constant(-h.r)) : b.op(Op::Sub, v, b.constant(h.r));
+    const uint32_t den = b.op(Op::Mad, v, b.constant(h.a), b.constant(h.b));
+    return b.finish(b.op(Op::Mul, num, b.op(Op::Rcp, den)));
+  }
   if (h.inner != Op::Count) {
     v = h.c < 0.0f ? b.op(Op::Sub, v, b.constant(-h.c)) : b.op(Op::Add, v, b.constant(h.c));
     v = b.op(h.inner, v);

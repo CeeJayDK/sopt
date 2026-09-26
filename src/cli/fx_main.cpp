@@ -52,6 +52,7 @@ void usage() {
       "  --sass            same with ptxas + nvdisasm (NVIDIA; $SOPT_PTXAS, $SOPT_NVDISASM)\n"
       "  --sm N            NVIDIA target for --sass (default 89)\n"
       "  --assumed         also write variants of regions whose input ranges are assumed\n"
+      "  --no-accuracy-variants  do not keep candidates that are only more accurate (not cheaper)\n"
       "  --no-exact-rule   variants must stay within the budget of the original (default:\n"
       "                    also where at least as close to exact math as the original)\n"
       "  --no-overflow     stop a region's search when the bank is full (default: keep\n"
@@ -142,6 +143,7 @@ int main(int argc, char** argv) {
     } else if (a == "--isa") isa = true;
     else if (a == "--assumed") allowAssumed = true;
     else if (a == "--no-exact-rule") opt.exactRule = false;
+    else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--facts") factsFile = next();
@@ -409,7 +411,7 @@ int main(int argc, char** argv) {
     };
     const std::string targetText = toString(rr.region.prog.target, rr.region.prog.inputs);
     for (const auto& a : res.accepted) {
-      if (a.cost >= res.targetCost) continue;
+      if (a.cost >= res.targetCost && !a.moreAccurate) continue;
       bool moreFetches = false;
       for (size_t k = 0; k < rr.region.facts.size(); ++k)
         if (rr.region.facts[k].fetch) {
@@ -417,11 +419,15 @@ int main(int argc, char** argv) {
           moreFetches = moreFetches || count(a.text, nm) > count(targetText, nm);
         }
       if (moreFetches) continue;
-      if (fx::compiledCost(a.expr, *opt.search.model, rr.region.prog.inputs) >= targetCompiled) {
+      const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, rr.region.prog.inputs);
+      const bool cheaper = compiled < targetCompiled;
+      if (!cheaper && !(a.moreAccurate && compiled <= targetCompiled + opt.accuracySlack)) {
         ++rr.onlyContraction;
         continue;
       }
       fx::Variant v;
+      v.moreAccurate = a.moreAccurate;
+      v.accuracyOnly = !cheaper;
       v.expr = a.expr;
       v.text = a.text;
       v.cost = a.cost;
@@ -434,8 +440,9 @@ int main(int argc, char** argv) {
     if (accuracyRule(rr.region.prog.budget) && opt.exactRule) rr.targetExactAbs = res.targetExact.exactAbs;
     // Accurate variants first (cheapest first); less accurate ones only if cheaper than
     // every accurate one, after them: the user decides from their accuracy.
-    std::vector<fx::Variant> strict, loose;
-    for (auto& v : rr.variants) (v.klass == Klass::LessAccurate ? loose : strict).push_back(std::move(v));
+    std::vector<fx::Variant> strict, loose, accurate;
+    for (auto& v : rr.variants)
+      (v.accuracyOnly ? accurate : (v.klass == Klass::LessAccurate ? loose : strict)).push_back(std::move(v));
     auto byCost = [](const fx::Variant& a, const fx::Variant& b) { return a.cost < b.cost; };
     std::stable_sort(strict.begin(), strict.end(), byCost);
     std::stable_sort(loose.begin(), loose.end(), byCost);
@@ -445,8 +452,11 @@ int main(int argc, char** argv) {
                                  [&](const fx::Variant& v) { return v.cost >= strict.front().cost; }),
                   loose.end());
     if (loose.size() > numVariants) loose.resize(numVariants);
+    std::stable_sort(accurate.begin(), accurate.end(), byCost);
+    if (accurate.size() > 2) accurate.resize(2);
     rr.variants = std::move(strict);
     for (auto& v : loose) rr.variants.push_back(std::move(v));
+    for (auto& v : accurate) rr.variants.push_back(std::move(v));
     rr.sec = searchSec[firstOf[i]] + std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
     std::lock_guard<std::mutex> lock(printMu);
     const size_t n = ++done;
@@ -483,14 +493,22 @@ int main(int argc, char** argv) {
       }
       std::vector<fx::Variant> kept;
       for (auto& v : rr.variants) {
-        bool better = false, measured = false;
+        bool better = false, measured = false, close = true;
         for (auto [t, c] : {std::pair{rr.targetAmd, v.amd}, std::pair{rr.targetNv, v.nv}}) {
           if (t < 0 || c < 0) continue;
           measured = true;
           better = better || c < t;
+          close = close && c <= t + 1;
         }
-        if (measured && !better) ++rr.measuredNoGain;
-        else kept.push_back(std::move(v));
+        if (measured && !better && v.moreAccurate && close) {
+          v.accuracyOnly = true;  // accuracy variant: not faster, at most 1 instruction slower
+          kept.push_back(std::move(v));
+        } else if (measured && !better) {
+          ++rr.measuredNoGain;
+        } else {
+          v.accuracyOnly = false;
+          kept.push_back(std::move(v));
+        }
       }
       // Largest measured gain first (sum over vendors of the relative change), static
       // cost breaks ties.
@@ -501,6 +519,7 @@ int main(int argc, char** argv) {
         return g;
       };
       std::stable_sort(kept.begin(), kept.end(), [&](const fx::Variant& a, const fx::Variant& b) {
+        if (a.accuracyOnly != b.accuracyOnly) return b.accuracyOnly;  // accuracy variants last
         const double ga = gain(a), gb = gain(b);
         if (ga != gb) return ga > gb;
         return a.cost < b.cost;

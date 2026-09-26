@@ -20,6 +20,11 @@ struct Variant {
   // Input values where it fails (describeProblems), e.g. "fails at F = 200 (NaN/inf at
   // some), fine on ..."; owner: kept and marked, the user decides; never picked by SOPT_AUTO.
   std::string problems;
+  // Clearly more accurate than the original against exact math (accuracy variants, owner
+  // 2026-09-26); accuracyOnly: not faster, kept at most one instruction slower per
+  // measured vendor. Never picked by SOPT_AUTO.
+  bool moreAccurate = false;
+  bool accuracyOnly = false;
 };
 
 struct RegionResult {

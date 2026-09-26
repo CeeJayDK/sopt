@@ -34,6 +34,12 @@ struct Options {
   // classified Klass::LessAccurate.
   double loose = 0.0;
   uint32_t maxLoose = 10;
+  // Accuracy variants (owner, 2026-09-26): candidates that are not cheaper but clearly more
+  // accurate than the original against exact math (Accepted::moreAccurate: error at most
+  // 1/4 of the original's, needs the accuracy rule) are kept up to accuracySlack above the
+  // target's static cost. Also enables SearchConfig::rational.
+  bool accuracyVariants = true;
+  uint32_t accuracySlack = 8;
   unsigned threads = 0;          // 0 = hardware concurrency
   SearchConfig search;
 };
@@ -48,6 +54,8 @@ struct Accepted {
   // Input values where it still fails (e.g. a division by zero at one value); owner:
   // kept and marked, the user decides; never picked by SOPT_AUTO.
   std::vector<ProblemRange> problems;
+  // Clearly more accurate than the original against exact math (Options::accuracyVariants).
+  bool moreAccurate = false;
 };
 
 struct RunResult {

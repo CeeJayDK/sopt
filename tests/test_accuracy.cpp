@@ -31,18 +31,21 @@ TEST(accuracy_exact_values) {
 
 TEST(accuracy_rule_depth) {
   // ReShade's reversed depth linearization: the float32 original is off by up to 4e-4
-  // from exact math at F = 10000, the rewrite by ~1.5e-7.
+  // from exact math at F = 10000. The cancellation-free rewrite (1 - t) / (1 + (F - 1) t)
+  // is off by ~1.5e-7; the partial fraction form shipped earlier is not accepted any more
+  // (relative error near t = 1, where the value goes to 0).
   Program p = parseProgram(
       "input t : float in [0, 1] grid 16777215\n"
       "input F : const float in [100, 10000] = 1000\n"
       "output r = (1.0 - t) / (F - (1.0 - t) * (F - 1.0))\n"
       "budget r : rel 1e-6\n");
-  const char* rewrite = "mad(rcp(t + rcp(F - 1.0)), F / ((F - 1.0) * (F - 1.0)), rcp(1.0 - F))";
+  const char* rewrite = "(t - 1.0) * rcp(mad(t, 1.0 - F, -1.0))";
   const Metrics m = check(p, rewrite);
   CHECK(m.pass && m.viaExact > 0 && m.exactAbs < 1e-6);
   CHECK(classify(p, parseExpr(rewrite, p.inputs), m) == Klass::Accurate);
   const Metrics orig = check(p, "(1.0 - t) / (F - (1.0 - t) * (F - 1.0))");
   CHECK(orig.exactAbs > 1e-4);
+  CHECK(!check(p, "mad(rcp(t + rcp(F - 1.0)), F / ((F - 1.0) * (F - 1.0)), rcp(1.0 - F))").pass);
   // Without the rule the rewrite is outside the budget of the float original.
   p.budget.vsExact = false;
   CHECK(!check(p, rewrite).pass);
@@ -91,17 +94,16 @@ TEST(problem_ranges) {
 }
 
 TEST(problem_ranges_depth) {
-  // ReShade.fxh's reversed depth rewrite (shipped with FAR_PLANE in [100, 10000]) on the
-  // hard limits' lower end: rcp(F - 1.0) at F = 1.
+  // ReShade.fxh's reversed depth on the far plane's hard limits [1, ...]. The partial
+  // fraction rewrite shipped earlier fails near t = 1 for every F (relative error, GPU rcp);
+  // the cancellation-free form (accuracy variant) is fine everywhere, F = 1 included.
   Program p = parseProgram(
       "input t : float in [0, 1] grid 16777215\n"
       "input F : const float in [1, 10000] = 1000\n"
       "output r = (1.0 - t) / (F - (1.0 - t) * (F - 1.0))\n"
       "budget r : rel 1e-6\n");
-  const Expr e = parseExpr("mad(rcp(t + rcp(F - 1.0)), rcp(F - (2.0 - rcp(F))), rcp(1.0 - F))", p.inputs);
-  const auto probs = findProblemRanges(p, e, false);
-  CHECK(describeProblems(p, probs) == "fails at F = [1, 1.2342985] (NaN/inf at some), fine on (1.2342985, 10000]");
-  Program q = p;
-  q.inputs[1].lo = 100.0;
-  CHECK(findProblemRanges(q, e, false).empty());
+  const Expr old = parseExpr("mad(rcp(t + rcp(F - 1.0)), rcp(F - (2.0 - rcp(F))), rcp(1.0 - F))", p.inputs);
+  const auto probs = findProblemRanges(p, old, false);
+  CHECK(!probs.empty() && probs[0].lo == 1.0);
+  CHECK(findProblemRanges(p, parseExpr("(t - 1.0) * rcp(mad(t, 1.0 - F, -1.0))", p.inputs), false).empty());
 }
