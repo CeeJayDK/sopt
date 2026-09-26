@@ -121,6 +121,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   Flair, EyeAdaption (t * (1 - t) -> t - t * t loses relative precision near t = 1 without
   fma); falsely lost: Vignette x2 (XOR x + y - 2xy: zero crossing, both cancel). New: PD80
   Bloom 342-343, iMMERSE FILMGRAIN 287 (faster and more accurate), AstrayFX Smart_Sharp 538.
+  Then (owner's go) error-scale floor: Rel budgets relative to max(|t|, S), S = the target's
+  running rounding-error bound / unit roundoff (ExactEvaluator::withScale, relBase(t, s)):
+  absolute-like where the original itself cancels (Vignette XOR back), relative where the
+  small value is exact (depth partial fraction, MXAO, t - t * t stay rejected). Bench: examples
+  identical, planted_1 recovered (0 not recovered, 1 needs-sharing).
 - Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
   Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
 - Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
