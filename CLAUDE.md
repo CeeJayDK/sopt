@@ -236,6 +236,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   (CPU with exact division shows the opposite, hence "as accurate"). The rel budget's
   max(1, |t|) floor hides it. Excluded from test packages; design fix (model GPU rcp error,
   relative budgets for small values) to be decided by the owner.
+  A cancellation-free form, (1.0 - d) * rcp(mad(d, F - 1.0, 1.0)), is 160x more accurate
+  than the original (max rel 2.9e-7 vs 4.6e-5 with a 1-ulp rcp) at amd 8 (original 7),
+  nv 12 (12): an accuracy fix, not a speedup; the search only reports cheaper ones.
+  Shaderlab: isnan now emitted as (x != x) (RTI shaderlab/patches/reshade-isnan.patch);
+  PerfectPerspective renders (9 presets identical). Bundle 26c: textures named through
+  macros are bundled too (blueNoise64.png, NeoBloom_LensDirt.png were missing in 26b).
   RTI fixes pushed to CeeJayDK/ReShade-Testing-Initiative branch
   claude/shaderlab-loop-attribute ([fastopt] patch, stale Xvfb lock, exec bits).
 
