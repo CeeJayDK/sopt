@@ -17,6 +17,7 @@
 #include "fx/frontend.hpp"
 #include "fx/variants.hpp"
 #include "measure/isa.hpp"
+#include "measure/backends.hpp"
 #include "measure/sass.hpp"
 #include "measure/tools.hpp"
 #include "search/driver.hpp"
@@ -51,6 +52,10 @@ void usage() {
       "                    must be cheaper for some measured vendor ($SOPT_FXSTAT, $SOPT_RGA)\n"
       "  --sass            same with ptxas + nvdisasm (NVIDIA; $SOPT_PTXAS, $SOPT_NVDISASM)\n"
       "  --sm N            NVIDIA target for --sass (default 89)\n"
+      "  --backends        compile original and variants per backend and compare after the\n"
+      "                    compilers' optimizers: SPIR-V (fxstat, $SOPT_FXSTAT; spirv-dis,\n"
+      "                    $SOPT_SPIRV_DIS) and DXBC via Microsoft's fxc ($SOPT_FXC =\n"
+      "                    sopt-fxc.exe, run with $SOPT_WINE, default wine, off Windows)\n"
       "  --assumed         also write variants of regions whose input ranges are assumed\n"
       "  --no-accuracy-variants  do not keep candidates that are only more accurate (not cheaper)\n"
       "  --no-exact-rule   variants must stay within the budget of the original (default:\n"
@@ -102,7 +107,7 @@ int main(int argc, char** argv) {
   opt.loose = 100;
   // Only the cheapest few variants per region are written: verifying 50 wastes time.
   opt.maxAlternatives = 20;
-  bool isa = false, sass = false, allowAssumed = false, ask = false, symbolic = true;
+  bool isa = false, sass = false, backends = false, allowAssumed = false, ask = false, symbolic = true;
   fs::path factsFile;
   IsaConfig isaCfg;
   if (const char* v = std::getenv("SOPT_FXSTAT")) isaCfg.fxstat = v;
@@ -110,6 +115,15 @@ int main(int argc, char** argv) {
   SassConfig sassCfg;
   if (const char* v = std::getenv("SOPT_PTXAS")) sassCfg.ptxas = v;
   if (const char* v = std::getenv("SOPT_NVDISASM")) sassCfg.nvdisasm = v;
+  BackendConfig backCfg;
+  backCfg.fxstat = isaCfg.fxstat;
+  backCfg.spirvDis = "spirv-dis";
+  if (const char* v = std::getenv("SOPT_SPIRV_DIS")) backCfg.spirvDis = v;
+  if (const char* v = std::getenv("SOPT_FXC")) backCfg.fxc = v;
+#ifndef _WIN32
+  backCfg.wine = "wine";
+#endif
+  if (const char* v = std::getenv("SOPT_WINE")) backCfg.wine = v;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     auto next = [&]() -> const char* {
@@ -151,6 +165,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-macro-inputs") symbolic = false;
     else if (a == "--max-width") ropt.maxWidth = std::strtod(next(), nullptr);
     else if (a == "--sass") sass = true;
+    else if (a == "--backends") backends = true;
     else if (a == "--sm") sassCfg.sm = std::atoi(next());
     else if (a == "-h" || a == "--help") { usage(); return 0; }
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
@@ -528,6 +543,31 @@ int main(int argc, char** argv) {
       std::printf("measured %zu: %s:%u amd %d nv %d, %zu variants kept\n", ++n,
                   fs::path(rr.region.file).filename().string().c_str(), rr.region.line, rr.targetAmd,
                   rr.targetNv, rr.variants.size());
+    }
+  }
+
+  // Backend normalization: counts after the compilers' optimizers, and whether a variant's
+  // code is the original's there ("the compiler already does it" on that backend).
+  if (backends) {
+    info.spirv = true;
+    info.dxbc = !backCfg.fxc.empty();
+    for (auto& rr : results) {
+      if (rr.variants.empty()) continue;
+      std::vector<InputDecl> ins = rr.region.prog.inputs;
+      for (size_t k = 0; k < ins.size(); ++k) ins[k].name = "sopt_in" + std::to_string(k);
+      std::vector<const Expr*> exprs = {&rr.region.prog.target};
+      for (const auto& v : rr.variants) exprs.push_back(&v.expr);
+      const auto m = measureBackends(exprs, ins, backCfg);
+      if (!m[0].error.empty()) std::fprintf(stderr, "%s:%u: backends: %s\n", rr.region.file.c_str(), rr.region.line, m[0].error.c_str());
+      rr.targetSpirv = m[0].spirv;
+      rr.targetDxbc = m[0].dxbc;
+      for (size_t k = 0; k < rr.variants.size(); ++k) {
+        fx::Variant& v = rr.variants[k];
+        v.spirv = m[k + 1].spirv;
+        v.dxbc = m[k + 1].dxbc;
+        v.spirvSame = v.spirv >= 0 && !m[0].spirvCode.empty() && m[k + 1].spirvCode == m[0].spirvCode;
+        v.dxbcSame = v.dxbc >= 0 && !m[0].dxbcCode.empty() && m[k + 1].dxbcCode == m[0].dxbcCode;
+      }
     }
   }
 

@@ -25,6 +25,10 @@ struct Variant {
   // measured vendor. Never picked by SOPT_AUTO.
   bool moreAccurate = false;
   bool accuracyOnly = false;
+  // Backend normalization (--backends): instruction counts after the compilers' optimizers
+  // (-1 = not measured) and whether the code is identical to the original's there.
+  int spirv = -1, dxbc = -1;
+  bool spirvSame = false, dxbcSame = false;
 };
 
 struct RegionResult {
@@ -38,6 +42,7 @@ struct RegionResult {
   bool limitHit = false;
   uint32_t onlyContraction = 0;  // cheaper only by explicit fma or free swizzles (dropped)
   int targetAmd = -1, targetNv = -1;
+  int targetSpirv = -1, targetDxbc = -1;  // backend normalization of the original
   double targetExactAbs = -1;    // the original's max error vs exact math (-1: not measured)
   uint32_t measuredNoGain = 0;   // dropped: not cheaper in the measured ISA
   uint32_t completedCost = 0;
@@ -84,6 +89,7 @@ struct ReportInfo {
   double seconds = 0.0;
   size_t checks = 0, checkFailures = 0;  // re-parses of the variant effects
   bool amd = false, nv = false;           // ISA measurements ran
+  bool spirv = false, dxbc = false;       // backend normalization ran
 };
 
 std::string markdownReport(const std::vector<RegionResult>& results, const ReportInfo& info);

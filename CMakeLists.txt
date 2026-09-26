@@ -53,7 +53,8 @@ sopt_fp_flags(sopt-search)
 add_library(sopt-measure
   src/measure/tools.cpp
   src/measure/isa.cpp
-  src/measure/sass.cpp)
+  src/measure/sass.cpp
+  src/measure/backends.cpp)
 target_link_libraries(sopt-measure PUBLIC sopt-ir Threads::Threads)
 sopt_fp_flags(sopt-measure)
 
@@ -94,6 +95,14 @@ if(SOPT_BUILD_BENCH)
   sopt_fp_flags(sopt-bench)
 endif()
 
+# sopt-fxc (backend normalization, DXBC after Microsoft's fxc): Windows only; for Linux
+# build it with mingw and run it under Wine (tools/fxc/README.md).
+if(WIN32)
+  enable_language(C)
+  add_executable(sopt-fxc tools/fxc/sopt_fxc.c)
+  target_link_libraries(sopt-fxc PRIVATE d3dcompiler)
+endif()
+
 if(SOPT_BUILD_TESTS)
   enable_testing()
   add_executable(sopt-tests
@@ -103,6 +112,7 @@ if(SOPT_BUILD_TESTS)
     tests/test_rewrites.cpp
     tests/test_isa.cpp
     tests/test_sass.cpp
+    tests/test_backends.cpp
     tests/test_vector.cpp
     tests/test_accuracy.cpp
     tests/test_fx.cpp)

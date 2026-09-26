@@ -11,6 +11,10 @@ a separate enumeration order model (`--order-model`; rdna3 and nvidia default to
 cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost model: rdna3.
 
 ## Working with the owner
+- Owner's principle (2026-09-26): fewer instructions at equal measured speed are still
+  better (less power; faster once the bottleneck moves). Timings (M4 harness) inform, they
+  do not veto such variants. ReShade's own performance statistics need a look too (owner is
+  not sure they are consistent).
 - Christian (CeeJay, SweetFX/ReShade). Communicates in Danish; prefers brief, direct answers.
 - Do not implement your own improvisations or design changes without asking first.
   Implementing the agreed milestone plan is fine; flag anything beyond it.
@@ -24,6 +28,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - Bench: `build/sopt-bench --examples examples [--cost-model rdna3]` and
   `build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30`
 - ISA ranking: `SOPT_FXSTAT=... SOPT_RGA=... build/sopt examples/factor.sopt --isa`,
+  Backend normalization (M4): `sopt-fx ... --backends` ($SOPT_FXSTAT; $SOPT_FXC =
+  sopt-fxc.exe, tools/fxc, run under Wine with Microsoft's d3dcompiler_47.dll off Windows).
   NVIDIA: `SOPT_PTXAS=... SOPT_NVDISASM=... build/sopt ... --sass` (pip:
   nvidia-cuda-nvcc-cu12 for ptxas, nvidia-cuda-nvdisasm for nvdisasm).
   Tools: ReShade-Testing-Initiative (`build_reshade_testing_initiative.sh`, needs
@@ -49,6 +55,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - `src/measure`: `isa` emits a candidate as a ReShade FX effect, runs fxstat + RGA and
   parses the pixel shader's ISA cost; `sass` emits a PTX kernel (inputs loaded and
   stored back so they live in registers), runs ptxas + nvdisasm and counts SASS.
+  `backends` (M4 normalization): the same effect through fxstat's optimized SPIR-V
+  (pixel "alu" count, canonical spirv-dis text) and ReShade's HLSL through Microsoft's fxc
+  -O3 (sopt-fxc; instruction lines of the disassembly); identical code to the original =
+  "same" (the compiler already does it on that backend). sopt-fx report columns spirv / dxbc
+  and variant comments.
 - `third_party/reshadefx`: ReShade 6.8.0 FX lexer/preprocessor/parser, unmodified
   except `symbolic_macros`, `\` -> `/` and case-insensitive lookup for #include names off Windows (built as C++17). `src/fx/codegen`: its codegen interface recorded as a dataflow graph
   (values with seq/block, statements Init/Store/Return, loops, samplers, uniforms).

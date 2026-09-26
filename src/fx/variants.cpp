@@ -229,7 +229,14 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
           len += std::snprintf(note + len, sizeof(note) - len, ", amd %d -> %d", rr->targetAmd, v.amd);
         if (v.nv >= 0 && rr->targetNv >= 0 && len > 0 && len < 200)
           std::snprintf(note + len, sizeof(note) - len, ", nv %d -> %d", rr->targetNv, v.nv);
-        out += ind + variantStatement(r, v.text) + note + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
+        std::string back;
+        if (v.spirv >= 0 && rr->targetSpirv >= 0)
+          back += v.spirvSame ? ", spirv: same code as original"
+                              : ", spirv " + std::to_string(rr->targetSpirv) + " -> " + std::to_string(v.spirv);
+        if (v.dxbc >= 0 && rr->targetDxbc >= 0)
+          back += v.dxbcSame ? ", dxbc: same code as original"
+                             : ", dxbc " + std::to_string(rr->targetDxbc) + " -> " + std::to_string(v.dxbc);
+        out += ind + variantStatement(r, v.text) + note + back + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
       }
       out += "#else\n";
       for (; next <= p.last; ++next) out += (*lines)[next - 1] + "\n";
@@ -266,7 +273,10 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
        "(outside the budget only where at least as close to exact math as the original); "
        "less accurate (listed for you to judge by its error); \"more accurate\": at most a "
        "quarter of the original's error against exact math, \"(not faster)\": kept for its "
-       "accuracy at up to one instruction more. \"vs exact\" is the max error "
+       "accuracy at up to one instruction more. spirv / dxbc (--backends): instructions after "
+       "the compilers' optimizers (SPIR-V: fxstat's spirv-opt passes; DXBC: Microsoft's fxc "
+       "-O3, what DX9-DX11 games get), \"same\" = identical code to the original's there, "
+       "i.e. the compiler already does it on that backend. \"vs exact\" is the max error "
        "against exact math. \"auto\" marks what SOPT_AUTO = 1 selects on that vendor. Ranges "
        "marked *assumed* are defaults, not facts: check them before using a variant.\n\n";
   if (!info.failed.empty()) {
@@ -317,14 +327,20 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     s += "\n\n| # | code | cost |";
     if (info.amd) s += " amd |";
     if (info.nv) s += " nv |";
+    if (info.spirv) s += " spirv |";
+    if (info.dxbc) s += " dxbc |";
     s += std::string(" class | max abs err |") + (exact ? " vs exact |" : "") + " verified |" +
          (autoCol ? " auto |" : "") + "\n|---|---|---|";
     if (info.amd) s += "---|";
     if (info.nv) s += "---|";
+    if (info.spirv) s += "---|";
+    if (info.dxbc) s += "---|";
     s += std::string(exact ? "---|---|---|---|" : "---|---|---|") + (autoCol ? "---|" : "") + "\n";
     s += "| 0 | `" + escapeCell(toString(r.prog.target, r.prog.inputs)) + "` | " + std::to_string(rr.targetCost) + " |";
     if (info.amd) s += " " + withGain(rr.targetAmd, -1) + " |";
     if (info.nv) s += " " + withGain(rr.targetNv, -1) + " |";
+    if (info.spirv) s += " " + withGain(rr.targetSpirv, -1) + " |";
+    if (info.dxbc) s += " " + withGain(rr.targetDxbc, -1) + " |";
     s += " original | 0 |";
     if (exact) {
       std::snprintf(buf, sizeof(buf), " %.3g |", rr.targetExactAbs);
@@ -337,6 +353,8 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
            withGain(static_cast<int>(v.cost), static_cast<int>(rr.targetCost)) + " |";
       if (info.amd) s += " " + withGain(v.amd, rr.targetAmd) + " |";
       if (info.nv) s += " " + withGain(v.nv, rr.targetNv) + " |";
+      if (info.spirv) s += " " + (v.spirvSame ? std::string("same") : withGain(v.spirv, rr.targetSpirv)) + " |";
+      if (info.dxbc) s += " " + (v.dxbcSame ? std::string("same") : withGain(v.dxbc, rr.targetDxbc)) + " |";
       std::snprintf(buf, sizeof(buf), " %s | %.3g |", variantClass(v, r.prog.budget.codeBits()).c_str(), v.worst.maxAbs);
       s += buf;
       if (exact) {
