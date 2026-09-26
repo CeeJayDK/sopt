@@ -98,6 +98,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   `SearchConfig::rational` emits the inner rcp fit p / (v + c) + q also as
   (v - r) * rcp(mad(v, 1/q, c/q)) (no final cancellation; r snapped to a zero of the target,
   near-integer constants rounded). Found: ReShade depth (t - 1) * rcp(mad(t, 1 - F, -1)).
+  Bench (examples + 12 planted, vs the day before): same results and first-hit times except
+  depth_far (best 28, the accuracy variant, instead of the rejected 24) and planted_1 (its
+  cost-13 candidate is now "less accurate": near the target's zeros its relative error is
+  3e-4 where the original's is float precision; the old floor hid it); verify ~1.5x (6
+  profiles). sopt-fx (ReShade.fxh, facts file): the depth variant is written as "as
+  accurate, more accurate (not faster)", amd 7 -> 8, nv 12 -> 12.
 - Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
   Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
 - Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
