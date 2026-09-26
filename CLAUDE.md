@@ -4,7 +4,7 @@ Shader superoptimizer for ReShade FX shaders. Finds cheaper, verified alternativ
 to small pure arithmetic regions and presents them as user-selectable variants.
 Full design and milestones: `docs/design.md` (Danish). Status: M0, M1, M2 done (CI green on
 MSVC/GCC/Clang, golden hashes match); M3 done (`sopt-fx`: FX front end, regions,
-facts, budgets, variant .fx), done: owner's ReShade test passed on DX11 and Vulkan; plus RDNA3 cost model, `gpu` semantic profile, ISA
+facts, budgets, variant .fx; owner's ReShade test passed on DX11 and Vulkan); plus RDNA3 cost model, `gpu` semantic profile, ISA
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 and nvidia default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
