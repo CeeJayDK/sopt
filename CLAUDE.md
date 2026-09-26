@@ -273,8 +273,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   claude/shaderlab-loop-attribute ([fastopt] patch, stale Xvfb lock, exec bits).
 
 ## Next (per docs/design.md)
-0. M3 done criteria left: owner's manual test of variants in ReShade (DX11 + Vulkan);
-   test package with step-by-step TESTING.txt was sent (report checklist inside).
+0. M3 done criteria left: owner's manual test of variants in ReShade: DX11 passed
+   2026-09-26 (package sopt-compare-2026-09-26c, all presets black; the per-step presets
+   made it much easier); Vulkan still to do.
 1. Optional (owner: "could"): after search, try re-writing the best candidates with pure
    helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only.
 2. M4: GPU benchmark harness (needs the owner's Windows machine; not testable in the
