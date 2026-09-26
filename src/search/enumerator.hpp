@@ -194,11 +194,13 @@ class Enumerator {
   bool rule_ = false;           // accuracy rule (accuracyRule(budget))
   std::vector<double> exact_;   // exact target values on the test points (rule_)
   std::vector<double> fit_;     // values constants are fitted to: exact_ where finite, else target_
+  std::vector<double> scale_;   // the target's error scales on the test points (Rel budgets)
   // Hit test at test point i: the budget, the accuracy rule, or the loose budget (less
   // accurate candidates are classified by the driver).
   bool accepts(size_t i, float v) const {
     const double* x = rule_ ? &exact_[i] : nullptr;
-    return pointAcceptable(prog_.budget, target_[i], x, v) || pointLoose(prog_.budget, target_[i], x, v);
+    return pointAcceptable(prog_.budget, target_[i], x, v, scale_[i]) ||
+           pointLoose(prog_.budget, target_[i], x, v, scale_[i]);
   }
   std::vector<Op> ops_;
   std::vector<Type> types_;  // float types ops are enumerated for: float1, then the target's

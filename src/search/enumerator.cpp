@@ -90,10 +90,15 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   // constants are fitted to the exact values.
   rule_ = accuracyRule(prog.budget);
   fit_.assign(target_.begin(), target_.end());
-  if (rule_) {
-    exact_ = evalExactAll(prog.target, tests);
-    for (size_t i = 0; i < tn_; ++i)
-      if (std::isfinite(exact_[i])) fit_[i] = exact_[i];
+  const bool rel = prog.budget.kind == Budget::Kind::Rel;
+  scale_.assign(tn_, 0.0);  // the target's error scales (Rel budgets, see relBase)
+  if (rule_ || rel) {
+    std::vector<double> ex = evalExactAll(prog.target, tests, rel ? &scale_ : nullptr);
+    if (rule_) {
+      exact_ = std::move(ex);
+      for (size_t i = 0; i < tn_; ++i)
+        if (std::isfinite(exact_[i])) fit_[i] = exact_[i];
+    }
   }
 
   // Ops are enumerated for float1 and the target's type only. Helpers (dot, length, ...)
@@ -128,7 +133,7 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
           break;
         case Budget::Kind::Texcoord:
         case Budget::Kind::Abs: a = scale * b.eps; break;
-        case Budget::Kind::Rel: a = scale * b.eps * relBase(t); break;
+        case Budget::Kind::Rel: a = scale * b.eps * relBase(t, scale_[i]); break;
       }
       if (rule_ && std::isfinite(exact_[i])) a += 2.0 * scale * std::fabs(t - exact_[i]);
       monoTol_[i] = a + 4.0 * std::fabs(t) * 0x1p-23;

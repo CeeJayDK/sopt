@@ -165,11 +165,16 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
   std::vector<std::vector<float>> v1Target;
   for (const auto& prof : kAllProfiles) v1Target.push_back(evalAll(prog.target, v1, prof));
   const bool rule = accuracyRule(prog.budget);
-  const std::vector<double> quickExact = rule ? evalExactAll(prog.target, quick) : std::vector<double>();
-  const std::vector<double> v1Exact = rule ? evalExactAll(prog.target, v1) : std::vector<double>();
+  const bool rel = prog.budget.kind == Budget::Kind::Rel;
+  std::vector<double> quickScale, v1Scale;
+  const std::vector<double> quickExact =
+      rule || rel ? evalExactAll(prog.target, quick, rel ? &quickScale : nullptr) : std::vector<double>();
+  const std::vector<double> v1Exact = rule || rel ? evalExactAll(prog.target, v1, rel ? &v1Scale : nullptr) : std::vector<double>();
+  const std::vector<double>* qs = rel ? &quickScale : nullptr;
+  const std::vector<double>* vs = rel ? &v1Scale : nullptr;
   if (rule)
     for (size_t p = 0; p < kAllProfiles.size(); ++p)
-      res.targetExact.merge(compare(prog, prog.target, v1, kAllProfiles[p], opt.threads, &v1Target[p], &v1Exact));
+      res.targetExact.merge(compare(prog, prog.target, v1, kAllProfiles[p], opt.threads, &v1Target[p], &v1Exact, vs));
 
   for (const Accepted& a : sr.accepted) {
     if (res.accepted.size() >= opt.maxAlternatives) break;
@@ -230,10 +235,10 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
       Expr g = b.finish(map[a.expr.root]);
       const uint32_t cost = dagCost(g, *opt.search.model, prog.inputs);
       if (cost >= res.targetCost + (opt.accuracyVariants ? opt.accuracySlack : 0)) continue;
-      if (!compare(prog, g, quick, kProfileRef, 1, &quickTarget, rule ? &quickExact : nullptr).loosePass) continue;
+      if (!compare(prog, g, quick, kProfileRef, 1, &quickTarget, rule ? &quickExact : nullptr, qs).loosePass) continue;
       Metrics worst;
       for (size_t p = 0; p < kAllProfiles.size() && worst.loosePass; ++p)
-        worst.merge(compare(prog, g, v1, kAllProfiles[p], opt.threads, &v1Target[p], rule ? &v1Exact : nullptr));
+        worst.merge(compare(prog, g, v1, kAllProfiles[p], opt.threads, &v1Target[p], rule ? &v1Exact : nullptr, vs));
       if (!worst.loosePass) {
         ++res.rejectedV1;
         continue;

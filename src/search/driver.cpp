@@ -64,14 +64,20 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   std::vector<std::vector<float>> v1Target;
   for (const auto& prof : kAllProfiles) v1Target.push_back(evalAll(prog.target, v1, prof));
   const bool rule = accuracyRule(prog.budget);
-  const std::vector<double> stage2Exact = rule ? evalExactAll(prog.target, stage2) : std::vector<double>();
-  const std::vector<double> v1Exact = rule ? evalExactAll(prog.target, v1) : std::vector<double>();
+  // Exact values (accuracy rule) and the target's error scales (Rel budgets) in one pass.
+  const bool rel = prog.budget.kind == Budget::Kind::Rel;
+  std::vector<double> stage2Scale, v1Scale;
+  const std::vector<double> stage2Exact =
+      rule || rel ? evalExactAll(prog.target, stage2, rel ? &stage2Scale : nullptr) : std::vector<double>();
+  const std::vector<double> v1Exact = rule || rel ? evalExactAll(prog.target, v1, rel ? &v1Scale : nullptr) : std::vector<double>();
   const std::vector<double>* s2x = rule ? &stage2Exact : nullptr;
   const std::vector<double>* v1x = rule ? &v1Exact : nullptr;
+  const std::vector<double>* s2s = rel ? &stage2Scale : nullptr;
+  const std::vector<double>* v1s = rel ? &v1Scale : nullptr;
   if (rule) {
     // The original's own error against the exact values (reported next to candidates').
     for (size_t p = 0; p < kAllProfiles.size(); ++p)
-      res.targetExact.merge(compare(prog, prog.target, v1, kAllProfiles[p], opt.threads, &v1Target[p], v1x));
+      res.targetExact.merge(compare(prog, prog.target, v1, kAllProfiles[p], opt.threads, &v1Target[p], v1x, v1s));
   }
 
   SearchConfig cfg = opt.search;
@@ -106,7 +112,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     };
     std::vector<Survivor> survivors;
     for (auto& c : cands) {
-      const Metrics m = compare(prog, c.expr, stage2, kProfileRef, 1, &stage2Target, s2x);
+      const Metrics m = compare(prog, c.expr, stage2, kProfileRef, 1, &stage2Target, s2x, s2s);
       if (!m.loosePass) {
         ++res.rejectedStage2;
         addCex(m.looseFailPoint);
@@ -148,7 +154,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
         Metrics worst;
         bool refFailed = false;
         for (size_t p = 0; p < kAllProfiles.size(); ++p) {
-          const Metrics m = compare(prog, c.expr, v1, kAllProfiles[p], opt.threads, &v1Target[p], v1x);
+          const Metrics m = compare(prog, c.expr, v1, kAllProfiles[p], opt.threads, &v1Target[p], v1x, v1s);
           worst.merge(m);
           if (!m.loosePass) {
             refFailed = p == 0;

@@ -98,7 +98,7 @@ Budget looseBudget(const Budget& b) {
   return l;
 }
 
-bool pointAccurate(const Budget& b, float t, double x, float c, double scale) {
+bool pointAccurate(const Budget& b, float t, double x, float c, double scale, double s) {
   if (!std::isfinite(c) || !std::isfinite(x)) return false;
   switch (b.kind) {
     case Budget::Kind::Exact: return false;
@@ -113,7 +113,7 @@ bool pointAccurate(const Budget& b, float t, double x, float c, double scale) {
     case Budget::Kind::Texcoord:
     case Budget::Kind::Abs: return std::fabs(c - x) <= std::max(b.eps, scale * std::fabs(t - x));
     case Budget::Kind::Rel:
-      return std::fabs(c - x) <= std::max(b.eps * relBase(x), scale * std::fabs(t - x));
+      return std::fabs(c - x) <= std::max(b.eps * relBase(x, s), scale * std::fabs(t - x));
   }
   return false;
 }
@@ -122,11 +122,13 @@ namespace {
 
 Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, size_t begin,
                      size_t end, const Profile& profile, const std::vector<float>* targetVals,
-                     const std::vector<double>* exactVals) {
+                     const std::vector<double>* exactVals, const std::vector<double>* scaleVals) {
   constexpr size_t kBlock = 4096;
   BlockEvaluator et, ec;
   ExactEvaluator ex;
   const bool rule = accuracyRule(prog.budget);
+  const bool rel = prog.budget.kind == Budget::Kind::Rel;
+  ex.withScale = rel && !scaleVals;
   Metrics m;
   const unsigned w = width(prog.target.nodes[prog.target.root].type);
   const int bits = prog.budget.codeBits();
@@ -145,12 +147,15 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
       tv = et.eval(prog.target, ps, b, count, profile);
     }
     const BlockEvaluator::Cols cv = ec.eval(cand, ps, b, count, profile);
-    ExactEvaluator::Cols xv{};
-    if (rule && exactVals) {
+    ExactEvaluator::Cols xv{}, sv{};
+    const bool computed = (rule && !exactVals) || (rel && !scaleVals);
+    if (computed) xv = ex.eval(prog.target, ps, b, count);
+    if (rule && exactVals)
       for (unsigned c = 0; c < w; ++c) xv[c] = exactVals->data() + c * total + b;
-    } else if (rule) {
-      xv = ex.eval(prog.target, ps, b, count);
-    }
+    if (rel && scaleVals)
+      for (unsigned c = 0; c < w; ++c) sv[c] = scaleVals->data() + c * total + b;
+    else if (rel)
+      sv = ex.scale(prog.target);
     for (size_t i = 0; i < count; ++i) {
       bool pointOk = true, looseOk = true;
       for (unsigned comp = 0; comp < w; ++comp) {
@@ -165,12 +170,13 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
           m.valueHash += z ^ (z >> 31);
         }
         ++m.checked;
-        if (!pointWithinBudget(prog.budget, t, c)) {
-          if (rule && pointAccurate(prog.budget, t, xv[comp][i], c)) {
+        const double s = rel ? sv[comp][i] : 0.0;
+        if (!pointWithinBudget(prog.budget, t, c, s)) {
+          if (rule && pointAccurate(prog.budget, t, xv[comp][i], c, 1.0, s)) {
             ++m.viaExact;
           } else {
             pointOk = false;
-            looseOk = looseOk && pointLoose(prog.budget, t, rule ? &xv[comp][i] : nullptr, c);
+            looseOk = looseOk && pointLoose(prog.budget, t, rule ? &xv[comp][i] : nullptr, c, s);
           }
         }
         if (rule && std::isfinite(xv[comp][i])) {
@@ -227,10 +233,11 @@ std::vector<float> evalAll(const Expr& e, const PointSet& ps, const Profile& pro
 
 Metrics compare(const Program& prog, const Expr& cand, const PointSet& ps, const Profile& profile,
                 unsigned threads, const std::vector<float>* targetVals,
-                const std::vector<double>* exactVals) {
+                const std::vector<double>* exactVals, const std::vector<double>* scaleVals) {
   const size_t n = ps.size();
   if (threads == 0) threads = std::max(1u, std::thread::hardware_concurrency());
-  if (n < 65536 || threads == 1) return compareRange(prog, cand, ps, 0, n, profile, targetVals, exactVals);
+  if (n < 65536 || threads == 1)
+    return compareRange(prog, cand, ps, 0, n, profile, targetVals, exactVals, scaleVals);
 
   std::vector<Metrics> parts(threads);
   std::vector<std::thread> pool;
@@ -239,7 +246,7 @@ Metrics compare(const Program& prog, const Expr& cand, const PointSet& ps, const
     const size_t b = t * chunk, e = std::min(n, b + chunk);
     if (b >= e) break;
     pool.emplace_back([&, t, b, e] {
-      parts[t] = compareRange(prog, cand, ps, b, e, profile, targetVals, exactVals);
+      parts[t] = compareRange(prog, cand, ps, b, e, profile, targetVals, exactVals, scaleVals);
     });
   }
   for (auto& th : pool) th.join();

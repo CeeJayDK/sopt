@@ -39,16 +39,29 @@ TEST(accuracy_rule_depth) {
       "input F : const float in [100, 10000] = 1000\n"
       "output r = (1.0 - t) / (F - (1.0 - t) * (F - 1.0))\n"
       "budget r : rel 1e-6\n");
+  // The original cancels near t = 0 (F - (1 - t)(F - 1) ~ 1), so its error scale there is
+  // large and the rewrite is within the budget of it (relBase), rule or not.
   const char* rewrite = "(t - 1.0) * rcp(mad(t, 1.0 - F, -1.0))";
   const Metrics m = check(p, rewrite);
-  CHECK(m.pass && m.viaExact > 0 && m.exactAbs < 1e-6);
-  CHECK(classify(p, parseExpr(rewrite, p.inputs), m) == Klass::Accurate);
+  CHECK(m.pass && m.exactAbs < 1e-6);
   const Metrics orig = check(p, "(1.0 - t) / (F - (1.0 - t) * (F - 1.0))");
   CHECK(orig.exactAbs > 1e-4);
-  CHECK(!check(p, "mad(rcp(t + rcp(F - 1.0)), F / ((F - 1.0) * (F - 1.0)), rcp(1.0 - F))").pass);
-  // Without the rule the rewrite is outside the budget of the float original.
+  const char* partial = "mad(rcp(t + rcp(F - 1.0)), F / ((F - 1.0) * (F - 1.0)), rcp(1.0 - F))";
+  CHECK(!check(p, partial).pass);
   p.budget.vsExact = false;
-  CHECK(!check(p, rewrite).pass);
+  CHECK(check(p, rewrite).pass);
+  CHECK(!check(p, partial).pass);
+}
+
+TEST(error_scale_budget) {
+  // Rel budgets are relative to max(|t|, the original's error scale): absolute-like where the
+  // original itself cancels (XOR x + y - 2xy near 0), relative where the small value is
+  // computed exactly (t * (1 - t) near t = 1).
+  Program x = parseProgram("input x : float in [0, 2.5]\ninput y : float in [0, 2.5]\n"
+                           "output r = dot(float4(-x, -x, x, y), float4(y, y, 1.0, 1.0))\nbudget r : rel 1e-6\n");
+  CHECK(check(x, "mad(x, 1.0 - (y + y), y)").pass);
+  Program t = parseProgram("input t : float in [0, 1]\noutput r = t * (1.0 - t)\nbudget r : rel 1e-6\n");
+  CHECK(!check(t, "t - t * t").pass);
 }
 
 TEST(accuracy_loose) {
