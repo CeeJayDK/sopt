@@ -283,9 +283,12 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
     }
     return true;
   };
-  // The full fit is the best any wrapper can do (in the least-squares sense).
+  // The full fit is the best any wrapper can do in the least-squares sense, but not always
+  // under a relative budget: its offset q can be a tiny nonzero value where the target is 0,
+  // while p * v (no offset) passes. So each wrapper is checked on its own.
   const AffineHit full{0, Op::Mad, static_cast<float>(pd), static_cast<float>(mg - pd * mv)};
-  if (full.p == 0.0f || !passes(Op::Mad, full.p, full.q)) return false;
+  if (full.p == 0.0f) return false;
+  const bool fullOk = passes(Op::Mad, full.p, full.q);
 
   // Cheaper wrappers, each with its own least-squares constant.
   const AffineHit tries[] = {
@@ -302,7 +305,7 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
   uint32_t bestCost = targetCost_;
   for (const auto& h : tries) {
     const uint32_t c = baseObj + wrapCost(h.wrap);
-    if (c < bestCost && (&h == &tries[3] || passes(h.wrap, h.p, h.q))) {
+    if (c < bestCost && (&h == &tries[3] ? fullOk : passes(h.wrap, h.p, h.q))) {
       best = &h;
       bestCost = c;
     }
