@@ -226,7 +226,16 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   BeforeAfter's Before and After, one preset per effect and SOPT_ALL step
   (PreprocessorDefinitions=SOPT_ALL=k, sopt-NN-<Effect>-<k>of<n>.ini). Shaderlab renders the
   presets as chains (scratch fxrender copy accepting Name@File.fx techniques; depth from a
-  synthetic slDp chunk).
+  synthetic slDp chunk, or Depth Anything V2 depth: scratch depth/estimate_depth.py runs the
+  ONNX export (github fabio-sim/Depth-Anything-ONNX; huggingface.co is blocked) with
+  ShaderLab's pre/post-processing and embeds the slDp chunk).
+  Found 2026-09-26: the shipped ReShade.fxh reversed-depth variant makes DisplayDepth's
+  normals noisier on the GPU path (Shaderlab: mean |laplacian| 4.71 vs 2.96; depth view
+  identical). Cause: GPU rcp is approximate and the variant ends in a cancellation
+  (~0.00105 - 0.00100), so its relative error at small linear depths is ~5e-6 vs 5e-7
+  (CPU with exact division shows the opposite, hence "as accurate"). The rel budget's
+  max(1, |t|) floor hides it. Excluded from test packages; design fix (model GPU rcp error,
+  relative budgets for small values) to be decided by the owner.
   RTI fixes pushed to CeeJayDK/ReShade-Testing-Initiative branch
   claude/shaderlab-loop-attribute ([fastopt] patch, stale Xvfb lock, exec bits).
 
