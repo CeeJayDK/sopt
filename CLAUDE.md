@@ -216,6 +216,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   Compare (compare_mode 7, difference_scale 20). Techniques from code only (strip
   comments and strings). Check renders in a full install tree (packages in their
   installer folders), else headers get included twice via different paths.
+  2026-09-26 owner's DX11 test: Limbo_Mod and Temporal_AA differed, everything else matched.
+  Cause: SweetFX Compare.fx Capture/Restore are float3, so back buffer alpha is not
+  restored and both effects read it (identical code differs too; RGBA Capture/Restore: 0 px).
+  Bundle format since then (owner): everything flat in reshade-shaders/Shaders/sopt/
+  (effects -orig/-sopt, every included header, includes rewritten to bare names since
+  #pragma once goes by path; clashing names get a package prefix), textures in
+  Textures/sopt/, sopt_Compare.fx (float4 copy, sopt_ prefixes), sopt_TintA/B between
+  BeforeAfter's Before and After, one preset per effect and SOPT_ALL step
+  (PreprocessorDefinitions=SOPT_ALL=k, sopt-NN-<Effect>-<k>of<n>.ini). Shaderlab renders the
+  presets as chains (scratch fxrender copy accepting Name@File.fx techniques; depth from a
+  synthetic slDp chunk).
   RTI fixes pushed to CeeJayDK/ReShade-Testing-Initiative branch
   claude/shaderlab-loop-attribute ([fastopt] patch, stale Xvfb lock, exec bits).
 
