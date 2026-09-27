@@ -127,7 +127,7 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
   BlockEvaluator et, ec;
   ExactEvaluator ex;
   const bool rule = accuracyRule(prog.budget);
-  const bool rel = prog.budget.kind == Budget::Kind::Rel;
+  const bool rel = prog.budget.scaledRel();
   ex.withScale = rel && !scaleVals;
   Metrics m;
   const unsigned w = width(prog.target.nodes[prog.target.root].type);

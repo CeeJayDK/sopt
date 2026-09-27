@@ -2,6 +2,7 @@
 #include <string>
 
 #include "ir/parser.hpp"
+#include "search/driver.hpp"
 #include "test.hpp"
 #include "verify/exact.hpp"
 #include "verify/points.hpp"
@@ -119,4 +120,26 @@ TEST(problem_ranges_depth) {
   const auto probs = findProblemRanges(p, old, false);
   CHECK(!probs.empty() && probs[0].lo == 1.0);
   CHECK(findProblemRanges(p, parseExpr("(t - 1.0) * rcp(mad(t, 1.0 - F, -1.0))", p.inputs), false).empty());
+}
+
+TEST(noise_not_replaced) {
+  // Hash noise: float32 sin of large arguments has nothing to do with exact math (the
+  // original is off by up to 1), so neither the accuracy rule nor the error-scale floor may
+  // apply; otherwise 0.0, uv.x or uv.y pass as "less accurate" (corpus 2026-09-27).
+  Program p = parseProgram(
+      "input uv : float2 in [0, 1]\n"
+      "output r = frac(sin(dot(uv, float2(23.2345, 84.1234))) * 56758.95)\n"
+      "budget r : rel 1e-6\n");
+  Options opt;
+  opt.v1Points = 1u << 16;
+  opt.loose = 100;
+  opt.search.timeLimitSec = 1.0;
+  opt.search.maxBank = 200000;
+  const RunResult r = optimize(p, opt);
+  CHECK(r.exactOff);
+  for (const auto& a : r.accepted) CHECK(a.cost >= r.targetCost);
+  // Ordinary expressions keep the rules.
+  Program q = parseProgram("input t : float in [0, 1]\noutput r = t * (1.0 - t)\nbudget r : rel 1e-6\n");
+  opt.search.timeLimitSec = 0.5;
+  CHECK(!optimize(q, opt).exactOff);
 }

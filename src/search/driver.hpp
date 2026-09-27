@@ -63,6 +63,10 @@ struct RunResult {
   std::string targetText;
   std::vector<Accepted> accepted;
   Metrics targetExact;  // the original's error against the exact values (accuracy rule)
+  // The float32 original does not follow exact math (max error vs exact > 10% of its
+  // range, e.g. frac(sin(x) * 43758.5) noise): the accuracy rule and the error-scale
+  // floor of Rel budgets were off.
+  bool exactOff = false;
   SearchStats search;  // stats of the final iteration
   uint32_t iterations = 0;
   uint64_t counterexamples = 0;

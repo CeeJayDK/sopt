@@ -3,6 +3,7 @@
 #include "verify/exact.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <bit>
 #include <unordered_map>
 
@@ -17,6 +18,25 @@ bool containsPoint(const PointSet& ps, const std::vector<float>& p) {
     if (same) return true;
   }
   return false;
+}
+
+// Whether the float32 original follows exact math: its max error against the exact
+// values stays within 10% of its own range over random points. Hash noise such as
+// frac(sin(dot(uv, k)) * 43758.5) does not (float32 sin of large arguments is chaotic):
+// there the original's error vs exact is as large as its range, so "at least as close to
+// exact" or "within F times the original's error" would accept any value, even 0.
+bool followsExact(const Program& prog, uint64_t seed) {
+  const PointSet ps = makeRandomPoints(prog, 4096, seed + 7, false);
+  const std::vector<float> t = evalAll(prog.target, ps, kProfileRef);
+  const std::vector<double> x = evalExactAll(prog.target, ps);
+  double lo = INFINITY, hi = -INFINITY, err = 0.0;
+  for (size_t i = 0; i < t.size() && i < x.size(); ++i) {
+    if (!std::isfinite(t[i]) || !std::isfinite(x[i])) continue;
+    lo = std::min(lo, double(t[i]));
+    hi = std::max(hi, double(t[i]));
+    err = std::max(err, std::fabs(double(t[i]) - x[i]));
+  }
+  return !(hi > lo) || err <= 0.1 * (hi - lo);
 }
 
 // Final pass over the accepted candidates: accuracy variants, problem inputs.
@@ -43,6 +63,14 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     p.budget.loose = opt.loose;
     return optimize(p, opt);
   }
+  if ((accuracyRule(progIn.budget) || progIn.budget.scaledRel()) && !followsExact(progIn, opt.seed)) {
+    Program p = progIn;
+    p.budget.vsExact = false;      // the float32 original is the only meaningful reference
+    p.budget.errorScale = false;
+    RunResult r = optimize(p, opt);
+    r.exactOff = true;
+    return r;
+  }
   const Program& prog = progIn;
   if (opt.specialize)
     for (const auto& d : prog.inputs)
@@ -65,7 +93,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   for (const auto& prof : kAllProfiles) v1Target.push_back(evalAll(prog.target, v1, prof));
   const bool rule = accuracyRule(prog.budget);
   // Exact values (accuracy rule) and the target's error scales (Rel budgets) in one pass.
-  const bool rel = prog.budget.kind == Budget::Kind::Rel;
+  const bool rel = prog.budget.scaledRel();
   std::vector<double> stage2Scale, v1Scale;
   const std::vector<double> stage2Exact =
       rule || rel ? evalExactAll(prog.target, stage2, rel ? &stage2Scale : nullptr) : std::vector<double>();

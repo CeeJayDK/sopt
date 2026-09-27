@@ -54,6 +54,10 @@ struct Budget {
   // factor > 1 also accepts candidates within `loose` times the budget (color budgets:
   // one more code) and `loose` times the original's own error. 0 = off.
   double loose = 0.0;
+  // Rel: relative to max(|t|, S), S = the original's own rounding-error scale (see
+  // relBase). Off where the float32 original does not follow exact math (driver).
+  bool errorScale = true;
+  bool scaledRel() const { return kind == Kind::Rel && errorScale; }
   int codeBits() const { return kind == Kind::Color10 ? 10 : 8; }
 };
 

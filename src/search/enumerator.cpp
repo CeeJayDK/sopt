@@ -90,7 +90,7 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   // constants are fitted to the exact values.
   rule_ = accuracyRule(prog.budget);
   fit_.assign(target_.begin(), target_.end());
-  const bool rel = prog.budget.kind == Budget::Kind::Rel;
+  const bool rel = prog.budget.scaledRel();
   scale_.assign(tn_, 0.0);  // the target's error scales (Rel budgets, see relBase)
   if (rule_ || rel) {
     std::vector<double> ex = evalExactAll(prog.target, tests, rel ? &scale_ : nullptr);

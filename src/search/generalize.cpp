@@ -165,7 +165,7 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
   std::vector<std::vector<float>> v1Target;
   for (const auto& prof : kAllProfiles) v1Target.push_back(evalAll(prog.target, v1, prof));
   const bool rule = accuracyRule(prog.budget);
-  const bool rel = prog.budget.kind == Budget::Kind::Rel;
+  const bool rel = prog.budget.scaledRel();
   std::vector<double> quickScale, v1Scale;
   const std::vector<double> quickExact =
       rule || rel ? evalExactAll(prog.target, quick, rel ? &quickScale : nullptr) : std::vector<double>();
