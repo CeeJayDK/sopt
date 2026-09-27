@@ -48,7 +48,7 @@ struct SearchConfig {
   // expensive first) are extra level-0 leaves at no cost, so rewrites that use one of the
   // original's intermediate values twice (u * u for pow(abs(u), 2.0)) are reached although
   // the bank prices trees. Candidates are still ranked by their real DAG cost.
-  bool sharedLeaves = false;
+  bool sharedLeaves = true;  // default (owner, 2026-09-27); --no-shared-leaves
   uint32_t maxShared = 16;
 };
 

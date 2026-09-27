@@ -156,7 +156,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   error-scale floor made rel budgets accept anything). `followsExact` (driver): if the
   original's max error vs exact > 10% of its range (4096 random points), Budget::vsExact
   and Budget::errorScale are off (RunResult::exactOff). Corpus: 45 -> 41 regions (ASCII,
-  Common GetRandom, GrainSpread, Limbo_Mod dither gone); bench unchanged.
+  Common GetRandom, GrainSpread, Limbo_Mod dither gone); bench unchanged. Owner (2026-09-27):
+  variants should be better in some way, faster or more accurate or both; faster usually
+  matters more (8-bit output hides most error); accuracy is written next to each variant
+  and the user chooses. Suggested: an option to ignore accuracy where inaccuracy is the
+  point (noise) - not decided how (see chat).
 - Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
   Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
 - Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
@@ -165,7 +169,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   during search (owner's rule: their expansions are tried anyway). Single-instruction
   intrinsics and modifiers (mad, clamp, saturate, rcp, rsqrt, ...) are.
 - Every new search technique goes behind a flag and must improve time-to-best on the
-  bench (section 6 of the design) before becoming default.
+  bench (section 6 of the design) before becoming default, unless the owner decides
+  otherwise (shared leaves + subtrees: default by the owner's decision, 2026-09-27).
+  Tests that check what the bank alone reaches (test_rewrites expectRewrite) turn off
+  overflow, shared leaves and subtrees.
 
 ## Known limitations (v1, by design)
 - Bank cost is tree cost: solutions that need a shared intermediate value are missed
@@ -331,7 +338,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    the owner's first runs on Windows (AMD/NVIDIA, DX11/Vulkan). Then: new test package
    (bundle presets double as bench presets), merge sopt-timer.csv results into the report.
 3. M5 rest: probe effect, facts database, `__DEVICE__` paths.
-4. M7 search scaling (owner's go 2026-09-27). Flags, off by default:
+4. M7 search scaling (owner's go 2026-09-27). Default since 2026-09-27 (owner: "not too much
+   extra time; we want the search that finds the best variants"), off with --no-...:
    `--shared-leaves` (SearchConfig::sharedLeaves: the target's own subexpressions, up to 16,
    are free level-0 leaves; `upgradeShared` swaps in a cheaper program of the same value;
    hits not below the target's DAG cost dropped) and `--subtrees` (Options::subtrees,

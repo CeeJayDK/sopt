@@ -79,11 +79,11 @@ void usage() {
       "  --no-accuracy-variants  do not keep candidates that are only more accurate (not cheaper)\n"
       "  --no-exact-rule   variants must stay within the budget of the original (default:\n"
       "                    also where at least as close to exact math as the original)\n"
-      "  --shared-leaves   the target's own subexpressions are free leaves of the search\n"
-      "                    (rewrites that reuse an intermediate value, e.g. u * u)\n"
-      "  --subtrees        when the search hits a limit, also search subexpressions (cost <=\n"
-      "                    --subtree-max-cost, default 64; --subtree-time S each, default 1)\n"
-      "                    and try the whole expression with the cheaper forms put back\n"
+      "  --no-shared-leaves  the target's own subexpressions are not free leaves of the\n"
+      "                    search (default: they are, for rewrites that reuse a value, u * u)\n"
+      "  --no-subtrees     no subtree search (default: when the search hits a limit, also\n"
+      "                    search subexpressions of cost <= --subtree-max-cost, default 64,\n"
+      "                    --subtree-time S each, default 1, and put the cheaper forms back)\n"
       "  --no-overflow     stop a region's search when the bank is full (default: keep\n"
       "                    combining the stored entries until --time)\n"
       "  --loose F         also list less accurate variants: within F times the budget or\n"
@@ -186,8 +186,8 @@ int main(int argc, char** argv) {
     else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--no-overflow") opt.search.overflow = false;
-    else if (a == "--subtrees") opt.subtrees = true;
-    else if (a == "--shared-leaves") opt.search.sharedLeaves = true;
+    else if (a == "--no-subtrees") opt.subtrees = false;
+    else if (a == "--no-shared-leaves") opt.search.sharedLeaves = false;
     else if (a == "--subtree-time") opt.subtreeTime = std::strtod(next(), nullptr);
     else if (a == "--subtree-max-cost") opt.subtreeMaxCost = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--facts") factsFile = next();

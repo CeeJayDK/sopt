@@ -26,6 +26,8 @@ void expectRewrite(const char* file, bool affine = false, size_t maxBank = 2'000
   opt.search.affine = affine;
   opt.search.maxBank = maxBank;
   opt.search.overflow = false;  // these check what the bank alone reaches
+  opt.search.sharedLeaves = false;  // ... with the plain leaves
+  opt.subtrees = false;
   opt.search.model = model;
   opt.search.order = order;
   opt.search.inner = inner;

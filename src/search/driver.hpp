@@ -44,7 +44,7 @@ struct Options {
   // target's subexpressions of cost <= subtreeMaxCost (at most maxSubtrees, largest
   // first, subtreeTime seconds each) and offer the whole expression with the cheaper
   // forms put back as candidates (search/subtrees.hpp).
-  bool subtrees = false;
+  bool subtrees = true;   // default (owner, 2026-09-27); --no-subtrees
   double subtreeTime = 1.0;
   uint32_t subtreeMaxCost = 64;
   uint32_t maxSubtrees = 24;

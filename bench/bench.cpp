@@ -161,8 +161,8 @@ int main(int argc, char** argv) {
     else if (a == "--no-inner") opt.search.inner = false;
     else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
     else if (a == "--no-overflow") opt.search.overflow = false;
-    else if (a == "--subtrees") opt.subtrees = true;
-    else if (a == "--shared-leaves") opt.search.sharedLeaves = true;
+    else if (a == "--no-subtrees") opt.subtrees = false;
+    else if (a == "--no-shared-leaves") opt.search.sharedLeaves = false;
     else if (a == "--subtree-time") opt.subtreeTime = std::strtod(next(), nullptr);
     else if (a == "--subtree-max-cost") opt.subtreeMaxCost = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--no-exact-rule") opt.exactRule = false;
