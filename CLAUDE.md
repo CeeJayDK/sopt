@@ -174,9 +174,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   intrinsics and modifiers (mad, clamp, saturate, rcp, rsqrt, ...) are.
 - Every new search technique goes behind a flag and must improve time-to-best on the
   bench (section 6 of the design) before becoming default, unless the owner decides
-  otherwise (shared leaves + subtrees: default by the owner's decision, 2026-09-27).
+  otherwise (shared leaves, subtrees and cut points: default by the owner's decision, 2026-09-27).
   Tests that check what the bank alone reaches (test_rewrites expectRewrite) turn off
-  overflow, shared leaves and subtrees.
+  overflow, shared leaves, subtrees and cuts.
 
 ## Known limitations (v1, by design)
 - Bank cost is tree cost: solutions that need a shared intermediate value are missed
@@ -362,7 +362,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    599-602 (back), GloomAO/RadiantGI 2 * abs(x), SnowScape, Technicolor, EyeAdaption.
    The run found two old bugs: affine hits on vector values built scalar constants
    (now typed), and a UTF-8 BOM ended up after the generated header (DisplayDepth.fx).
-   Cut points (2026-09-27, flag `--cuts`, off until the owner decides; search/cuts.cpp):
+   Cut points (2026-09-27, default by the owner's decision, `--no-cuts`; search/cuts.cpp):
    nodes v that the rest reads the inputs below v only through (dominators); top(cut,
    other inputs) is searched over v's sampled range (box domain exact), sub as in the
    subtree search (`searchPart`, shared cache), combinations verified as candidates.

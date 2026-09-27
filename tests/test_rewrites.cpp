@@ -29,6 +29,7 @@ void expectRewrite(const char* file, bool affine = false, size_t maxBank = 2'000
   opt.search.overflow = false;  // these check what the bank alone reaches
   opt.search.sharedLeaves = false;  // ... with the plain leaves
   opt.subtrees = false;
+  opt.cuts = false;
   opt.search.model = model;
   opt.search.order = order;
   opt.search.inner = inner;
@@ -165,9 +166,10 @@ TEST(cut_points) {
   opt.search.maxBank = 20000;
   opt.search.sharedLeaves = false;
   opt.subtrees = false;
+  opt.cuts = false;
   const RunResult off = optimize(p, opt);
   opt.cuts = true;
-  opt.cutTime = 0.5;
+  opt.cutTime = 2.0;  // the top search needs a second CEGIS round (counterexamples)
   const RunResult on = optimize(p, opt);
   CHECK(on.cutSearches > 0);
   CHECK(!on.accepted.empty() && on.accepted[0].cost < on.targetCost);

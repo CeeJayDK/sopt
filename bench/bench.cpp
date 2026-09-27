@@ -162,7 +162,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
-    else if (a == "--cuts") opt.cuts = true;
+    else if (a == "--no-cuts") opt.cuts = false;
     else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);
     else if (a == "--no-shared-leaves") opt.search.sharedLeaves = false;
     else if (a == "--subtree-time") opt.subtreeTime = std::strtod(next(), nullptr);

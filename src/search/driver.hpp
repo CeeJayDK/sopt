@@ -48,11 +48,11 @@ struct Options {
   double subtreeTime = 1.0;
   uint32_t subtreeMaxCost = 64;
   uint32_t maxSubtrees = 24;
-  // Cut points (M7, flag --cuts; search/cuts.hpp): when the bottom-up search hits a limit,
+  // Cut points (M7; search/cuts.hpp): when the bottom-up search hits a limit,
   // split the target at nodes that the rest depends on for everything below them, search
   // both parts on their own (at most maxCuts cuts, cutTime seconds per part) and offer
   // the combinations as candidates.
-  bool cuts = false;
+  bool cuts = true;  // default (owner, 2026-09-27); --no-cuts
   double cutTime = 1.0;
   uint32_t maxCuts = 8;
   unsigned threads = 0;          // 0 = hardware concurrency
