@@ -101,6 +101,22 @@ if(WIN32)
   enable_language(C)
   add_executable(sopt-fxc tools/fxc/sopt_fxc.c)
   target_link_libraries(sopt-fxc PRIVATE d3dcompiler)
+
+  # M4 benchmark harness (tools/timer/README.md): sopt-timer, a ReShade add-on (needs
+  # ReShade with full add-on support), and sopt-host, a DX11 / Vulkan window showing one
+  # fixed image with vsync off.
+  add_library(sopt-timer SHARED tools/timer/sopt_timer.cpp)
+  target_include_directories(sopt-timer PRIVATE third_party/reshade-addon/include third_party/reshade-addon/imgui)
+  target_compile_features(sopt-timer PRIVATE cxx_std_17)
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set_target_properties(sopt-timer PROPERTIES PREFIX "" SUFFIX ".addon64")
+  else()
+    set_target_properties(sopt-timer PROPERTIES PREFIX "" SUFFIX ".addon32")
+  endif()
+  add_executable(sopt-host tools/host/sopt_host.cpp)
+  target_include_directories(sopt-host PRIVATE third_party/vulkan)
+  target_compile_features(sopt-host PRIVATE cxx_std_17)
+  target_link_libraries(sopt-host PRIVATE d3d11 dxgi ole32 windowscodecs)
 endif()
 
 if(SOPT_BUILD_TESTS)

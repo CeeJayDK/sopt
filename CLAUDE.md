@@ -32,6 +32,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   sopt-fxc.exe, tools/fxc, run under Wine with Microsoft's d3dcompiler_47.dll off Windows).
   NVIDIA: `SOPT_PTXAS=... SOPT_NVDISASM=... build/sopt ... --sass` (pip:
   nvidia-cuda-nvcc-cu12 for ptxas, nvidia-cuda-nvdisasm for nvdisasm).
+  Harness (M4, Windows): `sopt-host --api dx11|vulkan --bench` with ReShade (full add-on
+  support) and `sopt-timer.addon64` (tools/timer/README.md); CI artifact sopt-windows-tools.
   Tools: ReShade-Testing-Initiative (`build_reshade_testing_initiative.sh`, needs
   spirv-tools, flex, bison) and RGA 2.14 (`rga-linux-2.14.tgz` from GitHub releases).
 
@@ -65,6 +67,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   fewer for 58, more for 2 (Temporal_AA rational forms, faster in AMD/NVIDIA ISA). SPIR-V
   identity is too strict (inputs read from the test texture differently, e.g. Daltonize
   folds to 0 alu in both): counts only; DXBC identity is meaningful.
+- `tools/timer` (sopt-timer, ReShade add-on): passive per-technique GPU timestamps (median,
+  p10-p90, 60-frame mean like ReShade's statistics); bench walks the bundle's sopt-*.ini
+  presets, renders each X_orig / X_sopt pair itself on the frame before any effect (A B B A /
+  B A A B, per-frame paired difference), writes sopt-timer.csv. ReShade does not send an
+  add-on the events its own render_technique causes: validity = the chain rendered the
+  technique this frame. D3D11 frames bracketed by TIMESTAMP_DISJOINT (ReShade never checks).
+  `tools/host` (sopt-host): DX11 / Vulkan window, fixed image, vsync off; Vulkan loaded at
+  run time. Headers vendored: third_party/reshade-addon (ReShade 6.8.0 API, ImGui 1.92.5),
+  third_party/vulkan. Add-on must be built with MSVC (member functions returning small
+  structs differ between MSVC and mingw ABIs); tested under Wine/DXVK/lavapipe with a mingw
+  ReShade (DX11 end to end; Vulkan host presents; ReShade Vulkan layer untested there).
 - `third_party/reshadefx`: ReShade 6.8.0 FX lexer/preprocessor/parser, unmodified
   except `symbolic_macros`, `\` -> `/` and case-insensitive lookup for #include names off Windows (built as C++17). `src/fx/codegen`: its codegen interface recorded as a dataflow graph
   (values with seq/block, statements Init/Store/Return, loops, samplers, uniforms).
@@ -301,9 +314,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    made it much easier).
 1. Optional (owner: "could"): after search, try re-writing the best candidates with pure
    helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only.
-2. M4: GPU benchmark harness (needs the owner's Windows machine; not testable in the
-   cloud sandbox) and backend normalization (spirv-opt; --isa/--sass already cover it
-   largely) — ask which first.
+2. M4: backend normalization done; harness written (sopt-timer + sopt-host), waiting for
+   the owner's first runs on Windows (AMD/NVIDIA, DX11/Vulkan). Then: new test package
+   (bundle presets double as bench presets), merge sopt-timer.csv results into the report.
 3. M5 rest: probe effect, facts database, `__DEVICE__` paths.
 4. M7 search scaling (shared leaves for needs-sharing, cut points, V3) — ask first.
 
