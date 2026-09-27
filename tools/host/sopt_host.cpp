@@ -3,12 +3,16 @@
 // time (vulkan-1.dll), no SDK needed.
 //
 //   sopt-host [--api dx11|vulkan] [--width 3840] [--height 2160] [--image file.png]
-//             [--frames N] [--bench]
+//             [--frames N] [--bench] [--no-depth]
 //
 // --bench sets SOPT_TIMER_AUTO=1 and SOPT_TIMER_EXIT=1: sopt-timer runs its bench over the
 // sopt-*.ini presets and closes the window when done. Without --image the input is a
 // procedural test image (gradients, colour patches, noise; the same every run).
-// There is no depth buffer: depth-based effects see ReShade's empty depth texture.
+// Depth: every frame draws a procedural scene into a depth buffer the way a game does
+// (a grid of quads in 144 draw calls, depth written through z)
+// (ground plane up to a horizon, sky at the far plane, three spheres; reversed Z like
+// most current games and ReShade's default, near 0.1, far 1000), so ReShade's generic depth picks it up and depth effects do real
+// work. --no-depth leaves it out.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -33,6 +37,9 @@
 #include <string>
 #include <vector>
 
+#include "depth_dxbc.h"
+#include "depth_spv.h"
+
 namespace {
 
 struct Options {
@@ -41,6 +48,7 @@ struct Options {
   std::string image;
   uint64_t frames = 0;   // 0 = until closed
   bool bench = false;
+  bool depth = true;
 };
 
 void fail(const char* what) {
@@ -187,6 +195,12 @@ void showFps(HWND hwnd, const char* api, uint64_t frame) {
 
 // ---- DX11 ------------------------------------------------------------------------------
 
+// The depth pass (depth.hlsl, precompiled with Microsoft's compiler into depth_dxbc.h; the
+// same scene as depth.vert for Vulkan): a grid of quads, one row per draw call (ReShade's
+// generic depth ignores depth buffers with <= 3 vertices or <= 8 draw calls), depth computed
+// per vertex and written through z, no pixel shader: a z prepass.
+constexpr unsigned kGridCols = 256, kGridRows = 144;
+
 int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   ID3D11Device* dev = nullptr;
   ID3D11DeviceContext* ctx = nullptr;
@@ -232,15 +246,74 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   ID3D11Texture2D* img = nullptr;
   if (FAILED(dev->CreateTexture2D(&td, &init, &img))) fail("cannot create image texture");
 
+  // Depth pass objects: a D24S8 depth buffer (typeless, like most games) and a depth-only
+  // draw of the scene.
+  ID3D11Texture2D* depthTex = nullptr;
+  ID3D11DepthStencilView* dsv = nullptr;
+  ID3D11VertexShader* vs = nullptr;
+  ID3D11InputLayout* layout = nullptr;
+  ID3D11Buffer* ids = nullptr;
+  ID3D11DepthStencilState* dss = nullptr;
+  ID3D11RasterizerState* rs = nullptr;
+  if (o.depth) {
+    D3D11_TEXTURE2D_DESC dd = td;
+    dd.Format = DXGI_FORMAT_R24G8_TYPELESS;
+    dd.Usage = D3D11_USAGE_DEFAULT;
+    dd.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+    if (FAILED(dev->CreateTexture2D(&dd, nullptr, &depthTex))) fail("cannot create depth buffer");
+    D3D11_DEPTH_STENCIL_VIEW_DESC dvd = {};
+    dvd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dvd.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+    if (FAILED(dev->CreateDepthStencilView(depthTex, &dvd, &dsv))) fail("cannot create depth view");
+    if (FAILED(dev->CreateVertexShader(kDepthVsDxbc, sizeof(kDepthVsDxbc), nullptr, &vs)))
+      fail("cannot create the depth vertex shader");
+    // Vertex indices in a buffer: SV_VertexID would not include each row's start vertex.
+    std::vector<uint32_t> idx(kGridCols * kGridRows * 6);
+    for (uint32_t i = 0; i < idx.size(); ++i) idx[i] = i;
+    const D3D11_BUFFER_DESC bd = {UINT(idx.size() * 4), D3D11_USAGE_IMMUTABLE, D3D11_BIND_VERTEX_BUFFER, 0, 0, 0};
+    const D3D11_SUBRESOURCE_DATA bdata = {idx.data(), 0, 0};
+    if (FAILED(dev->CreateBuffer(&bd, &bdata, &ids))) fail("cannot create the depth vertex buffer");
+    const D3D11_INPUT_ELEMENT_DESC ie = {"TEXCOORD", 0, DXGI_FORMAT_R32_UINT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0};
+    if (FAILED(dev->CreateInputLayout(&ie, 1, kDepthVsDxbc, sizeof(kDepthVsDxbc), &layout)))
+      fail("cannot create the depth input layout");
+    D3D11_DEPTH_STENCIL_DESC dsd = {};
+    dsd.DepthEnable = TRUE;
+    dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+    dsd.DepthFunc = D3D11_COMPARISON_GREATER_EQUAL;
+    if (FAILED(dev->CreateDepthStencilState(&dsd, &dss))) fail("cannot create depth state");
+    D3D11_RASTERIZER_DESC rd = {};
+    rd.FillMode = D3D11_FILL_SOLID;
+    rd.CullMode = D3D11_CULL_NONE;
+    rd.DepthClipEnable = TRUE;
+    if (FAILED(dev->CreateRasterizerState(&rd, &rs))) fail("cannot create rasterizer state");
+  }
+  const D3D11_VIEWPORT vp = {0.0f, 0.0f, float(o.width), float(o.height), 0.0f, 1.0f};
+
   for (uint64_t frame = 0; pump() && (!o.frames || frame < o.frames); ++frame) {
     ID3D11Texture2D* bb = nullptr;
     sc->GetBuffer(0, IID_PPV_ARGS(&bb));
     ctx->CopyResource(bb, img);
     bb->Release();
+    if (o.depth) {
+      ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 0.0f, 0);  // reversed Z
+      ctx->OMSetRenderTargets(0, nullptr, dsv);  // depth only (a z prepass): the image stays
+      ctx->OMSetDepthStencilState(dss, 0);
+      ctx->RSSetState(rs);
+      ctx->RSSetViewports(1, &vp);
+      const UINT stride = 4, offset = 0;
+      ctx->IASetInputLayout(layout);
+      ctx->IASetVertexBuffers(0, 1, &ids, &stride, &offset);
+      ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+      ctx->VSSetShader(vs, nullptr, 0);
+      ctx->PSSetShader(nullptr, nullptr, 0);
+      for (UINT row = 0; row < kGridRows; ++row) ctx->Draw(kGridCols * 6, row * kGridCols * 6);
+    }
     sc->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0);
     showFps(hwnd, "dx11", frame);
   }
   ctx->ClearState();
+  for (IUnknown* u : std::initializer_list<IUnknown*>{rs, dss, layout, ids, vs, dsv, depthTex})
+    if (u) u->Release();
   img->Release();
   sc->Release();
   factory->Release();
@@ -267,7 +340,10 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   X(vkWaitForFences) X(vkResetFences) X(vkCreateBuffer) X(vkGetBufferMemoryRequirements)   \
   X(vkBindBufferMemory) X(vkCreateImage) X(vkGetImageMemoryRequirements)                   \
   X(vkBindImageMemory) X(vkAllocateMemory) X(vkMapMemory) X(vkUnmapMemory)                 \
-  X(vkDestroyBuffer) X(vkFreeMemory)
+  X(vkDestroyBuffer) X(vkFreeMemory) X(vkCreateImageView) X(vkCreateRenderPass)             \
+  X(vkCreateFramebuffer) X(vkCreateShaderModule) X(vkCreatePipelineLayout)                 \
+  X(vkCreateGraphicsPipelines) X(vkCmdBeginRenderPass) X(vkCmdEndRenderPass)               \
+  X(vkCmdBindPipeline) X(vkCmdDraw)
 
 #define VK_DECLARE(name) PFN_##name name = nullptr;
 VK_FUNCS(VK_DECLARE)
@@ -503,6 +579,140 @@ int runVulkan(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   vkDestroyBuffer(dev, staging, nullptr);
   vkFreeMemory(dev, stagingMem, nullptr);
 
+  // Depth pass (depth.vert): a render pass over the swap chain image (loaded and kept) and
+  // a D32 depth buffer, one pipeline, a framebuffer per swap chain image.
+  VkRenderPass rp = VK_NULL_HANDLE;
+  VkPipeline pipe = VK_NULL_HANDLE;
+  std::vector<VkFramebuffer> fbs;
+  if (o.depth) {
+    const VkFormat df = VK_FORMAT_D32_SFLOAT;
+    VkImageCreateInfo di = ii;
+    di.format = df;
+    di.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    VkImage depthImg;
+    vkCheck(vkCreateImage(dev, &di, nullptr, &depthImg), "vkCreateImage (depth)");
+    vkGetImageMemoryRequirements(dev, depthImg, &mr);
+    mai.allocationSize = mr.size;
+    mai.memoryTypeIndex = memoryType(pd, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    VkDeviceMemory depthMem;
+    vkCheck(vkAllocateMemory(dev, &mai, nullptr, &depthMem), "vkAllocateMemory (depth)");
+    vkBindImageMemory(dev, depthImg, depthMem, 0);
+    VkImageViewCreateInfo vci = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vci.image = depthImg;
+    vci.format = df;
+    vci.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+    VkImageView depthView;
+    vkCheck(vkCreateImageView(dev, &vci, nullptr, &depthView), "vkCreateImageView (depth)");
+
+    VkAttachmentDescription att[2] = {};
+    att[0].format = fmt.format;
+    att[0].samples = VK_SAMPLE_COUNT_1_BIT;
+    att[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    att[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    att[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    att[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    att[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    att[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    att[1] = att[0];
+    att[1].format = df;
+    att[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    att[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    att[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    const VkAttachmentReference colorRef = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    const VkAttachmentReference depthRef = {1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription spd = {};
+    spd.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    spd.colorAttachmentCount = 1;
+    spd.pColorAttachments = &colorRef;
+    spd.pDepthStencilAttachment = &depthRef;
+    VkSubpassDependency dep = {};
+    dep.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass = 0;
+    dep.srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dep.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    VkRenderPassCreateInfo rpi = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+    rpi.attachmentCount = 2;
+    rpi.pAttachments = att;
+    rpi.subpassCount = 1;
+    rpi.pSubpasses = &spd;
+    rpi.dependencyCount = 1;
+    rpi.pDependencies = &dep;
+    vkCheck(vkCreateRenderPass(dev, &rpi, nullptr, &rp), "vkCreateRenderPass");
+
+    for (VkImage si : scImages) {
+      VkImageViewCreateInfo cvi = vci;
+      cvi.image = si;
+      cvi.format = fmt.format;
+      cvi.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      VkImageView cv;
+      vkCheck(vkCreateImageView(dev, &cvi, nullptr, &cv), "vkCreateImageView");
+      const VkImageView views[2] = {cv, depthView};
+      VkFramebufferCreateInfo fci = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+      fci.renderPass = rp;
+      fci.attachmentCount = 2;
+      fci.pAttachments = views;
+      fci.width = w;
+      fci.height = h;
+      fci.layers = 1;
+      VkFramebuffer fb;
+      vkCheck(vkCreateFramebuffer(dev, &fci, nullptr, &fb), "vkCreateFramebuffer");
+      fbs.push_back(fb);
+    }
+
+    VkShaderModuleCreateInfo smi = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    smi.codeSize = sizeof(kDepthVertSpv);
+    smi.pCode = kDepthVertSpv;
+    VkShaderModule mod;
+    vkCheck(vkCreateShaderModule(dev, &smi, nullptr, &mod), "vkCreateShaderModule");
+    VkPipelineShaderStageCreateInfo stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    stage.stage = VK_SHADER_STAGE_VERTEX_BIT;  // depth only: no fragment shader
+    stage.module = mod;
+    stage.pName = "main";
+    VkPipelineVertexInputStateCreateInfo vin = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkPipelineInputAssemblyStateCreateInfo ia = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    const VkViewport vp = {0.0f, 0.0f, float(w), float(h), 0.0f, 1.0f};
+    const VkRect2D scissor = {{0, 0}, {w, h}};
+    VkPipelineViewportStateCreateInfo vps = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    vps.viewportCount = 1;
+    vps.pViewports = &vp;
+    vps.scissorCount = 1;
+    vps.pScissors = &scissor;
+    VkPipelineRasterizationStateCreateInfo ras = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    ras.polygonMode = VK_POLYGON_MODE_FILL;
+    ras.cullMode = VK_CULL_MODE_NONE;
+    ras.lineWidth = 1.0f;
+    VkPipelineMultisampleStateCreateInfo ms = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineDepthStencilStateCreateInfo ds = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    ds.depthTestEnable = VK_TRUE;
+    ds.depthWriteEnable = VK_TRUE;
+    ds.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+    VkPipelineColorBlendAttachmentState cba = {};  // colorWriteMask 0: the image stays
+    VkPipelineColorBlendStateCreateInfo cb = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    cb.attachmentCount = 1;
+    cb.pAttachments = &cba;
+    VkPipelineLayoutCreateInfo pli = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    VkPipelineLayout layout;
+    vkCheck(vkCreatePipelineLayout(dev, &pli, nullptr, &layout), "vkCreatePipelineLayout");
+    VkGraphicsPipelineCreateInfo gpi = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    gpi.stageCount = 1;
+    gpi.pStages = &stage;
+    gpi.pVertexInputState = &vin;
+    gpi.pInputAssemblyState = &ia;
+    gpi.pViewportState = &vps;
+    gpi.pRasterizationState = &ras;
+    gpi.pMultisampleState = &ms;
+    gpi.pDepthStencilState = &ds;
+    gpi.pColorBlendState = &cb;
+    gpi.layout = layout;
+    gpi.renderPass = rp;
+    vkCheck(vkCreateGraphicsPipelines(dev, VK_NULL_HANDLE, 1, &gpi, nullptr, &pipe), "vkCreateGraphicsPipelines");
+  }
+
   VkSemaphoreCreateInfo semi = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
   VkFenceCreateInfo fi = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
   fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -532,8 +742,26 @@ int runVulkan(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
     ic.extent = {w, h, 1};
     vkCmdCopyImage(cb, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, scImages[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                    &ic);
-    imageBarrier(cb, scImages[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                 VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    if (o.depth) {
+      imageBarrier(cb, scImages[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+      VkClearValue clear[2] = {};
+      clear[1].depthStencil = {0.0f, 0};  // reversed Z
+      VkRenderPassBeginInfo rbi = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+      rbi.renderPass = rp;
+      rbi.framebuffer = fbs[idx];
+      rbi.renderArea = {{0, 0}, {w, h}};
+      rbi.clearValueCount = 2;
+      rbi.pClearValues = clear;
+      vkCmdBeginRenderPass(cb, &rbi, VK_SUBPASS_CONTENTS_INLINE);
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+      for (uint32_t row = 0; row < kGridRows; ++row) vkCmdDraw(cb, kGridCols * 6, 1, row * kGridCols * 6, 0);
+      vkCmdEndRenderPass(cb);  // final layout: present
+    } else {
+      imageBarrier(cb, scImages[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                   VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    }
     vkEndCommandBuffer(cb);
     const VkPipelineStageFlags wait = VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo s = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -575,9 +803,10 @@ int main(int argc, char** argv) {
     else if (a == "--image") o.image = next();
     else if (a == "--frames") o.frames = std::strtoull(next(), nullptr, 10);
     else if (a == "--bench") o.bench = true;
+    else if (a == "--no-depth") o.depth = false;
     else {
       std::printf("usage: sopt-host [--api dx11|vulkan] [--width 3840] [--height 2160] [--image file] [--frames N] "
-                  "[--bench]\n");
+                  "[--bench] [--no-depth]\n");
       return a == "-h" || a == "--help" ? 0 : 1;
     }
   }

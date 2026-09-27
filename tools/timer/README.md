@@ -71,7 +71,21 @@ chain is 4K regardless of the window.
 **Image:** without `--image`, sopt-host shows a procedural test image: a hue sweep, a grey ramp,
 colour patches, and smooth content with noise. It is the same on every run.
 
-**Depth:** there is no depth buffer, so depth-based effects see an empty depth texture.
+**Depth:** every frame draws a procedural scene into a depth buffer, the way a game's z
+prepass does, so ReShade's generic depth picks it up and depth effects do real work:
+- The scene is a ground plane up to a horizon, sky at the far plane, and three spheres.
+- Depth is reversed Z (ReShade's default `RESHADE_DEPTH_INPUT_IS_REVERSED = 1`), near 0.1,
+  far 1000.
+- It is drawn as a 256 x 144 grid in 144 draw calls, because generic depth ignores depth
+  buffers with 3 or fewer vertices or 8 or fewer draw calls.
+- The format is D24S8 (typeless) on DX11 and D32 on Vulkan.
+- `--no-depth` leaves it out.
+
+The shaders are `tools/host/depth.hlsl` and `tools/host/depth.vert`; keep them in sync.
+They are embedded as `depth_dxbc.h`, compiled with Microsoft's `D3DCompile` (vs_5_0,
+entry VS, O3), and `depth_spv.h` (`glslangValidator -V depth.vert`). In D3D11,
+`SV_VertexID` does not include a draw's start vertex, so the vertex index comes from a
+vertex buffer.
 
 **Closing:** `--bench` closes the window when the CSV is written. Shift+Esc closes it by hand.
 

@@ -76,7 +76,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   add-on the events its own render_technique causes: validity = the chain rendered the
   technique this frame. D3D11 frames bracketed by TIMESTAMP_DISJOINT (ReShade never checks).
   `tools/host` (sopt-host): DX11 / Vulkan window, fixed image, vsync off; Vulkan loaded at
-  run time. Headers vendored: third_party/reshade-addon (ReShade 6.8.0 API, ImGui 1.92.5),
+  run time; synthetic depth (owner's go 2026-09-27): z prepass of a procedural scene,
+  reversed Z, 256x144 grid in 144 draws (generic depth skips <= 3 vertices / <= 8 draws),
+  shaders depth.hlsl -> depth_dxbc.h (Microsoft D3DCompile) and depth.vert -> depth_spv.h;
+  D3D11 SV_VertexID excludes the start vertex, so ids come from a vertex buffer. Checked
+  under Wine with ReShade + DisplayDepth (DX11) and a Vulkan run. CI builds sopt-timer.addon32 too. Headers vendored: third_party/reshade-addon (ReShade 6.8.0 API, ImGui 1.92.5),
   third_party/vulkan. Add-on must be built with MSVC (member functions returning small
   structs differ between MSVC and mingw ABIs); tested under Wine/DXVK/lavapipe with a mingw
   ReShade (DX11 end to end; Vulkan host presents; ReShade Vulkan layer untested there).
