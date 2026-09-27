@@ -327,7 +327,20 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    the owner's first runs on Windows (AMD/NVIDIA, DX11/Vulkan). Then: new test package
    (bundle presets double as bench presets), merge sopt-timer.csv results into the report.
 3. M5 rest: probe effect, facts database, `__DEVICE__` paths.
-4. M7 search scaling (shared leaves for needs-sharing, cut points, V3) — ask first.
+4. M7 search scaling (owner's go 2026-09-27). Flags, off by default:
+   `--shared-leaves` (SearchConfig::sharedLeaves: the target's own subexpressions, up to 16,
+   are free level-0 leaves; `upgradeShared` swaps in a cheaper program of the same value;
+   hits not below the target's DAG cost dropped) and `--subtrees` (Options::subtrees,
+   search/subtrees.cpp: when the search hits a limit, subexpressions of cost <= 64, max 24,
+   1 s each, cached per run, searched with rel 1e-6 + accuracy rule; each cheaper form put
+   back and the best disjoint ones combined become candidates, verified as usual).
+   Bench (examples + 12 planted, time 30), shared leaves vs none: normalize_x found (28,
+   never before), rsqrt_affine 24 -> 21, planted_7 found, needs-sharing 0 (was 1), first
+   hits faster; lost: length_squared (at the bank's edge anyway) and planted_1 13 -> 16
+   (the extra leaves fill the bank sooner). Subtrees alone: normalize_x 44, rest the same.
+   Tonemap.fxh:109 (cost 121): both 121 -> 71 (pow(abs(u), 2.0) -> u * u, mads).
+   Corpus evaluation: see the latest status in the chat / docs.
+   Still open in M7: cut points, V3, quantized OE.
 
 ## Under discussion (not decided — ask before implementing)
 - Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,
