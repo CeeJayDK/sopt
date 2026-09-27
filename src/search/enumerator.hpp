@@ -44,6 +44,12 @@ struct SearchConfig {
   // builds anyway, so trying both wastes time. Single-instruction intrinsics (mad = fma,
   // clamp = med3, saturate = modifier, rcp, rsqrt) are always enumerated.
   bool helpers = false;
+  // Shared leaves (M7, flag): the target's own subexpressions (up to maxShared, most
+  // expensive first) are extra level-0 leaves at no cost, so rewrites that use one of the
+  // original's intermediate values twice (u * u for pow(abs(u), 2.0)) are reached although
+  // the bank prices trees. Candidates are still ranked by their real DAG cost.
+  bool sharedLeaves = false;
+  uint32_t maxShared = 16;
 };
 
 struct LevelStats {
@@ -179,6 +185,7 @@ class Enumerator {
   float constValue(uint32_t idx) const { return consts_[entries_[idx].aux][0]; }
   const std::vector<Type>& floatTypes() const { return types_; }
   Expr extract(const Entry& e) const;
+  void addSharedLeaves(SearchStats& stats);
   Expr extract(const AffineHit& h) const;
   uint32_t build(ExprBuilder& b, const Entry& e) const;
   void checkLimits(SearchStats& stats);
@@ -210,6 +217,8 @@ class Enumerator {
   std::vector<float> fp_;
   std::vector<uint64_t> off_;  // fingerprint offset of each entry in fp_
   std::vector<std::array<float, 4>> consts_;
+  std::vector<Expr> shared_;  // SearchConfig::sharedLeaves: Input entries with aux >= kShared
+  static constexpr uint32_t kShared = 0x40000000u;
   std::vector<std::array<std::vector<uint32_t>, kNumTypes>> byCost_;
   std::vector<uint32_t> table_;
   std::vector<float> scratch_;

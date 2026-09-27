@@ -40,6 +40,14 @@ struct Options {
   // target's static cost. Also enables SearchConfig::rational.
   bool accuracyVariants = true;
   uint32_t accuracySlack = 8;
+  // Subtree search (M7, flag): when the bottom-up search hits a limit, search the
+  // target's subexpressions of cost <= subtreeMaxCost (at most maxSubtrees, largest
+  // first, subtreeTime seconds each) and offer the whole expression with the cheaper
+  // forms put back as candidates (search/subtrees.hpp).
+  bool subtrees = false;
+  double subtreeTime = 1.0;
+  uint32_t subtreeMaxCost = 64;
+  uint32_t maxSubtrees = 24;
   unsigned threads = 0;          // 0 = hardware concurrency
   SearchConfig search;
 };
@@ -74,6 +82,8 @@ struct RunResult {
   uint64_t rejectedV1 = 0;
   uint64_t rejectedProfiles = 0;
   uint64_t rejectedV2 = 0;
+  uint32_t subtreeSearches = 0;  // Options::subtrees: subexpressions searched (not cached)
+  double subtreeSec = 0.0;
   uint64_t v2Points = 0;  // domain size when V2 applied, else 0  // passed ref but failed mix/fma/gpu
   double searchSec = 0.0;
   double verifySec = 0.0;

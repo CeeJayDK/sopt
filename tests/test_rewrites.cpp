@@ -2,6 +2,7 @@
 
 #include "ir/parser.hpp"
 #include "search/driver.hpp"
+#include "search/subtrees.hpp"
 #include "test.hpp"
 
 using namespace sopt;
@@ -83,4 +84,42 @@ TEST(nvidia_step_lerp) {
 // expressions of F and verified over F in [2, 1000].
 TEST(specialize_depth_far) {
   expectRewrite("depth_far.sopt", true, 50'000, &costRdna3(), nullptr, true);
+}
+
+TEST(shared_leaves_reuse) {
+  // pow(abs(u), 2.0) -> u * u: u appears twice, so its tree cost is out of reach in a
+  // second; as a shared leaf (the target's own subexpression) it is one multiply away.
+  Program p = parseProgram(
+      "input c : float in [0, 16]\noutput r = pow(abs(c * 0.15 + -0.005000001), 2.0)\nbudget r : rel 1e-6\n");
+  Options opt;
+  opt.v1Points = 1u << 16;
+  opt.search.timeLimitSec = 1.0;
+  opt.search.sharedLeaves = true;
+  const RunResult r = optimize(p, opt);
+  CHECK(!r.accepted.empty());
+  CHECK(!r.accepted.empty() && r.accepted[0].cost <= 12 && !containsOp(r.accepted[0].expr, Op::Pow));
+}
+
+TEST(subtree_search) {
+  // Too large for the bottom-up search (cost 121): the subexpressions are searched on their
+  // own and put back; the result is verified against the whole region's budget.
+  Program p = parseProgram(
+      "input c : float in [0, 16]\n"
+      "output r = abs((0.005000001 - c * 0.15 - sqrt(pow(abs(c * 0.15 + -0.005000001), 2.0) - c * 0.072000004 * "
+      "(c * 0.045 + 0.003 - 0.045))) / (0.3 * (c * 0.3 + 0.02 - 0.3)))\n"
+      "budget r : rel 1e-6\n");
+  Options opt;
+  opt.v1Points = 1u << 16;
+  opt.search.timeLimitSec = 1.0;
+  opt.subtrees = true;
+  opt.subtreeTime = 0.5;
+  const RunResult r = optimize(p, opt);
+  CHECK(r.subtreeSearches > 0);
+  CHECK(!r.accepted.empty() && r.accepted[0].cost < r.targetCost);
+  // replaceNodes / subexpr round trip: replacing a node by its own subexpression is the identity.
+  const Expr& e = p.target;
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Expr s = subexpr(e, i);
+    CHECK(toString(replaceNodes(e, {{i, &s}}), p.inputs) == toString(e, p.inputs));
+  }
 }

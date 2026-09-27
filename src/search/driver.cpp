@@ -1,5 +1,6 @@
 #include "search/driver.hpp"
 
+#include "search/subtrees.hpp"
 #include "verify/exact.hpp"
 
 #include <algorithm>
@@ -112,6 +113,8 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   cfg.rational = cfg.rational && opt.accuracyVariants;
   res.v2Points = opt.v2Max ? domainSize(prog, opt.v2Max) : 0;
 
+  std::vector<Candidate> subCands;  // Options::subtrees, computed once
+  bool subDone = false;
   for (uint32_t iter = 0; iter < opt.maxIterations; ++iter) {
     res.iterations = iter + 1;
     const bool lastIter = iter + 1 == opt.maxIterations;
@@ -123,6 +126,13 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     Enumerator en(prog, tests, cfg);
     std::vector<Candidate> cands = en.run(res.search);
     res.searchSec += nowSeconds() - ts;
+    if (opt.subtrees && !subDone && res.search.limitHit) {
+      subDone = true;
+      const double tsub = nowSeconds();
+      subCands = subtreeCandidates(prog, opt, res.targetCost, &res.subtreeSearches);
+      res.subtreeSec += nowSeconds() - tsub;
+    }
+    cands.insert(cands.end(), subCands.begin(), subCands.end());
 
     ts = nowSeconds();
     std::vector<std::vector<float>> cex;

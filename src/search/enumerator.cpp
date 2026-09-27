@@ -10,6 +10,7 @@
 #include <unordered_map>
 
 #include "ir/eval.hpp"
+#include "search/subtrees.hpp"
 #include "verify/exact.hpp"
 #include "verify/verify.hpp"
 
@@ -892,6 +893,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
   const ConstPool pool = constantPool(prog_.target);
   for (float cv : pool.scalars) addConst(Type::Float, &cv, stats);
   for (const auto& [t, v] : pool.vectors) addConst(t, v.data(), stats);
+  if (cfg_.sharedLeaves) addSharedLeaves(stats);
   for (auto& list : byCost_[0])
     std::stable_sort(list.begin(), list.end(), [&](uint32_t x, uint32_t y) { return obj(x) < obj(y); });
   stats.completedCost = 0;
@@ -1054,10 +1056,39 @@ void Enumerator::enumerateTernary(Op op, uint16_t level, uint32_t r, Type ta, Ty
   }
 }
 
+void Enumerator::addSharedLeaves(SearchStats& stats) {
+  const Expr& t = prog_.target;
+  const std::vector<bool> ct = compileTimeNodes(t, prog_.inputs);
+  const Type tt = t.nodes[t.root].type;
+  std::vector<std::pair<uint32_t, uint32_t>> subs;  // (DAG cost, node)
+  for (uint32_t i = 0; i < t.nodes.size(); ++i) {
+    const Node& nd = t.nodes[i];
+    if (i == t.root || ct[i] || nd.op == Op::Input || nd.op == Op::Const || nd.op == Op::Swizzle ||
+        nd.op == Op::Construct)
+      continue;
+    if (nd.type != Type::Float && nd.type != tt) continue;
+    subs.emplace_back(dagCost(subexpr(t, i), *cfg_.model, prog_.inputs), i);
+  }
+  std::stable_sort(subs.begin(), subs.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+  if (subs.size() > cfg_.maxShared) subs.resize(cfg_.maxShared);
+  for (const auto& [cost, node] : subs) {
+    Expr s = subexpr(t, node);
+    const Type ty = s.nodes[s.root].type;
+    const std::vector<float> v = evalAll(s, tests_, kProfileRef);
+    std::copy(v.begin(), v.begin() + width(ty) * n_, scratch_.begin());
+    canonicalize(scratch_.data(), width(ty) * n_);
+    const auto aux = kShared + static_cast<uint32_t>(shared_.size());
+    shared_.push_back(std::move(s));
+    Entry e{Op::Input, ty, 0, false, {0, 0, 0}, aux, false, 0, false};
+    insert(e, scratch_.data(), stats);
+  }
+}
+
 uint32_t Enumerator::build(ExprBuilder& b, const Entry& rootEntry) const {
   std::unordered_map<uint32_t, uint32_t> memo;
   auto rec = [&](auto&& self, const Entry& e) -> uint32_t {
-    if (e.op == Op::Input) return b.input(e.aux, e.type);
+    if (e.op == Op::Input)
+      return e.aux >= kShared ? insertExpr(shared_[e.aux - kShared], b) : b.input(e.aux, e.type);
     if (e.op == Op::Const) return b.constant(e.type, consts_[e.aux].data());
     const auto& oi = info(e.op);
     uint32_t a[3] = {0, 0, 0};
