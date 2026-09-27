@@ -255,6 +255,10 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       out += "#endif\n";
     }
     for (; next <= lines->size(); ++next) out += (*lines)[next - 1] + "\n";
+    // A UTF-8 byte order mark must stay the first bytes of the file (DisplayDepth.fx has
+    // one): ahead of the generated header, not after it.
+    const std::string bom = "\xEF\xBB\xBF";
+    if (const size_t pos = out.find(bom); pos != std::string::npos) out = bom + out.erase(pos, bom.size());
     const fs::path dst = outDir / name;
     std::ofstream f(dst, std::ios::binary);
     f << out;

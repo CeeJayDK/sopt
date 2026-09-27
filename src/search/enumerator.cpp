@@ -1133,21 +1133,27 @@ Expr Enumerator::extract(const Entry& rootEntry) const {
 Expr Enumerator::extract(const AffineHit& h) const {
   ExprBuilder b;
   uint32_t v = build(b, entries_[h.idx]);
+  // Constants of v's type (a vector value gets vector constants: sub/mad need equal types).
+  const Type vt = b.nodes()[v].type;
+  auto k = [&](float x) {
+    const float xs[4] = {x, x, x, x};
+    return b.constant(vt, xs);
+  };
   if (h.rational) {
-    const uint32_t num = h.r < 0.0f ? b.op(Op::Add, v, b.constant(-h.r)) : b.op(Op::Sub, v, b.constant(h.r));
-    const uint32_t den = b.op(Op::Mad, v, b.constant(h.a), b.constant(h.b));
+    const uint32_t num = h.r < 0.0f ? b.op(Op::Add, v, k(-h.r)) : b.op(Op::Sub, v, k(h.r));
+    const uint32_t den = b.op(Op::Mad, v, k(h.a), k(h.b));
     return b.finish(b.op(Op::Mul, num, b.op(Op::Rcp, den)));
   }
   if (h.inner != Op::Count) {
-    v = h.c < 0.0f ? b.op(Op::Sub, v, b.constant(-h.c)) : b.op(Op::Add, v, b.constant(h.c));
+    v = h.c < 0.0f ? b.op(Op::Sub, v, k(-h.c)) : b.op(Op::Add, v, k(h.c));
     v = b.op(h.inner, v);
   }
   uint32_t r;
   switch (h.wrap) {
-    case Op::Add: r = b.op(Op::Add, v, b.constant(h.q)); break;
-    case Op::Mul: r = b.op(Op::Mul, v, b.constant(h.p)); break;
-    case Op::Sub: r = b.op(Op::Sub, b.constant(h.q), v); break;
-    default: r = b.op(Op::Mad, v, b.constant(h.p), b.constant(h.q)); break;
+    case Op::Add: r = b.op(Op::Add, v, k(h.q)); break;
+    case Op::Mul: r = b.op(Op::Mul, v, k(h.p)); break;
+    case Op::Sub: r = b.op(Op::Sub, k(h.q), v); break;
+    default: r = b.op(Op::Mad, v, k(h.p), k(h.q)); break;
   }
   return b.finish(r);
 }

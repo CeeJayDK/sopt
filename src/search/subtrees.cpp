@@ -4,6 +4,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <stdexcept>
 #include <string>
 
 #include "ir/eval.hpp"
@@ -134,9 +135,13 @@ std::vector<Candidate> subtreeCandidates(const Program& prog, const Options& opt
     }
     if (!cached) {
       ++n;
-      const RunResult r = optimize(p, inner);
-      for (const auto& a : r.accepted)
-        if (a.klass != Klass::LessAccurate && a.cost < s.cost) found.emplace_back(a.expr, a.cost);
+      try {
+        const RunResult r = optimize(p, inner);
+        for (const auto& a : r.accepted)
+          if (a.klass != Klass::LessAccurate && a.cost < s.cost) found.emplace_back(a.expr, a.cost);
+      } catch (const std::exception&) {
+        found.clear();  // one subexpression failing must not stop the region
+      }
       std::lock_guard<std::mutex> lock(cacheMu);
       cache.emplace(key, found);
     }
@@ -147,7 +152,12 @@ std::vector<Candidate> subtreeCandidates(const Program& prog, const Options& opt
   std::vector<Candidate> out;
   std::set<std::string> seen;
   auto add = [&](const std::vector<std::pair<uint32_t, const Expr*>>& r) {
-    Expr full = replaceNodes(e, r);
+    Expr full;
+    try {
+      full = replaceNodes(e, r);
+    } catch (const std::exception&) {
+      return;
+    }
     const uint32_t c = dagCost(full, model, prog.inputs);
     if (c >= targetCost || !seen.insert(toString(full, prog.inputs)).second) return;
     out.push_back({std::move(full), c});
