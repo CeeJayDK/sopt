@@ -31,6 +31,7 @@ double nowSeconds() {
 namespace {
 
 constexpr uint32_t kEmpty = UINT32_MAX;
+constexpr uint32_t kQuant = UINT32_MAX - 1;  // goal: quantized duplicate, checked only
 
 void canonicalize(float* v, size_t n) {
   for (size_t i = 0; i < n; ++i) {
@@ -155,11 +156,26 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   }
 }
 
+uint32_t Enumerator::quant(float x) const {
+  const uint32_t u = std::bit_cast<uint32_t>(x);
+  const uint32_t k = cfg_.quantBits;
+  if (k == 0 || !std::isfinite(x)) return u;
+  // Round to nearest at bit k (a carry into the exponent is still monotonic).
+  return (u + (1u << (k - 1))) & ~((1u << k) - 1u);
+}
+
+bool Enumerator::sameFp(const float* a, const float* b, size_t len) const {
+  if (cfg_.quantBits == 0) return std::memcmp(a, b, len * sizeof(float)) == 0;
+  for (size_t i = 0; i < len; ++i)
+    if (quant(a[i]) != quant(b[i])) return false;
+  return true;
+}
+
 uint64_t Enumerator::hashFp(const float* fp, Type t) const {
   uint64_t h = 0x9E3779B97F4A7C15ull ^ static_cast<uint64_t>(t);
   const size_t len = lenOf(t);
   for (size_t i = 0; i < len; ++i) {
-    h ^= std::bit_cast<uint32_t>(fp[i]);
+    h ^= quant(fp[i]);
     h *= 0xff51afd7ed558ccdull;
     h ^= h >> 32;
   }
@@ -185,7 +201,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
   size_t pos = hashFp(fp, e.type) & mask;
   while (table_[pos] != kEmpty) {
     const uint32_t idx = table_[pos];
-    if (entries_[idx].type == e.type && std::memcmp(fpOf(idx), fp, len * sizeof(float)) == 0) {
+    if (entries_[idx].type == e.type && sameFp(fpOf(idx), fp, len)) {
       ++stats.deduped;
       // Same fingerprint as a hit: not needed in the bank, but it may differ from the
       // hit outside the test points, so keep it as an alternative for verification.
@@ -741,7 +757,7 @@ void Enumerator::flush(SearchStats& stats) {
       batchDup_[k] = kEmpty;
       for (size_t pos = batchHash_[k] & mask; table_[pos] != kEmpty; pos = (pos + 1) & mask) {
         const uint32_t idx = table_[pos];
-        if (entries_[idx].type == t && std::memcmp(fpOf(idx), fp, len * sizeof(float)) == 0) {
+        if (entries_[idx].type == t && sameFp(fpOf(idx), fp, len)) {
           batchDup_[k] = idx;
           break;
         }
@@ -781,12 +797,20 @@ void Enumerator::flush(SearchStats& stats) {
     if (dupIdx == kEmpty)
       for (; localTable_[lpos] != kEmpty; lpos = (lpos + 1) & localMask) {
         const uint32_t idx = localTable_[lpos];
-        if (entries_[idx].type == e.type && std::memcmp(fpOf(idx), fp, len * sizeof(float)) == 0) {
+        if (entries_[idx].type == e.type && sameFp(fpOf(idx), fp, len)) {
           dupIdx = idx;
           break;
         }
       }
     const bool dup = dupIdx != kEmpty;
+    if (dup && cfg_.quantBits && std::memcmp(fpOf(dupIdx), fp, len * sizeof(float)) != 0) {
+      // Quantized match only: not an operand, but it may be a hit where the stored value
+      // is not (bit-exact targets), so it is goal-checked like an overflow value.
+      ++stats.deduped;
+      ++stats.quantMerged;
+      goals_.push_back({k, kQuant});
+      continue;
+    }
     if (dup) {
       ++stats.deduped;
       if (!shared_.empty()) upgradeShared(dupIdx, e);
@@ -838,10 +862,10 @@ void Enumerator::flush(SearchStats& stats) {
     flushDups(goals_[g].item);
     uint32_t idx = goals_[g].idx;
     const bool hit = goalDirect_[g] || !goalFits_[g].empty();
-    if (idx == kEmpty) {
-      ++stats.overflowChecked;
+    if (idx == kEmpty || idx == kQuant) {
+      if (idx == kEmpty) ++stats.overflowChecked;
       if (!hit) continue;
-      ++stats.overflowKept;
+      if (idx == kEmpty) ++stats.overflowKept;
       const size_t k = goals_[g].item;
       idx = storeEntry(batchEntries_[k], batchFp_.data() + k * stride, false, stats);
     }

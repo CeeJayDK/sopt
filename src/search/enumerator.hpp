@@ -50,6 +50,12 @@ struct SearchConfig {
   // the bank prices trees. Candidates are still ranked by their real DAG cost.
   bool sharedLeaves = true;  // default (owner, 2026-09-27); --no-shared-leaves
   uint32_t maxShared = 16;
+  // Quantized observational equivalence (M7, flag --quant-oe N): values whose
+  // fingerprints agree after rounding away the low N mantissa bits count as one value, so
+  // rounding variants of the same function (a + b + c vs a + (b + c)) take one bank slot.
+  // A merged value that is not bitwise equal is still goal-checked (a hit is kept), it
+  // only does not become an operand. 0 = bit-exact dedup.
+  uint32_t quantBits = 0;
 };
 
 struct LevelStats {
@@ -70,6 +76,7 @@ struct SearchStats {
   uint64_t overflowChecked = 0;   // overflow mode: values checked after the bank was full
   uint64_t overflowKept = 0;      // ... kept because they are (part of) hits
   uint64_t objPruned = 0;  // objective cost already >= target
+  uint64_t quantMerged = 0;  // SearchConfig::quantBits: dedups that were not bitwise equal
   uint64_t affineHits = 0;
   uint32_t completedCost = 0;  // all levels <= this were fully enumerated
   uint32_t maxLevel = 0;       // the last level the search needed (order-model units)
@@ -179,6 +186,9 @@ class Enumerator {
   const CostModel& order() const { return cfg_.order ? *cfg_.order : defaultOrderFor(*cfg_.model); }
   size_t numHits() const { return hits_.size() + altHits_.size() + affineHits_.size(); }
   uint64_t hashFp(const float* fp, Type t) const;
+  // Fingerprint equality for dedup (quantized with SearchConfig::quantBits).
+  bool sameFp(const float* a, const float* b, size_t len) const;
+  uint32_t quant(float x) const;
   void growTable();
   const float* fpOf(uint32_t idx) const { return fp_.data() + off_[idx]; }
   size_t lenOf(Type t) const { return width(t) * n_; }

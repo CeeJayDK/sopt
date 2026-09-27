@@ -44,6 +44,8 @@ void usage() {
       "  --no-cuts         no cut points (default: when the search hits a limit, split the\n"
       "                    target at values the rest depends on for all inputs below them\n"
       "                    and search both parts on their own, --cut-time S per part, default 1)\n"
+      "  --quant-oe N      quantized dedup: values equal after rounding away the low N\n"
+      "                    mantissa bits on the test points count as one (default 0 = bit-exact)\n"
       "  --no-overflow     stop when the bank is full (default: keep combining the stored\n"
       "                    entries, checking new values as hits, until --time)\n"
       "  --no-accuracy-variants  do not keep candidates that are only more accurate (not cheaper)\n"
@@ -133,6 +135,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
+    else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);
     else if (a == "--no-shared-leaves") opt.search.sharedLeaves = false;
     else if (a == "--subtree-time") opt.subtreeTime = std::strtod(next(), nullptr);
@@ -326,6 +329,9 @@ int main(int argc, char** argv) {
                   "%llu chain entries pruned, %llu inner fits skipped (not monotonic)\n",
                   (unsigned long long)s.affineHits, (unsigned long long)s.innerHits,
                   (unsigned long long)s.affinePruned, (unsigned long long)s.innerPrefiltered);
+    if (s.quantMerged)
+      std::printf("quantized OE: %llu values merged that were not bitwise equal\n",
+                  (unsigned long long)s.quantMerged);
     if (s.overflowChecked)
       std::printf("overflow: %llu values checked after the bank was full, %llu kept\n",
                   (unsigned long long)s.overflowChecked, (unsigned long long)s.overflowKept);
