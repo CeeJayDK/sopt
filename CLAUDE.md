@@ -374,5 +374,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   `SearchConfig::threads`. Next: B6 top-down split or B7 shared leaves.
   Owner: less accurate variants stay in SOPT_ALL; --loose 100 is fine for now.
 - Library of small verified snippets/rewrites that humans, AI or the tool can reuse.
+  Owner (2026-09-27): many regions that hit the limit contain lerp/step used in ways known
+  to be cheaper expanded; later, apply library rewrites before searching (and try them out)
+  to shrink the search.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
