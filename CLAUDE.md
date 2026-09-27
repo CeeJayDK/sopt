@@ -146,6 +146,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   absolute-like where the original itself cancels (Vignette XOR back), relative where the
   small value is exact (depth partial fraction, MXAO, t - t * t stay rejected). Bench: examples
   identical, planted_1 recovered (0 not recovered, 1 needs-sharing).
+  Noise guard (2026-09-27, found in the corpus; to confirm with the owner): hashes like
+  frac(sin(dot(uv, k)) * 43758.5) became 0.0 / uv.x / uv.y as "less accurate" (float32 sin
+  of large arguments is chaotic, the original is off by up to 1 from exact, and the
+  error-scale floor made rel budgets accept anything). `followsExact` (driver): if the
+  original's max error vs exact > 10% of its range (4096 random points), Budget::vsExact
+  and Budget::errorScale are off (RunResult::exactOff). Corpus: 45 -> 41 regions (ASCII,
+  Common GetRandom, GrainSpread, Limbo_Mod dither gone); bench unchanged.
 - Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
   Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
 - Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
