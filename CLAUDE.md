@@ -373,7 +373,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    Sharpening 246 (amd 13 -> 11), ColorIsolation / CBS (static 17 -> 14, assumed ranges),
    AspectRatioSuite, Flashlight, Limbo_Mod, ColorfulPoster (static -1); none worse;
    45 -> 47 min.
-   Still open in M7: V3, quantized OE.
+   Quantized OE (2026-09-27, flag `--quant-oe N`, off: not better): fingerprints compared
+   after rounding away the low N mantissa bits (SearchConfig::quantBits); a merged value
+   that is not bitwise equal is still goal-checked but not an operand. N = 8: ~10% of new
+   values merge, no deeper level (levels grow 3-5x), generation ~15% slower. Bench:
+   identical except planted_2 12 -> 10. Corpus: 73 regions either way, but 10 variants
+   worse (e.g. TripleMonitor 412 20 -> 28, ColorLab 118 5 -> 8, PiecewiseFilmic 540
+   9 -> 12; the stored first program of a merged value is often not the useful one),
+   2 slightly better; 45 -> 56 min.
+   Still open in M7: V3.
 
 ## Under discussion (not decided — ask before implementing)
 - Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,
