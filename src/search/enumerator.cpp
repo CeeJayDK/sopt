@@ -976,20 +976,17 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
   stats.bankSize = entries_.size();
   stats.seconds = nowSeconds() - start_;
   out.reserve(numHits());
-  auto emit = [&](const Entry& e) {
+  // With shared leaves (free in the bank) a hit's real DAG cost can reach the target's:
+  // not cheaper, so not a candidate. Without them tree cost >= DAG cost keeps all.
+  auto push = [&](Expr x) {
     Candidate cand;
-    cand.expr = extract(e);
-    cand.cost = dagCost(cand.expr, *cfg_.model, prog_.inputs);
-    out.push_back(std::move(cand));
+    cand.cost = dagCost(x, *cfg_.model, prog_.inputs);
+    cand.expr = std::move(x);
+    if (shared_.empty() || cand.cost < targetCost_) out.push_back(std::move(cand));
   };
-  for (uint32_t idx : hits_) emit(entries_[idx]);
-  for (const Entry& e : altHits_) emit(e);
-  for (const AffineHit& h : affineHits_) {
-    Candidate cand;
-    cand.expr = extract(h);
-    cand.cost = dagCost(cand.expr, *cfg_.model, prog_.inputs);
-    out.push_back(std::move(cand));
-  }
+  for (uint32_t idx : hits_) push(extract(entries_[idx]));
+  for (const Entry& e : altHits_) push(extract(e));
+  for (const AffineHit& h : affineHits_) push(extract(h));
   return out;
 }
 
