@@ -339,7 +339,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    hits faster; lost: length_squared (at the bank's edge anyway) and planted_1 13 -> 16
    (the extra leaves fill the bank sooner). Subtrees alone: normalize_x 44, rest the same.
    Tonemap.fxh:109 (cost 121): both 121 -> 71 (pow(abs(u), 2.0) -> u * u, mads).
-   Corpus evaluation: see the latest status in the chat / docs.
+   Corpus (12 packages, --isa --sass --backends --time 3), both flags vs none: 72 regions
+   with variants instead of 41 (none lost; all 350 variant files parse; 49 min vs 34).
+   New e.g. PD80 Sharpening x4 (saturate chains, bit-exact, amd 10 -> 7), FXShaders
+   Convolution gaussian (nv 27 -> 19), Tonemap 109/173, CinematicDOF 587-588, Flair
+   599-602 (back), GloomAO/RadiantGI 2 * abs(x), SnowScape, Technicolor, EyeAdaption.
+   The run found two old bugs: affine hits on vector values built scalar constants
+   (now typed), and a UTF-8 BOM ended up after the generated header (DisplayDepth.fx).
    Still open in M7: cut points, V3, quantized OE.
 
 ## Under discussion (not decided — ask before implementing)
