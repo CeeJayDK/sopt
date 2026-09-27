@@ -867,6 +867,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
                                     : static_cast<uint32_t>(ratio * (targetCost_ - 1));
   if (cfg_.maxCost) maxCost = std::min(cfg_.maxCost, maxCost);
   byCost_.assign(maxCost + 1, {});
+  stats.maxLevel = maxCost;
 
   // Level 0: inputs, the components of vector inputs (registers, no instruction) and
   // constants.

@@ -417,7 +417,9 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
   for (const auto& rr : results) {
     if (!rr.variants.empty() || !rr.unwritten.empty()) continue;
     const Region& r = rr.region;
-    std::string why = rr.limitHit ? ", search limit hit" : "";
+    std::string why = rr.limitHit ? ", search limit hit (levels complete to " + std::to_string(rr.completedCost) +
+                                        " of " + std::to_string(rr.maxLevel) + ")"
+                                  : "";
     if (rr.onlyContraction) why += ", only explicit fma/modifiers";
     if (rr.measuredNoGain) why += ", no measured gain";
     std::snprintf(buf, sizeof(buf), "- %s:%u (cost %u%s): `%s`\n", pathFrom(r.file).filename().string().c_str(),

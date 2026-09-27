@@ -45,7 +45,8 @@ struct RegionResult {
   int targetSpirv = -1, targetDxbc = -1;  // backend normalization of the original
   double targetExactAbs = -1;    // the original's max error vs exact math (-1: not measured)
   uint32_t measuredNoGain = 0;   // dropped: not cheaper in the measured ISA
-  uint32_t completedCost = 0;
+  uint32_t completedCost = 0;   // levels complete up to this (order-model units) ...
+  uint32_t maxLevel = 0;        // ... of this many needed for an exhaustive search
   double sec = 0.0;
 };
 

@@ -66,6 +66,7 @@ struct SearchStats {
   uint64_t objPruned = 0;  // objective cost already >= target
   uint64_t affineHits = 0;
   uint32_t completedCost = 0;  // all levels <= this were fully enumerated
+  uint32_t maxLevel = 0;       // the last level the search needed (order-model units)
   bool limitHit = false;
   double seconds = 0.0;
   double firstHitSec = -1.0;

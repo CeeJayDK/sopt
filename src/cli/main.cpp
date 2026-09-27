@@ -244,8 +244,8 @@ int main(int argc, char** argv) {
   std::printf("\n");
 
   if (r.accepted.empty()) {
-    std::printf("no cheaper alternative found (searched up to cost %u%s)\n",
-                r.search.completedCost, r.search.limitHit ? ", limit hit" : "");
+    std::printf("no cheaper alternative found (searched up to cost %u of %u%s)\n", r.search.completedCost,
+                r.search.maxLevel, r.search.limitHit ? ", limit hit" : "");
   } else {
     std::printf("cost  ");
     for (const auto& c : cols) std::printf("%4s  ", c.name.c_str());
@@ -290,7 +290,8 @@ int main(int argc, char** argv) {
           }
     }
     if (r.search.limitHit)
-      std::printf("note: search limit hit, levels complete up to cost %u\n", r.search.completedCost);
+      std::printf("note: search limit hit, levels complete up to cost %u of %u\n", r.search.completedCost,
+                  r.search.maxLevel);
   }
 
   if (stats) {

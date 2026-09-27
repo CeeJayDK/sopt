@@ -27,6 +27,23 @@ namespace fs = std::filesystem;
 
 namespace {
 
+// --region F[:L]: file name F (case-insensitive, any folder), region ending at or spanning L.
+bool regionMatches(const fx::Region& r, const std::string& spec) {
+  const size_t colon = spec.rfind(':');
+  const bool hasLine = colon != std::string::npos && colon + 1 < spec.size() &&
+                       spec.find_first_not_of("0123456789", colon + 1) == std::string::npos;
+  auto lower = [](std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+  };
+  const std::string file = lower(hasLine ? spec.substr(0, colon) : spec);
+  if (lower(fs::path(r.file).filename().string()) != file) return false;
+  if (!hasLine) return true;
+  const auto line = static_cast<uint32_t>(std::strtoul(spec.c_str() + colon + 1, nullptr, 10));
+  const uint32_t first = r.removed.empty() ? r.line : std::min(r.line, r.removed.front().first);
+  return line >= first && line <= r.line;
+}
+
 void usage() {
   std::puts(
       "usage: sopt-fx [options] <file.fx | directory>...\n"
@@ -36,6 +53,8 @@ void usage() {
       "  -D NAME[=VALUE]   preprocessor definition, repeatable\n"
       "  -o DIR            output directory (default sopt-out)\n"
       "  --list            only list the regions and their facts, no search\n"
+      "  --region F[:L]    only regions of file F (name, any folder) ending at or spanning\n"
+      "                    line L, repeatable; for long runs of single regions (--time)\n"
       "  --skips           list skipped statements with the reason\n"
       "  --variants N      alternatives per region in the variant files (default 3)\n"
       "  --time S          search time limit per region and iteration (default 5)\n"
@@ -97,6 +116,7 @@ int main(int argc, char** argv) {
   fx::RegionOptions ropt;
   fs::path outDir = "sopt-out";
   bool list = false, skips = false;
+  std::vector<std::string> regionFilter;
   size_t numVariants = 3;
   unsigned jobs = std::max(1u, std::thread::hardware_concurrency());
   Options opt;
@@ -141,6 +161,7 @@ int main(int argc, char** argv) {
       load.macros.emplace_back(d.substr(0, eq), eq == std::string::npos ? "1" : d.substr(eq + 1));
     } else if (a == "-o") outDir = next();
     else if (a == "--list") list = true;
+    else if (a == "--region") regionFilter.push_back(next());
     else if (a == "--skips") skips = true;
     else if (a == "--variants") numVariants = std::strtoul(next(), nullptr, 10);
     else if (a == "--time") opt.search.timeLimitSec = std::strtod(next(), nullptr);
@@ -234,6 +255,14 @@ int main(int argc, char** argv) {
         results.push_back(std::move(rr));
       }
     }
+    if (!regionFilter.empty())
+      results.erase(std::remove_if(results.begin(), results.end(),
+                                   [&](const fx::RegionResult& rr) {
+                                     for (const auto& f : regionFilter)
+                                       if (regionMatches(rr.region, f)) return false;
+                                     return true;
+                                   }),
+                    results.end());
   };
   extractAll();
 
@@ -365,7 +394,7 @@ int main(int argc, char** argv) {
 
   // Search, regions in parallel (each single-threaded when jobs > 1).
   Options ropt2 = opt;
-  if (jobs > 1) ropt2.threads = ropt2.search.threads = 1;  // regions in parallel instead
+  if (jobs > 1 && results.size() > 1) ropt2.threads = ropt2.search.threads = 1;  // regions in parallel instead
   std::atomic<size_t> done{0};
   std::mutex printMu;
   // Regions that differ only in their inputs' names (same expression over the same
@@ -416,6 +445,7 @@ int main(int argc, char** argv) {
     rr.targetCost = res.targetCost;
     rr.limitHit = res.search.limitHit;
     rr.completedCost = res.search.completedCost;
+    rr.maxLevel = res.search.maxLevel;
     const uint32_t targetCompiled =
         fx::compiledCost(rr.region.prog.target, *opt.search.model, rr.region.prog.inputs);
     // A texture fetch input is its call text: a variant must not repeat it more often.
