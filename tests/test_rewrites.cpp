@@ -123,3 +123,18 @@ TEST(subtree_search) {
     CHECK(toString(replaceNodes(e, {{i, &s}}), p.inputs) == toString(e, p.inputs));
   }
 }
+
+TEST(simplify_identities_and_printing) {
+  Program p = parseProgram("input v : float3 in [0, 1]\ninput a : float in [0, 1]\ninput b : float in [0, 1]\n"
+                           "output r = a\nbudget r : exact\n");
+  auto simp = [&](const char* s) { return toString(simplifyIdentities(parseExpr(s, p.inputs)), p.inputs); };
+  CHECK(simp("mad(a, b, 0.0)") == "a * b");
+  CHECK(simp("mad(-1.0, a, b)") == "b - a");
+  CHECK(simp("mad(a, 1.0, b)") == "a + b");
+  CHECK(simp("a * 1.0 + 0.0") == "a");
+  CHECK(simp("a - 0.0") == "a");
+  // Splat constants next to a vector print as scalars; a + -c as a - c.
+  CHECK(simp("mad(v, float3(0.5, 0.5, 0.5), float3(-0.25, -0.25, -0.25))") == "mad(v, 0.5, -0.25)");
+  CHECK(simp("v + float3(-0.25, -0.25, -0.25)") == "v - 0.25");
+  CHECK(simp("float3(1.0, 1.0, 1.0) * a") == "float3(1.0, 1.0, 1.0) * a");  // no vector operand: keeps the type
+}

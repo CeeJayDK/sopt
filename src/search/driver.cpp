@@ -133,6 +133,10 @@ RunResult optimize(const Program& progIn, const Options& opt) {
       res.subtreeSec += nowSeconds() - tsub;
     }
     cands.insert(cands.end(), subCands.begin(), subCands.end());
+    for (auto& c : cands) {
+      c.expr = simplifyIdentities(c.expr);
+      c.cost = dagCost(c.expr, *opt.search.model, prog.inputs);
+    }
 
     ts = nowSeconds();
     std::vector<std::vector<float>> cex;

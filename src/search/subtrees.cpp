@@ -46,6 +46,52 @@ uint32_t insertExpr(const Expr& e, ExprBuilder& b) {
   return map[e.root];
 }
 
+Expr simplifyIdentities(const Expr& e) {
+  ExprBuilder b;
+  const auto& ns = b.nodes();
+  auto is = [&](uint32_t n, float v) {
+    if (ns[n].op != Op::Const) return false;
+    for (unsigned k = 0; k < width(ns[n].type); ++k)
+      if (ns[n].value[k] != v) return false;
+    return true;
+  };
+  std::vector<uint32_t> map(e.nodes.size());
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    const Type t = n.type;
+    const uint32_t a = n.nargs > 0 ? map[n.args[0]] : 0, c1 = n.nargs > 1 ? map[n.args[1]] : 0,
+                   c2 = n.nargs > 2 ? map[n.args[2]] : 0;
+    uint32_t r = UINT32_MAX;
+    // keep(x): x itself when it already has the node's type.
+    auto keep = [&](uint32_t x) { return ns[x].type == t ? x : UINT32_MAX; };
+    switch (n.op) {
+      case Op::Mad:
+        if (is(c2, 0.0f)) r = b.op(Op::Mul, a, c1);
+        else if (is(a, 1.0f)) r = b.op(Op::Add, c1, c2);
+        else if (is(c1, 1.0f)) r = b.op(Op::Add, a, c2);
+        else if (is(a, -1.0f)) r = b.op(Op::Sub, c2, c1);
+        else if (is(c1, -1.0f)) r = b.op(Op::Sub, c2, a);
+        if (r != UINT32_MAX && ns[r].type != t) r = UINT32_MAX;
+        break;
+      case Op::Mul:
+        if (is(a, 1.0f)) r = keep(c1);
+        else if (is(c1, 1.0f)) r = keep(a);
+        break;
+      case Op::Add:
+        if (is(a, 0.0f)) r = keep(c1);
+        else if (is(c1, 0.0f)) r = keep(a);
+        break;
+      case Op::Sub:
+        if (is(c1, 0.0f)) r = keep(a);
+        break;
+      default:
+        break;
+    }
+    map[i] = r != UINT32_MAX ? r : copyNode(e, i, map, b);
+  }
+  return b.finish(map[e.root]);
+}
+
 Expr subexpr(const Expr& e, uint32_t i) {
   ExprBuilder b;
   std::vector<uint32_t> map(e.nodes.size());
@@ -88,6 +134,7 @@ std::vector<Candidate> subtreeCandidates(const Program& prog, const Options& opt
     const Op op = e.nodes[i].op;
     if (i == e.root || ctime[i] || op == Op::Input || op == Op::Const || op == Op::Swizzle || op == Op::Construct)
       continue;
+    if (!isFloat(e.nodes[i].type)) continue;  // comparisons (bool) are not search targets
     uint32_t ops = 0;
     for (uint32_t j = 0; j < e.nodes.size(); ++j) {
       const Op oj = e.nodes[j].op;

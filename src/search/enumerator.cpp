@@ -1133,12 +1133,7 @@ Expr Enumerator::extract(const Entry& rootEntry) const {
 Expr Enumerator::extract(const AffineHit& h) const {
   ExprBuilder b;
   uint32_t v = build(b, entries_[h.idx]);
-  // Constants of v's type (a vector value gets vector constants: sub/mad need equal types).
-  const Type vt = b.nodes()[v].type;
-  auto k = [&](float x) {
-    const float xs[4] = {x, x, x, x};
-    return b.constant(vt, xs);
-  };
+  auto k = [&](float x) { return b.constant(x); };  // scalars broadcast to a vector v
   if (h.rational) {
     const uint32_t num = h.r < 0.0f ? b.op(Op::Add, v, k(-h.r)) : b.op(Op::Sub, v, k(h.r));
     const uint32_t den = b.op(Op::Mad, v, k(h.a), k(h.b));

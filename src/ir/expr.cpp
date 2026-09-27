@@ -303,13 +303,41 @@ uint8_t precOf(const Expr& e, uint32_t idx) {
   return info(n.op).prec;
 }
 
+// A vector constant with all components equal (float3(0.5, 0.5, 0.5)).
+bool splatConst(const Node& c) {
+  if (c.op != Op::Const || width(c.type) < 2) return false;
+  for (unsigned k = 1; k < width(c.type); ++k)
+    if (c.value[k] != c.value[0]) return false;
+  return true;
+}
+
 std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t idx) {
   const auto& n = e.nodes[idx];
   const auto& oi = info(n.op);
+  // Componentwise ops broadcast scalars (here and in HLSL): a splat constant next to a
+  // non-constant vector operand prints as a scalar, mad(v, 0.5, 0.5).
+  bool scalarSplats = false;
+  if (oi.shape == Shape::Comp)
+    for (uint8_t k = 0; k < n.nargs; ++k) {
+      const Node& c = e.nodes[n.args[k]];
+      scalarSplats = scalarSplats || (c.op != Op::Const && width(c.type) > 1);
+    }
   auto sub = [&](uint32_t child, bool paren) {
-    std::string s = print(e, inputs, child);
+    const Node& c = e.nodes[child];
+    std::string s = scalarSplats && splatConst(c) ? formatFloat(c.value[0]) : print(e, inputs, child);
     return paren ? "(" + s + ")" : s;
   };
+  // a + -c prints as a - c.
+  auto negConst = [&](uint32_t child) {
+    const Node& c = e.nodes[child];
+    return c.op == Op::Const && (width(c.type) == 1 || (scalarSplats && splatConst(c))) && c.value[0] < 0.0f;
+  };
+  if (n.op == Op::Add && n.nargs == 2 && (negConst(n.args[0]) != negConst(n.args[1]))) {
+    const uint32_t v = negConst(n.args[1]) ? n.args[0] : n.args[1];
+    const Node& c = e.nodes[negConst(n.args[1]) ? n.args[1] : n.args[0]];
+    const uint8_t p = info(Op::Sub).prec;
+    return sub(v, precOf(e, v) < p) + " - " + formatFloat(-c.value[0]);
+  }
   switch (oi.syntax) {
     case Syntax::Leaf:
       if (n.op == Op::Input)

@@ -37,7 +37,7 @@ TEST(parser_roundtrip) {
 
 TEST(parser_constant_folding) {
   CHECK(roundtrip("a * (2.0 * 0.5)") == "a * 1.0");
-  CHECK(roundtrip("-0.25 + a") == "-0.25 + a");
+  CHECK(roundtrip("-0.25 + a") == "a - 0.25");  // a + -c prints as a - c
   CHECK(roundtrip("saturate(1.5)") == "1.0");
 }
 
