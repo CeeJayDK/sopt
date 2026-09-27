@@ -40,6 +40,52 @@ std::string cacheKey(const Program& p, const Options& o) {
 
 }  // namespace
 
+Options partOptions(const Options& opt, double seconds) {
+  Options inner = opt;
+  inner.subtrees = false;
+  inner.cuts = false;
+  inner.accuracyVariants = false;
+  inner.loose = 0.0;
+  inner.maxAlternatives = 4;
+  inner.maxIterations = 3;
+  inner.v1Points = std::min<size_t>(opt.v1Points, 1u << 16);
+  inner.search.timeLimitSec = seconds;
+  return inner;
+}
+
+Program subProgram(const Program& prog, uint32_t node) {
+  Program p;
+  p.inputs = prog.inputs;
+  p.target = subexpr(prog.target, node);
+  p.budget.kind = prog.budget.kind == Budget::Kind::Exact ? Budget::Kind::Exact : Budget::Kind::Rel;
+  p.budget.eps = 1e-6;
+  p.budget.vsExact = prog.budget.vsExact;
+  p.budget.errorScale = prog.budget.errorScale;
+  return p;
+}
+
+std::vector<std::pair<Expr, uint32_t>> searchPart(const Program& p, const Options& inner, uint32_t cost,
+                                                  uint32_t* searches) {
+  const std::string key = cacheKey(p, inner);
+  std::vector<std::pair<Expr, uint32_t>> found;
+  {
+    std::lock_guard<std::mutex> lock(cacheMu);
+    const auto it = cache.find(key);
+    if (it != cache.end()) return it->second;
+  }
+  if (searches) ++*searches;
+  try {
+    const RunResult r = optimize(p, inner);
+    for (const auto& a : r.accepted)
+      if (a.klass != Klass::LessAccurate && a.cost < cost) found.emplace_back(a.expr, a.cost);
+  } catch (const std::exception&) {
+    found.clear();  // one part failing must not stop the region
+  }
+  std::lock_guard<std::mutex> lock(cacheMu);
+  cache.emplace(key, found);
+  return found;
+}
+
 uint32_t insertExpr(const Expr& e, ExprBuilder& b) {
   std::vector<uint32_t> map(e.nodes.size());
   for (uint32_t i = 0; i < e.nodes.size(); ++i) map[i] = copyNode(e, i, map, b);
@@ -148,14 +194,7 @@ std::vector<Candidate> subtreeCandidates(const Program& prog, const Options& opt
   std::stable_sort(subs.begin(), subs.end(), [](const Sub& a, const Sub& b) { return a.cost > b.cost; });
   if (subs.size() > opt.maxSubtrees) subs.resize(opt.maxSubtrees);
 
-  Options inner = opt;
-  inner.subtrees = false;
-  inner.accuracyVariants = false;
-  inner.loose = 0.0;
-  inner.maxAlternatives = 4;
-  inner.maxIterations = 3;
-  inner.v1Points = std::min<size_t>(opt.v1Points, 1u << 16);
-  inner.search.timeLimitSec = opt.subtreeTime;
+  const Options inner = partOptions(opt, opt.subtreeTime);
 
   struct Repl {
     uint32_t node, saving;
@@ -164,35 +203,8 @@ std::vector<Candidate> subtreeCandidates(const Program& prog, const Options& opt
   std::vector<Repl> repls;
   uint32_t n = 0;
   for (const Sub& s : subs) {
-    Program p;
-    p.inputs = prog.inputs;
-    p.target = subexpr(e, s.node);
-    p.budget.kind = prog.budget.kind == Budget::Kind::Exact ? Budget::Kind::Exact : Budget::Kind::Rel;
-    p.budget.eps = 1e-6;
-    p.budget.vsExact = prog.budget.vsExact;
-    p.budget.errorScale = prog.budget.errorScale;
-    const std::string key = cacheKey(p, inner);
-    std::vector<std::pair<Expr, uint32_t>> found;
-    bool cached;
-    {
-      std::lock_guard<std::mutex> lock(cacheMu);
-      const auto it = cache.find(key);
-      cached = it != cache.end();
-      if (cached) found = it->second;
-    }
-    if (!cached) {
-      ++n;
-      try {
-        const RunResult r = optimize(p, inner);
-        for (const auto& a : r.accepted)
-          if (a.klass != Klass::LessAccurate && a.cost < s.cost) found.emplace_back(a.expr, a.cost);
-      } catch (const std::exception&) {
-        found.clear();  // one subexpression failing must not stop the region
-      }
-      std::lock_guard<std::mutex> lock(cacheMu);
-      cache.emplace(key, found);
-    }
-    for (auto& [x, c] : found) repls.push_back({s.node, s.cost - c, std::move(x)});
+    for (auto& [x, c] : searchPart(subProgram(prog, s.node), inner, s.cost, &n))
+      repls.push_back({s.node, s.cost - c, std::move(x)});
   }
   if (searches) *searches = n;
 

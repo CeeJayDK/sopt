@@ -47,7 +47,8 @@ add_library(sopt-search
   src/search/enumerator.cpp
   src/search/driver.cpp
   src/search/generalize.cpp
-  src/search/subtrees.cpp)
+  src/search/subtrees.cpp
+  src/search/cuts.cpp)
 target_link_libraries(sopt-search PUBLIC sopt-verify)
 sopt_fp_flags(sopt-search)
 

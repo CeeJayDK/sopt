@@ -1,5 +1,6 @@
 #include "search/driver.hpp"
 
+#include "search/cuts.hpp"
 #include "search/subtrees.hpp"
 #include "verify/exact.hpp"
 
@@ -115,6 +116,8 @@ RunResult optimize(const Program& progIn, const Options& opt) {
 
   std::vector<Candidate> subCands;  // Options::subtrees, computed once
   bool subDone = false;
+  std::vector<Candidate> cutCands;  // Options::cuts, computed once
+  bool cutDone = false;
   for (uint32_t iter = 0; iter < opt.maxIterations; ++iter) {
     res.iterations = iter + 1;
     const bool lastIter = iter + 1 == opt.maxIterations;
@@ -132,6 +135,13 @@ RunResult optimize(const Program& progIn, const Options& opt) {
       subCands = subtreeCandidates(prog, opt, res.targetCost, &res.subtreeSearches);
       res.subtreeSec += nowSeconds() - tsub;
     }
+    if (opt.cuts && !cutDone && res.search.limitHit) {
+      cutDone = true;
+      const double tcut = nowSeconds();
+      cutCands = cutCandidates(prog, opt, res.targetCost, &res.cutSearches);
+      res.cutSec += nowSeconds() - tcut;
+    }
+    cands.insert(cands.end(), cutCands.begin(), cutCands.end());
     cands.insert(cands.end(), subCands.begin(), subCands.end());
     for (auto& c : cands) {
       c.expr = simplifyIdentities(c.expr);

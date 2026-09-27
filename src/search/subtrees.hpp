@@ -16,6 +16,19 @@ namespace sopt {
 std::vector<Candidate> subtreeCandidates(const Program& prog, const Options& opt, uint32_t targetCost,
                                          uint32_t* searches = nullptr);
 
+// Options for searching a part of a region on its own (subtrees, cuts): no nested
+// subtree or cut search, no accuracy or less accurate variants, few alternatives, a
+// smaller V1 sample, `seconds` of search.
+Options partOptions(const Options& opt, double seconds);
+// The subexpression at `node` as a program over the region's inputs, budget rel 1e-6
+// (exact for exact regions) with the region's accuracy rule settings.
+Program subProgram(const Program& prog, uint32_t node);
+// Verified forms of p's target cheaper than `cost` (optimize(p, inner)), cached per run
+// (the same part over the same domain recurs, e.g. per color channel or in shared
+// headers); `searches` counts the searches actually run.
+std::vector<std::pair<Expr, uint32_t>> searchPart(const Program& p, const Options& inner, uint32_t cost,
+                                                  uint32_t* searches = nullptr);
+
 // Copy of e with the nodes in `repl` replaced by the given expressions (same inputs).
 Expr replaceNodes(const Expr& e, const std::vector<std::pair<uint32_t, const Expr*>>& repl);
 // Inserts all of e into b (hash-consed with what b holds); returns e's root there.

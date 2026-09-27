@@ -84,6 +84,9 @@ void usage() {
       "  --no-subtrees     no subtree search (default: when the search hits a limit, also\n"
       "                    search subexpressions of cost <= --subtree-max-cost, default 64,\n"
       "                    --subtree-time S each, default 1, and put the cheaper forms back)\n"
+      "  --cuts            cut points: when the search hits a limit, split the target at\n"
+      "                    values the rest depends on for all inputs below them and search\n"
+      "                    both parts on their own (--cut-time S per part, default 1)\n"
       "  --no-overflow     stop a region's search when the bank is full (default: keep\n"
       "                    combining the stored entries until --time)\n"
       "  --loose F         also list less accurate variants: within F times the budget or\n"
@@ -187,6 +190,8 @@ int main(int argc, char** argv) {
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
+    else if (a == "--cuts") opt.cuts = true;
+    else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);
     else if (a == "--no-shared-leaves") opt.search.sharedLeaves = false;
     else if (a == "--subtree-time") opt.subtreeTime = std::strtod(next(), nullptr);
     else if (a == "--subtree-max-cost") opt.subtreeMaxCost = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));

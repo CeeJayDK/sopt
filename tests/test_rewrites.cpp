@@ -1,6 +1,7 @@
 #include <string>
 
 #include "ir/parser.hpp"
+#include "search/cuts.hpp"
 #include "search/driver.hpp"
 #include "search/subtrees.hpp"
 #include "test.hpp"
@@ -124,6 +125,53 @@ TEST(subtree_search) {
     const Expr s = subexpr(e, i);
     CHECK(toString(replaceNodes(e, {{i, &s}}), p.inputs) == toString(e, p.inputs));
   }
+}
+
+TEST(cut_points) {
+  // v = a * b + c * 0.5 - a * c is all the rest reads of a, b, c: pow(abs(v), 4.0) is
+  // top(cut) with the cut in v's sampled range. top alone is small enough to search
+  // (cut * cut * (cut * cut)); the whole needs v shared, which plain leaves miss.
+  Program p = parseProgram(
+      "input a : float in [0, 1]\ninput b : float in [0, 1]\ninput c : float in [0, 1]\n"
+      "output r = pow(abs(a * b + c * 0.5 - a * c), 4.0)\n"
+      "budget r : rel 1e-5\n");
+  const std::vector<Cut> cuts = findCuts(p, defaultCostModel(), 1);
+  CHECK(!cuts.empty());
+  bool whole = false;
+  for (const Cut& c : cuts) {
+    std::vector<uint32_t> map;
+    const Program top = topProgram(p, c, map);
+    CHECK(map.size() == top.inputs.size() && map.back() == UINT32_MAX);
+    CHECK(c.lo < c.hi && c.lo >= -1.0 && c.hi <= 1.5);
+    whole = whole || toString(subexpr(p.target, c.node), p.inputs) == "a * b + c * 0.5 - a * c";
+    // top(sub) is the original at a few points.
+    auto at = [](const Expr& e, const std::vector<float>& in) {
+      PointSet ps;
+      for (float x : in) ps.cols.push_back({x});
+      return evalAll(e, ps, kProfileRef)[0];
+    };
+    for (float x : {0.1f, 0.4f, 0.9f}) {
+      const std::vector<float> in = {x, 1.0f - x, 0.5f * x};
+      std::vector<float> tin;
+      for (uint32_t k = 0; k + 1 < map.size(); ++k) tin.push_back(in[map[k]]);
+      tin.push_back(at(subexpr(p.target, c.node), in));
+      CHECK(at(top.target, tin) == at(p.target, in));
+    }
+  }
+  CHECK(whole);
+  Options opt;
+  opt.v1Points = 1u << 16;
+  opt.search.timeLimitSec = 0.5;
+  opt.search.maxBank = 20000;
+  opt.search.sharedLeaves = false;
+  opt.subtrees = false;
+  const RunResult off = optimize(p, opt);
+  opt.cuts = true;
+  opt.cutTime = 0.5;
+  const RunResult on = optimize(p, opt);
+  CHECK(on.cutSearches > 0);
+  CHECK(!on.accepted.empty() && on.accepted[0].cost < on.targetCost);
+  CHECK(off.accepted.empty() || on.accepted[0].cost < off.accepted[0].cost);
 }
 
 TEST(simplify_identities_and_printing) {

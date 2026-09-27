@@ -48,6 +48,13 @@ struct Options {
   double subtreeTime = 1.0;
   uint32_t subtreeMaxCost = 64;
   uint32_t maxSubtrees = 24;
+  // Cut points (M7, flag --cuts; search/cuts.hpp): when the bottom-up search hits a limit,
+  // split the target at nodes that the rest depends on for everything below them, search
+  // both parts on their own (at most maxCuts cuts, cutTime seconds per part) and offer
+  // the combinations as candidates.
+  bool cuts = false;
+  double cutTime = 1.0;
+  uint32_t maxCuts = 8;
   unsigned threads = 0;          // 0 = hardware concurrency
   SearchConfig search;
 };
@@ -84,6 +91,8 @@ struct RunResult {
   uint64_t rejectedV2 = 0;
   uint32_t subtreeSearches = 0;  // Options::subtrees: subexpressions searched (not cached)
   double subtreeSec = 0.0;
+  uint32_t cutSearches = 0;  // Options::cuts: parts searched (not cached)
+  double cutSec = 0.0;
   uint64_t v2Points = 0;  // domain size when V2 applied, else 0  // passed ref but failed mix/fma/gpu
   double searchSec = 0.0;
   double verifySec = 0.0;
