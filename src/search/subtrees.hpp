@@ -17,7 +17,7 @@ std::vector<Candidate> subtreeCandidates(const Program& prog, const Options& opt
                                          uint32_t* searches = nullptr);
 
 // Options for searching a part of a region on its own (subtrees, cuts): no nested
-// subtree or cut search, no accuracy or less accurate variants, few alternatives, a
+// subtree or cut search, no V3, no accuracy or less accurate variants, few alternatives, a
 // smaller V1 sample, `seconds` of search.
 Options partOptions(const Options& opt, double seconds);
 // The subexpression at `node` as a program over the region's inputs, budget rel 1e-6

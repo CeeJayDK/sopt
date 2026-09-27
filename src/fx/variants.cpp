@@ -381,7 +381,9 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       if (v.exhaustive) s += " all points |";
       else if (v.proven) s += " proven |";
       else if (v.provenFraction > 0.0) {
-        std::snprintf(buf, sizeof(buf), " sampled, proven on %.3g%% |", 100.0 * v.provenFraction);
+        const double pc = 100.0 * v.provenFraction;
+        if (pc >= 99.99) std::snprintf(buf, sizeof(buf), " sampled, proven on >99.99%% |");
+        else std::snprintf(buf, sizeof(buf), " sampled, proven on %.4g%% |", pc);
         s += buf;
       } else s += " sampled |";
       if (autoCol) {

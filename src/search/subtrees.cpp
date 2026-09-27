@@ -44,6 +44,7 @@ Options partOptions(const Options& opt, double seconds) {
   Options inner = opt;
   inner.subtrees = false;
   inner.cuts = false;
+  inner.v3 = false;  // only the region's own variants get a proof
   inner.accuracyVariants = false;
   inner.loose = 0.0;
   inner.maxAlternatives = 4;
