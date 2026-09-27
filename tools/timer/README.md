@@ -47,6 +47,14 @@ Settings go in the `[SOPT_TIMER]` section of `ReShade.ini`:
 | `AutoRun` | 0 |
 | `ExitWhenDone` | 0 |
 
+Several CSVs (DX11 / Vulkan, AMD / NVIDIA) merge into one Markdown table:
+`python3 tools/timer/timings.py dx11-amd.csv vulkan-nv.csv > timings.md`. Each cell reads
+orig -> sopt in µs, followed by the median difference in % and a verdict. The verdict comes
+from the difference's p10 and p90:
+- faster: both are below 0;
+- slower: both are above 0;
+- same: anything else, meaning the difference is within the noise.
+
 ## sopt-host
 
 ```
