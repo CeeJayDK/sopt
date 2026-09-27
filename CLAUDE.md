@@ -16,6 +16,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   do not veto such variants. ReShade's own performance statistics need a look too (owner is
   not sure they are consistent).
 - Christian (CeeJay, SweetFX/ReShade). Communicates in Danish; prefers brief, direct answers.
+- When asking the owner to do or download something, repeat the links/files in that message
+  (resend packages, give the CI run link) so nothing has to be searched for in the thread.
 - Do not implement your own improvisations or design changes without asking first.
   Implementing the agreed milestone plan is fine; flag anything beyond it.
 
