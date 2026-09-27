@@ -103,6 +103,12 @@ struct State {
 
 State g;
 
+// UTF-8 text of a path (u8string() is std::u8string in C++20).
+std::string utf8(const fs::path& p) {
+  const auto s = p.u8string();
+  return std::string(s.begin(), s.end());
+}
+
 void logf(const char* fmt, ...) {
   char buf[1024];
   va_list args;
@@ -320,7 +326,7 @@ void writeCsv() {
   char descr[256] = "";
   dev->get_property(device_properties::description, descr);
   g.runtime->get_screenshot_width_and_height(&w, &h);
-  g.csvPath = (fs::u8path(basePath()) / "sopt-timer.csv").u8string();
+  g.csvPath = utf8(fs::u8path(basePath()) / "sopt-timer.csv");
   FILE* f = std::fopen(g.csvPath.c_str(), "w");
   if (!f) {
     g.status = "cannot write " + g.csvPath;
@@ -335,7 +341,7 @@ void writeCsv() {
 }
 
 void finishPreset() {
-  const std::string preset = fs::u8path(g.presets[g.presetIdx]).filename().u8string();
+  const std::string preset = utf8(fs::u8path(g.presets[g.presetIdx]).filename());
   if (g.pairs.empty()) g.rows.push_back(csvField(preset) + ",(no _orig/_sopt pair),0,,,,,,,,,,,");
   for (size_t p = 0; p < g.pairs.size(); ++p) {
     const double ma = quantile(g.a[p], 0.5), mb = quantile(g.b[p], 0.5), md = quantile(g.d[p], 0.5);
@@ -360,8 +366,8 @@ void startBench(effect_runtime* rt) {
   std::error_code ec;
   const fs::path dir = fs::u8path(g.original).parent_path();
   for (const auto& e : fs::directory_iterator(dir.empty() ? fs::u8path(basePath()) : dir, ec)) {
-    const std::string name = e.path().filename().u8string();
-    if (e.path().extension() == ".ini" && name.rfind(g.cfg.pattern, 0) == 0) g.presets.push_back(e.path().u8string());
+    const std::string name = utf8(e.path().filename());
+    if (e.path().extension() == ".ini" && name.rfind(g.cfg.pattern, 0) == 0) g.presets.push_back(utf8(e.path()));
   }
   std::sort(g.presets.begin(), g.presets.end());
   g.rows.clear();
@@ -376,7 +382,7 @@ void startBench(effect_runtime* rt) {
        g.cfg.frames, g.cfg.repeats);
 }
 
-std::string presetName() { return fs::u8path(g.presets[g.presetIdx]).filename().u8string(); }
+std::string presetName() { return utf8(fs::u8path(g.presets[g.presetIdx]).filename()); }
 
 bool chainRendered(effect_technique t) {
   return t.handle && std::find(g.lastChain.begin(), g.lastChain.end(), t.handle) != g.lastChain.end();
