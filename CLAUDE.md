@@ -150,7 +150,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   absolute-like where the original itself cancels (Vignette XOR back), relative where the
   small value is exact (depth partial fraction, MXAO, t - t * t stay rejected). Bench: examples
   identical, planted_1 recovered (0 not recovered, 1 needs-sharing).
-  Noise guard (2026-09-27, found in the corpus; to confirm with the owner): hashes like
+  Noise guard (2026-09-27, found in the corpus; owner: fine for now): hashes like
   frac(sin(dot(uv, k)) * 43758.5) became 0.0 / uv.x / uv.y as "less accurate" (float32 sin
   of large arguments is chaotic, the original is off by up to 1 from exact, and the
   error-scale floor made rel budgets accept anything). `followsExact` (driver): if the
@@ -159,8 +159,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   Common GetRandom, GrainSpread, Limbo_Mod dither gone); bench unchanged. Owner (2026-09-27):
   variants should be better in some way, faster or more accurate or both; faster usually
   matters more (8-bit output hides most error); accuracy is written next to each variant
-  and the user chooses. Suggested: an option to ignore accuracy where inaccuracy is the
-  point (noise) - not decided how (see chat).
+  and the user chooses. Noise (owner, 2026-09-27): A for now = the guard above (the float32
+  original is the only reference, so only same-noise rewrites pass); B later = a noise mode
+  (variants must stay noise: same range, similar mean/spread, uniform histogram, no
+  neighbour correlation) that could swap in cheaper hashes.
 - Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
   Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
 - Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
