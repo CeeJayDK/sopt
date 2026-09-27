@@ -23,6 +23,12 @@ jobs:
       - name: Test
         # includes the golden-hash test: exact ops must match bit for bit across compilers
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Build 32-bit add-on
+        # sopt-timer.addon32 for 32-bit games (ReShade loads .addon32 there)
+        if: matrix.name == 'msvc'
+        run: |
+          cmake -S . -B build32 -A Win32 -DSOPT_BUILD_TESTS=OFF
+          cmake --build build32 --config Release --target sopt-timer
       - name: Upload Windows tools
         # sopt-host, sopt-timer (M4 harness) and sopt-fxc, for testing on a Windows machine
         if: matrix.name == 'msvc'
@@ -32,5 +38,6 @@ jobs:
           path: |
             build/Release/sopt-host.exe
             build/Release/sopt-timer.addon64
+            build32/Release/sopt-timer.addon32
             build/Release/sopt-fxc.exe
             tools/timer/README.md
