@@ -362,7 +362,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    599-602 (back), GloomAO/RadiantGI 2 * abs(x), SnowScape, Technicolor, EyeAdaption.
    The run found two old bugs: affine hits on vector values built scalar constants
    (now typed), and a UTF-8 BOM ended up after the generated header (DisplayDepth.fx).
-   Still open in M7: cut points, V3, quantized OE.
+   Cut points (2026-09-27, flag `--cuts`, off until the owner decides; search/cuts.cpp):
+   nodes v that the rest reads the inputs below v only through (dominators); top(cut,
+   other inputs) is searched over v's sampled range (box domain exact), sub as in the
+   subtree search (`searchPart`, shared cache), combinations verified as candidates.
+   Survey: 369 of 2365 corpus regions have such cuts (>= 2 ops each side), 202 of them
+   hit the limit. Bench (time 30): identical except rsqrt_affine 21 -> 20. Corpus (same
+   run settings, current defaults vs + --cuts): 72 -> 73 regions (ArtisticVignette
+   153-154 2 * max(abs(uv - 0.5).x, ...), bit-exact, amd 5 -> 3), better variants in PD80
+   Sharpening 246 (amd 13 -> 11), ColorIsolation / CBS (static 17 -> 14, assumed ranges),
+   AspectRatioSuite, Flashlight, Limbo_Mod, ColorfulPoster (static -1); none worse;
+   45 -> 47 min.
+   Still open in M7: V3, quantized OE.
 
 ## Under discussion (not decided — ask before implementing)
 - Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,
