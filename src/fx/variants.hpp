@@ -64,7 +64,10 @@ std::string switchName(const Region& r);
 
 // SOPT_AUTO: the variant (1-based) with the lowest measured cost on AMD (amd) or NVIDIA,
 // if lower than the original's; less accurate variants are never picked. 0 = none.
-int vendorPick(const RegionResult& rr, bool amd);
+// dx: for DX9-DX12 (owner, 2026-09-27: pick per API too), where the driver gets fxc's DXBC:
+// a variant fxc compiles to the original's code (dxbcSame), or to more DXBC instructions,
+// is no gain there (--backends; without it the pick is the same for every API).
+int vendorPick(const RegionResult& rr, bool amd, bool dx = false);
 
 // The statement text that replaces the region's lines for one variant.
 std::string variantStatement(const Region& r, const std::string& expr);

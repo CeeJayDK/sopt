@@ -442,6 +442,26 @@ TEST(fx_vendor_auto) {
       CHECK(fx::loadEffect(out / "sopt_chain.fx", o, err2) != nullptr);
     }
   fs::remove_all(out, ec);
+
+  // Per API: fxc already compiles variant 2 to the original's code, so on DX9-DX12 AMD
+  // gets the original, on Vulkan/OpenGL variant 2.
+  rr.targetDxbc = 5;
+  rr.variants[1].dxbc = 5;
+  rr.variants[1].dxbcSame = true;
+  CHECK(fx::vendorPick(rr, true, true) == 0 && fx::vendorPick(rr, true, false) == 2);
+  CHECK(fx::writeVariants({rr}, out, errors).size() == 1);
+  std::ifstream f2(out / "sopt_chain.fx");
+  std::stringstream ss2;
+  ss2 << f2.rdbuf();
+  CHECK(ss2.str().find("#if SOPT_AUTO && __VENDOR__ == 0x1002 && __RENDERER__ < 0x10000\n#define SOPT_sopt_chain_27 0\n"
+                       "#elif SOPT_AUTO && __VENDOR__ == 0x1002\n#define SOPT_sopt_chain_27 2\n") != std::string::npos);
+  for (const char* renderer : {"0xb000", "0x20000"}) {
+    fx::LoadOptions o;
+    o.macros = {{"__VENDOR__", "0x1002"}, {"__RENDERER__", renderer}, {"SOPT_AUTO", "1"}};
+    std::string err2;
+    CHECK(fx::loadEffect(out / "sopt_chain.fx", o, err2) != nullptr);
+  }
+  fs::remove_all(out, ec);
 }
 
 TEST(fx_constant_array_range) {

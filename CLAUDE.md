@@ -201,7 +201,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 
 - Owner's decisions (M3 review): variants are kept if faster for any measured vendor
   (per-vendor code: `SOPT_AUTO = 1` in variant files picks per `__VENDOR__` the
-  variant measured fastest, `vendorPick`; default 0 = unchanged; `__DEVICE__` later, M5); `SOPT_ALL = k` uses the
+  variant measured fastest, `vendorPick`; default 0 = unchanged; `__DEVICE__` later, M5;
+  per API too (owner, 2026-09-27): DX9-DX12 (`__RENDERER__ < 0x10000`) skip variants fxc
+  compiles to the original's code or to more DXBC, a separate line only where the pick differs); `SOPT_ALL = k` uses the
   last variant where a region has fewer; constant-input regions are skipped; assumed
   ranges: track facts further (done for vertex shaders) and ask the user for missing
   ranges (done: sopt-facts.txt + `--facts`, interactive `--ask`; user ranges apply in

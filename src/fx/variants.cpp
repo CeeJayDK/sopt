@@ -100,7 +100,7 @@ std::string variantClass(const Variant& v, int codeBits) {
   return s;
 }
 
-int vendorPick(const RegionResult& rr, bool amd) {
+int vendorPick(const RegionResult& rr, bool amd, bool dx) {
   const int target = amd ? rr.targetAmd : rr.targetNv;
   if (target < 0) return 0;
   int best = 0, bestCost = target;
@@ -108,6 +108,7 @@ int vendorPick(const RegionResult& rr, bool amd) {
     const Variant& v = rr.variants[k];
     const int c = amd ? v.amd : v.nv;
     if (v.klass == Klass::LessAccurate || !v.problems.empty() || v.accuracyOnly || c < 0 || c >= bestCost) continue;
+    if (dx && (v.dxbcSame || (v.dxbc >= 0 && rr.targetDxbc >= 0 && v.dxbc > rr.targetDxbc))) continue;
     best = static_cast<int>(k + 1);
     bestCost = c;
   }
@@ -175,7 +176,8 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
     for (const Piece& p : pieces) anyPick = anyPick || vendorPick(*p.rr, true) || vendorPick(*p.rr, false);
     if (anyPick)
       out += "// SOPT_AUTO = 1: switches not set otherwise take the variant measured fastest on\n"
-             "// the GPU's vendor (__VENDOR__: AMD 0x1002, NVIDIA 0x10DE; others: original).\n"
+             "// the GPU's vendor (__VENDOR__: AMD 0x1002, NVIDIA 0x10DE; others: original) and\n"
+             "// API (__RENDERER__ < 0x10000: DX9-DX12, where fxc's DXBC reaches the driver).\n"
              "#ifndef SOPT_AUTO\n#define SOPT_AUTO 0\n#endif\n";
     // Switches up front, outside any #if of the source.
     std::set<const RegionResult*> declared;
@@ -185,14 +187,24 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       const std::string n = std::to_string(p.rr->variants.size());
       const std::string note = " // 0 = original, 1.." + n + " = variants (larger = " + n + ")\n";
       const int amd = vendorPick(*p.rr, true), nv = vendorPick(*p.rr, false);
+      const int amdDx = vendorPick(*p.rr, true, true), nvDx = vendorPick(*p.rr, false, true);
       if (!amd && !nv) {
         out += "#ifndef " + sw + "\n#define " + sw + " SOPT_ALL" + note + "#endif\n";
         continue;
       }
       out += "#ifndef " + sw + "\n";
       std::string kw = "#if";
-      if (amd) out += kw + " SOPT_AUTO && __VENDOR__ == 0x1002\n#define " + sw + " " + std::to_string(amd) + "\n", kw = "#elif";
-      if (nv) out += kw + " SOPT_AUTO && __VENDOR__ == 0x10DE\n#define " + sw + " " + std::to_string(nv) + "\n";
+      // Per vendor; a DX9-DX12 line first where fxc makes the pick differ (0 = original).
+      auto vendor = [&](const char* id, int pick, int pickDx) {
+        if (pickDx != pick) {
+          out += kw + " SOPT_AUTO && __VENDOR__ == " + id + " && __RENDERER__ < 0x10000\n#define " + sw + " " +
+                 std::to_string(pickDx) + "\n";
+          kw = "#elif";
+        }
+        if (pick) out += kw + " SOPT_AUTO && __VENDOR__ == " + id + "\n#define " + sw + " " + std::to_string(pick) + "\n", kw = "#elif";
+      };
+      vendor("0x1002", amd, amdDx);
+      vendor("0x10DE", nv, nvDx);
       out += "#else\n#define " + sw + " SOPT_ALL" + note + "#endif\n#endif\n";
     }
     uint32_t next = 1;  // next source line to copy
@@ -314,6 +326,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     // Row 0 is the original; costs with the gain against it; "auto" marks what
     // SOPT_AUTO = 1 picks per vendor.
     const int pickAmd = vendorPick(rr, true), pickNv = vendorPick(rr, false);
+    const int pickAmdDx = vendorPick(rr, true, true), pickNvDx = vendorPick(rr, false, true);
     const bool autoCol = pickAmd || pickNv;
     auto withGain = [&](int c, int t) {
       if (c < 0) return std::string("?");
@@ -364,8 +377,17 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       s += std::string(" ") + (v.exhaustive ? "all points" : "sampled") + " |";
       if (autoCol) {
         std::string a;
-        if (pickAmd == static_cast<int>(k + 1)) a = "AMD";
-        if (pickNv == static_cast<int>(k + 1)) a += a.empty() ? "NVIDIA" : ", NVIDIA";
+        const int idx = static_cast<int>(k + 1);
+        // "AMD", "NVIDIA (Vulkan/GL)", "AMD (DX)": the API only where the picks differ.
+        auto mark = [&](const char* name, int pick, int pickDx) {
+          std::string m;
+          if (pick == idx && pickDx == idx) m = name;
+          else if (pick == idx) m = std::string(name) + " (Vulkan/GL)";
+          else if (pickDx == idx) m = std::string(name) + " (DX)";
+          if (!m.empty()) a += (a.empty() ? "" : ", ") + m;
+        };
+        mark("AMD", pickAmd, pickAmdDx);
+        mark("NVIDIA", pickNv, pickNvDx);
         s += " " + a + " |";
       }
       s += "\n";
