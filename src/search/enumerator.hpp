@@ -186,6 +186,7 @@ class Enumerator {
   const std::vector<Type>& floatTypes() const { return types_; }
   Expr extract(const Entry& e) const;
   void addSharedLeaves(SearchStats& stats);
+  void upgradeShared(uint32_t idx, const Entry& e);
   Expr extract(const AffineHit& h) const;
   uint32_t build(ExprBuilder& b, const Entry& e) const;
   void checkLimits(SearchStats& stats);
@@ -218,6 +219,7 @@ class Enumerator {
   std::vector<uint64_t> off_;  // fingerprint offset of each entry in fp_
   std::vector<std::array<float, 4>> consts_;
   std::vector<Expr> shared_;  // SearchConfig::sharedLeaves: Input entries with aux >= kShared
+  std::vector<uint32_t> sharedCost_;  // objective DAG cost of shared_[k]'s current form
   static constexpr uint32_t kShared = 0x40000000u;
   std::vector<std::array<std::vector<uint32_t>, kNumTypes>> byCost_;
   std::vector<uint32_t> table_;

@@ -789,6 +789,7 @@ void Enumerator::flush(SearchStats& stats) {
     const bool dup = dupIdx != kEmpty;
     if (dup) {
       ++stats.deduped;
+      if (!shared_.empty()) upgradeShared(dupIdx, e);
       if (dupIdx >= batchStart) {
         pendingDups_.push_back({k, dupIdx});  // hit or not is known after step 3
       } else if (isHit_[dupIdx] && numHits() < cfg_.maxHits) {
@@ -1079,9 +1080,26 @@ void Enumerator::addSharedLeaves(SearchStats& stats) {
     canonicalize(scratch_.data(), width(ty) * n_);
     const auto aux = kShared + static_cast<uint32_t>(shared_.size());
     shared_.push_back(std::move(s));
+    sharedCost_.push_back(cost);
     Entry e{Op::Input, ty, 0, false, {0, 0, 0}, aux, false, 0, false};
     insert(e, scratch_.data(), stats);
   }
+}
+
+// A program with the value of shared leaf idx that is cheaper than the leaf's current
+// form (the original's subexpression) becomes its form: dedup keeps the first program
+// of a value, which is the free leaf, so candidates would otherwise inherit the
+// original's more expensive form.
+void Enumerator::upgradeShared(uint32_t idx, const Entry& e) {
+  const Entry& leaf = entries_[idx];
+  if (leaf.op != Op::Input || leaf.aux < kShared || e.op == Op::Input || e.op == Op::Const) return;
+  const uint32_t k = leaf.aux - kShared;
+  if (e.obj >= sharedCost_[k]) return;
+  Expr x = extract(e);
+  const uint32_t c = dagCost(x, *cfg_.model, prog_.inputs);
+  if (c >= sharedCost_[k]) return;
+  shared_[k] = std::move(x);
+  sharedCost_[k] = c;
 }
 
 uint32_t Enumerator::build(ExprBuilder& b, const Entry& rootEntry) const {
