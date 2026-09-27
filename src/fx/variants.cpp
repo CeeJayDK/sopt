@@ -378,7 +378,12 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
         std::snprintf(buf, sizeof(buf), " %.3g |", v.worst.exactAbs);
         s += buf;
       }
-      s += std::string(" ") + (v.exhaustive ? "all points" : "sampled") + " |";
+      if (v.exhaustive) s += " all points |";
+      else if (v.proven) s += " proven |";
+      else if (v.provenFraction > 0.0) {
+        std::snprintf(buf, sizeof(buf), " sampled, proven on %.3g%% |", 100.0 * v.provenFraction);
+        s += buf;
+      } else s += " sampled |";
       if (autoCol) {
         std::string a;
         const int idx = static_cast<int>(k + 1);

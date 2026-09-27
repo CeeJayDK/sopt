@@ -39,7 +39,8 @@ add_library(sopt-verify
   src/verify/points.cpp
   src/verify/verify.cpp
   src/verify/exact.cpp
-  src/verify/problems.cpp)
+  src/verify/problems.cpp
+  src/verify/bound.cpp)
 target_link_libraries(sopt-verify PUBLIC sopt-ir Threads::Threads)
 sopt_fp_flags(sopt-verify)
 
@@ -133,6 +134,7 @@ if(SOPT_BUILD_TESTS)
     tests/test_backends.cpp
     tests/test_vector.cpp
     tests/test_accuracy.cpp
+    tests/test_bound.cpp
     tests/test_fx.cpp)
   target_link_libraries(sopt-tests PRIVATE sopt-search sopt-measure sopt-fx-lib)
   target_compile_definitions(sopt-tests PRIVATE SOPT_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples"

@@ -2,6 +2,7 @@
 
 #include "search/cuts.hpp"
 #include "search/subtrees.hpp"
+#include "verify/bound.hpp"
 #include "verify/exact.hpp"
 
 #include <algorithm>
@@ -54,6 +55,24 @@ void finish(const Program& prog, const Options& opt, RunResult& res) {
   }
   res.accepted = std::move(kept);
   for (auto& a : res.accepted) a.problems = findProblemRanges(prog, a.expr, a.klass == Klass::LessAccurate);
+  // V3: a formal bound where V2 did not cover the whole domain.
+  if (opt.v3 && prog.budget.kind != Budget::Kind::Exact) {
+    const double t0 = nowSeconds();
+    BoundOptions bo;
+    bo.seconds = opt.v3Time;
+    bo.maxBoxes = opt.v3MaxBoxes;
+    uint32_t n = 0;
+    for (auto& a : res.accepted) {
+      if (n >= opt.v3Candidates) break;
+      if (a.exhaustive || a.klass == Klass::LessAccurate) continue;
+      ++n;
+      const BoundResult b = proveBound(prog, a.expr, bo);
+      a.proven = b.proven;
+      a.provenFraction = b.fraction;
+      a.proofBound = b.maxBound;
+    }
+    res.v3Sec += nowSeconds() - t0;
+  }
 }
 
 }  // namespace

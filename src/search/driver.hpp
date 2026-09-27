@@ -18,6 +18,13 @@ struct Options {
   // input). 0 disables.
   uint64_t v2Max = 1ull << 24;
   uint32_t v2Candidates = 20;
+  // V3 (M7; verify/bound.hpp): a formal error bound by interval subdivision for the
+  // cheapest v3Candidates accepted alternatives when V2 does not apply (continuous
+  // domains); v3Time seconds / v3MaxBoxes boxes each. Adds a proof, rejects nothing.
+  bool v3 = false;
+  uint32_t v3Candidates = 3;
+  double v3Time = 2.0;
+  uint64_t v3MaxBoxes = 200000;
   uint32_t maxIterations = 8;    // CEGIS restarts
   uint32_t maxCexPerIteration = 64;
   uint32_t maxAlternatives = 50; // stop V1 verification after this many distinct variants
@@ -66,6 +73,11 @@ struct Accepted {
   Klass klass = Klass::Within;
   Metrics worst;  // worst case over all semantic profiles
   bool exhaustive = false;  // verified on the whole domain (V2), worst is over all of it
+  // V3 (Options::v3): proven within the budget on the whole domain, or on this share of
+  // its volume; proofBound: the largest proven |candidate - original| bound.
+  bool proven = false;
+  double provenFraction = 0.0;
+  double proofBound = 0.0;
   // Input values where it still fails (e.g. a division by zero at one value); owner:
   // kept and marked, the user decides; never picked by SOPT_AUTO.
   std::vector<ProblemRange> problems;
@@ -91,6 +103,7 @@ struct RunResult {
   uint64_t rejectedV2 = 0;
   uint32_t subtreeSearches = 0;  // Options::subtrees: subexpressions searched (not cached)
   double subtreeSec = 0.0;
+  double v3Sec = 0.0;  // Options::v3
   uint32_t cutSearches = 0;  // Options::cuts: parts searched (not cached)
   double cutSec = 0.0;
   uint64_t v2Points = 0;  // domain size when V2 applied, else 0  // passed ref but failed mix/fma/gpu

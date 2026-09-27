@@ -46,6 +46,8 @@ void usage() {
       "                    and search both parts on their own, --cut-time S per part, default 1)\n"
       "  --quant-oe N      quantized dedup: values equal after rounding away the low N\n"
       "                    mantissa bits on the test points count as one (default 0 = bit-exact)\n"
+      "  --v3              V3: prove a formal error bound (interval subdivision) for the\n"
+      "                    cheapest 3 alternatives where V2 does not apply (--v3-time S each)\n"
       "  --no-overflow     stop when the bank is full (default: keep combining the stored\n"
       "                    entries, checking new values as hits, until --time)\n"
       "  --no-accuracy-variants  do not keep candidates that are only more accurate (not cheaper)\n"
@@ -135,6 +137,8 @@ int main(int argc, char** argv) {
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
+    else if (a == "--v3") opt.v3 = true;
+    else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
     else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);
     else if (a == "--no-shared-leaves") opt.search.sharedLeaves = false;
@@ -284,10 +288,14 @@ int main(int argc, char** argv) {
           std::printf("%3d%c  ", c.cost, t.ok && !gain ? '!' : ' ');
         }
       }
-      std::printf("%-3s  %-15s  %9.3g  ", a.exhaustive ? "all" : "smp",
+      std::printf("%-3s  %-15s  %9.3g  ", a.exhaustive ? "all" : (a.proven ? "prf" : "smp"),
                   klassName(a.klass, prog.budget.codeBits()), a.worst.maxAbs);
       if (rule) std::printf("%8.3g  ", a.worst.exactAbs);
       std::printf("%8d  %6.3f%%  %s\n", a.worst.maxCodeDiff, 100.0 * a.worst.changedFraction(), a.text.c_str());
+      if (a.proven) std::printf("      ^ proven (V3): |error vs original| <= %.3g on the whole domain\n", a.proofBound);
+      else if (a.provenFraction > 0.0)
+        std::printf("      ^ proven (V3) on %.4g%% of the domain (|error vs original| <= %.3g there)\n",
+                    100.0 * a.provenFraction, a.proofBound);
       if (a.moreAccurate) std::printf("      ^ more accurate than the original (accuracy variant)\n");
       if (!a.problems.empty()) std::printf("      ^ %s\n", describeProblems(prog, a.problems).c_str());
     }

@@ -16,6 +16,8 @@ struct Variant {
   Klass klass = Klass::Within;
   Metrics worst;
   bool exhaustive = false;
+  bool proven = false;          // V3 on the whole domain
+  double provenFraction = 0.0;  // V3: share of the domain proven
   int amd = -1, nv = -1;  // measured ISA cost (fxstat + RGA, ptxas + nvdisasm), -1 = not measured
   // Input values where it fails (describeProblems), e.g. "fails at F = 200 (NaN/inf at
   // some), fine on ..."; owner: kept and marked, the user decides; never picked by SOPT_AUTO.
