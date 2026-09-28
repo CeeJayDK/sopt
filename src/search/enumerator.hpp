@@ -176,7 +176,7 @@ class Enumerator {
   bool innerFit(const Entry& e, const float* v, uint32_t idx, std::vector<AffineHit>& out,
                 FitScratch& s, SearchStats& stats) const;
   // Direction changes of the target along v (sorted), beyond monoTol_; 2 = none fits.
-  int monotoneBreaks(const float* v, std::vector<uint32_t>& order) const;
+  int monotoneBreaks(const float* v, std::vector<uint32_t>& keysBuf) const;
   std::vector<double> monoTol_;
   FitScratch serialScratch_;
   std::vector<FitScratch> threadScratch_;

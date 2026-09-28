@@ -460,6 +460,16 @@ int main(int argc, char** argv) {
   if (unique.size() < results.size())
     std::printf("%zu regions searched (%zu repeat another one with other input names)\n", unique.size(),
                 results.size() - unique.size());
+  {
+    // Where the time went (summed over the searched regions, all threads).
+    double se = 0, ve = 0, su = 0, cu = 0, to = 0;
+    for (size_t i : unique) {
+      const RunResult& r = searched[i];
+      se += r.searchSec, ve += r.verifySec, su += r.subtreeSec, cu += r.cutSec, to += r.totalSec;
+    }
+    std::printf("search time: enumeration %.0f s, verification %.0f s, subtrees %.0f s, cuts %.0f s, other %.0f s\n",
+                se, ve, su, cu, to - se - ve - su - cu);
+  }
   parallelFor(results.size(), jobs, [&](size_t i) {
     fx::RegionResult& rr = results[i];
     const auto s0 = std::chrono::steady_clock::now();

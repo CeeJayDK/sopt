@@ -33,11 +33,17 @@ namespace {
 constexpr uint32_t kEmpty = UINT32_MAX;
 constexpr uint32_t kQuant = UINT32_MAX - 1;  // goal: quantized duplicate, checked only
 
+uint32_t canonicalBits(uint32_t u) {
+  const uint32_t a = u & 0x7fffffffu;
+  return a > 0x7f800000u ? 0x7fc00000u : (a == 0 ? 0u : u);
+}
 void canonicalize(float* v, size_t n) {
-  for (size_t i = 0; i < n; ++i) {
-    if (std::isnan(v[i])) v[i] = std::bit_cast<float>(uint32_t{0x7fc00000});
-    else if (v[i] == 0.0f) v[i] = 0.0f;  // treat -0 as +0 (sign of zero is don't-care)
-  }
+  // One NaN; -0 as +0 (the sign of zero is don't-care). Branch-free on the bits, in
+  // blocks of 8 so the compiler can vectorize the fixed-length inner loop.
+  size_t i = 0;
+  for (; i + 8 <= n; i += 8)
+    for (size_t k = 0; k < 8; ++k) v[i + k] = std::bit_cast<float>(canonicalBits(std::bit_cast<uint32_t>(v[i + k])));
+  for (; i < n; ++i) v[i] = std::bit_cast<float>(canonicalBits(std::bit_cast<uint32_t>(v[i])));
 }
 
 struct ConstPool {
@@ -172,14 +178,36 @@ bool Enumerator::sameFp(const float* a, const float* b, size_t len) const {
 }
 
 uint64_t Enumerator::hashFp(const float* fp, Type t) const {
-  uint64_t h = 0x9E3779B97F4A7C15ull ^ static_cast<uint64_t>(t);
   const size_t len = lenOf(t);
-  for (size_t i = 0; i < len; ++i) {
-    h ^= quant(fp[i]);
-    h *= 0xff51afd7ed558ccdull;
-    h ^= h >> 32;
+  if (cfg_.quantBits) {
+    uint64_t h = 0x9E3779B97F4A7C15ull ^ static_cast<uint64_t>(t);
+    for (size_t i = 0; i < len; ++i) {
+      h ^= quant(fp[i]);
+      h *= 0xff51afd7ed558ccdull;
+      h ^= h >> 32;
+    }
+    return h;
   }
-  return h;
+  // Two floats per 64-bit step in two independent lanes (the serial multiply chain was
+  // 13% of the search); only the table positions depend on it, not the results.
+  uint64_t h0 = 0x9E3779B97F4A7C15ull ^ static_cast<uint64_t>(t), h1 = 0xC2B2AE3D27D4EB4Full;
+  size_t i = 0;
+  auto word = [&](size_t k) {
+    uint64_t w;
+    std::memcpy(&w, fp + k, sizeof(w));
+    return w;
+  };
+  for (; i + 4 <= len; i += 4) {
+    h0 = (h0 ^ word(i)) * 0xff51afd7ed558ccdull;
+    h1 = (h1 ^ word(i + 2)) * 0xc4ceb9fe1a85ec53ull;
+    h0 ^= h0 >> 29;
+    h1 ^= h1 >> 31;
+  }
+  for (; i < len; ++i) h0 = (h0 ^ std::bit_cast<uint32_t>(fp[i])) * 0xff51afd7ed558ccdull;
+  uint64_t h = (h0 ^ (h1 * 0x9E3779B97F4A7C15ull));
+  h ^= h >> 32;
+  h *= 0xff51afd7ed558ccdull;
+  return h ^ (h >> 29);
 }
 
 void Enumerator::growTable() {
@@ -266,6 +294,15 @@ uint32_t Enumerator::addConst(Type t, const float* v, SearchStats& stats) {
 // and baseObj its objective cost.
 bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& out) const {
   const CostModel& model = *cfg_.model;
+  const unsigned W = width(targetType_);  // the wrapper applies to every component
+  auto wrapCost = [&](Op w) -> uint32_t {
+    if ((w == Op::Add || w == Op::Sub) && model.fusesIntoAdd(top)) return W * model.fusedAdd;
+    return model.opCost(w, W);
+  };
+  // No wrapper keeps it under the target's cost: skip the fit.
+  if (baseObj + std::min({wrapCost(Op::Add), wrapCost(Op::Mul), wrapCost(Op::Sub), wrapCost(Op::Mad)}) >=
+      targetCost_)
+    return false;
   double mv = 0, mg = 0, svg0 = 0, svv0 = 0;
   size_t m = 0;
   for (size_t i = 0; i < tn_; ++i) {
@@ -310,7 +347,6 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
   // while p * v (no offset) passes. So each wrapper is checked on its own.
   const AffineHit full{0, Op::Mad, static_cast<float>(pd), static_cast<float>(mg - pd * mv)};
   if (full.p == 0.0f) return false;
-  const bool fullOk = passes(Op::Mad, full.p, full.q);
 
   // Cheaper wrappers, each with its own least-squares constant.
   const AffineHit tries[] = {
@@ -318,16 +354,11 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
       {0, Op::Mul, static_cast<float>(svg0 / svv0), 0.0f},
       {0, Op::Sub, -1.0f, static_cast<float>(mg + mv)},
       full};
-  const unsigned W = width(targetType_);  // the wrapper applies to every component
-  auto wrapCost = [&](Op w) -> uint32_t {
-    if ((w == Op::Add || w == Op::Sub) && model.fusesIntoAdd(top)) return W * model.fusedAdd;
-    return model.opCost(w, W);
-  };
   const AffineHit* best = nullptr;
   uint32_t bestCost = targetCost_;
   for (const auto& h : tries) {
     const uint32_t c = baseObj + wrapCost(h.wrap);
-    if (c < bestCost && (&h == &tries[3] ? fullOk : passes(h.wrap, h.p, h.q))) {
+    if (c < bestCost && passes(h.wrap, h.p, h.q)) {
       best = &h;
       bestCost = c;
     }
@@ -415,14 +446,24 @@ bool solveLsq(double ata[5][5], double atb[5], int k, double* x) {
 //   sqrt:  g^2 = 2q g + p^2 v + (p^2 c - q^2)
 //   rsqrt: g^2 v = -c g^2 + 2q g v + 2qc g - q^2 v + (p^2 - q^2 c)
 // then p, q are refitted on w = u(v + c) by fitWrap.
-int Enumerator::monotoneBreaks(const float* v, std::vector<uint32_t>& order) const {
-  order.clear();
-  for (size_t i = 0; i < tn_; ++i)
-    if (targetFinite_[i]) order.push_back(static_cast<uint32_t>(i));
-  std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return v[a] < v[b]; });
+int Enumerator::monotoneBreaks(const float* v, std::vector<uint32_t>& keysBuf) const {
+  // Sort (value key, index) pairs as integers: no indirection in the comparisons. A
+  // non-finite v fails the fit anyway (innerFit), so it counts as not monotonic.
+  static_assert(sizeof(uint64_t) == 2 * sizeof(uint32_t));
+  keysBuf.resize(2 * tn_);
+  uint64_t* keys = reinterpret_cast<uint64_t*>(keysBuf.data());
+  size_t n = 0;
+  for (size_t i = 0; i < tn_; ++i) {
+    if (!targetFinite_[i]) continue;
+    if (!std::isfinite(v[i])) return 2;
+    uint32_t u = std::bit_cast<uint32_t>(v[i] == 0.0f ? 0.0f : v[i]);  // -0 sorts as 0
+    u = (u & 0x80000000u) ? ~u : (u | 0x80000000u);
+    keys[n++] = (uint64_t{u} << 32) | i;
+  }
+  std::sort(keys, keys + n);
   int up = 0, down = 0;
-  for (size_t k = 0; k + 1 < order.size(); ++k) {
-    const uint32_t a = order[k], b = order[k + 1];
+  for (size_t k = 0; k + 1 < n; ++k) {
+    const uint32_t a = static_cast<uint32_t>(keys[k]), b = static_cast<uint32_t>(keys[k + 1]);
     const double d = double(target_[b]) - target_[a];
     const double tol = monoTol_[a] + monoTol_[b];
     if (v[a] == v[b]) {
@@ -432,6 +473,7 @@ int Enumerator::monotoneBreaks(const float* v, std::vector<uint32_t>& order) con
     } else if (d < -tol) {
       ++down;
     }
+    if (up > 1 && down > 1) return 2;  // the callers only distinguish 0, 1 and > 1
   }
   return std::min(up, down);
 }
@@ -439,6 +481,15 @@ int Enumerator::monotoneBreaks(const float* v, std::vector<uint32_t>& order) con
 bool Enumerator::innerFit(const Entry& e, const float* v, uint32_t idx, std::vector<AffineHit>& out,
                           FitScratch& s, SearchStats& stats) const {
   const CostModel& model = *cfg_.model;
+  const unsigned W0 = width(targetType_);
+  const uint32_t addCost0 = model.fusesIntoAdd(e.op) ? W0 * model.fusedAdd : model.opCost(Op::Add, W0);
+  // No u that is available and still under the target's cost: nothing to fit (checked
+  // first: the monotonicity test below is the expensive part).
+  bool any = false;
+  for (Op u : {Op::Rcp, Op::Sqrt, Op::Rsqrt})
+    any = any || (std::find(ops_.begin(), ops_.end(), u) != ops_.end() &&
+                  e.obj + addCost0 + model.opCost(u, W0) + 1 < targetCost_);
+  if (!any) return false;
   // p * u(v + c) + q is monotonic in v (rcp: on each side of its pole, one break), so
   // the target must be too, within the tolerance: cheap to check before fitting.
   const int breaks = cfg_.innerPrefilter ? monotoneBreaks(v, s.order) : 0;
