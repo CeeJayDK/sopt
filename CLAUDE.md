@@ -190,8 +190,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   sqrt(dot(v, v)) -> length(v) cost the same on GPUs; they are readability rewrites
   (optional post-search step), not search results. Real vector wins are the examples
   (normalize_length, length_squared).
-- V2 checks the cheapest 20 alternatives when the domain has <= 2^24 points; continuous
-  multi-input domains are sampled only (V3 in M7).
+- V2 checks the cheapest 20 alternatives when the domain has <= 2^24 points; elsewhere V3
+  proves a bound where it can (often only part of the domain); the rest is sampled.
 - `generic` costs are placeholders. `rdna3` is calibrated per op on gfx1100 but misses
   context effects (min(max()) -> med3, extra v_mov for some constants); `--isa` covers them.
 - `rdna3` and `nvidia` enumerate in `search` order by default (rdna3's cheap ops,
@@ -382,7 +382,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    ColorLab 118 / PD80 Color_Spaces 142 5 -> 8, ...; the stored first program of a merged
    value is often not the useful one), 2 slightly better. Corpus timings vary ~30% between
    runs on this machine: compare only runs made back to back.
-   V3 (2026-09-28, flag `--v3`, off until the owner decides; verify/bound.cpp): formal
+   V3 (2026-09-28, default by the owner's decision, `--no-v3`; verify/bound.cpp): formal
    bound on |candidate - original| by interval subdivision. Exact difference: naive,
    first-order and second-order centered forms (interval gradients and Hessians, forward
    mode; the Hessian difference is exactly 0 for identities, so the remainder ~ width^3),
@@ -397,7 +397,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    sampling missed it); depth_far not (rel 1e-6, structurally different, compile-time F).
    Corpus: 126 variants checked in 63 s: 11 proven, 30 more on > 99.99% of the domain,
    42 partly, 43 not at all (2 more exhaustive by V2); same regions and variants.
-   M7 done except what the owner decides on V3's default.
+   M7 done.
 
 ## Under discussion (not decided — ask before implementing)
 - Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,

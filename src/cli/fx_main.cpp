@@ -90,8 +90,9 @@ void usage() {
       "                    and search both parts on their own, --cut-time S per part, default 1)\n"
       "  --quant-oe N      quantized dedup: values equal after rounding away the low N\n"
       "                    mantissa bits on the test points count as one (default 0 = bit-exact)\n"
-      "  --v3              V3: prove a formal error bound (interval subdivision) for the\n"
-      "                    cheapest 3 alternatives where V2 does not apply (--v3-time S each)\n"
+      "  --no-v3           no V3 (default: prove a formal error bound by interval subdivision\n"
+      "                    for the cheapest 3 alternatives where V2 does not apply, --v3-time S\n"
+      "                    each, default 2; sopt-fx: for the written variants)\n"
       "  --no-overflow     stop a region's search when the bank is full (default: keep\n"
       "                    combining the stored entries until --time)\n"
       "  --loose F         also list less accurate variants: within F times the budget or\n"
@@ -196,7 +197,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
-    else if (a == "--v3") opt.v3 = true;
+    else if (a == "--no-v3") opt.v3 = false;
     else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
     else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);

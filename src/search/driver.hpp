@@ -21,7 +21,7 @@ struct Options {
   // V3 (M7; verify/bound.hpp): a formal error bound by interval subdivision for the
   // cheapest v3Candidates accepted alternatives when V2 does not apply (continuous
   // domains); v3Time seconds / v3MaxBoxes boxes each. Adds a proof, rejects nothing.
-  bool v3 = false;
+  bool v3 = true;  // default (owner, 2026-09-28); --no-v3
   uint32_t v3Candidates = 3;
   double v3Time = 2.0;
   uint64_t v3MaxBoxes = 200000;
