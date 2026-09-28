@@ -25,7 +25,28 @@ search always runs to the time limit instead of stopping when the bank is full.
 Measured 2026-09-24 in the cloud sandbox (4 cores), `examples/sqrt_product.sopt`
 (rdna3) and a full sopt-fx run over 53 effects.
 
-## Where the time goes today
+## 2026-09-28: profile after M7, and what was done
+
+sopt-fx over SweetFX (239 searched regions, --time 3): enumeration 568 s, subtree
+searches 197 s, cut searches 56 s, verification 30 s, other 26 s. Enumeration runs to the
+time limit, so faster means deeper, not shorter. Inside it (callgrind, bank-bounded
+normalize_x): candidate evaluation ~22%, fingerprint hash 13.5% (a serial multiply chain
+per float), inner-fit monotonicity prefilter 23% (std::sort through an index
+indirection), affine fits 21%, canonicalize 8%. Done, identical results on 8 examples
+with a fixed bank: two-lane 64-bit hash; integer (key, index) sort with early exit; cost
+checks before the monotonicity test and the affine sums; the full affine fit only when it
+can win; canonicalize branch-free: -14% instructions on normalize_x, -8% on rational.
+
+Memory per bank entry (scalar target, 32 test points): Entry 32 B, offset 8 B, hit flag
+1 B, level list 4 B, hash table 8 B, fingerprint 128 B (float3: 384 B) = ~181 B. Done:
+Entry packed to 20 B, offsets 32-bit, and the main bank freed before the subtree / cut
+searches (they had their own full banks on top): normalize_x at a full 2M bank 414 ->
+383 MB alone, 619 -> 383 MB with the default part searches. The fingerprint (70-80%)
+must stay exact (quantized OE lost variants); open: fewer test points (24 instead of 32,
+measure), recomputing the top levels' fingerprints (flag), and a disk-backed bank for
+long single-region runs (option, not default; owner 2026-09-28).
+
+## Where the time went (2026-09-24)
 
 Search (one thread):
 - 1.6 M candidates/s generated; 64% are duplicates of values already in the bank.

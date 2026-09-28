@@ -400,6 +400,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    M7 done.
 
 ## Under discussion (not decided — ask before implementing)
+- Speed / RAM round 2 (owner, 2026-09-28: profile, then safe changes; disk-backed bank as a
+  non-default option for single regions): done hash / prefilter / fit speedups (-8..-14%
+  instructions, identical results) and 20-byte entries + freeing the bank before part
+  searches (peak 619 -> 383 MB at a full 2M bank); details in docs/performance-ideas.md.
+  Open: 24 test points (measure), fingerprint recompute (flag), disk option.
 - Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,
   proposals and status in docs/performance-ideas.md. Done: inner-fit monotonicity
   prefilter (`innerPrefilter`), compare() stops at a rejected candidate's first failure,
