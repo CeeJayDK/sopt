@@ -377,11 +377,27 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    after rounding away the low N mantissa bits (SearchConfig::quantBits); a merged value
    that is not bitwise equal is still goal-checked but not an operand. N = 8: ~10% of new
    values merge, no deeper level (levels grow 3-5x), generation ~15% slower. Bench:
-   identical except planted_2 12 -> 10. Corpus: 73 regions either way, but 10 variants
-   worse (e.g. TripleMonitor 412 20 -> 28, ColorLab 118 5 -> 8, PiecewiseFilmic 540
-   9 -> 12; the stored first program of a merged value is often not the useful one),
-   2 slightly better; 45 -> 56 min.
-   Still open in M7: V3.
+   identical except planted_2 12 -> 10. Corpus (vs a baseline rerun on the same, by then
+   slower machine): 73 regions either way, 8 variants worse (TripleMonitor 412 20 -> 28,
+   ColorLab 118 / PD80 Color_Spaces 142 5 -> 8, ...; the stored first program of a merged
+   value is often not the useful one), 2 slightly better. Corpus timings vary ~30% between
+   runs on this machine: compare only runs made back to back.
+   V3 (2026-09-28, flag `--v3`, off until the owner decides; verify/bound.cpp): formal
+   bound on |candidate - original| by interval subdivision. Exact difference: naive,
+   first-order and second-order centered forms (interval gradients and Hessians, forward
+   mode; the Hessian difference is exactly 0 for identities, so the remainder ~ width^3),
+   a shared saturate/abs/neg root peeled (1-Lipschitz). Rounding: mean value theorem over
+   the widened arguments, op model as the profiles (u per exact op, 2 ulp inexact, div
+   4 ulp, FTZ 2^-126). A box passes within the budget of the float32 original or
+   (accuracy rule) of the exact value; Rel uses |t| only (no error-scale floor, so
+   stricter). Adds a proof, rejects nothing. Driver (`sopt`): cheapest 3 accepted, 2 s /
+   200k boxes each; sopt-fx: only written variants, after measurement; not inside subtree /
+   cut searches. Examples: rsqrt_affine, rational, sqrt_product proven; normalize_x 99.6%;
+   factor not (x * (a + b) -> mad(a, x, b * x) really is outside rel 1e-6 near a + b = 0;
+   sampling missed it); depth_far not (rel 1e-6, structurally different, compile-time F).
+   Corpus: 126 variants checked in 63 s: 11 proven, 30 more on > 99.99% of the domain,
+   42 partly, 43 not at all (2 more exhaustive by V2); same regions and variants.
+   M7 done except what the owner decides on V3's default.
 
 ## Under discussion (not decided — ask before implementing)
 - Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,
