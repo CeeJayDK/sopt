@@ -94,6 +94,9 @@ void usage() {
       "                    the free space minus a reserve)\n"
       "  --top-down        top-down split: after each level, look up the missing operand b of\n"
       "                    op(a, b) = target for each new entry a (add, sub, mul, div)\n"
+      "  --slack N         best-so-far bound: keep hits and parts of hits up to N above the\n"
+      "                    cheapest hit found so far (default 1; 0 when the bank is full, -1 when\n"
+      "                    it is also past half the time); --no-best-bound: bound = the original\n"
       "  --no-cuts         no cut points (default: when the search hits a limit, split the\n"
       "                    target at values the rest depends on for all inputs below them\n"
       "                    and search both parts on their own, --cut-time S per part, default 1)\n"
@@ -205,6 +208,8 @@ int main(int argc, char** argv) {
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
+    else if (a == "--slack") opt.search.slack = std::atoi(next());
+    else if (a == "--no-best-bound") opt.search.bestBound = false;
     else if (a == "--top-down") opt.search.topDown = true;
     else if (a == "--disk") opt.search.diskDir = next();
     else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);

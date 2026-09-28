@@ -101,6 +101,8 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   targetType_ = prog.target.nodes[prog.target.root].type;
   tn_ = lenOf(targetType_);
   targetCost_ = dagCost(prog.target, *cfg.model, prog.inputs);
+  slackCur_ = cfg.slack;
+  objLimit_ = targetCost_;
   target_ = evalAll(prog.target, tests, kProfileRef);
   targetFinite_.resize(tn_);
   for (size_t i = 0; i < tn_; ++i) targetFinite_[i] = std::isfinite(target_[i]) ? 1 : 0;
@@ -525,7 +527,7 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
   };
   // No wrapper keeps it under the target's cost: skip the fit.
   if (baseObj + std::min({wrapCost(Op::Add), wrapCost(Op::Mul), wrapCost(Op::Sub), wrapCost(Op::Mad)}) >=
-      targetCost_)
+      objLimit_)
     return false;
   double mv = 0, mg = 0, svg0 = 0, svv0 = 0;
   size_t m = 0;
@@ -579,7 +581,7 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
       {0, Op::Sub, -1.0f, static_cast<float>(mg + mv)},
       full};
   const AffineHit* best = nullptr;
-  uint32_t bestCost = targetCost_;
+  uint32_t bestCost = objLimit_;
   for (const auto& h : tries) {
     const uint32_t c = baseObj + wrapCost(h.wrap);
     if (c < bestCost && passes(h.wrap, h.p, h.q)) {
@@ -588,6 +590,7 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
     }
   }
   if (!best) return false;
+  out.cost = bestCost;
   out.wrap = best->wrap;
   out.p = best->p;
   out.q = best->q;
@@ -596,7 +599,7 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
 
 bool Enumerator::goalCheck(const Entry& e, const float* v, uint32_t idx, std::vector<AffineHit>& out,
                            FitScratch& s, SearchStats& stats) const {
-  if (e.type != targetType_ || e.obj >= targetCost_) return false;
+  if (e.type != targetType_ || e.obj >= objLimit_) return false;
   bool ok = true;
   for (size_t i = 0; i < tn_ && ok; ++i) ok = !targetFinite_[i] || accepts(i, v[i]);
   if (ok) return true;
@@ -614,7 +617,8 @@ void Enumerator::commitHits(uint32_t idx, bool direct, const std::vector<AffineH
     ++stats.hits;
     bestHitObj_ = std::min(bestHitObj_, obj(idx));
   }
-  if (!fitted.empty()) bestHitObj_ = std::min(bestHitObj_, obj(idx) + 1);  // a wrapper costs >= 1
+  for (const AffineHit& h : fitted) bestHitObj_ = std::min(bestHitObj_, h.cost ? h.cost : obj(idx) + 1);
+  updateLimit();
   for (const AffineHit& h : fitted) {
     if (numHits() >= cfg_.maxHits) break;
     AffineHit k = h;
@@ -714,7 +718,7 @@ bool Enumerator::innerFit(const Entry& e, const float* v, uint32_t idx, std::vec
   bool any = false;
   for (Op u : {Op::Rcp, Op::Sqrt, Op::Rsqrt})
     any = any || (std::find(ops_.begin(), ops_.end(), u) != ops_.end() &&
-                  e.obj + addCost0 + model.opCost(u, W0) + 1 < targetCost_);
+                  e.obj + addCost0 + model.opCost(u, W0) + 1 < objLimit_);
   if (!any) return false;
   // p * u(v + c) + q is monotonic in v (rcp: on each side of its pole, one break), so
   // the target must be too, within the tolerance: cheap to check before fitting.
@@ -730,7 +734,7 @@ bool Enumerator::innerFit(const Entry& e, const float* v, uint32_t idx, std::vec
     if (std::find(ops_.begin(), ops_.end(), u) == ops_.end()) continue;
     if (breaks > 0 && u != Op::Rcp) continue;
     const uint32_t baseObj = e.obj + addCost + model.opCost(u, W);
-    if (baseObj + 1 >= targetCost_) continue;
+    if (baseObj + 1 >= objLimit_) continue;
     const int k = u == Op::Rsqrt ? 5 : 3;
     double ata[5][5] = {}, atb[5] = {}, x[5];
     for (size_t i = 0; i < tn_; ++i) {
@@ -856,7 +860,9 @@ bool Enumerator::innerFit(const Entry& e, const float* v, uint32_t idx, std::vec
         const float dn = v[i] * rh.a + rh.b;
         ok = accepts(i, num * (1.0f / dn));
       }
-      if (ok) {
+      rh.cost = e.obj + model.opCost(Op::Sub, W) + model.opCost(Op::Rcp, W) + model.opCost(Op::Mad, W) +
+                model.opCost(Op::Mul, W);
+      if (ok && rh.cost < objLimit_) {
         out.push_back(rh);
         found = true;
       }
@@ -870,6 +876,14 @@ bool Enumerator::innerFit(const Entry& e, const float* v, uint32_t idx, std::vec
 }
 
 void Enumerator::checkLimits(SearchStats& stats) {
+  // Pressed for depth: fewer alternatives, so the search reaches further (owner).
+  if (cfg_.bestBound && bankFull()) {
+    const int s = nowSeconds() - start_ > 0.5 * cfg_.timeLimitSec ? -1 : 0;
+    if (s < slackCur_) {
+      slackCur_ = s;
+      updateLimit();
+    }
+  }
   if ((bankFull() && !cfg_.overflow) || numHits() >= cfg_.maxHits ||
       nowSeconds() - start_ > cfg_.timeLimitSec) {
     stop_ = true;
@@ -954,7 +968,7 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
     obj += w * model.fusedAdd;
   else
     obj += model.opCost(op, w);
-  if (obj >= targetCost_) return Prep::ObjPruned;
+  if (obj >= objLimit_) return Prep::ObjPruned;
   if (op == Op::Swizzle) {
     std::copy(fpOf(a) + aux * n_, fpOf(a) + (aux + 1) * n_, out);
   } else {
@@ -1236,10 +1250,10 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
             for (const Seg& sg : listSegs(r, T)) {
               requireTiles({sg.tile}, stats);
               for (size_t i = sg.begin; i < sg.end && !stop_; ++i)
-                if (obj(la[i]) + objOp < targetCost_) tryAdd(op, c16, la[i], 0, 0, stats);
+                if (obj(la[i]) + objOp < objLimit_) tryAdd(op, c16, la[i], 0, 0, stats);
             }
           } else {
-            for (size_t i = 0; i < la.size() && !stop_ && obj(la[i]) + objOp < targetCost_; ++i)
+            for (size_t i = 0; i < la.size() && !stop_ && obj(la[i]) + objOp < objLimit_; ++i)
               tryAdd(op, c16, la[i], 0, 0, stats);
           }
         } else if (oi.arity == 2) {
@@ -1346,7 +1360,7 @@ void Enumerator::topDownPass(uint32_t cost, SearchStats& stats) {
   const bool hasAdd = has(Op::Add), hasSub = has(Op::Sub), hasMul = has(Op::Mul), hasDiv = has(Op::Div);
   for (uint32_t a : fresh) {
     if (stop_) break;
-    if (obj(a) + 1 >= bestHitObj_) continue;  // only hits cheaper than the best so far
+    if (obj(a) + 1 >= objLimit_) continue;  // only hits within the best-so-far bound
     const float* va = fpOf(a);
     const double a0 = va[tdP0_];
     if (!std::isfinite(a0)) continue;
@@ -1355,7 +1369,7 @@ void Enumerator::topDownPass(uint32_t cost, SearchStats& stats) {
       if ((op == Op::Add && !hasAdd) || (op == Op::Sub && !hasSub) || (op == Op::Mul && !hasMul) ||
           (op == Op::Div && !hasDiv))
         continue;
-      if (obj(a) + cfg_.model->opCost(op, w) >= bestHitObj_) continue;
+      if (obj(a) + cfg_.model->opCost(op, w) >= objLimit_) continue;
       // The operand b that makes op(a, b) = t at the lookup point, and how far off it may be.
       double b0, db;
       const double slack = tol0 + 4.0 * kU * (std::fabs(t0) + std::fabs(a0));
@@ -1393,7 +1407,7 @@ void Enumerator::topDownPass(uint32_t cost, SearchStats& stats) {
         const Item item{op, static_cast<uint16_t>(entry(a).cost + entry(b).cost + ord.opCost(op, w)), swap ? b : a,
                         swap ? a : b, 0, 0};
         Entry e;
-        if (prepare(item, e, fp.data()) != Prep::Ok || e.type != T || e.obj >= bestHitObj_) continue;
+        if (prepare(item, e, fp.data()) != Prep::Ok || e.type != T || e.obj >= objLimit_) continue;
         ++stats.topDownChecked;
         if ((stats.topDownChecked & 4095) == 0) {
           checkLimits(stats);
@@ -1514,7 +1528,7 @@ void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Ty
           for (size_t i = sa[ia].begin; i < sa[ia].end && !stop_; ++i) {
             const bool fa = fusable(la[i]);
             for (size_t j = (same && ia == ib) ? i : sb[ib].begin; j < sb[ib].end && !stop_; ++j) {
-              if (obj(la[i]) + obj(lb[j]) + minOp >= targetCost_) {
+              if (obj(la[i]) + obj(lb[j]) + minOp >= objLimit_) {
                 if (sb[ib].tile < 0) break;  // the RAM segment is sorted by objective
                 continue;
               }
@@ -1526,11 +1540,11 @@ void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Ty
       continue;
     }
     for (size_t i = 0; i < la.size() && !stop_; ++i) {
-      if (obj(la[i]) + obj(lb[0]) + minOp >= targetCost_) break;
+      if (obj(la[i]) + obj(lb[0]) + minOp >= objLimit_) break;
       const bool fa = fusable(la[i]);
       size_t j0 = (sym && c1 == c2) ? i : 0;
       for (size_t j = j0; j < lb.size() && !stop_; ++j) {
-        if (obj(la[i]) + obj(lb[j]) + minOp >= targetCost_) break;
+        if (obj(la[i]) + obj(lb[j]) + minOp >= objLimit_) break;
         if (fuse >= 0 && (fa || fusable(lb[j])) != (fuse == 1)) continue;
         tryAdd(op, level, la[i], lb[j], 0, stats);
       }
@@ -1561,9 +1575,9 @@ void Enumerator::enumerateTernary(Op op, uint16_t level, uint32_t r, Type ta, Ty
               for (size_t i = sa[ia].begin; i < sa[ia].end && !stop_; ++i)
                 for (size_t j = (same && ia == ib) ? i : sb[ib].begin; j < sb[ib].end && !stop_; ++j) {
                   const uint32_t ab = obj(la[i]) + obj(lb[j]) + opc;
-                  if (ab >= targetCost_) continue;
+                  if (ab >= objLimit_) continue;
                   for (size_t k = sc[ic].begin; k < sc[ic].end && !stop_; ++k) {
-                    if (ab + obj(lc[k]) >= targetCost_) {
+                    if (ab + obj(lc[k]) >= objLimit_) {
                       if (sc[ic].tile < 0) break;
                       continue;
                     }
@@ -1576,12 +1590,12 @@ void Enumerator::enumerateTernary(Op op, uint16_t level, uint32_t r, Type ta, Ty
       }
       const uint32_t minC = obj(lc[0]);
       for (size_t i = 0; i < la.size() && !stop_; ++i) {
-        if (obj(la[i]) + obj(lb[0]) + minC + opc >= targetCost_) break;
+        if (obj(la[i]) + obj(lb[0]) + minC + opc >= objLimit_) break;
         size_t j0 = (sym01 && c1 == c2) ? i : 0;
         for (size_t j = j0; j < lb.size() && !stop_; ++j) {
           const uint32_t ab = obj(la[i]) + obj(lb[j]) + opc;
-          if (ab + minC >= targetCost_) break;
-          for (size_t k = 0; k < lc.size() && !stop_ && ab + obj(lc[k]) < targetCost_; ++k) {
+          if (ab + minC >= objLimit_) break;
+          for (size_t k = 0; k < lc.size() && !stop_ && ab + obj(lc[k]) < objLimit_; ++k) {
             if ((op == Op::Select || op == Op::Lerp) && lb[j] == lc[k]) continue;
             tryAdd(op, level, la[i], lb[j], lc[k], stats);
           }

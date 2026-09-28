@@ -18,7 +18,7 @@
 ## 2. Grundprincipper
 
 1. **Forslag, ikke automatisk omskrivning.** Brugeren tester og vælger.
-2. **Liste frem for én vinder.** Alle verificerede kandidater, der er billigere end originalen, rapporteres.
+2. **Liste frem for én vinder, men kun kandidater med en fordel.** Søgningen sammenligner løbende med den bedste kandidat, der er fundet indtil videre, ikke med originalen (ejeren, 2026-09-28). En variant rapporteres kun, hvis ingen anden variant er mindst lige så hurtig på alle målinger og mindst lige så nøjagtig. Sammenligningen med originalen laves først til sidst, når alternativerne præsenteres, så brugeren kan se, hvor meget der er vundet.
 3. **Fejl måles i den enhed, der betyder noget.** Farveoutput måles i 8-bit kodeværdier. Texcoords, sammenligninger og temporal feedback behandles strengt.
 4. **CPU-evaluering i float32 er referencen.** Den er bit-eksakt for `+ − * / sqrt`, da alle PC-GPU'er bruger IEEE 754. Transcendentale funktioner sammenlignes med tolerance.
 5. **Tre spørgsmål holdes adskilt:** korrekthed, statisk cost og målt performance.
@@ -116,11 +116,13 @@ Klassen "bit-eksakt" forudsætter, at compileren ikke contracter til FMA. Om det
 - par med næsten ens værdier (near-cancellation)
 - gitterpunkter
 
-**Målcheck:** Hver ny kandidat af den rigtige type sammenlignes med originalens fingerprint og klassificeres som bit-eksakt eller inden for ε. Hits med lavere cost end originalen gemmes.
+**Målcheck:** Hver ny kandidat af den rigtige type sammenlignes med originalens fingerprint (originalens *værdier* er stadig facit) og klassificeres som bit-eksakt eller inden for ε.
+
+**Grænse efter den bedste hidtil (ejeren, 2026-09-28):** Originalens cost er kun startgrænsen. Når et hit er fundet, gemmes og kombineres kun hits og delresultater, der koster højst det bedste hit hidtil plus en slack (standard 1, så varianter, der kan være hurtigst hos én vendor, overlever). Et billigere hit bliver den nye grænse. Bliver søgningen presset, går slack ned: 0, når banken er fuld, og −1 (kun strengt billigere), når den også har brugt over halvdelen af tiden. At gemme alternativer må ikke forhindre, at søgningen når dybere. Statistik på slack kommer senere.
 
 **CEGIS:** Hits testes på et større sæt (ca. 4096 punkter). Fejlende punkter føjes til fingerprint-sættet ved næste genstart.
 
-**Stop:** når originalens cost er nået, eller når tids- eller hukommelsesbudgettet er brugt.
+**Stop:** når grænsen (den bedste hidtil) er nået, eller når tids- eller hukommelsesbudgettet er brugt.
 
 **Kendt begrænsning i v1:** Bank-cost er tree-cost. Løsninger, der kræver en delt mellemværdi, kan derfor blive overset eller få for høj cost. Løses i M7 med *shared leaves*: vælg en billig bank-værdi `s`, brug den som ekstra leaf, og søg med budget − cost(s).
 

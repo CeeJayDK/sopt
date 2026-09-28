@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -34,6 +35,12 @@ struct SearchConfig {
   // op(a, b) is goal-checked: pairs of any two stored entries, up to twice the depth for
   // the top operation, in one pass instead of all pairs. Not in disk mode.
   bool topDown = false;
+  // Best-so-far bound (owner, 2026-09-28; design 4.3): hits, and entries that could only
+  // be part of hits, must cost at most the cheapest hit found so far + slack (the
+  // original's cost is only the starting bound). The slack drops to 0 when the bank is
+  // full and to -1 (strictly cheaper only) when it is full and half the time is gone.
+  bool bestBound = true;
+  int slack = 1;
   std::string diskDir;
   size_t diskBudget = 0;
   size_t diskTileFloats = size_t{1} << 24;  // 64 MB of fingerprints per tile
@@ -235,6 +242,7 @@ class Enumerator {
     // SearchConfig::rational: (v - r) * rcp(mad(v, a, b)) instead of the wrapper.
     bool rational = false;
     float r = 0.0f, a = 0.0f, b = 0.0f;
+    uint32_t cost = 0;  // objective cost of the whole hit (base + wrapper)
   };
 
   void tryAdd(Op op, uint16_t cost, uint32_t a, uint32_t b, uint32_t c, SearchStats& stats,
@@ -398,6 +406,15 @@ class Enumerator {
   std::vector<std::pair<float, uint32_t>> tdIndex_;
   uint32_t tdP0_ = UINT32_MAX, tdP1_ = UINT32_MAX;
   uint32_t bestHitObj_ = UINT32_MAX;  // objective cost of the cheapest hit so far
+  // Exclusive objective bound for entries and hits: targetCost_, or with the best-so-far
+  // bound min(targetCost_, bestHitObj_ + slackCur_ + 1).
+  uint32_t objLimit_ = 0;
+  int slackCur_ = 1;
+  void updateLimit() {
+    objLimit_ = targetCost_;
+    if (cfg_.bestBound && bestHitObj_ != UINT32_MAX)
+      objLimit_ = static_cast<uint32_t>(std::min<int64_t>(targetCost_, int64_t{bestHitObj_} + slackCur_ + 1));
+  }
   void topDownPass(uint32_t cost, SearchStats& stats);
   size_t maxBank_ = 0;         // entries: from the memory budget, cfg_.maxBank, 32-bit offsets
   size_t budget_ = 0;          // bank memory budget in bytes (bankBudget)
