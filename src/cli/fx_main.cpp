@@ -652,6 +652,37 @@ int main(int argc, char** argv) {
     }
   }
 
+  // Only variants with an advantage (owner, 2026-09-28): drop one when another variant of
+  // the region is at least as fast on every measure (static cost, AMD, NVIDIA, SPIR-V,
+  // DXBC) and at least as accurate (error vs exact math, else vs the original; no problem
+  // inputs unless it has them too). Equal on everything: the first one stays.
+  {
+    size_t dropped = 0;
+    auto noWorse = [](int a, int b) { return a < 0 || b < 0 || a <= b; };
+    for (auto& rr : results) {
+      auto err = [&](const fx::Variant& v) {
+        return accuracyRule(rr.region.prog.budget) && opt.exactRule ? v.worst.exactAbs : v.worst.maxAbs;
+      };
+      auto asGood = [&](const fx::Variant& k, const fx::Variant& v) {  // k at least as good as v
+        return k.cost <= v.cost && noWorse(k.amd, v.amd) && noWorse(k.nv, v.nv) && noWorse(k.spirv, v.spirv) &&
+               noWorse(k.dxbc, v.dxbc) && err(k) <= err(v) && (k.problems.empty() || !v.problems.empty()) &&
+               (k.klass != Klass::LessAccurate || v.klass == Klass::LessAccurate);
+      };
+      const auto& vs = rr.variants;
+      std::vector<fx::Variant> kept;
+      for (size_t i = 0; i < vs.size(); ++i) {
+        bool dominated = false;
+        for (size_t j = 0; j < vs.size() && !dominated; ++j)
+          // j dominates i: as good, and better somewhere or (equal) earlier in the list.
+          dominated = j != i && asGood(vs[j], vs[i]) && (!asGood(vs[i], vs[j]) || j < i);
+        if (dominated) ++dropped;
+        else kept.push_back(vs[i]);
+      }
+      rr.variants = std::move(kept);
+    }
+    if (dropped) std::printf("%zu variants dropped: another variant of the region is as fast everywhere and as accurate\n", dropped);
+  }
+
   // Sampling cannot find a difference confined to a small part of a wide assumed range
   // (e.g. a ramp near 0 in [-1000, 1000]), so such variants are not written.
   if (!allowAssumed)
