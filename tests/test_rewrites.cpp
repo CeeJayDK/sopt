@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <string>
 
 #include "ir/parser.hpp"
@@ -189,4 +190,32 @@ TEST(simplify_identities_and_printing) {
   CHECK(simp("mad(v, float3(0.5, 0.5, 0.5), float3(-0.25, -0.25, -0.25))") == "mad(v, 0.5, -0.25)");
   CHECK(simp("v + float3(-0.25, -0.25, -0.25)") == "v - 0.25");
   CHECK(simp("float3(1.0, 1.0, 1.0) * a") == "float3(1.0, 1.0, 1.0) * a");  // no vector operand: keeps the type
+}
+
+TEST(disk_bank) {
+  // Disk-backed bank with a tiny budget and tiny tiles: most fingerprints go to disk and
+  // the enumeration runs tile by tile; the search must still find the same best rewrite.
+  const Program p = loadProgram(std::string(SOPT_EXAMPLES_DIR) + "/rational.sopt");
+  Options opt;
+  opt.v1Points = 1u << 16;
+  opt.search.timeLimitSec = 1.0;
+  opt.subtrees = opt.cuts = opt.v3 = false;
+  opt.search.memBudget = size_t{24} << 20;
+  const RunResult ram = optimize(p, opt);
+  const std::string dir = std::string(SOPT_EXAMPLES_DIR) + "/../build-disk-test";
+  opt.search.diskDir = dir;
+  opt.search.diskTileFloats = 1u << 16;
+  opt.search.diskBlockFloats = 1u << 12;
+  opt.search.memBudget = size_t{8} << 20;
+  const RunResult disk = optimize(p, opt);
+  CHECK(disk.search.diskEntries > 0 && disk.search.diskTilesRead > 0);
+  CHECK(disk.search.diskBytes < disk.search.diskRawBytes);
+  CHECK(!ram.accepted.empty() && !disk.accepted.empty() && disk.accepted[0].cost == ram.accepted[0].cost);
+  // The temporary bank file is removed.
+  size_t files = 0;
+  std::error_code ec;
+  for (auto it = std::filesystem::directory_iterator(dir, ec); !ec && it != std::filesystem::directory_iterator(); ++it)
+    ++files;
+  CHECK(files == 0);
+  std::filesystem::remove_all(dir, ec);
 }

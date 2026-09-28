@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <thread>
 #include <unordered_map>
@@ -170,6 +171,31 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
     // Fingerprint offsets are 32-bit: at most 2^32 floats (widest entries are float4).
     maxBank_ = std::min<size_t>(maxBank_, (size_t{0xffffffffu} / (4 * std::max<size_t>(n_, 1))) - kBatch);
     maxBank_ = std::min<size_t>(maxBank_, (size_t{1} << kIndexBits) - 2 * kBatch);  // packed indices
+    if (!cfg_.diskDir.empty()) {
+      // Four resident tiles take at most an eighth of the budget.
+      cfg_.diskTileFloats = std::min(cfg_.diskTileFloats, std::max<size_t>(size_t{1} << 16, budget_ / 128));
+      cfg_.diskBlockFloats = std::min(cfg_.diskBlockFloats, cfg_.diskTileFloats);
+      disk_ = std::make_unique<DiskFpStore>(cfg_.diskDir, cfg_.diskTileFloats, cfg_.diskBlockFloats);
+      diskMode_ = disk_->ok();
+      if (!diskMode_) disk_.reset();
+    }
+    if (diskMode_) {
+      cfg_.quantBits = 0;
+      // In RAM per entry: Packed, offset, both hashes, disk offset, level-list slot and
+      // hash-table slots; fingerprints in RAM up to an eighth of the budget, the rest on disk.
+      const size_t ramPerEntry = sizeof(Packed) + 4 + 16 + 8 + 4 + 16;
+      maxBank_ = std::max<size_t>(budget_ / ramPerEntry, 4 * kBatch);
+      if (cfg_.maxBank) maxBank_ = std::min(maxBank_, cfg_.maxBank);
+      maxBank_ = std::min<size_t>(maxBank_, (size_t{1} << kIndexBits) - 2 * kBatch);
+      diskBudget_ = cfg_.diskBudget;
+      if (!diskBudget_) {
+        std::error_code ec;
+        const auto sp = std::filesystem::space(cfg_.diskDir, ec);
+        const size_t reserve = std::max<size_t>(size_t{1} << 30, ec ? 0 : static_cast<size_t>(sp.capacity / 20));
+        diskBudget_ = ec || sp.available < reserve + (size_t{1} << 28) ? size_t{1} << 28 : sp.available - reserve;
+      }
+      tileSlots_.resize(4);
+    }
     // Bank and fingerprints grow in chunks; the hash table starts small and doubles as the
     // bank grows (growTable).
 
@@ -252,7 +278,58 @@ Enumerator::Entry Enumerator::entry(uint32_t idx) const {
   return e;
 }
 
+uint64_t Enumerator::hash2Fp(const float* fp, Type t) const {
+  // An independent second hash (disk mode compares both instead of the fingerprints).
+  uint64_t h = 0x2545F4914F6CDD1Dull + static_cast<uint64_t>(t) * 0x9E3779B97F4A7C15ull;
+  const size_t len = lenOf(t);
+  for (size_t i = 0; i < len; ++i) {
+    h += std::bit_cast<uint32_t>(fp[i]) + 0x632BE59BD9B4E019ull;
+    h ^= h >> 31;
+    h *= 0xD6E8FEB86659FD93ull;
+  }
+  return h ^ (h >> 32);
+}
+
+bool Enumerator::sameAs(uint32_t idx, const float* fp, size_t len, uint64_t h1, uint64_t h2) const {
+  if (diskMode_) return hashes_[idx][0] == h1 && hashes_[idx][1] == h2;
+  return sameFp(fpOf(idx), fp, len);
+}
+
+void Enumerator::placeFp(uint32_t idx, const float* fp, size_t len, bool mayDisk, uint64_t h1) {
+  if (!diskMode_) {
+    off_.push_back(fp_.append(fp, len));
+    return;
+  }
+  hashes_.push_back({h1, hash2Fp(fp, entry(idx).type)});
+  // Fingerprints in RAM up to an eighth of the budget: the rest of it holds the entries
+  // (~50 bytes each in disk mode) and the resident tiles.
+  if (mayDisk && !spilling_ && fp_.floats() * sizeof(float) >= budget_ / 8) spilling_ = true;
+  if (mayDisk && spilling_) {
+    if (diskFrom_ == UINT32_MAX) diskFrom_ = idx;
+    diskOff_.push_back(disk_->append(fp, len));
+    off_.push_back(0);
+    return;
+  }
+  off_.push_back(fp_.append(fp, len));
+  if (idx >= diskFrom_) diskOff_.push_back(kNotOnDisk);
+}
+
+void Enumerator::dropLastFp(uint32_t idx, size_t len) {
+  // Only RAM records are ever dropped (transient overflow entries).
+  fp_.truncate(off_[off_.size() - 1], len);
+  off_.pop_back();
+  if (diskMode_) {
+    hashes_.pop_back();
+    if (idx >= diskFrom_) diskOff_.pop_back();
+  }
+}
+
 bool Enumerator::bankFull() const {
+  if (diskMode_) {
+    const size_t ram = bank_.size() * (sizeof(Packed) + 4 + 16 + 8) + table_.size() * 4 + fp_.floats() * sizeof(float) +
+                       tileSlots_.size() * cfg_.diskTileFloats * sizeof(float);
+    return bank_.size() >= maxBank_ || ram >= budget_ || disk_->bytesWritten() >= diskBudget_ || fp_.nearlyFull();
+  }
   return bank_.size() >= maxBank_ ||
          bank_.size() * (sizeof(Packed) + 8) + fp_.floats() * sizeof(float) + table_.size() * 4 >= budget_ ||
          fp_.nearlyFull();
@@ -313,7 +390,7 @@ void Enumerator::growTable() {
   const size_t mask = table_.size() - 1;
   for (uint32_t idx : old) {
     if (idx == kEmpty) continue;
-    size_t pos = hashFp(fpOf(idx), entry(idx).type) & mask;
+    size_t pos = (diskMode_ ? hashes_[idx][0] : hashFp(fpOf(idx), entry(idx).type)) & mask;
     while (table_[pos] != kEmpty) pos = (pos + 1) & mask;
     table_[pos] = idx;
   }
@@ -322,10 +399,11 @@ void Enumerator::growTable() {
 bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
   const size_t mask = table_.size() - 1;
   const size_t len = lenOf(e.type);
-  size_t pos = hashFp(fp, e.type) & mask;
+  const uint64_t h1 = hashFp(fp, e.type), h2 = diskMode_ ? hash2Fp(fp, e.type) : 0;
+  size_t pos = h1 & mask;
   while (table_[pos] != kEmpty) {
     const uint32_t idx = table_[pos];
-    if (entry(idx).type == e.type && sameFp(fpOf(idx), fp, len)) {
+    if (entry(idx).type == e.type && sameAs(idx, fp, len, h1, h2)) {
       ++stats.deduped;
       // Same fingerprint as a hit: not needed in the bank, but it may differ from the
       // hit outside the test points, so keep it as an alternative for verification.
@@ -343,7 +421,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
   const bool transient = cfg_.overflow && bankFull();
   const size_t hitsBefore = numHits();
   bank_.push_back(pack(e));
-  off_.push_back(fp_.append(fp, len));
+  placeFp(idx, fp, len, false, h1);
   table_[pos] = idx;
   if (!transient && bank_.size() * 2 > table_.size()) growTable();
   if (!transient) {
@@ -354,7 +432,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
   // Goal check: does this value match the target within the budget on all test points?
   // Otherwise try solving an outer affine map / inner constant (fitted hits).
   fitOut_.clear();
-  const bool direct = goalCheck(e, fpOf(idx), idx, fitOut_, serialScratch_, stats);
+  const bool direct = goalCheck(e, fp, idx, fitOut_, serialScratch_, stats);
   commitHits(idx, direct, fitOut_, stats);
   if (transient) {
     if (numHits() > hitsBefore) {
@@ -362,8 +440,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
     } else {
       // Most recent insertion: removing it cannot break a probe chain.
       table_[pos] = kEmpty;
-      fp_.truncate(off_[off_.size() - 1], len);
-      off_.pop_back();
+      dropLastFp(idx, len);
       bank_.pop_back();
     }
     ++stats.overflowChecked;
@@ -862,9 +939,10 @@ void parallelRange(size_t n, unsigned threads, const std::function<void(size_t, 
 uint32_t Enumerator::storeEntry(const Entry& e, const float* fp, bool listed, SearchStats& stats) {
   const auto idx = static_cast<uint32_t>(bank_.size());
   bank_.push_back(pack(e));
-  off_.push_back(fp_.append(fp, lenOf(e.type)));
+  const uint64_t h1 = hashFp(fp, e.type);
+  placeFp(idx, fp, lenOf(e.type), listed, h1);
   const size_t mask = table_.size() - 1;
-  size_t pos = hashFp(fp, e.type) & mask;
+  size_t pos = h1 & mask;
   while (table_[pos] != kEmpty) pos = (pos + 1) & mask;
   table_[pos] = idx;
   if (bank_.size() * 2 > table_.size()) growTable();
@@ -884,6 +962,7 @@ void Enumerator::flush(SearchStats& stats) {
   batchFp_.resize(n * stride);
   const unsigned threads = cfg_.threads ? cfg_.threads : std::max(1u, std::thread::hardware_concurrency());
   batchHash_.resize(n);
+  if (diskMode_) batchH2_.resize(n);
   batchDup_.resize(n);
   // 1. Evaluate and look up among the entries stored before this batch (parallel; the
   // bank does not change here).
@@ -896,10 +975,11 @@ void Enumerator::flush(SearchStats& stats) {
       const Type t = batchEntries_[k].type;
       const size_t len = lenOf(t);
       batchHash_[k] = hashFp(fp, t);
+      if (diskMode_) batchH2_[k] = hash2Fp(fp, t);
       batchDup_[k] = kEmpty;
       for (size_t pos = batchHash_[k] & mask; table_[pos] != kEmpty; pos = (pos + 1) & mask) {
         const uint32_t idx = table_[pos];
-        if (entry(idx).type == t && sameFp(fpOf(idx), fp, len)) {
+        if (entry(idx).type == t && sameAs(idx, fp, len, batchHash_[k], diskMode_ ? batchH2_[k] : 0)) {
           batchDup_[k] = idx;
           break;
         }
@@ -939,7 +1019,7 @@ void Enumerator::flush(SearchStats& stats) {
     if (dupIdx == kEmpty)
       for (; localTable_[lpos] != kEmpty; lpos = (lpos + 1) & localMask) {
         const uint32_t idx = localTable_[lpos];
-        if (entry(idx).type == e.type && sameFp(fpOf(idx), fp, len)) {
+        if (entry(idx).type == e.type && sameAs(idx, fp, len, batchHash_[k], diskMode_ ? batchH2_[k] : 0)) {
           dupIdx = idx;
           break;
         }
@@ -1096,8 +1176,16 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
         if (oi.arity == 1) {
           const auto& la = byCost_[r][static_cast<size_t>(T)];
           const uint32_t objOp = model.opCost(op, w);
-          for (size_t i = 0; i < la.size() && !stop_ && obj(la[i]) + objOp < targetCost_; ++i)
-            tryAdd(op, c16, la[i], 0, 0, stats);
+          if (diskMode_ && hasDisk(r, T)) {
+            for (const Seg& sg : listSegs(r, T)) {
+              requireTiles({sg.tile}, stats);
+              for (size_t i = sg.begin; i < sg.end && !stop_; ++i)
+                if (obj(la[i]) + objOp < targetCost_) tryAdd(op, c16, la[i], 0, 0, stats);
+            }
+          } else {
+            for (size_t i = 0; i < la.size() && !stop_ && obj(la[i]) + objOp < targetCost_; ++i)
+              tryAdd(op, c16, la[i], 0, 0, stats);
+          }
         } else if (oi.arity == 2) {
           // Operand widths: (T, T), (T, 1), (1, T); float1 x float1 when T is float1.
           std::vector<std::pair<Type, Type>> sigs = {{T, T}};
@@ -1136,10 +1224,17 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
     for (auto& list : byCost_[cost])
       std::stable_sort(list.begin(), list.end(),
                        [&](uint32_t x, uint32_t y) { return obj(x) < obj(y); });
+    if (diskMode_) finishLevelDisk(cost);
     if (!stop_ && stats.overflowChecked == 0) stats.completedCost = cost;
   }
 
   stats.bankSize = bank_.size();
+  if (diskMode_) {
+    stats.diskEntries = diskFrom_ == UINT32_MAX ? 0 : bank_.size() - diskFrom_;
+    stats.diskBytes = disk_->bytesWritten();
+    stats.diskRawBytes = disk_->rawBytes();
+    stats.diskTilesRead = disk_->tilesRead();
+  }
   stats.seconds = nowSeconds() - start_;
   out.reserve(numHits());
   // With shared leaves (free in the bank) a hit's real DAG cost can reach the target's:
@@ -1159,6 +1254,75 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
 // Binary op at this level with operand costs summing to r and operand types ta, tb.
 // fuse: -1 = all pairs, 1 = only pairs with a same-width mul (or div) operand, 0 = only
 // pairs without one.
+void Enumerator::finishLevelDisk(uint32_t cost) {
+  // Everything appended so far becomes readable; the level's lists get their segments:
+  // the entries with fingerprints in RAM first (still sorted by objective), then the disk
+  // ones grouped by tile (bank order = stream order).
+  if (spilling_) disk_->closeTile();
+  tilePtr_.resize(disk_->tiles(), nullptr);
+  for (const auto& slot : tileSlots_)
+    if (slot.tile < tilePtr_.size()) tilePtr_[slot.tile] = slot.buf.get();
+  if (segs_.size() <= cost) segs_.resize(cost + 1);
+  for (size_t t = 0; t < kNumTypes; ++t) {
+    auto& list = byCost_[cost][t];
+    auto& sg = segs_[cost][t];
+    sg.clear();
+    if (list.empty()) continue;
+    auto mid = std::stable_partition(list.begin(), list.end(), [&](uint32_t x) { return !onDisk(x); });
+    std::sort(mid, list.end());
+    const size_t ram = static_cast<size_t>(mid - list.begin());
+    if (ram) sg.push_back({0, ram, -1});
+    const size_t tf = cfg_.diskTileFloats;
+    for (size_t i = ram; i < list.size();) {
+      const int64_t tile = static_cast<int64_t>(diskOff_[list[i] - diskFrom_] / tf);
+      size_t j = i;
+      while (j < list.size() && static_cast<int64_t>(diskOff_[list[j] - diskFrom_] / tf) == tile) ++j;
+      sg.push_back({i, j, tile});
+      i = j;
+    }
+  }
+}
+
+const std::vector<Enumerator::Seg>& Enumerator::listSegs(uint32_t cost, Type t) {
+  static const std::vector<Seg> none;
+  if (cost >= segs_.size()) {
+    // Levels finished before the bank spilled: all in RAM (a single sorted segment).
+    segs_.resize(cost + 1);
+  }
+  auto& sg = segs_[cost][static_cast<size_t>(t)];
+  if (sg.empty() && !byCost_[cost][static_cast<size_t>(t)].empty())
+    sg.push_back({0, byCost_[cost][static_cast<size_t>(t)].size(), -1});
+  return sg.empty() ? none : sg;
+}
+
+void Enumerator::requireTiles(std::initializer_list<int64_t> tiles, SearchStats& stats) {
+  bool missing = false;
+  for (int64_t t : tiles)
+    if (t >= 0 && !tilePtr_[static_cast<size_t>(t)]) missing = true;
+  for (int64_t t : tiles)
+    if (t >= 0)
+      for (auto& slot : tileSlots_)
+        if (slot.tile == static_cast<uint64_t>(t)) slot.used = ++tileClock_;
+  if (!missing) return;
+  flush(stats);  // pending candidates may use the tiles about to be replaced
+  for (int64_t t : tiles) {
+    if (t < 0 || tilePtr_[static_cast<size_t>(t)]) continue;
+    // The least recently used slot that is not needed now.
+    TileSlot* victim = nullptr;
+    for (auto& slot : tileSlots_) {
+      bool needed = false;
+      for (int64_t u : tiles) needed = needed || (u >= 0 && slot.tile == static_cast<uint64_t>(u));
+      if (!needed && (!victim || slot.used < victim->used)) victim = &slot;
+    }
+    if (!victim->buf) victim->buf.reset(new float[cfg_.diskTileFloats]);
+    if (victim->tile < tilePtr_.size()) tilePtr_[victim->tile] = nullptr;
+    disk_->readTile(static_cast<uint64_t>(t), victim->buf.get());
+    victim->tile = static_cast<uint64_t>(t);
+    victim->used = ++tileClock_;
+    tilePtr_[static_cast<size_t>(t)] = victim->buf.get();
+  }
+}
+
 void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Type ta, Type tb,
                                  SearchStats& stats) {
   const auto& oi = info(op);
@@ -1177,6 +1341,27 @@ void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Ty
     const auto& la = byCost_[c1][static_cast<size_t>(ta)];
     const auto& lb = byCost_[c2][static_cast<size_t>(tb)];
     if (lb.empty()) continue;
+    if (diskMode_ && (hasDisk(c1, ta) || hasDisk(c2, tb))) {
+      // Tile by tile: every pair of segments once, with both tiles resident.
+      const std::vector<Seg> sa = listSegs(c1, ta), sb = listSegs(c2, tb);
+      const bool same = sym && c1 == c2;
+      for (size_t ia = 0; ia < sa.size() && !stop_; ++ia)
+        for (size_t ib = same ? ia : 0; ib < sb.size() && !stop_; ++ib) {
+          requireTiles({sa[ia].tile, sb[ib].tile}, stats);
+          for (size_t i = sa[ia].begin; i < sa[ia].end && !stop_; ++i) {
+            const bool fa = fusable(la[i]);
+            for (size_t j = (same && ia == ib) ? i : sb[ib].begin; j < sb[ib].end && !stop_; ++j) {
+              if (obj(la[i]) + obj(lb[j]) + minOp >= targetCost_) {
+                if (sb[ib].tile < 0) break;  // the RAM segment is sorted by objective
+                continue;
+              }
+              if (fuse >= 0 && (fa || fusable(lb[j])) != (fuse == 1)) continue;
+              tryAdd(op, level, la[i], lb[j], 0, stats);
+            }
+          }
+        }
+      continue;
+    }
     for (size_t i = 0; i < la.size() && !stop_; ++i) {
       if (obj(la[i]) + obj(lb[0]) + minOp >= targetCost_) break;
       const bool fa = fusable(la[i]);
@@ -1203,6 +1388,29 @@ void Enumerator::enumerateTernary(Op op, uint16_t level, uint32_t r, Type ta, Ty
       const auto& lb = byCost_[c2][static_cast<size_t>(tb)];
       const auto& lc = byCost_[c3][static_cast<size_t>(tc)];
       if (lb.empty() || lc.empty()) continue;
+      if (diskMode_ && (hasDisk(c1, ta) || hasDisk(c2, tb) || hasDisk(c3, tc))) {
+        const std::vector<Seg> sa = listSegs(c1, ta), sb = listSegs(c2, tb), sc = listSegs(c3, tc);
+        const bool same = sym01 && c1 == c2;
+        for (size_t ia = 0; ia < sa.size() && !stop_; ++ia)
+          for (size_t ib = same ? ia : 0; ib < sb.size() && !stop_; ++ib)
+            for (size_t ic = 0; ic < sc.size() && !stop_; ++ic) {
+              requireTiles({sa[ia].tile, sb[ib].tile, sc[ic].tile}, stats);
+              for (size_t i = sa[ia].begin; i < sa[ia].end && !stop_; ++i)
+                for (size_t j = (same && ia == ib) ? i : sb[ib].begin; j < sb[ib].end && !stop_; ++j) {
+                  const uint32_t ab = obj(la[i]) + obj(lb[j]) + opc;
+                  if (ab >= targetCost_) continue;
+                  for (size_t k = sc[ic].begin; k < sc[ic].end && !stop_; ++k) {
+                    if (ab + obj(lc[k]) >= targetCost_) {
+                      if (sc[ic].tile < 0) break;
+                      continue;
+                    }
+                    if ((op == Op::Select || op == Op::Lerp) && lb[j] == lc[k]) continue;
+                    tryAdd(op, level, la[i], lb[j], lc[k], stats);
+                  }
+                }
+            }
+        continue;
+      }
       const uint32_t minC = obj(lc[0]);
       for (size_t i = 0; i < la.size() && !stop_; ++i) {
         if (obj(la[i]) + obj(lb[0]) + minC + opc >= targetCost_) break;

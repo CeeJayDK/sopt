@@ -2,11 +2,13 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "ir/expr.hpp"
 #include "verify/points.hpp"
 #include "verify/verify.hpp"
+#include "search/diskstore.hpp"
 
 namespace sopt {
 
@@ -20,6 +22,15 @@ struct SearchConfig {
   size_t maxBank = 0;
   size_t memBudget = 0;
   unsigned concurrent = 1;
+  // Disk-backed bank (owner, 2026-09-28: an option for long runs on single regions, not a
+  // default): when the fingerprints in RAM reach an eighth of the memory budget, the rest go to
+  // zstd-compressed tiles in diskDir (a temporary file, removed at the end); dedup then
+  // compares 128-bit hashes of the fingerprints, and operands on disk are enumerated tile
+  // by tile. diskBudget bytes (0 = the free space of diskDir minus a reserve).
+  std::string diskDir;
+  size_t diskBudget = 0;
+  size_t diskTileFloats = size_t{1} << 24;  // 64 MB of fingerprints per tile
+  size_t diskBlockFloats = size_t{1} << 18; // 1 MB per zstd block
   size_t maxHits = 10'000;
   double timeLimitSec = 60.0;
   const CostModel* model = &defaultCostModel();  // objective: hits and ranking
@@ -93,6 +104,10 @@ struct SearchStats {
   uint64_t objPruned = 0;  // objective cost already >= target
   uint64_t quantMerged = 0;  // SearchConfig::quantBits: dedups that were not bitwise equal
   uint64_t affineHits = 0;
+  uint64_t diskEntries = 0;   // disk-backed bank: entries whose fingerprints went to disk
+  uint64_t diskBytes = 0;     // ... compressed bytes written
+  uint64_t diskRawBytes = 0;  // ... before compression
+  uint64_t diskTilesRead = 0;
   uint32_t completedCost = 0;  // all levels <= this were fully enumerated
   uint32_t maxLevel = 0;       // the last level the search needed (order-model units)
   bool limitHit = false;
@@ -277,7 +292,16 @@ class Enumerator {
   bool sameFp(const float* a, const float* b, size_t len) const;
   uint32_t quant(float x) const;
   void growTable();
-  const float* fpOf(uint32_t idx) const { return fp_.data(off_[idx]); }
+  const float* fpOf(uint32_t idx) const {
+    if (idx >= diskFrom_) {
+      const uint64_t d = diskOff_[idx - diskFrom_];
+      if (d != kNotOnDisk) {
+        const size_t tf = cfg_.diskTileFloats;
+        return tilePtr_[d / tf] + d % tf;  // the tile must be resident (requireTiles)
+      }
+    }
+    return fp_.data(off_[idx]);
+  }
   size_t lenOf(Type t) const { return width(t) * n_; }
   float constValue(uint32_t idx) const { return consts_[entry(idx).aux()][0]; }
   const std::vector<Type>& floatTypes() const { return types_; }
@@ -326,6 +350,41 @@ class Enumerator {
   bool isHit(uint32_t idx) const { return (bank_[idx].w1 >> 31) & 1u; }
   void setHit(uint32_t idx) { bank_[idx].w1 |= uint64_t{1} << 31; }
   FpArena fp_;
+  // Disk-backed bank (SearchConfig::diskDir): entries from diskFrom_ on have their
+  // fingerprint at stream offset diskOff_[idx - diskFrom_] (kNotOnDisk: in fp_ after all,
+  // e.g. hits kept after the bank was full); tiles are read into tileBuf_ (tilePtr_[t]).
+  static constexpr uint64_t kNotOnDisk = ~uint64_t{0};
+  std::unique_ptr<DiskFpStore> disk_;
+  bool diskMode_ = false, spilling_ = false;
+  uint32_t diskFrom_ = UINT32_MAX;
+  size_t diskBudget_ = 0;
+  Chunked<uint64_t> diskOff_;
+  Chunked<std::array<uint64_t, 2>> hashes_;  // disk mode: both fingerprint hashes per entry
+  std::vector<uint64_t> batchH2_;
+  std::vector<float*> tilePtr_;
+  struct TileSlot {
+    std::unique_ptr<float[]> buf;
+    uint64_t tile = ~uint64_t{0};
+    uint64_t used = 0;
+  };
+  std::vector<TileSlot> tileSlots_;
+  uint64_t tileClock_ = 0;
+  // Per level list: [begin, end) ranges of list positions, tile (-1 = fingerprints in RAM;
+  // the RAM range comes first and stays sorted by objective).
+  struct Seg {
+    size_t begin, end;
+    int64_t tile;
+  };
+  std::vector<std::array<std::vector<Seg>, kNumTypes>> segs_;
+  uint64_t hash2Fp(const float* fp, Type t) const;
+  bool sameAs(uint32_t idx, const float* fp, size_t len, uint64_t h1, uint64_t h2) const;
+  void placeFp(uint32_t idx, const float* fp, size_t len, bool mayDisk, uint64_t h1);
+  void dropLastFp(uint32_t idx, size_t len);
+  bool onDisk(uint32_t idx) const { return idx >= diskFrom_ && diskOff_[idx - diskFrom_] != kNotOnDisk; }
+  void finishLevelDisk(uint32_t cost);
+  const std::vector<Seg>& listSegs(uint32_t cost, Type t);
+  bool hasDisk(uint32_t cost, Type t) { return listSegs(cost, t).size() > 1 || (!listSegs(cost, t).empty() && listSegs(cost, t)[0].tile >= 0); }
+  void requireTiles(std::initializer_list<int64_t> tiles, SearchStats& stats);
   size_t maxBank_ = 0;         // entries: from the memory budget, cfg_.maxBank, 32-bit offsets
   size_t budget_ = 0;          // bank memory budget in bytes (bankBudget)
   bool bankFull() const;

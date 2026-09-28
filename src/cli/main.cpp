@@ -44,6 +44,10 @@ void usage() {
       "  --max-mem MB      memory for the search bank (default: the RAM available at start\n"
       "                    minus a little for the system, shared by regions searched in\n"
       "                    parallel); --max-bank N also caps entries\n"
+      "  --disk DIR        disk-backed bank for long runs on single regions: when half the\n"
+      "                    memory budget holds fingerprints, the rest go to zstd-compressed\n"
+      "                    tiles in DIR (a temporary file); --disk-max GB caps it (default:\n"
+      "                    the free space minus a reserve)\n"
       "  --no-cuts         no cut points (default: when the search hits a limit, split the\n"
       "                    target at values the rest depends on for all inputs below them\n"
       "                    and search both parts on their own, --cut-time S per part, default 1)\n"
@@ -141,6 +145,8 @@ int main(int argc, char** argv) {
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
+    else if (a == "--disk") opt.search.diskDir = next();
+    else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
     else if (a == "--no-v3") opt.v3 = false;
     else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
@@ -342,6 +348,10 @@ int main(int argc, char** argv) {
                   "%llu chain entries pruned, %llu inner fits skipped (not monotonic)\n",
                   (unsigned long long)s.affineHits, (unsigned long long)s.innerHits,
                   (unsigned long long)s.affinePruned, (unsigned long long)s.innerPrefiltered);
+    if (s.diskEntries)
+      std::printf("disk bank: %llu entries on disk, %.1f MB written (%.1f MB raw, %.0f%%), %llu tiles read\n",
+                  (unsigned long long)s.diskEntries, s.diskBytes / 1048576.0, s.diskRawBytes / 1048576.0,
+                  s.diskRawBytes ? 100.0 * s.diskBytes / s.diskRawBytes : 0.0, (unsigned long long)s.diskTilesRead);
     if (s.quantMerged)
       std::printf("quantized OE: %llu values merged that were not bitwise equal\n",
                   (unsigned long long)s.quantMerged);

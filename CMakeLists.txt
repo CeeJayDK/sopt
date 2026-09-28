@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sopt LANGUAGES CXX)
+project(sopt LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,13 +44,20 @@ add_library(sopt-verify
 target_link_libraries(sopt-verify PUBLIC sopt-ir Threads::Threads)
 sopt_fp_flags(sopt-verify)
 
+# Zstandard (third_party/zstd, BSD): compression for the disk-backed search bank.
+add_library(sopt-zstd STATIC third_party/zstd/zstd.c)
+target_include_directories(sopt-zstd PUBLIC third_party/zstd)
+target_compile_definitions(sopt-zstd PRIVATE ZSTD_DISABLE_ASM ZSTD_NO_TRACE)
+set_target_properties(sopt-zstd PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(sopt-search
+  src/search/diskstore.cpp
   src/search/enumerator.cpp
   src/search/driver.cpp
   src/search/generalize.cpp
   src/search/subtrees.cpp
   src/search/cuts.cpp)
-target_link_libraries(sopt-search PUBLIC sopt-verify)
+target_link_libraries(sopt-search PUBLIC sopt-verify PRIVATE sopt-zstd)
 sopt_fp_flags(sopt-search)
 
 add_library(sopt-measure
