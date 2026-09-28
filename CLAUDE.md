@@ -404,7 +404,22 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   non-default option for single regions): done hash / prefilter / fit speedups (-8..-14%
   instructions, identical results) and 20-byte entries + freeing the bank before part
   searches (peak 619 -> 383 MB at a full 2M bank); details in docs/performance-ideas.md.
-  Open: 24 test points (measure), fingerprint recompute (flag), disk option.
+  Then (owner): 16-byte packed entries (op/type codebook byte, flag bits incl. isHit,
+  28-bit indices); bank sized by memory (SearchConfig::memBudget; default = RAM available
+  at start minus max(1 GB, 5%) and 256 MB per concurrent search, shared by sopt-fx's
+  parallel regions; --max-mem MB, --max-bank N an extra cap); bank / offsets /
+  fingerprints in fixed chunks (no big reserve, which Windows would commit, no copying);
+  hash table grows. 24 test points instead of 32 (same RAM: 2.48M entries): bench
+  identical, corpus 74 -> 71 regions (Vignette XOR x3 lost, ~11 worse, 6 better): stays
+  32. Fingerprint compression study (3 banks of 1M): delta vs an operand 72-84%, value
+  codebook 75-100%, per-position codebook (owner's idea) 79-98% (only corner test points
+  compress), lz4 per entry 83-93%, zstd per 64 KB block 39-58%: not worth it in RAM
+  (owner agreed: skip fingerprint recompute too), zstd for the disk option.
+  Disk-backed bank (`--disk DIR`, option, not default; search/diskstore.cpp): fingerprints
+  beyond an eighth of the budget go to zstd tiles in a temp file; dedup by two 64-bit
+  hashes; lists split into a RAM segment + per-tile segments at each level's end; tiled
+  unary/binary/ternary loops with <= 4 resident tiles (LRU). normalize_x, 150 MB, 30 s:
+  2.1M entries vs 936k, one more level, 53% compression, same best.
 - Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,
   proposals and status in docs/performance-ideas.md. Done: inner-fit monotonicity
   prefilter (`innerPrefilter`), compare() stops at a rejected candidate's first failure,
