@@ -423,6 +423,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   Bench (time 30), RAM-budget default vs the old 2M-entry bank: identical results; only
   normalize_x's first hit later (5.7 s vs 4.4 s: storing more costs time per candidate).
   30-second searches are rarely memory bound; the bigger bank pays off in longer runs.
+  Deep runs (owner, 2026-09-28): run nothing else heavy at the same time; every sopt
+  process sizes its bank from the RAM free when it starts (two 20-minute --disk runs were
+  OOM-killed next to test runs). Several processes at once: give each --max-mem.
 - Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,
   proposals and status in docs/performance-ideas.md. Done: inner-fit monotonicity
   prefilter (`innerPrefilter`), compare() stops at a rejected candidate's first failure,
