@@ -435,6 +435,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   goalCheck/fits, serial ordered commitHits); same results as one thread;
   `SearchConfig::threads`. Next: B6 top-down split or B7 shared leaves.
   Owner: less accurate variants stay in SOPT_ALL; --loose 100 is fine for now.
+- Next (owner, 2026-09-28: "your order is fine, as long as we try them all at some point"):
+  1. top-down split B6 (`--top-down`, in progress: bench + corpus), 2. snippet library /
+  lerp-step rewrites before the search, 3. long --disk runs on hard regions (running),
+  4. M5 rest (probe effect, facts database, __DEVICE__ paths).
 - Library of small verified snippets/rewrites that humans, AI or the tool can reuse.
   Owner (2026-09-27): many regions that hit the limit contain lerp/step used in ways known
   to be cheaper expanded; later, apply library rewrites before searching (and try them out)
