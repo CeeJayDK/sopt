@@ -21,6 +21,7 @@
 #include "measure/sass.hpp"
 #include "measure/tools.hpp"
 #include "search/driver.hpp"
+#include "verify/bound.hpp"
 
 using namespace sopt;
 namespace fs = std::filesystem;
@@ -415,6 +416,7 @@ int main(int argc, char** argv) {
 
   // Search, regions in parallel (each single-threaded when jobs > 1).
   Options ropt2 = opt;
+  ropt2.v3 = false;  // V3 runs below, only on the variants that are written
   if (jobs > 1 && results.size() > 1) ropt2.threads = ropt2.search.threads = 1;  // regions in parallel instead
   std::atomic<size_t> done{0};
   std::mutex printMu;
@@ -632,6 +634,30 @@ int main(int argc, char** argv) {
       for (const auto& f : rr.region.facts) assumed = assumed || f.assumed;
       if (assumed && !rr.variants.empty()) rr.unwritten = std::move(rr.variants), rr.variants.clear();
     }
+
+  // V3: a formal bound for the variants that are written (continuous domains; V2 covered
+  // the small ones).
+  if (opt.v3) {
+    BoundOptions bo;
+    bo.seconds = opt.v3Time;
+    bo.maxBoxes = opt.v3MaxBoxes;
+    const auto v0 = std::chrono::steady_clock::now();
+    std::atomic<size_t> tried{0}, proven{0};
+    parallelFor(results.size(), jobs, [&](size_t i) {
+      auto& rr = results[i];
+      if (rr.region.prog.budget.kind == Budget::Kind::Exact) return;
+      for (auto& v : rr.variants) {
+        if (v.exhaustive || v.klass == Klass::LessAccurate) continue;
+        const BoundResult b = proveBound(rr.region.prog, v.expr, bo);
+        v.proven = b.proven;
+        v.provenFraction = b.fraction;
+        ++tried;
+        proven += b.proven;
+      }
+    });
+    std::printf("V3: %zu of %zu variants proven (%.1f s)\n", proven.load(), tried.load(),
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - v0).count());
+  }
 
   std::sort(results.begin(), results.end(), [](const fx::RegionResult& a, const fx::RegionResult& b) {
     return std::tie(a.region.file, a.region.line) < std::tie(b.region.file, b.region.line);
