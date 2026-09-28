@@ -615,10 +615,15 @@ void Enumerator::commitHits(uint32_t idx, bool direct, const std::vector<AffineH
     setHit(idx);
     hits_.push_back(idx);
     ++stats.hits;
-    bestHitObj_ = std::min(bestHitObj_, obj(idx));
+    if (cfg_.bestBound && obj(idx) < bestHitObj_) boundBy(extract(entry(idx)), obj(idx));
   }
-  for (const AffineHit& h : fitted) bestHitObj_ = std::min(bestHitObj_, h.cost ? h.cost : obj(idx) + 1);
-  updateLimit();
+  if (cfg_.bestBound)
+    for (const AffineHit& h : fitted) {
+      AffineHit k = h;
+      k.idx = idx;
+      const uint32_t c = h.cost ? h.cost : obj(idx) + 1;
+      if (c < bestHitObj_) boundBy(extract(k), c);
+    }
   for (const AffineHit& h : fitted) {
     if (numHits() >= cfg_.maxHits) break;
     AffineHit k = h;
@@ -873,6 +878,24 @@ bool Enumerator::innerFit(const Entry& e, const float* v, uint32_t idx, std::vec
     found = true;
   }
   return found;
+}
+
+void Enumerator::boundBy(const Expr& e, uint32_t objCost) {
+  // The bound is the hit's real cost: shared leaves count 0 in objective costs, so a hit
+  // using them is dearer than its obj (its DAG cost); otherwise obj (tree cost) is the
+  // measure entries are pruned by.
+  const uint32_t c = std::max(objCost, dagCost(e, *cfg_.model, prog_.inputs));
+  if (c >= bestHitObj_ || !plausible(e)) return;
+  bestHitObj_ = c;
+  updateLimit();
+}
+
+bool Enumerator::plausible(const Expr& e) {
+  if (boundPts_.size() == 0) {
+    boundPts_ = makeRandomPoints(prog_, 512, 0x5eed, true);
+    boundTarget_ = evalAll(prog_.target, boundPts_, kProfileRef);
+  }
+  return compare(prog_, e, boundPts_, kProfileRef, 1, &boundTarget_).pass;
 }
 
 void Enumerator::checkLimits(SearchStats& stats) {

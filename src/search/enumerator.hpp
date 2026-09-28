@@ -410,6 +410,13 @@ class Enumerator {
   // bound min(targetCost_, bestHitObj_ + slackCur_ + 1).
   uint32_t objLimit_ = 0;
   int slackCur_ = 1;
+  // A hit only lowers the bound once it also passes the strict budget on extra random
+  // points (a false hit on the test points would cut off the real ones before CEGIS
+  // rejects it).
+  PointSet boundPts_;
+  std::vector<float> boundTarget_;
+  bool plausible(const Expr& e);
+  void boundBy(const Expr& e, uint32_t objCost);
   void updateLimit() {
     objLimit_ = targetCost_;
     if (cfg_.bestBound && bestHitObj_ != UINT32_MAX)
