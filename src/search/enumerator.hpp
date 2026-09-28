@@ -27,6 +27,13 @@ struct SearchConfig {
   // zstd-compressed tiles in diskDir (a temporary file, removed at the end); dedup then
   // compares 128-bit hashes of the fingerprints, and operands on disk are enumerated tile
   // by tile. diskBudget bytes (0 = the free space of diskDir minus a reserve).
+  // Top-down split (B6 in docs/performance-ideas.md, flag --top-down): after each level,
+  // for every new entry a of the target's type and every invertible binary op the missing
+  // operand b (t - a, a - t, t + a, t / a, a / t, t * a) is looked up among all stored
+  // entries (sorted by their value at one test point, within the target's tolerance) and
+  // op(a, b) is goal-checked: pairs of any two stored entries, up to twice the depth for
+  // the top operation, in one pass instead of all pairs. Not in disk mode.
+  bool topDown = false;
   std::string diskDir;
   size_t diskBudget = 0;
   size_t diskTileFloats = size_t{1} << 24;  // 64 MB of fingerprints per tile
@@ -104,6 +111,8 @@ struct SearchStats {
   uint64_t objPruned = 0;  // objective cost already >= target
   uint64_t quantMerged = 0;  // SearchConfig::quantBits: dedups that were not bitwise equal
   uint64_t affineHits = 0;
+  uint64_t topDownChecked = 0;  // SearchConfig::topDown: candidate pairs fully checked
+  uint64_t topDownHits = 0;     // ... that were hits
   uint64_t diskEntries = 0;   // disk-backed bank: entries whose fingerprints went to disk
   uint64_t diskBytes = 0;     // ... compressed bytes written
   uint64_t diskRawBytes = 0;  // ... before compression
@@ -385,6 +394,11 @@ class Enumerator {
   const std::vector<Seg>& listSegs(uint32_t cost, Type t);
   bool hasDisk(uint32_t cost, Type t) { return listSegs(cost, t).size() > 1 || (!listSegs(cost, t).empty() && listSegs(cost, t)[0].tile >= 0); }
   void requireTiles(std::initializer_list<int64_t> tiles, SearchStats& stats);
+  // Top-down split: (value at test point tdP0_, index) of the target-type entries, sorted.
+  std::vector<std::pair<float, uint32_t>> tdIndex_;
+  uint32_t tdP0_ = UINT32_MAX, tdP1_ = UINT32_MAX;
+  uint32_t bestHitObj_ = UINT32_MAX;  // objective cost of the cheapest hit so far
+  void topDownPass(uint32_t cost, SearchStats& stats);
   size_t maxBank_ = 0;         // entries: from the memory budget, cfg_.maxBank, 32-bit offsets
   size_t budget_ = 0;          // bank memory budget in bytes (bankBudget)
   bool bankFull() const;

@@ -92,6 +92,8 @@ void usage() {
       "                    memory budget holds fingerprints, the rest go to zstd-compressed\n"
       "                    tiles in DIR (a temporary file); --disk-max GB caps it (default:\n"
       "                    the free space minus a reserve)\n"
+      "  --top-down        top-down split: after each level, look up the missing operand b of\n"
+      "                    op(a, b) = target for each new entry a (add, sub, mul, div)\n"
       "  --no-cuts         no cut points (default: when the search hits a limit, split the\n"
       "                    target at values the rest depends on for all inputs below them\n"
       "                    and search both parts on their own, --cut-time S per part, default 1)\n"
@@ -203,6 +205,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
+    else if (a == "--top-down") opt.search.topDown = true;
     else if (a == "--disk") opt.search.diskDir = next();
     else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);

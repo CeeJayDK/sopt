@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <string>
 #include <functional>
 #include <thread>
 #include <unordered_map>
@@ -221,14 +222,65 @@ size_t availableMemory() {
     m.dwLength = sizeof(m);
     if (GlobalMemoryStatusEx(&m)) return static_cast<size_t>(m.ullAvailPhys);
 #elif defined(__linux__)
+    size_t avail = 0;
     if (FILE* f = std::fopen("/proc/meminfo", "r")) {
       char line[256];
       unsigned long long kb = 0;
       while (std::fgets(line, sizeof(line), f))
         if (std::sscanf(line, "MemAvailable: %llu kB", &kb) == 1) break;
       std::fclose(f);
-      if (kb) return static_cast<size_t>(kb) * 1024;
+      avail = static_cast<size_t>(kb) * 1024;
     }
+    // A container / cgroup limit (v2 memory.max, v1 memory.limit_in_bytes) can be far below
+    // the machine's RAM: what is left of it (usage minus reclaimable page cache).
+    auto readNum = [](const std::string& path, unsigned long long& v) {
+      FILE* f = std::fopen(path.c_str(), "r");
+      if (!f) return false;
+      const bool ok = std::fscanf(f, "%llu", &v) == 1;
+      std::fclose(f);
+      return ok;
+    };
+    auto statField = [](const std::string& path, const char* key) {
+      unsigned long long v = 0;
+      if (FILE* f = std::fopen(path.c_str(), "r")) {
+        char name[128];
+        unsigned long long x;
+        while (std::fscanf(f, "%127s %llu", name, &x) == 2)
+          if (std::strcmp(name, key) == 0) v = x;
+        std::fclose(f);
+      }
+      return v;
+    };
+    std::string v1, v2;
+    if (FILE* f = std::fopen("/proc/self/cgroup", "r")) {
+      char line[512];
+      while (std::fgets(line, sizeof(line), f)) {
+        std::string l(line);
+        if (!l.empty() && l.back() == '\n') l.pop_back();
+        const size_t c1 = l.find(':'), c2 = l.find(':', c1 + 1);
+        if (c1 == std::string::npos || c2 == std::string::npos) continue;
+        const std::string ctrl = l.substr(c1 + 1, c2 - c1 - 1), path = l.substr(c2 + 1);
+        if (ctrl == "memory") v1 = "/sys/fs/cgroup/memory" + path;
+        if (ctrl.empty()) v2 = "/sys/fs/cgroup" + path;
+      }
+      std::fclose(f);
+    }
+    unsigned long long limit = 0, usage = 0;
+    if (!v2.empty() && readNum(v2 + "/memory.max", limit) && readNum(v2 + "/memory.current", usage)) {
+      const unsigned long long cache = statField(v2 + "/memory.stat", "inactive_file");
+      usage = usage > cache ? usage - cache : 0;
+    } else if (!v1.empty() && readNum(v1 + "/memory.limit_in_bytes", limit) &&
+               readNum(v1 + "/memory.usage_in_bytes", usage)) {
+      const unsigned long long cache = statField(v1 + "/memory.stat", "total_inactive_file");
+      usage = usage > cache ? usage - cache : 0;
+    } else {
+      limit = 0;
+    }
+    if (limit && limit < (1ull << 62)) {
+      const size_t left = limit > usage ? static_cast<size_t>(limit - usage) : 0;
+      avail = avail ? std::min(avail, left) : left;
+    }
+    if (avail) return avail;
 #endif
 #if defined(__unix__) || defined(__APPLE__)
     const long pages = sysconf(_SC_AVPHYS_PAGES), page = sysconf(_SC_PAGE_SIZE);
@@ -558,7 +610,9 @@ void Enumerator::commitHits(uint32_t idx, bool direct, const std::vector<AffineH
     setHit(idx);
     hits_.push_back(idx);
     ++stats.hits;
+    bestHitObj_ = std::min(bestHitObj_, obj(idx));
   }
+  if (!fitted.empty()) bestHitObj_ = std::min(bestHitObj_, obj(idx) + 1);  // a wrapper costs >= 1
   for (const AffineHit& h : fitted) {
     if (numHits() >= cfg_.maxHits) break;
     AffineHit k = h;
@@ -1225,6 +1279,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
       std::stable_sort(list.begin(), list.end(),
                        [&](uint32_t x, uint32_t y) { return obj(x) < obj(y); });
     if (diskMode_) finishLevelDisk(cost);
+    if (cfg_.topDown && !diskMode_ && !stop_) topDownPass(cost, stats);
     if (!stop_ && stats.overflowChecked == 0) stats.completedCost = cost;
   }
 
@@ -1254,6 +1309,112 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
 // Binary op at this level with operand costs summing to r and operand types ta, tb.
 // fuse: -1 = all pairs, 1 = only pairs with a same-width mul (or div) operand, 0 = only
 // pairs without one.
+void Enumerator::topDownPass(uint32_t cost, SearchStats& stats) {
+  const Type T = targetType_;
+  if (T == Type::Bool) return;
+  // Lookup points: the last two test points (random ones) where the target is finite.
+  if (tdP0_ == UINT32_MAX) {
+    for (size_t i = n_; i-- > 0;)
+      if (targetFinite_[i]) {
+        if (tdP0_ == UINT32_MAX) tdP0_ = static_cast<uint32_t>(i);
+        else if (tdP1_ == UINT32_MAX) tdP1_ = static_cast<uint32_t>(i);
+      }
+    if (tdP1_ == UINT32_MAX) return;
+    for (uint32_t c = 0; c < cost; ++c)  // earlier levels (the pass starts at level 1)
+      for (uint32_t x : byCost_[c][static_cast<size_t>(T)]) tdIndex_.push_back({fpOf(x)[tdP0_], x});
+    std::sort(tdIndex_.begin(), tdIndex_.end());
+  }
+  const auto& fresh = byCost_[cost][static_cast<size_t>(T)];
+  if (fresh.empty()) return;
+  {
+    const size_t mid = tdIndex_.size();
+    for (uint32_t x : fresh) tdIndex_.push_back({fpOf(x)[tdP0_], x});
+    std::sort(tdIndex_.begin() + static_cast<std::ptrdiff_t>(mid), tdIndex_.end());
+    std::inplace_merge(tdIndex_.begin(), tdIndex_.begin() + static_cast<std::ptrdiff_t>(mid), tdIndex_.end());
+  }
+  const CostModel& ord = order();
+  const unsigned w = width(T);
+  const double t0 = target_[tdP0_], tol0 = monoTol_[tdP0_];
+  const float t1 = target_[tdP1_];
+  constexpr double kU = 0x1p-24;
+  std::vector<float> fp(4 * n_);
+  std::vector<AffineHit> fits;
+  enum Kind { kAdd, kSub, kSubR, kMul, kDiv, kDivR };
+  auto has = [&](Op op) { return std::find(ops_.begin(), ops_.end(), op) != ops_.end(); };
+  const bool hasAdd = has(Op::Add), hasSub = has(Op::Sub), hasMul = has(Op::Mul), hasDiv = has(Op::Div);
+  for (uint32_t a : fresh) {
+    if (stop_) break;
+    if (obj(a) + 1 >= bestHitObj_) continue;  // only hits cheaper than the best so far
+    const float* va = fpOf(a);
+    const double a0 = va[tdP0_];
+    if (!std::isfinite(a0)) continue;
+    for (int k = kAdd; k <= kDivR; ++k) {
+      const Op op = k <= kSubR ? (k == kAdd ? Op::Add : Op::Sub) : (k == kMul ? Op::Mul : Op::Div);
+      if ((op == Op::Add && !hasAdd) || (op == Op::Sub && !hasSub) || (op == Op::Mul && !hasMul) ||
+          (op == Op::Div && !hasDiv))
+        continue;
+      if (obj(a) + cfg_.model->opCost(op, w) >= bestHitObj_) continue;
+      // The operand b that makes op(a, b) = t at the lookup point, and how far off it may be.
+      double b0, db;
+      const double slack = tol0 + 4.0 * kU * (std::fabs(t0) + std::fabs(a0));
+      switch (k) {
+        case kAdd: b0 = t0 - a0; db = slack; break;
+        case kSub: b0 = a0 - t0; db = slack; break;
+        case kSubR: b0 = t0 + a0; db = slack; break;
+        case kMul:
+          if (std::fabs(a0) < 1e-30) continue;
+          b0 = t0 / a0; db = slack / std::fabs(a0); break;
+        case kDiv:
+          if (std::fabs(t0) < 1e-30) continue;
+          b0 = a0 / t0; db = std::fabs(a0) / (t0 * t0) * slack; break;
+        default: b0 = t0 * a0; db = std::fabs(a0) * slack; break;
+      }
+      db += 8.0 * kU * std::fabs(b0) + 1e-37;
+      if (!std::isfinite(b0) || !std::isfinite(db)) continue;
+      auto lo = std::lower_bound(tdIndex_.begin(), tdIndex_.end(), std::make_pair(static_cast<float>(b0 - db), 0u));
+      int budget = 64;  // at most this many candidates per (a, op): a flat range is not a lookup
+      for (auto it = lo; it != tdIndex_.end() && it->first <= b0 + db && budget-- > 0; ++it) {
+        const uint32_t b = it->second;
+        const float* vb = fpOf(b);
+        // Second point first (cheap), then the whole candidate.
+        float r1;
+        switch (k) {
+          case kAdd: r1 = va[tdP1_] + vb[tdP1_]; break;
+          case kSub: r1 = va[tdP1_] - vb[tdP1_]; break;
+          case kSubR: r1 = vb[tdP1_] - va[tdP1_]; break;
+          case kMul: r1 = va[tdP1_] * vb[tdP1_]; break;
+          case kDiv: r1 = va[tdP1_] / vb[tdP1_]; break;
+          default: r1 = vb[tdP1_] / va[tdP1_]; break;
+        }
+        if (!accepts(tdP1_, r1) && std::fabs(double(r1) - t1) > 4.0 * monoTol_[tdP1_]) continue;
+        const bool swap = k == kSubR || k == kDivR;
+        const Item item{op, static_cast<uint16_t>(entry(a).cost + entry(b).cost + ord.opCost(op, w)), swap ? b : a,
+                        swap ? a : b, 0, 0};
+        Entry e;
+        if (prepare(item, e, fp.data()) != Prep::Ok || e.type != T || e.obj >= bestHitObj_) continue;
+        ++stats.topDownChecked;
+        if ((stats.topDownChecked & 4095) == 0) {
+          checkLimits(stats);
+          if (stop_) return;
+        }
+        // Already in the bank: it was goal-checked when it was stored.
+        const size_t len = lenOf(e.type);
+        const uint64_t h1 = hashFp(fp.data(), e.type);
+        bool dup = false;
+        for (size_t pos = h1 & (table_.size() - 1); table_[pos] != kEmpty && !dup; pos = (pos + 1) & (table_.size() - 1))
+          dup = entry(table_[pos]).type == e.type && sameFp(fpOf(table_[pos]), fp.data(), len);
+        if (dup) continue;
+        fits.clear();
+        const bool direct = goalCheck(e, fp.data(), kEmpty, fits, serialScratch_, stats);
+        if (!direct && fits.empty()) continue;
+        const uint32_t idx = storeEntry(e, fp.data(), false, stats);
+        commitHits(idx, direct, fits, stats);
+        ++stats.topDownHits;
+      }
+    }
+  }
+}
+
 void Enumerator::finishLevelDisk(uint32_t cost) {
   // Everything appended so far becomes readable; the level's lists get their segments:
   // the entries with fingerprints in RAM first (still sorted by objective), then the disk

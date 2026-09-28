@@ -3,26 +3,66 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <stdexcept>
 
 #include "zstd.h"
 
+#if defined(_WIN32)
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <cerrno>
+#include <csignal>
+#include <unistd.h>
+#endif
+
 namespace sopt {
 
 namespace {
 std::atomic<uint64_t> fileCounter{0};
+
+unsigned long processId() {
+#if defined(_WIN32)
+  return GetCurrentProcessId();
+#else
+  return static_cast<unsigned long>(getpid());
+#endif
 }
+
+bool processAlive(unsigned long pid) {
+#if defined(_WIN32)
+  HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+  if (!h) return false;
+  DWORD code = 0;
+  const bool alive = GetExitCodeProcess(h, &code) && code == STILL_ACTIVE;
+  CloseHandle(h);
+  return alive;
+#else
+  return kill(static_cast<pid_t>(pid), 0) == 0 || errno == EPERM;
+#endif
+}
+}  // namespace
 
 DiskFpStore::DiskFpStore(const std::string& dir, size_t tileFloats, size_t blockFloats)
     : tileFloats_(tileFloats), blockFloats_(std::min(blockFloats, tileFloats)) {
   namespace fs = std::filesystem;
   std::error_code ec;
   fs::create_directories(dir, ec);
-  const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-  path_ = (fs::path(dir) / ("sopt-bank-" + std::to_string(stamp) + "-" + std::to_string(fileCounter++) + ".tmp"))
-              .string();
+  // Files of processes that died (killed, crashed) are removed; ours carry our process id.
+  const unsigned long pid = processId();
+  for (auto it = fs::directory_iterator(dir, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
+    const std::string name = it->path().filename().string();
+    unsigned long other = 0;
+    if (name.rfind("sopt-bank-", 0) == 0 && std::sscanf(name.c_str(), "sopt-bank-%lu-", &other) == 1 &&
+        other != pid && !processAlive(other))
+      fs::remove(it->path(), ec);
+  }
+  ec.clear();
+  path_ = (fs::path(dir) / ("sopt-bank-" + std::to_string(pid) + "-" + std::to_string(fileCounter++) + ".tmp")).string();
   file_ = std::fopen(path_.c_str(), "w+b");
   cctx_ = ZSTD_createCCtx();
   dctx_ = ZSTD_createDCtx();
