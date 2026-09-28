@@ -2,6 +2,13 @@
 
 #include <algorithm>
 #include <bit>
+#if defined(_WIN32)
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#elif defined(__unix__) || defined(__APPLE__)
+#include <unistd.h>
+#endif
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -151,17 +158,77 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   // The bank grows to maxBank: reserve it (pages are only touched when used) so that
   // appending does not copy hundreds of MB, and size the table for it.
   {
+    // Entries from the memory budget: each costs its Entry, offset, hit flag, level-list
+    // slot, hash-table slots (load <= 1/2, rounded up to a power of two: <= 16 bytes) and a
+    // scalar fingerprint; wider entries use more, so the bank also stops when the
+    // fingerprints reach the budget (see bankFull).
+    const size_t perEntry = sizeof(Packed) + sizeof(uint32_t) + sizeof(uint32_t) + 16 + 4 * n_;
+    budget_ = bankBudget(cfg_);
+    maxBank_ = std::max<size_t>(budget_ / perEntry, 4 * kBatch);
+    if (cfg_.maxBank) maxBank_ = std::min(maxBank_, cfg_.maxBank);
     // Fingerprint offsets are 32-bit: at most 2^32 floats (widest entries are float4).
-    maxBank_ = std::min<size_t>(cfg_.maxBank, (size_t{0xffffffffu} / (4 * std::max<size_t>(n_, 1))) - kBatch);
-    const size_t cap = std::min<size_t>(maxBank_, size_t{1} << 25);
-    entries_.reserve(cap + kBatch);
-    isHit_.reserve(cap + kBatch);
-    off_.reserve(cap + kBatch);
-    fp_.reserve((cap + kBatch) * n_);
-    size_t slots = 1u << 16;
-    while (slots < 2 * cap) slots <<= 1;
-    table_.assign(slots, kEmpty);
+    maxBank_ = std::min<size_t>(maxBank_, (size_t{0xffffffffu} / (4 * std::max<size_t>(n_, 1))) - kBatch);
+    maxBank_ = std::min<size_t>(maxBank_, (size_t{1} << kIndexBits) - 2 * kBatch);  // packed indices
+    // Reserve what the budget allows (address space only: pages are touched when used),
+    // plus room for hits kept after the bank is full, so appending never copies GBs. The
+    // hash table starts small and doubles as the bank grows (growTable).
+    const size_t extra = cfg_.maxHits + 2 * kBatch;
+    bank_.reserve(maxBank_ + extra);
+    off_.reserve(maxBank_ + extra);
+    fp_.reserve(std::min(budget_ / sizeof(float), maxBank_ * 4 * n_) + extra * 4 * n_);
   }
+}
+
+size_t physicalMemory() {
+#if defined(_WIN32)
+  MEMORYSTATUSEX m{};
+  m.dwLength = sizeof(m);
+  if (GlobalMemoryStatusEx(&m)) return static_cast<size_t>(m.ullTotalPhys);
+#elif defined(__unix__) || defined(__APPLE__)
+  const long pages = sysconf(_SC_PHYS_PAGES), page = sysconf(_SC_PAGE_SIZE);
+  if (pages > 0 && page > 0) return static_cast<size_t>(pages) * static_cast<size_t>(page);
+#endif
+  return size_t{4} << 30;
+}
+
+size_t bankBudget(const SearchConfig& cfg) {
+  if (cfg.memBudget) return cfg.memBudget;
+  return static_cast<size_t>(double(physicalMemory()) * cfg.memFraction / std::max(1u, cfg.concurrent));
+}
+
+static_assert(static_cast<size_t>(Op::Count) * kNumTypes <= 256, "op/type codebook must fit one byte");
+
+Enumerator::Packed Enumerator::pack(const Entry& e) {
+  constexpr uint64_t m = (uint64_t{1} << kIndexBits) - 1;
+  const uint64_t code = static_cast<uint64_t>(e.op) * kNumTypes + static_cast<uint64_t>(e.type);
+  Packed p;
+  p.w0 = (e.args[0] & m) | ((e.args[1] & m) << 28) | (code << 56);
+  p.w1 = (e.args[2] & m) | (uint64_t{e.isConst} << 28) | (uint64_t{e.affine} << 29) | (uint64_t{e.ctime} << 30) |
+         (uint64_t{e.cost} << 32) | (uint64_t{e.obj} << 48);
+  return p;
+}
+
+Enumerator::Entry Enumerator::entry(uint32_t idx) const {
+  constexpr uint64_t m = (uint64_t{1} << kIndexBits) - 1;
+  const Packed& p = bank_[idx];
+  const unsigned code = static_cast<unsigned>(p.w0 >> 56);
+  Entry e{};
+  e.args[0] = static_cast<uint32_t>(p.w0 & m);
+  e.args[1] = static_cast<uint32_t>((p.w0 >> 28) & m);
+  e.args[2] = static_cast<uint32_t>(p.w1 & m);
+  e.op = static_cast<Op>(code / kNumTypes);
+  e.type = static_cast<Type>(code % kNumTypes);
+  e.isConst = (p.w1 >> 28) & 1u;
+  e.affine = (p.w1 >> 29) & 1u;
+  e.ctime = (p.w1 >> 30) & 1u;
+  e.cost = static_cast<uint16_t>(p.w1 >> 32);
+  e.obj = static_cast<uint16_t>(p.w1 >> 48);
+  return e;
+}
+
+bool Enumerator::bankFull() const {
+  return bank_.size() >= maxBank_ ||
+         bank_.size() * (sizeof(Packed) + 8) + fp_.size() * sizeof(float) + table_.size() * 4 >= budget_;
 }
 
 uint32_t Enumerator::quant(float x) const {
@@ -219,7 +286,7 @@ void Enumerator::growTable() {
   const size_t mask = table_.size() - 1;
   for (uint32_t idx : old) {
     if (idx == kEmpty) continue;
-    size_t pos = hashFp(fpOf(idx), entries_[idx].type) & mask;
+    size_t pos = hashFp(fpOf(idx), entry(idx).type) & mask;
     while (table_[pos] != kEmpty) pos = (pos + 1) & mask;
     table_[pos] = idx;
   }
@@ -231,11 +298,11 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
   size_t pos = hashFp(fp, e.type) & mask;
   while (table_[pos] != kEmpty) {
     const uint32_t idx = table_[pos];
-    if (entries_[idx].type == e.type && sameFp(fpOf(idx), fp, len)) {
+    if (entry(idx).type == e.type && sameFp(fpOf(idx), fp, len)) {
       ++stats.deduped;
       // Same fingerprint as a hit: not needed in the bank, but it may differ from the
       // hit outside the test points, so keep it as an alternative for verification.
-      if (isHit_[idx] && e.op != Op::Input && e.op != Op::Const && numHits() < cfg_.maxHits) {
+      if (isHit(idx) && e.op != Op::Input && e.op != Op::Const && numHits() < cfg_.maxHits) {
         altHits_.push_back(e);
         ++stats.hits;
       }
@@ -243,17 +310,16 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
     }
     pos = (pos + 1) & mask;
   }
-  const auto idx = static_cast<uint32_t>(entries_.size());
+  const auto idx = static_cast<uint32_t>(bank_.size());
   // Bank full (overflow mode): the entry is only checked as a hit and dropped again,
   // so the search goes on with the stored entries as operands.
-  const bool transient = cfg_.overflow && entries_.size() >= maxBank_;
+  const bool transient = cfg_.overflow && bankFull();
   const size_t hitsBefore = numHits();
-  entries_.push_back(e);
-  isHit_.push_back(0);
+  bank_.push_back(pack(e));
   off_.push_back(fp_.size());
   fp_.insert(fp_.end(), fp, fp + len);
   table_[pos] = idx;
-  if (!transient && entries_.size() * 2 > table_.size()) growTable();
+  if (!transient && bank_.size() * 2 > table_.size()) growTable();
   if (!transient) {
     byCost_[e.cost][static_cast<size_t>(e.type)].push_back(idx);
     if (!stats.levels.empty()) ++stats.levels.back().added;
@@ -272,8 +338,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
       table_[pos] = kEmpty;
       fp_.resize(off_.back());
       off_.pop_back();
-      isHit_.pop_back();
-      entries_.pop_back();
+      bank_.pop_back();
     }
     ++stats.overflowChecked;
   }
@@ -287,7 +352,7 @@ uint32_t Enumerator::addConst(Type t, const float* v, SearchStats& stats) {
   Entry e = Entry::make(Op::Const, t, 0, true, 0, 0, 0, static_cast<uint32_t>(consts_.size() - 1), false, 0, false);
   for (unsigned k = 0; k < width(t); ++k) std::fill(scratch_.begin() + k * n_, scratch_.begin() + (k + 1) * n_, val[k]);
   insert(e, scratch_.data(), stats);
-  return static_cast<uint32_t>(entries_.size() - 1);
+  return static_cast<uint32_t>(bank_.size() - 1);
 }
 
 // target ~ p * v + q: least squares over the finite target points, then the budget
@@ -387,7 +452,7 @@ bool Enumerator::goalCheck(const Entry& e, const float* v, uint32_t idx, std::ve
 void Enumerator::commitHits(uint32_t idx, bool direct, const std::vector<AffineHit>& fitted,
                             SearchStats& stats) {
   if (direct) {
-    isHit_[idx] = 1;
+    setHit(idx);
     hits_.push_back(idx);
     ++stats.hits;
   }
@@ -646,7 +711,7 @@ bool Enumerator::innerFit(const Entry& e, const float* v, uint32_t idx, std::vec
 }
 
 void Enumerator::checkLimits(SearchStats& stats) {
-  if ((entries_.size() >= maxBank_ && !cfg_.overflow) || numHits() >= cfg_.maxHits ||
+  if ((bankFull() && !cfg_.overflow) || numHits() >= cfg_.maxHits ||
       nowSeconds() - start_ > cfg_.timeLimitSec) {
     stop_ = true;
     stats.limitHit = true;
@@ -669,7 +734,7 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   const auto& oi = info(op);
   const uint32_t args[3] = {a, b, c};
   bool allConst = true;
-  for (uint8_t k = 0; k < oi.arity; ++k) allConst = allConst && entries_[args[k]].isConst;
+  for (uint8_t k = 0; k < oi.arity; ++k) allConst = allConst && entry(args[k]).isConst;
   if (allConst) return Prep::ConstSkipped;
   // Result type: componentwise ops take the widest operand (float1 operands broadcast).
   Type type = Type::Float;
@@ -678,7 +743,7 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   } else if (oi.shape == Shape::Comp || oi.shape == Shape::Select) {
     unsigned w = 1;
     for (uint8_t k = oi.shape == Shape::Select ? 1 : 0; k < oi.arity; ++k)
-      w = std::max<unsigned>(w, width(entries_[args[k]].type));
+      w = std::max<unsigned>(w, width(entry(args[k]).type));
     type = floatType(w);
   }
   const unsigned w = width(type);
@@ -691,25 +756,25 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
     int nonConst = 0;
     uint32_t base = 0;
     for (uint8_t k = 0; k < oi.arity; ++k)
-      if (!entries_[args[k]].isConst) {
+      if (!entry(args[k]).isConst) {
         ++nonConst;
         base = args[k];
       }
     const bool step = nonConst == 1 &&
                       (op == Op::Neg || op == Op::Add || op == Op::Sub || op == Op::Mul ||
-                       op == Op::Mad || op == Op::Lerp || (op == Op::Div && entries_[b].isConst));
+                       op == Op::Mad || op == Op::Lerp || (op == Op::Div && entry(b).isConst));
     // A pure sign flip (-v, 0 - v, v * -1) is absorbed by the outer map and by the
     // consumer (sub for add, max for min, ...), so it is not stored either.
     auto isConst = [&](uint32_t i, float val) {
-      return entries_[i].isConst && entries_[i].type == Type::Float && constValue(i) == val;
+      return entry(i).isConst && entry(i).type == Type::Float && constValue(i) == val;
     };
     const bool flip = op == Op::Neg || (op == Op::Sub && isConst(a, 0.0f)) ||
                       (op == Op::Mul && (isConst(a, -1.0f) || isConst(b, -1.0f))) ||
                       (op == Op::Div && isConst(b, -1.0f));
     // c / v is a scaled 1 / v: keep only the reciprocal itself.
-    if (op == Op::Div && nonConst == 1 && entries_[a].isConst && !isConst(a, 1.0f)) return Prep::AffinePruned;
+    if (op == Op::Div && nonConst == 1 && entry(a).isConst && !isConst(a, 1.0f)) return Prep::AffinePruned;
     if (step) {
-      if (oi.arity == 3 || entries_[base].affine || flip) return Prep::AffinePruned;
+      if (oi.arity == 3 || entry(base).affine || flip) return Prep::AffinePruned;
       affine = true;
     }
   }
@@ -718,11 +783,11 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   const CostModel& model = *cfg_.model;
   // Only constants and compile-time inputs: folded by the compiler, free.
   bool ctime = true;
-  for (uint8_t k = 0; k < oi.arity; ++k) ctime = ctime && (entries_[args[k]].isConst || entries_[args[k]].ctime);
+  for (uint8_t k = 0; k < oi.arity; ++k) ctime = ctime && (entry(args[k]).isConst || entry(args[k]).ctime);
   uint32_t obj = 0;
-  for (uint8_t k = 0; k < oi.arity; ++k) obj += entries_[args[k]].obj;
+  for (uint8_t k = 0; k < oi.arity; ++k) obj += entry(args[k]).obj;
   auto fuses = [&](uint32_t x) {
-    return !entries_[x].ctime && model.fusesIntoAdd(entries_[x].op) && entries_[x].type == type;
+    return !entry(x).ctime && model.fusesIntoAdd(entry(x).op) && entry(x).type == type;
   };
   if (ctime)
     obj = 0;
@@ -737,7 +802,7 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
     for (unsigned comp = 0; comp < w; ++comp) {
       const float* p[3] = {nullptr, nullptr, nullptr};
       for (uint8_t k = 0; k < oi.arity; ++k)
-        p[k] = fpOf(args[k]) + (width(entries_[args[k]].type) == 1 ? 0 : comp * n_);
+        p[k] = fpOf(args[k]) + (width(entry(args[k]).type) == 1 ? 0 : comp * n_);
       evalArray(op, p[0], p[1], p[2], out + comp * n_, n_, kProfileRef);
     }
   }
@@ -769,16 +834,15 @@ void parallelRange(size_t n, unsigned threads, const std::function<void(size_t, 
 }  // namespace
 
 uint32_t Enumerator::storeEntry(const Entry& e, const float* fp, bool listed, SearchStats& stats) {
-  const auto idx = static_cast<uint32_t>(entries_.size());
-  entries_.push_back(e);
-  isHit_.push_back(0);
+  const auto idx = static_cast<uint32_t>(bank_.size());
+  bank_.push_back(pack(e));
   off_.push_back(fp_.size());
   fp_.insert(fp_.end(), fp, fp + lenOf(e.type));
   const size_t mask = table_.size() - 1;
   size_t pos = hashFp(fp, e.type) & mask;
   while (table_[pos] != kEmpty) pos = (pos + 1) & mask;
   table_[pos] = idx;
-  if (entries_.size() * 2 > table_.size()) growTable();
+  if (bank_.size() * 2 > table_.size()) growTable();
   if (listed) {
     byCost_[e.cost][static_cast<size_t>(e.type)].push_back(idx);
     if (!stats.levels.empty()) ++stats.levels.back().added;
@@ -810,7 +874,7 @@ void Enumerator::flush(SearchStats& stats) {
       batchDup_[k] = kEmpty;
       for (size_t pos = batchHash_[k] & mask; table_[pos] != kEmpty; pos = (pos + 1) & mask) {
         const uint32_t idx = table_[pos];
-        if (entries_[idx].type == t && sameFp(fpOf(idx), fp, len)) {
+        if (entry(idx).type == t && sameFp(fpOf(idx), fp, len)) {
           batchDup_[k] = idx;
           break;
         }
@@ -820,7 +884,7 @@ void Enumerator::flush(SearchStats& stats) {
   // 2. Dedup and store in order (serial).
   goals_.clear();
   pendingDups_.clear();
-  const auto batchStart = static_cast<uint32_t>(entries_.size());
+  const auto batchStart = static_cast<uint32_t>(bank_.size());
   // Entries stored in this batch, by hash (small: stays in cache).
   localTable_.assign(4 * kBatch, kEmpty);
   const size_t localMask = localTable_.size() - 1;
@@ -850,7 +914,7 @@ void Enumerator::flush(SearchStats& stats) {
     if (dupIdx == kEmpty)
       for (; localTable_[lpos] != kEmpty; lpos = (lpos + 1) & localMask) {
         const uint32_t idx = localTable_[lpos];
-        if (entries_[idx].type == e.type && sameFp(fpOf(idx), fp, len)) {
+        if (entry(idx).type == e.type && sameFp(fpOf(idx), fp, len)) {
           dupIdx = idx;
           break;
         }
@@ -869,14 +933,14 @@ void Enumerator::flush(SearchStats& stats) {
       if (!shared_.empty()) upgradeShared(dupIdx, e);
       if (dupIdx >= batchStart) {
         pendingDups_.push_back({k, dupIdx});  // hit or not is known after step 3
-      } else if (isHit_[dupIdx] && numHits() < cfg_.maxHits) {
+      } else if (isHit(dupIdx) && numHits() < cfg_.maxHits) {
         altHits_.push_back(e);
         ++stats.hits;
       }
     }
     if (dup) continue;
     // Bank full (overflow mode): only checked as a hit, stored only if it is (part of) one.
-    if (cfg_.overflow && entries_.size() >= maxBank_) {
+    if (cfg_.overflow && bankFull()) {
       goals_.push_back({k, kEmpty});
     } else {
       const uint32_t idx = storeEntry(e, fp, true, stats);
@@ -906,7 +970,7 @@ void Enumerator::flush(SearchStats& stats) {
   size_t pd = 0;
   auto flushDups = [&](size_t upTo) {
     for (; pd < pendingDups_.size() && pendingDups_[pd].item < upTo; ++pd)
-      if (isHit_[pendingDups_[pd].idx] && numHits() < cfg_.maxHits) {
+      if (isHit(pendingDups_[pd].idx) && numHits() < cfg_.maxHits) {
         altHits_.push_back(batchEntries_[pendingDups_[pd].item]);
         ++stats.hits;
       }
@@ -961,7 +1025,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
     const bool ct = prog_.inputs[i].compileTime;
     Entry e = Entry::make(Op::Input, t, 0, false, 0, 0, 0, i, false, 0, ct);
     if (!insert(e, scratch_.data(), stats) || width(t) == 1) continue;
-    const auto vec = static_cast<uint32_t>(entries_.size() - 1);
+    const auto vec = static_cast<uint32_t>(bank_.size() - 1);
     const auto swzCost = static_cast<uint16_t>(ct ? 0 : model.opCost(Op::Swizzle, 1));
     for (unsigned k = 0; k < width(t); ++k) {
       Entry s = Entry::make(Op::Swizzle, Type::Float, 0, false, vec, 0, 0, k, false, swzCost, ct);
@@ -1050,7 +1114,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
     if (!stop_ && stats.overflowChecked == 0) stats.completedCost = cost;
   }
 
-  stats.bankSize = entries_.size();
+  stats.bankSize = bank_.size();
   stats.seconds = nowSeconds() - start_;
   out.reserve(numHits());
   // With shared leaves (free in the bank) a hit's real DAG cost can reach the target's:
@@ -1061,7 +1125,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
     cand.expr = std::move(x);
     if (shared_.empty() || cand.cost < targetCost_) out.push_back(std::move(cand));
   };
-  for (uint32_t idx : hits_) push(extract(entries_[idx]));
+  for (uint32_t idx : hits_) push(extract(entry(idx)));
   for (const Entry& e : altHits_) push(extract(e));
   for (const AffineHit& h : affineHits_) push(extract(h));
   return out;
@@ -1081,7 +1145,7 @@ void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Ty
   uint32_t minOp = objective.opCost(op, w);
   if (objective.fusedAdd && (op == Op::Add || op == Op::Sub)) minOp = w * objective.fusedAdd;
   const bool sym = oi.commutative && ta == tb;
-  auto fusable = [&](uint32_t x) { return model.fusesIntoAdd(entries_[x].op) && entries_[x].type == rt; };
+  auto fusable = [&](uint32_t x) { return model.fusesIntoAdd(entry(x).op) && entry(x).type == rt; };
   for (uint32_t c1 = 0; c1 <= r && !stop_; ++c1) {
     const uint32_t c2 = r - c1;
     if (sym && c1 > c2) continue;
@@ -1165,7 +1229,7 @@ void Enumerator::addSharedLeaves(SearchStats& stats) {
 // of a value, which is the free leaf, so candidates would otherwise inherit the
 // original's more expensive form.
 void Enumerator::upgradeShared(uint32_t idx, const Entry& e) {
-  const Entry& leaf = entries_[idx];
+  const Entry leaf = entry(idx);
   if (leaf.op != Op::Input || leaf.aux() < kShared || e.op == Op::Input || e.op == Op::Const) return;
   const uint32_t k = leaf.aux() - kShared;
   if (e.obj >= sharedCost_[k]) return;
@@ -1189,7 +1253,7 @@ uint32_t Enumerator::build(ExprBuilder& b, const Entry& rootEntry) const {
       if (auto it = memo.find(idx); it != memo.end()) {
         a[k] = it->second;
       } else {
-        a[k] = self(self, entries_[idx]);
+        a[k] = self(self, entry(idx));
         memo[idx] = a[k];
       }
     }
@@ -1209,7 +1273,7 @@ Expr Enumerator::extract(const Entry& rootEntry) const {
 
 Expr Enumerator::extract(const AffineHit& h) const {
   ExprBuilder b;
-  uint32_t v = build(b, entries_[h.idx]);
+  uint32_t v = build(b, entry(h.idx));
   auto k = [&](float x) { return b.constant(x); };  // scalars broadcast to a vector v
   if (h.rational) {
     const uint32_t num = h.r < 0.0f ? b.op(Op::Add, v, k(-h.r)) : b.op(Op::Sub, v, k(h.r));

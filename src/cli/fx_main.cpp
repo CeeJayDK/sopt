@@ -85,6 +85,8 @@ void usage() {
       "  --no-subtrees     no subtree search (default: when the search hits a limit, also\n"
       "                    search subexpressions of cost <= --subtree-max-cost, default 64,\n"
       "                    --subtree-time S each, default 1, and put the cheaper forms back)\n"
+      "  --max-mem MB      memory for the search bank (default: half the physical RAM,\n"
+      "                    shared by regions searched in parallel); --max-bank N also caps entries\n"
       "  --no-cuts         no cut points (default: when the search hits a limit, split the\n"
       "                    target at values the rest depends on for all inputs below them\n"
       "                    and search both parts on their own, --cut-time S per part, default 1)\n"
@@ -135,7 +137,6 @@ int main(int argc, char** argv) {
   unsigned jobs = std::max(1u, std::thread::hardware_concurrency());
   Options opt;
   opt.search.timeLimitSec = 5.0;
-  opt.search.maxBank = 500'000;
   opt.v1Points = 1u << 18;
   opt.maxIterations = 4;
   opt.loose = 100;
@@ -197,6 +198,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
+    else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
     else if (a == "--tests") opt.numTests = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--no-v3") opt.v3 = false;
     else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
@@ -420,6 +422,8 @@ int main(int argc, char** argv) {
   Options ropt2 = opt;
   ropt2.v3 = false;  // V3 runs below, only on the variants that are written
   if (jobs > 1 && results.size() > 1) ropt2.threads = ropt2.search.threads = 1;  // regions in parallel instead
+  // The RAM budget is shared by the regions searched at the same time.
+  if (jobs > 1 && results.size() > 1) ropt2.search.concurrent = static_cast<unsigned>(std::min<size_t>(jobs, results.size()));
   std::atomic<size_t> done{0};
   std::mutex printMu;
   // Regions that differ only in their inputs' names (same expression over the same

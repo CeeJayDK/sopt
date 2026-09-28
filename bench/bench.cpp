@@ -163,6 +163,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
+    else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
     else if (a == "--tests") opt.numTests = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--no-v3") opt.v3 = false;
     else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);

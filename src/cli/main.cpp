@@ -41,6 +41,8 @@ void usage() {
       "  --no-subtrees     no subtree search (default: when the search hits a limit, also\n"
       "                    search subexpressions of cost <= --subtree-max-cost, default 64,\n"
       "                    --subtree-time S each, default 1, and put the cheaper forms back)\n"
+      "  --max-mem MB      memory for the search bank (default: half the physical RAM,\n"
+      "                    shared by regions searched in parallel); --max-bank N also caps entries\n"
       "  --no-cuts         no cut points (default: when the search hits a limit, split the\n"
       "                    target at values the rest depends on for all inputs below them\n"
       "                    and search both parts on their own, --cut-time S per part, default 1)\n"
@@ -138,6 +140,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
+    else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
     else if (a == "--no-v3") opt.v3 = false;
     else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
     else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));

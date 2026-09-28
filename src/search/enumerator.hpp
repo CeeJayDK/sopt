@@ -11,7 +11,13 @@ namespace sopt {
 
 struct SearchConfig {
   uint32_t maxCost = 0;         // inclusive, in order-model units; 0 = derived from the target
-  size_t maxBank = 2'000'000;   // entries (memory: ~(4*tests + 32) bytes each)
+  // Bank size: by memory (owner, 2026-09-28: use what the machine has). memBudget bytes
+  // (0 = memFraction of the physical RAM, shared by `concurrent` searches running at the
+  // same time); maxBank additionally caps the number of entries (0 = no cap).
+  size_t maxBank = 0;
+  size_t memBudget = 0;
+  double memFraction = 0.5;
+  unsigned concurrent = 1;
   size_t maxHits = 10'000;
   double timeLimitSec = 60.0;
   const CostModel* model = &defaultCostModel();  // objective: hits and ranking
@@ -57,6 +63,11 @@ struct SearchConfig {
   // only does not become an operand. 0 = bit-exact dedup.
   uint32_t quantBits = 0;
 };
+
+// Physical RAM of this machine in bytes (4 GB if unknown).
+size_t physicalMemory();
+// The bank's memory budget for cfg (SearchConfig::memBudget / memFraction / concurrent).
+size_t bankBudget(const SearchConfig& cfg);
 
 struct LevelStats {
   uint32_t cost = 0;
@@ -131,7 +142,7 @@ class Enumerator {
   };
   static_assert(sizeof(Entry) == 20);
   // Hit through a solved outer affine map: wrap(x) with op Add (x + q), Mul (x * p),
-  // Sub (q - x) or Mad (mad(x, p, q)), where x = entries_[idx], or inner(entries_[idx] + c)
+  // Sub (q - x) or Mad (mad(x, p, q)), where x = entry(idx), or inner(entry(idx) + c)
   // with a solved inner constant.
   struct AffineHit {
     uint32_t idx;
@@ -200,7 +211,7 @@ class Enumerator {
   std::vector<FitScratch> threadScratch_;
   std::vector<AffineHit> fitOut_;
   bool fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& out) const;
-  uint32_t obj(uint32_t idx) const { return entries_[idx].obj; }
+  uint32_t obj(uint32_t idx) const { return static_cast<uint32_t>(bank_[idx].w1 >> 48); }
   const CostModel& order() const { return cfg_.order ? *cfg_.order : defaultOrderFor(*cfg_.model); }
   size_t numHits() const { return hits_.size() + altHits_.size() + affineHits_.size(); }
   uint64_t hashFp(const float* fp, Type t) const;
@@ -210,7 +221,7 @@ class Enumerator {
   void growTable();
   const float* fpOf(uint32_t idx) const { return fp_.data() + off_[idx]; }
   size_t lenOf(Type t) const { return width(t) * n_; }
-  float constValue(uint32_t idx) const { return consts_[entries_[idx].aux()][0]; }
+  float constValue(uint32_t idx) const { return consts_[entry(idx).aux()][0]; }
   const std::vector<Type>& floatTypes() const { return types_; }
   Expr extract(const Entry& e) const;
   void addSharedLeaves(SearchStats& stats);
@@ -242,19 +253,33 @@ class Enumerator {
   std::vector<Op> ops_;
   std::vector<Type> types_;  // float types ops are enumerated for: float1, then the target's
 
-  std::vector<Entry> entries_;
+  // The bank: 16 bytes per entry (owner's idea: op and type as one codebook byte, flags as
+  // bits): w0 = a (28 bits) | b (28) | code (8, op * kNumTypes + type), w1 = c (28) |
+  // isConst, affine, ctime, isHit (4 bits) | cost (16) | obj (16). Entry is its unpacked
+  // form; entry() and pack() convert.
+  struct Packed {
+    uint64_t w0, w1;
+  };
+  static_assert(sizeof(Packed) == 16);
+  static constexpr uint32_t kIndexBits = 28;  // bank indices, inputs, constants, components
+  std::vector<Packed> bank_;
+  static Packed pack(const Entry& e);
+  Entry entry(uint32_t idx) const;
+  bool isHit(uint32_t idx) const { return (bank_[idx].w1 >> 31) & 1u; }
+  void setHit(uint32_t idx) { bank_[idx].w1 |= uint64_t{1} << 31; }
   std::vector<float> fp_;
-  size_t maxBank_ = 0;         // cfg_.maxBank, capped so that off_ fits 32 bits
+  size_t maxBank_ = 0;         // entries: from the memory budget, cfg_.maxBank, 32-bit offsets
+  size_t budget_ = 0;          // bank memory budget in bytes (bankBudget)
+  bool bankFull() const;
   std::vector<uint32_t> off_;  // fingerprint offset of each entry in fp_ (< 2^32 floats)
   std::vector<std::array<float, 4>> consts_;
   std::vector<Expr> shared_;  // SearchConfig::sharedLeaves: Input entries with aux >= kShared
   std::vector<uint32_t> sharedCost_;  // objective DAG cost of shared_[k]'s current form
-  static constexpr uint32_t kShared = 0x40000000u;
+  static constexpr uint32_t kShared = 0x08000000u;  // < 2^kIndexBits
   std::vector<std::array<std::vector<uint32_t>, kNumTypes>> byCost_;
   std::vector<uint32_t> table_;
   std::vector<float> scratch_;
   std::vector<uint32_t> hits_;
-  std::vector<char> isHit_;
   std::vector<Entry> altHits_;  // programs whose fingerprint equals an existing hit
   std::vector<AffineHit> affineHits_;
   bool stop_ = false;
