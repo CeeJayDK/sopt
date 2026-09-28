@@ -294,7 +294,7 @@ size_t availableMemory() {
 size_t bankBudget(const SearchConfig& cfg) {
   if (cfg.memBudget) return cfg.memBudget;
   const size_t n = std::max(1u, cfg.concurrent);
-  const size_t reserve = std::max<size_t>(size_t{1} << 30, physicalMemory() / 20) + n * (size_t{256} << 20);
+  const size_t reserve = std::max<size_t>(size_t{1} << 30, physicalMemory() / 10) + n * (size_t{512} << 20);
   const size_t avail = availableMemory();
   const size_t total = avail > reserve + (size_t{64} << 20) * n ? avail - reserve : (size_t{64} << 20) * n;
   return total / n;
@@ -377,14 +377,16 @@ void Enumerator::dropLastFp(uint32_t idx, size_t len) {
 }
 
 bool Enumerator::bankFull() const {
+  // Per entry: Packed, fingerprint offset, level-list slot (+ both hashes and the disk
+  // offset in disk mode); the hash table counted 1.5x (it doubles when it grows, and the old
+  // one lives until the new one is filled: grow before that would pass the budget).
+  const size_t perEntry = sizeof(Packed) + 4 + 4 + (diskMode_ ? 16 + 8 : 0);
+  size_t ram = bank_.size() * perEntry + table_.size() * 6 + fp_.floats() * sizeof(float);
   if (diskMode_) {
-    const size_t ram = bank_.size() * (sizeof(Packed) + 4 + 16 + 8) + table_.size() * 4 + fp_.floats() * sizeof(float) +
-                       tileSlots_.size() * cfg_.diskTileFloats * sizeof(float);
+    ram += tileSlots_.size() * cfg_.diskTileFloats * sizeof(float);
     return bank_.size() >= maxBank_ || ram >= budget_ || disk_->bytesWritten() >= diskBudget_ || fp_.nearlyFull();
   }
-  return bank_.size() >= maxBank_ ||
-         bank_.size() * (sizeof(Packed) + 8) + fp_.floats() * sizeof(float) + table_.size() * 4 >= budget_ ||
-         fp_.nearlyFull();
+  return bank_.size() >= maxBank_ || ram >= budget_ || fp_.nearlyFull();
 }
 
 uint32_t Enumerator::quant(float x) const {

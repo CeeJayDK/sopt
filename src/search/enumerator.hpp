@@ -15,10 +15,10 @@ namespace sopt {
 struct SearchConfig {
   uint32_t maxCost = 0;         // inclusive, in order-model units; 0 = derived from the target
   // Bank size: by memory (owner, 2026-09-28: use what the machine has, keep a little for
-  // the system). memBudget bytes (0 = the RAM available when the run started, minus
-  // max(1 GB, 5% of the RAM) for the system and 256 MB per concurrent search for its other
-  // data, shared by `concurrent` searches running at the same time); maxBank additionally
-  // caps the number of entries (0 = no cap).
+  // the system). memBudget bytes (0 = the RAM available when the run started (also within
+  // a cgroup limit), minus max(1 GB, 10% of the RAM) for the system and 512 MB per
+  // concurrent search for its other data, shared by `concurrent` searches running at the
+  // same time); maxBank additionally caps the number of entries (0 = no cap).
   size_t maxBank = 0;
   size_t memBudget = 0;
   unsigned concurrent = 1;

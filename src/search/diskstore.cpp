@@ -17,6 +17,7 @@
 #else
 #include <cerrno>
 #include <csignal>
+#include <fcntl.h>
 #include <unistd.h>
 #endif
 
@@ -117,6 +118,13 @@ void DiskFpStore::closeTile() {
     pos_ = tileStart_;
   }
   std::fflush(file_);
+#if defined(__linux__)
+  // Written pages count against a cgroup's memory until written back: write them out and
+  // drop them from the page cache (tiles are read back with explicit reads).
+  const int fd = fileno(file_);
+  fdatasync(fd);
+  posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+#endif
 }
 
 void DiskFpStore::readTile(uint64_t t, float* dst) {
