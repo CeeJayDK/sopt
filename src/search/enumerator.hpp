@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "ir/expr.hpp"
@@ -11,12 +12,13 @@ namespace sopt {
 
 struct SearchConfig {
   uint32_t maxCost = 0;         // inclusive, in order-model units; 0 = derived from the target
-  // Bank size: by memory (owner, 2026-09-28: use what the machine has). memBudget bytes
-  // (0 = memFraction of the physical RAM, shared by `concurrent` searches running at the
-  // same time); maxBank additionally caps the number of entries (0 = no cap).
+  // Bank size: by memory (owner, 2026-09-28: use what the machine has, keep a little for
+  // the system). memBudget bytes (0 = the RAM available when the run started, minus
+  // max(1 GB, 5% of the RAM) for the system and 256 MB per concurrent search for its other
+  // data, shared by `concurrent` searches running at the same time); maxBank additionally
+  // caps the number of entries (0 = no cap).
   size_t maxBank = 0;
   size_t memBudget = 0;
-  double memFraction = 0.5;
   unsigned concurrent = 1;
   size_t maxHits = 10'000;
   double timeLimitSec = 60.0;
@@ -64,9 +66,11 @@ struct SearchConfig {
   uint32_t quantBits = 0;
 };
 
-// Physical RAM of this machine in bytes (4 GB if unknown).
+// Physical RAM of this machine in bytes (4 GB if unknown), and the part available (not
+// used by other processes; measured once, at the first call).
 size_t physicalMemory();
-// The bank's memory budget for cfg (SearchConfig::memBudget / memFraction / concurrent).
+size_t availableMemory();
+// The bank's memory budget for cfg (SearchConfig::memBudget / concurrent).
 size_t bankBudget(const SearchConfig& cfg);
 
 struct LevelStats {
@@ -100,6 +104,60 @@ struct SearchStats {
 struct Candidate {
   Expr expr;
   uint32_t cost = 0;  // DAG cost
+};
+
+// Grows in fixed chunks: no reallocation (no copying of GBs, no 2x peak) and no large
+// up-front reservation (which Windows would commit).
+template <class T, unsigned Shift = 20>
+class Chunked {
+ public:
+  void push_back(const T& v) {
+    if ((n_ >> Shift) == chunks_.size()) chunks_.emplace_back(new T[size_t{1} << Shift]);
+    chunks_[n_ >> Shift][n_ & kMask] = v;
+    ++n_;
+  }
+  void pop_back() { --n_; }
+  size_t size() const { return n_; }
+  T& operator[](size_t i) { return chunks_[i >> Shift][i & kMask]; }
+  const T& operator[](size_t i) const { return chunks_[i >> Shift][i & kMask]; }
+
+ private:
+  static constexpr size_t kMask = (size_t{1} << Shift) - 1;
+  std::vector<std::unique_ptr<T[]>> chunks_;
+  size_t n_ = 0;
+};
+
+// Fingerprints: records in 64 MB chunks (a record never straddles two); 32-bit offsets =
+// chunk << 24 | position, so at most 256 chunks (16 GB).
+class FpArena {
+ public:
+  static constexpr unsigned kShift = 24;
+  uint32_t append(const float* v, size_t len) {
+    if (chunks_.empty() || pos_ + len > kSize) {
+      if (!chunks_.empty()) ++cur_;
+      if (cur_ == chunks_.size()) chunks_.emplace_back(new float[kSize]);
+      pos_ = 0;
+    }
+    const uint32_t off = static_cast<uint32_t>((cur_ << kShift) | pos_);
+    std::copy(v, v + len, chunks_[cur_].get() + pos_);
+    pos_ += len;
+    used_ += len;
+    return off;
+  }
+  // Drops everything from offset off on (the most recent records).
+  void truncate(uint32_t off, size_t len) {
+    cur_ = off >> kShift;
+    pos_ = off & (kSize - 1);
+    used_ -= len;
+  }
+  const float* data(uint32_t off) const { return chunks_[off >> kShift].get() + (off & (kSize - 1)); }
+  size_t floats() const { return used_; }
+  bool nearlyFull() const { return chunks_.size() >= 255; }
+
+ private:
+  static constexpr size_t kSize = size_t{1} << kShift;
+  std::vector<std::unique_ptr<float[]>> chunks_;
+  size_t cur_ = 0, pos_ = 0, used_ = 0;
 };
 
 // Bottom-up enumeration by increasing cost with observational-equivalence dedup:
@@ -219,7 +277,7 @@ class Enumerator {
   bool sameFp(const float* a, const float* b, size_t len) const;
   uint32_t quant(float x) const;
   void growTable();
-  const float* fpOf(uint32_t idx) const { return fp_.data() + off_[idx]; }
+  const float* fpOf(uint32_t idx) const { return fp_.data(off_[idx]); }
   size_t lenOf(Type t) const { return width(t) * n_; }
   float constValue(uint32_t idx) const { return consts_[entry(idx).aux()][0]; }
   const std::vector<Type>& floatTypes() const { return types_; }
@@ -262,16 +320,16 @@ class Enumerator {
   };
   static_assert(sizeof(Packed) == 16);
   static constexpr uint32_t kIndexBits = 28;  // bank indices, inputs, constants, components
-  std::vector<Packed> bank_;
+  Chunked<Packed> bank_;
   static Packed pack(const Entry& e);
   Entry entry(uint32_t idx) const;
   bool isHit(uint32_t idx) const { return (bank_[idx].w1 >> 31) & 1u; }
   void setHit(uint32_t idx) { bank_[idx].w1 |= uint64_t{1} << 31; }
-  std::vector<float> fp_;
+  FpArena fp_;
   size_t maxBank_ = 0;         // entries: from the memory budget, cfg_.maxBank, 32-bit offsets
   size_t budget_ = 0;          // bank memory budget in bytes (bankBudget)
   bool bankFull() const;
-  std::vector<uint32_t> off_;  // fingerprint offset of each entry in fp_ (< 2^32 floats)
+  Chunked<uint32_t> off_;  // fingerprint offset of each entry in fp_
   std::vector<std::array<float, 4>> consts_;
   std::vector<Expr> shared_;  // SearchConfig::sharedLeaves: Input entries with aux >= kShared
   std::vector<uint32_t> sharedCost_;  // objective DAG cost of shared_[k]'s current form

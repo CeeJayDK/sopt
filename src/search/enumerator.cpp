@@ -11,6 +11,7 @@
 #endif
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <functional>
 #include <thread>
@@ -169,13 +170,9 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
     // Fingerprint offsets are 32-bit: at most 2^32 floats (widest entries are float4).
     maxBank_ = std::min<size_t>(maxBank_, (size_t{0xffffffffu} / (4 * std::max<size_t>(n_, 1))) - kBatch);
     maxBank_ = std::min<size_t>(maxBank_, (size_t{1} << kIndexBits) - 2 * kBatch);  // packed indices
-    // Reserve what the budget allows (address space only: pages are touched when used),
-    // plus room for hits kept after the bank is full, so appending never copies GBs. The
-    // hash table starts small and doubles as the bank grows (growTable).
-    const size_t extra = cfg_.maxHits + 2 * kBatch;
-    bank_.reserve(maxBank_ + extra);
-    off_.reserve(maxBank_ + extra);
-    fp_.reserve(std::min(budget_ / sizeof(float), maxBank_ * 4 * n_) + extra * 4 * n_);
+    // Bank and fingerprints grow in chunks; the hash table starts small and doubles as the
+    // bank grows (growTable).
+
   }
 }
 
@@ -191,9 +188,38 @@ size_t physicalMemory() {
   return size_t{4} << 30;
 }
 
+size_t availableMemory() {
+  static const size_t avail = [] {
+#if defined(_WIN32)
+    MEMORYSTATUSEX m{};
+    m.dwLength = sizeof(m);
+    if (GlobalMemoryStatusEx(&m)) return static_cast<size_t>(m.ullAvailPhys);
+#elif defined(__linux__)
+    if (FILE* f = std::fopen("/proc/meminfo", "r")) {
+      char line[256];
+      unsigned long long kb = 0;
+      while (std::fgets(line, sizeof(line), f))
+        if (std::sscanf(line, "MemAvailable: %llu kB", &kb) == 1) break;
+      std::fclose(f);
+      if (kb) return static_cast<size_t>(kb) * 1024;
+    }
+#endif
+#if defined(__unix__) || defined(__APPLE__)
+    const long pages = sysconf(_SC_AVPHYS_PAGES), page = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && page > 0) return static_cast<size_t>(pages) * static_cast<size_t>(page);
+#endif
+    return physicalMemory() / 2;
+  }();
+  return avail;
+}
+
 size_t bankBudget(const SearchConfig& cfg) {
   if (cfg.memBudget) return cfg.memBudget;
-  return static_cast<size_t>(double(physicalMemory()) * cfg.memFraction / std::max(1u, cfg.concurrent));
+  const size_t n = std::max(1u, cfg.concurrent);
+  const size_t reserve = std::max<size_t>(size_t{1} << 30, physicalMemory() / 20) + n * (size_t{256} << 20);
+  const size_t avail = availableMemory();
+  const size_t total = avail > reserve + (size_t{64} << 20) * n ? avail - reserve : (size_t{64} << 20) * n;
+  return total / n;
 }
 
 static_assert(static_cast<size_t>(Op::Count) * kNumTypes <= 256, "op/type codebook must fit one byte");
@@ -228,7 +254,8 @@ Enumerator::Entry Enumerator::entry(uint32_t idx) const {
 
 bool Enumerator::bankFull() const {
   return bank_.size() >= maxBank_ ||
-         bank_.size() * (sizeof(Packed) + 8) + fp_.size() * sizeof(float) + table_.size() * 4 >= budget_;
+         bank_.size() * (sizeof(Packed) + 8) + fp_.floats() * sizeof(float) + table_.size() * 4 >= budget_ ||
+         fp_.nearlyFull();
 }
 
 uint32_t Enumerator::quant(float x) const {
@@ -316,8 +343,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
   const bool transient = cfg_.overflow && bankFull();
   const size_t hitsBefore = numHits();
   bank_.push_back(pack(e));
-  off_.push_back(fp_.size());
-  fp_.insert(fp_.end(), fp, fp + len);
+  off_.push_back(fp_.append(fp, len));
   table_[pos] = idx;
   if (!transient && bank_.size() * 2 > table_.size()) growTable();
   if (!transient) {
@@ -336,7 +362,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
     } else {
       // Most recent insertion: removing it cannot break a probe chain.
       table_[pos] = kEmpty;
-      fp_.resize(off_.back());
+      fp_.truncate(off_[off_.size() - 1], len);
       off_.pop_back();
       bank_.pop_back();
     }
@@ -836,8 +862,7 @@ void parallelRange(size_t n, unsigned threads, const std::function<void(size_t, 
 uint32_t Enumerator::storeEntry(const Entry& e, const float* fp, bool listed, SearchStats& stats) {
   const auto idx = static_cast<uint32_t>(bank_.size());
   bank_.push_back(pack(e));
-  off_.push_back(fp_.size());
-  fp_.insert(fp_.end(), fp, fp + lenOf(e.type));
+  off_.push_back(fp_.append(fp, lenOf(e.type)));
   const size_t mask = table_.size() - 1;
   size_t pos = hashFp(fp, e.type) & mask;
   while (table_[pos] != kEmpty) pos = (pos + 1) & mask;
