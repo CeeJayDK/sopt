@@ -145,8 +145,12 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     // The time limit covers all CEGIS iterations (the overflow search runs to it); a
     // restart after counterexamples gets what is left, at least a tenth.
     cfg.timeLimitSec = std::max(opt.search.timeLimitSec * 0.1, opt.search.timeLimitSec - res.searchSec);
-    Enumerator en(prog, tests, cfg);
-    std::vector<Candidate> cands = en.run(res.search);
+    std::vector<Candidate> cands;
+    {
+      // The bank is freed before the subtree / cut searches, which build their own.
+      Enumerator en(prog, tests, cfg);
+      cands = en.run(res.search);
+    }
     res.searchSec += nowSeconds() - ts;
     if (opt.subtrees && !subDone && res.search.limitHit) {
       subDone = true;

@@ -99,19 +99,37 @@ class Enumerator {
   std::vector<Candidate> run(SearchStats& stats);
 
  private:
+  // 20 bytes: the bank holds millions (memory per entry = this + the fingerprint).
   struct Entry {
+    uint32_t args[3];     // operands; Input: args[2] = input index; Const: index into
+                          // consts_; Swizzle: args[0] = vector, args[2] = component
+    uint16_t cost;        // order-model level
+    uint16_t obj;         // objective (model) tree cost
     Op op;
     Type type;
-    uint16_t cost;        // order-model level
-    bool isConst;
-    uint32_t args[3];
-    uint32_t aux;         // Input: input index; Const: index into consts_; Swizzle: component
-    bool affine = false;  // single affine step (v + c, v * c, -v, ...) of a non-constant entry
-    uint16_t obj = 0;     // objective (model) tree cost
+    bool isConst : 1;
+    bool affine : 1;      // single affine step (v + c, v * c, -v, ...) of a non-constant entry
     // Computed only from constants and compile-time inputs (not constants themselves):
     // the compiler folds it, so its objective cost is 0.
-    bool ctime = false;
+    bool ctime : 1;
+    uint32_t aux() const { return args[2]; }
+    static Entry make(Op op, Type type, uint16_t cost, bool isConst, uint32_t a, uint32_t b, uint32_t c,
+                      uint32_t aux, bool affine, uint16_t obj, bool ctime) {
+      Entry e{};
+      e.args[0] = a;
+      e.args[1] = b;
+      e.args[2] = (op == Op::Input || op == Op::Const || op == Op::Swizzle) ? aux : c;
+      e.cost = cost;
+      e.obj = obj;
+      e.op = op;
+      e.type = type;
+      e.isConst = isConst;
+      e.affine = affine;
+      e.ctime = ctime;
+      return e;
+    }
   };
+  static_assert(sizeof(Entry) == 20);
   // Hit through a solved outer affine map: wrap(x) with op Add (x + q), Mul (x * p),
   // Sub (q - x) or Mad (mad(x, p, q)), where x = entries_[idx], or inner(entries_[idx] + c)
   // with a solved inner constant.
@@ -192,7 +210,7 @@ class Enumerator {
   void growTable();
   const float* fpOf(uint32_t idx) const { return fp_.data() + off_[idx]; }
   size_t lenOf(Type t) const { return width(t) * n_; }
-  float constValue(uint32_t idx) const { return consts_[entries_[idx].aux][0]; }
+  float constValue(uint32_t idx) const { return consts_[entries_[idx].aux()][0]; }
   const std::vector<Type>& floatTypes() const { return types_; }
   Expr extract(const Entry& e) const;
   void addSharedLeaves(SearchStats& stats);
@@ -226,7 +244,8 @@ class Enumerator {
 
   std::vector<Entry> entries_;
   std::vector<float> fp_;
-  std::vector<uint64_t> off_;  // fingerprint offset of each entry in fp_
+  size_t maxBank_ = 0;         // cfg_.maxBank, capped so that off_ fits 32 bits
+  std::vector<uint32_t> off_;  // fingerprint offset of each entry in fp_ (< 2^32 floats)
   std::vector<std::array<float, 4>> consts_;
   std::vector<Expr> shared_;  // SearchConfig::sharedLeaves: Input entries with aux >= kShared
   std::vector<uint32_t> sharedCost_;  // objective DAG cost of shared_[k]'s current form

@@ -151,7 +151,9 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   // The bank grows to maxBank: reserve it (pages are only touched when used) so that
   // appending does not copy hundreds of MB, and size the table for it.
   {
-    const size_t cap = std::min<size_t>(cfg_.maxBank, size_t{1} << 25);
+    // Fingerprint offsets are 32-bit: at most 2^32 floats (widest entries are float4).
+    maxBank_ = std::min<size_t>(cfg_.maxBank, (size_t{0xffffffffu} / (4 * std::max<size_t>(n_, 1))) - kBatch);
+    const size_t cap = std::min<size_t>(maxBank_, size_t{1} << 25);
     entries_.reserve(cap + kBatch);
     isHit_.reserve(cap + kBatch);
     off_.reserve(cap + kBatch);
@@ -244,7 +246,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
   const auto idx = static_cast<uint32_t>(entries_.size());
   // Bank full (overflow mode): the entry is only checked as a hit and dropped again,
   // so the search goes on with the stored entries as operands.
-  const bool transient = cfg_.overflow && entries_.size() >= cfg_.maxBank;
+  const bool transient = cfg_.overflow && entries_.size() >= maxBank_;
   const size_t hitsBefore = numHits();
   entries_.push_back(e);
   isHit_.push_back(0);
@@ -282,7 +284,7 @@ uint32_t Enumerator::addConst(Type t, const float* v, SearchStats& stats) {
   std::array<float, 4> val{};
   for (unsigned k = 0; k < width(t); ++k) val[k] = v[k];
   consts_.push_back(val);
-  Entry e{Op::Const, t, 0, true, {0, 0, 0}, static_cast<uint32_t>(consts_.size() - 1), false, 0};
+  Entry e = Entry::make(Op::Const, t, 0, true, 0, 0, 0, static_cast<uint32_t>(consts_.size() - 1), false, 0, false);
   for (unsigned k = 0; k < width(t); ++k) std::fill(scratch_.begin() + k * n_, scratch_.begin() + (k + 1) * n_, val[k]);
   insert(e, scratch_.data(), stats);
   return static_cast<uint32_t>(entries_.size() - 1);
@@ -644,7 +646,7 @@ bool Enumerator::innerFit(const Entry& e, const float* v, uint32_t idx, std::vec
 }
 
 void Enumerator::checkLimits(SearchStats& stats) {
-  if ((entries_.size() >= cfg_.maxBank && !cfg_.overflow) || numHits() >= cfg_.maxHits ||
+  if ((entries_.size() >= maxBank_ && !cfg_.overflow) || numHits() >= cfg_.maxHits ||
       nowSeconds() - start_ > cfg_.timeLimitSec) {
     stop_ = true;
     stats.limitHit = true;
@@ -740,7 +742,7 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
     }
   }
   canonicalize(out, w * n_);
-  e = Entry{op, type, cost, false, {a, b, c}, aux, affine, static_cast<uint16_t>(obj), ctime};
+  e = Entry::make(op, type, cost, false, a, b, c, aux, affine, static_cast<uint16_t>(obj), ctime);
   return Prep::Ok;
 }
 
@@ -874,7 +876,7 @@ void Enumerator::flush(SearchStats& stats) {
     }
     if (dup) continue;
     // Bank full (overflow mode): only checked as a hit, stored only if it is (part of) one.
-    if (cfg_.overflow && entries_.size() >= cfg_.maxBank) {
+    if (cfg_.overflow && entries_.size() >= maxBank_) {
       goals_.push_back({k, kEmpty});
     } else {
       const uint32_t idx = storeEntry(e, fp, true, stats);
@@ -957,12 +959,12 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
     }
     canonicalize(scratch_.data(), width(t) * n_);
     const bool ct = prog_.inputs[i].compileTime;
-    Entry e{Op::Input, t, 0, false, {0, 0, 0}, i, false, 0, ct};
+    Entry e = Entry::make(Op::Input, t, 0, false, 0, 0, 0, i, false, 0, ct);
     if (!insert(e, scratch_.data(), stats) || width(t) == 1) continue;
     const auto vec = static_cast<uint32_t>(entries_.size() - 1);
     const auto swzCost = static_cast<uint16_t>(ct ? 0 : model.opCost(Op::Swizzle, 1));
     for (unsigned k = 0; k < width(t); ++k) {
-      Entry s{Op::Swizzle, Type::Float, 0, false, {vec, 0, 0}, k, false, swzCost, ct};
+      Entry s = Entry::make(Op::Swizzle, Type::Float, 0, false, vec, 0, 0, k, false, swzCost, ct);
       insert(s, fpOf(vec) + k * n_, stats);
     }
   }
@@ -1153,7 +1155,7 @@ void Enumerator::addSharedLeaves(SearchStats& stats) {
     const auto aux = kShared + static_cast<uint32_t>(shared_.size());
     shared_.push_back(std::move(s));
     sharedCost_.push_back(cost);
-    Entry e{Op::Input, ty, 0, false, {0, 0, 0}, aux, false, 0, false};
+    Entry e = Entry::make(Op::Input, ty, 0, false, 0, 0, 0, aux, false, 0, false);
     insert(e, scratch_.data(), stats);
   }
 }
@@ -1164,8 +1166,8 @@ void Enumerator::addSharedLeaves(SearchStats& stats) {
 // original's more expensive form.
 void Enumerator::upgradeShared(uint32_t idx, const Entry& e) {
   const Entry& leaf = entries_[idx];
-  if (leaf.op != Op::Input || leaf.aux < kShared || e.op == Op::Input || e.op == Op::Const) return;
-  const uint32_t k = leaf.aux - kShared;
+  if (leaf.op != Op::Input || leaf.aux() < kShared || e.op == Op::Input || e.op == Op::Const) return;
+  const uint32_t k = leaf.aux() - kShared;
   if (e.obj >= sharedCost_[k]) return;
   Expr x = extract(e);
   const uint32_t c = dagCost(x, *cfg_.model, prog_.inputs);
@@ -1178,8 +1180,8 @@ uint32_t Enumerator::build(ExprBuilder& b, const Entry& rootEntry) const {
   std::unordered_map<uint32_t, uint32_t> memo;
   auto rec = [&](auto&& self, const Entry& e) -> uint32_t {
     if (e.op == Op::Input)
-      return e.aux >= kShared ? insertExpr(shared_[e.aux - kShared], b) : b.input(e.aux, e.type);
-    if (e.op == Op::Const) return b.constant(e.type, consts_[e.aux].data());
+      return e.aux() >= kShared ? insertExpr(shared_[e.aux() - kShared], b) : b.input(e.aux(), e.type);
+    if (e.op == Op::Const) return b.constant(e.type, consts_[e.aux()].data());
     const auto& oi = info(e.op);
     uint32_t a[3] = {0, 0, 0};
     for (uint8_t k = 0; k < oi.arity; ++k) {
@@ -1192,7 +1194,7 @@ uint32_t Enumerator::build(ExprBuilder& b, const Entry& rootEntry) const {
       }
     }
     if (e.op == Op::Swizzle) {
-      const auto comp = static_cast<uint8_t>(e.aux);
+      const auto comp = static_cast<uint8_t>(e.aux());
       return b.swizzle(a[0], &comp, 1);
     }
     return b.op(e.op, a[0], a[1], a[2]);
