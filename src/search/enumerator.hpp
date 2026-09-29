@@ -47,6 +47,13 @@ struct SearchConfig {
   // on the stage-2 points) is the starting best-so-far bound.
   std::vector<Expr> seeds;
   uint32_t seedBound = 0;
+  // Two phases (owner, 2026-09-29, flag --two-phase): first only strictly cheaper hits
+  // (slack -1: the most pruning, so the search gets deepest fastest); then, from the end of
+  // the levels or phase1Share of the time on, the levels once more with the slack above,
+  // only for the candidates phase 1 pruned: equally fast or slightly slower, more accurate
+  // alternatives near the best. Only once a hit exists (else phase 1 takes all the time).
+  bool twoPhase = false;
+  double phase1Share = 0.75;
   std::string diskDir;
   size_t diskBudget = 0;
   size_t diskTileFloats = size_t{1} << 24;  // 64 MB of fingerprints per tile
@@ -133,6 +140,7 @@ struct SearchStats {
   uint32_t completedCost = 0;  // all levels <= this were fully enumerated
   uint32_t maxLevel = 0;       // the last level the search needed (order-model units)
   bool limitHit = false;
+  bool phase2 = false;  // SearchConfig::twoPhase: phase 2 ran
   double seconds = 0.0;
   double firstHitSec = -1.0;
   std::vector<LevelStats> levels;
@@ -416,6 +424,14 @@ class Enumerator {
   // bound min(targetCost_, bestHitObj_ + slackCur_ + 1).
   uint32_t objLimit_ = 0;
   int slackCur_ = 1;
+  // SearchConfig::twoPhase: in phase 2, candidates of the levels phase 1 completed
+  // (<= p1Level_) that cost less than p1Limit_ (phase 1's final bound) were tried already.
+  // Phase 2 start: fitted hits (outer affine map, inner constant) of stored entries that
+  // phase 1's stricter bound rejected.
+  void refitPass(SearchStats& stats);
+  bool phase2_ = false;
+  uint32_t p1Level_ = 0;
+  uint32_t p1Limit_ = 0;
   // A hit only lowers the bound once it also passes the strict budget on extra random
   // points (a false hit on the test points would cut off the real ones before CEGIS
   // rejects it).

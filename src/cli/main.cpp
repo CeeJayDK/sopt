@@ -49,6 +49,8 @@ void usage() {
       "                    memory budget holds fingerprints, the rest go to zstd-compressed\n"
       "                    tiles in DIR (a temporary file); --disk-max GB caps it (default:\n"
       "                    the free space minus a reserve)\n"
+      "  --two-phase       only strictly cheaper hits first (deepest search), then the slack's\n"
+      "                    alternatives near the best in the last quarter of the time\n"
       "  --library         rewrite with the rule library before the search (library/rewrites.txt\n"
       "                    or $SOPT_LIBRARY; the rewritten forms are candidates and seed the search)\n"
       "  --library-file F  the same with the rules in F\n"
@@ -161,6 +163,7 @@ int main(int argc, char** argv) {
     else if (a == "--top-down") opt.search.topDown = true;
     else if (a == "--no-top-down") opt.search.topDown = false;
     else if (a == "--library") opt.library = true;
+    else if (a == "--two-phase") opt.search.twoPhase = true;
     else if (a == "--check-library") checkLibrary = true;
     else if (a == "--library-file") {
       static Library lib;  // alive for the whole run
@@ -414,6 +417,7 @@ int main(int argc, char** argv) {
                   (unsigned long long)s.overflowChecked, (unsigned long long)s.overflowKept);
     if (s.objPruned)
       std::printf("objective: %llu entries pruned (cost >= target)\n", (unsigned long long)s.objPruned);
+    if (s.phase2) std::printf("two phases: phase 2 ran (alternatives near the best)\n");
     if (opt.library)
       std::printf("library: %u rewritten forms, cheapest verified on stage 2: %s\n", r.libraryForms,
                   r.libraryBest ? std::to_string(r.libraryBest).c_str() : "none");

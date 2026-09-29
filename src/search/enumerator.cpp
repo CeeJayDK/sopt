@@ -102,7 +102,7 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   targetType_ = prog.target.nodes[prog.target.root].type;
   tn_ = lenOf(targetType_);
   targetCost_ = dagCost(prog.target, *cfg.model, prog.inputs);
-  slackCur_ = cfg.slack;
+  slackCur_ = cfg.twoPhase && cfg.bestBound ? -1 : cfg.slack;
   objLimit_ = targetCost_;
   if (cfg.seedBound && cfg.seedBound < targetCost_) {
     bestHitObj_ = cfg.seedBound;
@@ -961,8 +961,9 @@ bool Enumerator::plausible(const Expr& e, bool loose) {
 }
 
 void Enumerator::checkLimits(SearchStats& stats) {
-  // Pressed for depth: fewer alternatives, so the search reaches further (owner).
-  if (cfg_.bestBound && bankFull()) {
+  // Pressed for depth: fewer alternatives, so the search reaches further (owner). Phase 2
+  // (two phases) is for the alternatives.
+  if (cfg_.bestBound && bankFull() && !phase2_) {
     const int s = nowSeconds() - start_ > 0.5 * cfg_.timeLimitSec ? -1 : 0;
     if (s < slackCur_) {
       slackCur_ = s;
@@ -971,8 +972,11 @@ void Enumerator::checkLimits(SearchStats& stats) {
   }
   // A full hit list does not end the search (owner): clear it out instead.
   if (numHits() >= cfg_.maxHits && cfg_.bestBound) pruneHits();
-  if ((bankFull() && !cfg_.overflow) || numHits() >= cfg_.maxHits ||
-      nowSeconds() - start_ > cfg_.timeLimitSec) {
+  // Two phases: phase 1 ends at phase1Share of the time once there is a hit.
+  const double limit = cfg_.twoPhase && cfg_.bestBound && !phase2_ && bestHitObj_ != UINT32_MAX
+                           ? cfg_.phase1Share * cfg_.timeLimitSec
+                           : cfg_.timeLimitSec;
+  if ((bankFull() && !cfg_.overflow) || numHits() >= cfg_.maxHits || nowSeconds() - start_ > limit) {
     stop_ = true;
     stats.limitHit = true;
   }
@@ -1056,6 +1060,7 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   else
     obj += model.opCost(op, w);
   if (obj >= objLimit_) return Prep::ObjPruned;
+  if (phase2_ && cost <= p1Level_ && obj < p1Limit_) return Prep::ObjPruned;  // tried in phase 1
   if (op == Op::Swizzle) {
     std::copy(fpOf(a) + aux * n_, fpOf(a) + (aux + 1) * n_, out);
   } else {
@@ -1303,6 +1308,22 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
   stats.completedCost = 0;
 
   const Type F = Type::Float;
+  for (int phase = 0; phase < (cfg_.twoPhase && cfg_.bestBound ? 2 : 1); ++phase) {
+  if (phase == 1) {
+    // Phase 2 (SearchConfig::twoPhase): only with a hit, time left and room in the hit list.
+    if (bestHitObj_ == UINT32_MAX || nowSeconds() - start_ > cfg_.timeLimitSec || numHits() >= cfg_.maxHits ||
+        (bankFull() && !cfg_.overflow))
+      break;
+    phase2_ = true;
+    p1Level_ = stats.completedCost;
+    p1Limit_ = objLimit_;
+    stop_ = false;
+    slackCur_ = cfg_.slack;
+    updateLimit();
+    if (objLimit_ <= p1Limit_) break;  // nothing phase 1 left out
+    stats.phase2 = true;
+    if (cfg_.affine && !diskMode_) refitPass(stats);
+  }
   for (uint32_t cost = 1; cost <= maxCost && !stop_; ++cost) {
     stats.levels.push_back({cost, 0, 0});
     const auto c16 = static_cast<uint16_t>(cost);
@@ -1382,8 +1403,9 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
       std::stable_sort(list.begin(), list.end(),
                        [&](uint32_t x, uint32_t y) { return obj(x) < obj(y); });
     if (diskMode_) finishLevelDisk(cost);
-    if (cfg_.topDown && !diskMode_ && !stop_) topDownPass(cost, stats);
-    if (!stop_ && stats.overflowChecked == 0) stats.completedCost = cost;
+    if (cfg_.topDown && !diskMode_ && !stop_ && !phase2_) topDownPass(cost, stats);
+    if (!stop_ && stats.overflowChecked == 0) stats.completedCost = std::max(stats.completedCost, cost);
+  }
   }
 
   stats.bankSize = bank_.size();
@@ -1726,6 +1748,28 @@ void Enumerator::addSharedLeaves(SearchStats& stats) {
     sharedCost_.push_back(cost);
     Entry e = Entry::make(Op::Input, ty, 0, false, 0, 0, 0, aux, false, 0, false);
     insert(e, scratch_.data(), stats);
+  }
+}
+
+void Enumerator::refitPass(SearchStats& stats) {
+  // Fits cost a few units over their base (a mad, an inner rcp/sqrt/rsqrt and a mad).
+  constexpr uint32_t kFitSpan = 12;
+  std::vector<AffineHit> fits, keep;
+  const uint32_t n = static_cast<uint32_t>(bank_.size());
+  for (uint32_t idx = 0; idx < n && !stop_; ++idx) {
+    if ((idx & 4095) == 0) checkLimits(stats);
+    const Entry e = entry(idx);
+    const uint32_t eo = e.obj;
+    if (e.type != targetType_ || e.isConst || e.affine || e.ctime || eo + kFitSpan < p1Limit_ ||
+        eo + 1 >= objLimit_ || numHits() >= cfg_.maxHits)
+      continue;
+    fits.clear();
+    const float* v = fpOf(idx);
+    if (!affineFit(e, v, idx, fits) && cfg_.inner) innerFit(e, v, idx, fits, serialScratch_, stats);
+    keep.clear();
+    for (const AffineHit& h : fits)
+      if ((h.cost ? h.cost : eo + 1) >= p1Limit_) keep.push_back(h);  // not found in phase 1
+    if (!keep.empty()) commitHits(idx, false, keep, stats);
   }
 }
 
