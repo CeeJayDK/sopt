@@ -178,7 +178,11 @@ RunResult optimize(const Program& progIn, const Options& opt) {
       cands = en.run(res.search);
     }
     res.searchSec += nowSeconds() - ts;
-    if (opt.subtrees && !subDone && res.search.limitHit) {
+    // A library seed's bound can end the search early without a limit: "complete" then only
+    // means nothing below the seed in the bank's space (no vector constructors, no
+    // helpers), so the part searches run as well.
+    const bool partSearch = res.search.limitHit || haveSeed;
+    if (opt.subtrees && !subDone && partSearch) {
       subDone = true;
       const double tsub = nowSeconds();
       subCands = subtreeCandidates(prog, opt, res.targetCost, &res.subtreeSearches);
@@ -188,7 +192,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
       }
       res.subtreeSec += nowSeconds() - tsub;
     }
-    if (opt.cuts && !cutDone && res.search.limitHit) {
+    if (opt.cuts && !cutDone && partSearch) {
       cutDone = true;
       const double tcut = nowSeconds();
       cutCands = cutCandidates(prog, opt, res.targetCost, &res.cutSearches);
