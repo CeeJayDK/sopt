@@ -439,9 +439,28 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   `SearchConfig::threads`. Next: B6 top-down split or B7 shared leaves.
   Owner: less accurate variants stay in SOPT_ALL; --loose 100 is fine for now.
 - Next (owner, 2026-09-28: "your order is fine, as long as we try them all at some point"):
-  1. top-down split B6 (`--top-down`, in progress: bench + corpus), 2. snippet library /
+  1. top-down split B6 (`--top-down`, flag; owner to decide default), 2. snippet library /
   lerp-step rewrites before the search, 3. long --disk runs on hard regions (running),
   4. M5 rest (probe effect, facts database, __DEVICE__ paths).
+- Best-so-far bound (owner, 2026-09-28: compare against the best candidate so far, not the
+  original; keep only hits as fast or faster, or as fast and more accurate; the original
+  only for presentation; design.md 4.3). Default, `--no-best-bound`: objLimit_ =
+  min(target, best + slack + 1), `--slack` 1, 0 when the bank is full, -1 (drop ties with
+  the best) when full past half the time; the best is lowered only by hits plausible on
+  512 extra points, at max(obj, DAG cost); a full hit list is pruned (cheapest half kept)
+  instead of ending the search. sopt-fx drops written variants that another variant of the
+  region matches or beats on every measure (Pareto). Top-down split (`--top-down`, flag):
+  sorted index of stored values at one test point; add/sub/mul/div inverted against the
+  target, second-point filter, then the goal check; only strictly cheaper than the best.
+  Bench (time 30): bound = none except planted_2 12 -> 10; + top-down: length_squared found
+  (16), normalize_x first hit 0.002 s, step_lerp faster. Corpus (12 packages, --isa --sass
+  --backends --time 3, back to back): none 71 regions / 85 variants (68 min), bound 74 / 89
+  (69 min; + Smart_Sharp 479, Vignette 73-75 / 82-84), + top-down 79 / 94 (76 min; + Vignette
+  101, EyeAdaption 155, PD80 Film_Grain 230 / 234 / 240, Flashlight nv -1 x2); Pareto drops
+  121-136 variants per run; all variant files parse. Single-region reruns: DepthAlpha
+  146-150 (44 in the unbounded corpus run, 47 in both others) gives 47 alone in all three
+  modes, and Vignette 73-75 (19 bound, 20 top-down) gives 20 in both: timing noise of
+  parallel runs, nothing lost.
 - Library of small verified snippets/rewrites that humans, AI or the tool can reuse.
   Owner (2026-09-27): many regions that hit the limit contain lerp/step used in ways known
   to be cheaper expanded; later, apply library rewrites before searching (and try them out)
