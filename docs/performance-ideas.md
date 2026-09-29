@@ -95,6 +95,9 @@ ignored (same ranges and budget), e.g. Daltonize's 9 statements, FilmicPass 87-9
    of combining all pairs: one pass over the bank instead of all pairs, so roughly
    double the reachable depth for the top operation. Needs a tolerant lookup
    (quantized fingerprints), because b is computed in float.
+   Done (`SearchConfig::topDown`): sorted index at one test point, tolerance lookup,
+   second-point filter, goal check; default since 2026-09-29 (owner), `--no-top-down`.
+   Corpus 74 -> 79 regions with variants, +10% time.
 7. **Shared leaves (M7, planned).** Fixes the `needs-sharing` misses in the bench.
 8. **Stochastic search for large regions** (STOKE-like: random rewrites of the
    original, accepting cheaper verified ones). Complements enumeration above cost ~16,

@@ -166,6 +166,7 @@ int main(int argc, char** argv) {
     else if (a == "--slack") opt.search.slack = std::atoi(next());
     else if (a == "--no-best-bound") opt.search.bestBound = false;
     else if (a == "--top-down") opt.search.topDown = true;
+    else if (a == "--no-top-down") opt.search.topDown = false;
     else if (a == "--disk") opt.search.diskDir = next();
     else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);

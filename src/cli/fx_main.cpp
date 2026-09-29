@@ -92,8 +92,8 @@ void usage() {
       "                    memory budget holds fingerprints, the rest go to zstd-compressed\n"
       "                    tiles in DIR (a temporary file); --disk-max GB caps it (default:\n"
       "                    the free space minus a reserve)\n"
-      "  --top-down        top-down split: after each level, look up the missing operand b of\n"
-      "                    op(a, b) = target for each new entry a (add, sub, mul, div)\n"
+      "  --no-top-down     no top-down split (default: after each level, look up the missing\n"
+      "                    operand b of op(a, b) = target for each new entry a: add, sub, mul, div)\n"
       "  --slack N         best-so-far bound: keep hits and parts of hits up to N above the\n"
       "                    cheapest hit found so far (default 1; 0 when the bank is full, -1 when\n"
       "                    it is also past half the time); --no-best-bound: bound = the original\n"
@@ -211,6 +211,7 @@ int main(int argc, char** argv) {
     else if (a == "--slack") opt.search.slack = std::atoi(next());
     else if (a == "--no-best-bound") opt.search.bestBound = false;
     else if (a == "--top-down") opt.search.topDown = true;
+    else if (a == "--no-top-down") opt.search.topDown = false;
     else if (a == "--disk") opt.search.diskDir = next();
     else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);

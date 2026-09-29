@@ -174,9 +174,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   intrinsics and modifiers (mad, clamp, saturate, rcp, rsqrt, ...) are.
 - Every new search technique goes behind a flag and must improve time-to-best on the
   bench (section 6 of the design) before becoming default, unless the owner decides
-  otherwise (shared leaves, subtrees and cut points: default by the owner's decision, 2026-09-27).
-  Tests that check what the bank alone reaches (test_rewrites expectRewrite) turn off
-  overflow, shared leaves, subtrees and cuts.
+  otherwise (shared leaves, subtrees and cut points: default by the owner's decision, 2026-09-27;
+  top-down split 2026-09-29). Tests that check what the bank alone reaches (test_rewrites
+  expectRewrite) turn off overflow, shared leaves, subtrees, cuts and top-down.
 
 ## Known limitations (v1, by design)
 - Bank cost is tree cost: solutions that need a shared intermediate value are missed
@@ -439,7 +439,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   `SearchConfig::threads`. Next: B6 top-down split or B7 shared leaves.
   Owner: less accurate variants stay in SOPT_ALL; --loose 100 is fine for now.
 - Next (owner, 2026-09-28: "your order is fine, as long as we try them all at some point"):
-  1. top-down split B6 (`--top-down`, flag; owner to decide default), 2. snippet library /
+  1. top-down split B6 (done, default), 2. snippet library /
   lerp-step rewrites before the search, 3. long --disk runs on hard regions (running),
   4. M5 rest (probe effect, facts database, __DEVICE__ paths).
 - Best-so-far bound (owner, 2026-09-28: compare against the best candidate so far, not the
@@ -449,7 +449,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   the best) when full past half the time; the best is lowered only by hits plausible on
   512 extra points, at max(obj, DAG cost); a full hit list is pruned (cheapest half kept)
   instead of ending the search. sopt-fx drops written variants that another variant of the
-  region matches or beats on every measure (Pareto). Top-down split (`--top-down`, flag):
+  region matches or beats on every measure (Pareto). Top-down split (default since
+  2026-09-29 by the owner's decision, `--no-top-down`):
   sorted index of stored values at one test point; add/sub/mul/div inverted against the
   target, second-point filter, then the goal check; only strictly cheaper than the best.
   Bench (time 30): bound = none except planted_2 12 -> 10; + top-down: length_squared found

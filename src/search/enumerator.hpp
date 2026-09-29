@@ -28,13 +28,14 @@ struct SearchConfig {
   // zstd-compressed tiles in diskDir (a temporary file, removed at the end); dedup then
   // compares 128-bit hashes of the fingerprints, and operands on disk are enumerated tile
   // by tile. diskBudget bytes (0 = the free space of diskDir minus a reserve).
-  // Top-down split (B6 in docs/performance-ideas.md, flag --top-down): after each level,
+  // Top-down split (B6 in docs/performance-ideas.md; default, owner 2026-09-29, off with
+  // --no-top-down): after each level,
   // for every new entry a of the target's type and every invertible binary op the missing
   // operand b (t - a, a - t, t + a, t / a, a / t, t * a) is looked up among all stored
   // entries (sorted by their value at one test point, within the target's tolerance) and
   // op(a, b) is goal-checked: pairs of any two stored entries, up to twice the depth for
   // the top operation, in one pass instead of all pairs. Not in disk mode.
-  bool topDown = false;
+  bool topDown = true;
   // Best-so-far bound (owner, 2026-09-28; design 4.3): hits, and entries that could only
   // be part of hits, must cost at most the cheapest hit found so far + slack (the
   // original's cost is only the starting bound). The slack drops to 0 when the bank is
