@@ -480,5 +480,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   accuracy-only) to sopt-found.txt in the library format (inputs that are not plain
   names become in1.. with a legend; ranges as `where`); it parses and checks as a library.
   Owner: start by collecting all found variants there, then study, generalize and add.
+  A seed also makes subtrees / cuts run when the search ends without a limit (the seed's
+  bound can end it early; MartysMods_FILMGRAIN 451 13 -> 5 needs the subtree search).
+  Bench (time 30): examples identical except length_squared 16 -> 12 (2.7 s instead of 75 s)
+  and step_lerp (0.4 s instead of 34 s); planted identical. Corpus (back to back, before the
+  seed / part-search fix): 78 -> 91 regions with variants, 93 -> 106 variants, 70 -> 80 min;
+  new e.g. MultiTonePoster x3, EyeAdaption 148 / 167, Monochrome 115-118, PiecewiseFilmic x2,
+  PD80 Color_Gamut 182 / Color_Balance 176 / Color_Spaces 56, qUINT_lightroom 717; better:
+  Tonemap.fxh 109 / 173 nv 129 -> 81, PD80 Sharpening 244-246 57 -> 54; lost only FILMGRAIN
+  451 (fixed since).
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
