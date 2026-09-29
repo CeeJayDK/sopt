@@ -25,7 +25,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`
 - Tests: `ctest --test-dir build --output-on-failure` (or `build/sopt-tests [filter]`)
 - CLI: `build/sopt examples/screen.sopt --stats`
-- Library: `build/sopt --check-library [--library-file F]` checks every rule; `--library` uses it
+- Library: `build/sopt --check-library [--library-file F]` checks every rule (used by default, `--no-library`)
 - FX: `build/sopt-fx -I <reshade-shaders>/Shaders -o out <dir or .fx>... [--isa --sass]`
   (`--list --skips` shows regions, facts and why statements were skipped)
   (`--region F[:L]` searches only matching regions, e.g. long runs: `--region ASCII.fx:254 --time 600`;
@@ -176,8 +176,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - Every new search technique goes behind a flag and must improve time-to-best on the
   bench (section 6 of the design) before becoming default, unless the owner decides
   otherwise (shared leaves, subtrees and cut points: default by the owner's decision, 2026-09-27;
-  top-down split 2026-09-29). Tests that check what the bank alone reaches (test_rewrites
-  expectRewrite) turn off overflow, shared leaves, subtrees, cuts and top-down.
+  top-down split and library 2026-09-29). Tests that check what the bank alone reaches (test_rewrites
+  expectRewrite) turn off overflow, shared leaves, subtrees, cuts, top-down and the library.
 
 ## Known limitations (v1, by design)
 - Bank cost is tree cost: solutions that need a shared intermediate value are missed
@@ -440,7 +440,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   `SearchConfig::threads`. Next: B6 top-down split or B7 shared leaves.
   Owner: less accurate variants stay in SOPT_ALL; --loose 100 is fine for now.
 - Next (owner, 2026-09-28: "your order is fine, as long as we try them all at some point"):
-  1. top-down split B6 (done, default), 2. snippet library (in progress: --library, flag) /
+  1. top-down split B6 (done, default), 2. snippet library (--library, default) /
   lerp-step rewrites before the search, 3. long --disk runs on hard regions (running),
   4. M5 rest (probe effect, facts database, __DEVICE__ paths).
 - Best-so-far bound (owner, 2026-09-28: compare against the best candidate so far, not the
@@ -472,7 +472,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   [-100, 100] narrowed by the conditions); the check rejected 3 of the first 36 (lerp forms
   that cancel). Built in via cmake/embed_library.cmake; at run time $SOPT_LIBRARY or
   library/rewrites.txt next to the executable (or up to two directories up) wins.
-  `--library` (flag, `Options::library`): up to 4 rule applications, 256 forms (constants
+  `--library` (default since 2026-09-29 by the owner's decision, `--no-library`; `Options::library`): up to 4 rule applications, 256 forms (constants
   folded, identities removed); forms cheaper than the target are candidates, the cheapest
   that passes stage 2 sets SearchConfig::seedBound (start of the best-so-far bound), its
   subexpressions are extra shared leaves (SearchConfig::seeds) and subtrees / cuts also

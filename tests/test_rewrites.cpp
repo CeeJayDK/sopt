@@ -32,6 +32,7 @@ void expectRewrite(const char* file, bool affine = false, size_t maxBank = 2'000
   opt.subtrees = false;
   opt.cuts = false;
   opt.search.topDown = false;
+  opt.library = false;
   opt.search.model = model;
   opt.search.order = order;
   opt.search.inner = inner;

@@ -51,9 +51,9 @@ void usage() {
       "                    the free space minus a reserve)\n"
       "  --two-phase       only strictly cheaper hits first (deepest search), then the slack's\n"
       "                    alternatives near the best in the last quarter of the time\n"
-      "  --library         rewrite with the rule library before the search (library/rewrites.txt\n"
-      "                    or $SOPT_LIBRARY; the rewritten forms are candidates and seed the search)\n"
-      "  --library-file F  the same with the rules in F\n"
+      "  --no-library      no rule library (default: rewrite with library/rewrites.txt or\n"
+      "                    $SOPT_LIBRARY before the search; the forms are candidates and seed it)\n"
+      "  --library-file F  the rule library in F\n"
       "  --check-library   check every rule of the library (or --library-file) and exit\n"
       "  --no-top-down     no top-down split (default: after each level, look up the missing\n"
       "                    operand b of op(a, b) = target for each new entry a: add, sub, mul, div)\n"
@@ -163,6 +163,7 @@ int main(int argc, char** argv) {
     else if (a == "--top-down") opt.search.topDown = true;
     else if (a == "--no-top-down") opt.search.topDown = false;
     else if (a == "--library") opt.library = true;
+    else if (a == "--no-library") opt.library = false;
     else if (a == "--two-phase") opt.search.twoPhase = true;
     else if (a == "--check-library") checkLibrary = true;
     else if (a == "--library-file") {

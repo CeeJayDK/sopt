@@ -169,6 +169,7 @@ int main(int argc, char** argv) {
     else if (a == "--top-down") opt.search.topDown = true;
     else if (a == "--no-top-down") opt.search.topDown = false;
     else if (a == "--library") opt.library = true;
+    else if (a == "--no-library") opt.library = false;
     else if (a == "--two-phase") opt.search.twoPhase = true;
     else if (a == "--library-file") {
       static Library lib;  // alive for the whole run

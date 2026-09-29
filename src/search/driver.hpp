@@ -68,8 +68,8 @@ struct Options {
   // search, the target is rewritten with the library's rules; the forms become candidates,
   // the cheapest verified one starts the best-so-far bound, and its subexpressions are
   // extra shared leaves and subtree / cut points. libraryRules: the rules (nullptr = the
-  // default library, library/rewrites.txt).
-  bool library = false;
+  // default library, library/rewrites.txt). Default (owner, 2026-09-29); --no-library.
+  bool library = true;
   const Library* libraryRules = nullptr;
   uint32_t librarySteps = 4;
   uint32_t libraryForms = 256;
