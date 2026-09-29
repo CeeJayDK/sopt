@@ -446,4 +446,68 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
   return s;
 }
 
+std::string foundRewrites(const std::vector<RegionResult>& results) {
+  std::string s =
+      "# sopt: faster variants found (sopt-fx), in the rewrite library's format\n"
+      "# (library/rewrites.txt). Names are the region's inputs; ranges are what sopt-fx knew\n"
+      "# (facts, or assumed where marked). Generalize a rule before adding it to the library\n"
+      "# and check it there with sopt --check-library.\n";
+  std::set<std::string> seen;
+  char buf[256];
+  auto ident = [](const std::string& n) {
+    if (n.empty() || !(std::isalpha(static_cast<unsigned char>(n[0])) || n[0] == '_')) return false;
+    for (char c : n)
+      if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') return false;
+    return true;
+  };
+  for (const auto& rr : results) {
+    const Region& r = rr.region;
+    // Inputs that are not plain names (texture fetches, member chains) become in1, in2, ...
+    std::vector<InputDecl> named = r.prog.inputs;
+    std::string legend;
+    int k = 0;
+    for (auto& d : named)
+      if (!ident(d.name)) {
+        const std::string alias = "in" + std::to_string(++k);
+        legend += "#   " + alias + " = " + d.name + "\n";
+        d.name = alias;
+      }
+    std::string where;
+    for (size_t i = 0; i < named.size(); ++i) {
+      const auto& d = named[i];
+      std::snprintf(buf, sizeof(buf), "%s%s in [%.9g, %.9g]", where.empty() ? "" : ", ", d.name.c_str(), d.lo, d.hi);
+      where += buf;
+      if (d.type != Type::Float) where += ", " + d.name + " : float" + std::to_string(width(d.type));
+    }
+    const std::string lhs = toString(r.prog.target, named);
+    auto emit = [&](const Variant& v, bool assumed) {
+      if (v.accuracyOnly) return;
+      std::string rule = lhs + " -> " + toString(v.expr, named);
+      if (!where.empty()) rule += "   where " + where;
+      if (!seen.insert(rule).second) return;
+      s += "\n# " + pathFrom(r.file).filename().string() + ":" +
+           (r.removed.empty() ? "" : std::to_string(r.removed.front().first) + "-") + std::to_string(r.line) +
+           " (" + r.function + ")  cost " + std::to_string(rr.targetCost) + " -> " + std::to_string(v.cost);
+      if (rr.targetAmd >= 0 && v.amd >= 0) s += ", amd " + std::to_string(rr.targetAmd) + " -> " + std::to_string(v.amd);
+      if (rr.targetNv >= 0 && v.nv >= 0) s += ", nv " + std::to_string(rr.targetNv) + " -> " + std::to_string(v.nv);
+      if (rr.targetDxbc >= 0 && v.dxbc >= 0)
+        s += ", dxbc " + std::to_string(rr.targetDxbc) + " -> " + (v.dxbcSame ? std::string("same") : std::to_string(v.dxbc));
+      s += ", " + variantClass(v, r.prog.budget.codeBits());
+      std::snprintf(buf, sizeof(buf), ", max abs err %.3g", v.worst.maxAbs);
+      s += buf;
+      if (rr.targetExactAbs >= 0) {
+        std::snprintf(buf, sizeof(buf), ", vs exact %.3g (original %.3g)", v.worst.exactAbs, rr.targetExactAbs);
+        s += buf;
+      }
+      if (v.proven) s += ", proven (V3)";
+      if (assumed) s += ", assumed ranges";
+      if (!v.problems.empty()) s += ", " + v.problems;
+      s += "\n" + legend + rule + "\n";
+    };
+    for (const auto& v : rr.variants) emit(v, false);
+    for (const auto& v : rr.unwritten) emit(v, true);
+  }
+  return s;
+}
+
 }  // namespace sopt::fx

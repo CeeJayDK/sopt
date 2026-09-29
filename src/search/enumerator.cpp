@@ -104,6 +104,10 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   targetCost_ = dagCost(prog.target, *cfg.model, prog.inputs);
   slackCur_ = cfg.slack;
   objLimit_ = targetCost_;
+  if (cfg.seedBound && cfg.seedBound < targetCost_) {
+    bestHitObj_ = cfg.seedBound;
+    updateLimit();
+  }
   target_ = evalAll(prog.target, tests, kProfileRef);
   targetFinite_.resize(tn_);
   for (size_t i = 0; i < tn_; ++i) targetFinite_[i] = std::isfinite(target_[i]) ? 1 : 0;
@@ -1692,22 +1696,27 @@ void Enumerator::enumerateTernary(Op op, uint16_t level, uint32_t r, Type ta, Ty
 }
 
 void Enumerator::addSharedLeaves(SearchStats& stats) {
-  const Expr& t = prog_.target;
-  const std::vector<bool> ct = compileTimeNodes(t, prog_.inputs);
-  const Type tt = t.nodes[t.root].type;
-  std::vector<std::pair<uint32_t, uint32_t>> subs;  // (DAG cost, node)
-  for (uint32_t i = 0; i < t.nodes.size(); ++i) {
-    const Node& nd = t.nodes[i];
-    if (i == t.root || ct[i] || nd.op == Op::Input || nd.op == Op::Const || nd.op == Op::Swizzle ||
-        nd.op == Op::Construct)
-      continue;
-    if (nd.type != Type::Float && nd.type != tt) continue;
-    subs.emplace_back(dagCost(subexpr(t, i), *cfg_.model, prog_.inputs), i);
+  // The target's subexpressions, then (library) those of the first seed.
+  std::vector<Expr> leaves;
+  const Type tt = prog_.target.nodes[prog_.target.root].type;
+  for (size_t src = 0; src <= std::min<size_t>(cfg_.seeds.size(), 1); ++src) {
+    const Expr& t = src == 0 ? prog_.target : cfg_.seeds[0];
+    const std::vector<bool> ct = compileTimeNodes(t, prog_.inputs);
+    std::vector<std::pair<uint32_t, uint32_t>> subs;  // (DAG cost, node)
+    for (uint32_t i = 0; i < t.nodes.size(); ++i) {
+      const Node& nd = t.nodes[i];
+      if (i == t.root || ct[i] || nd.op == Op::Input || nd.op == Op::Const || nd.op == Op::Swizzle ||
+          nd.op == Op::Construct)
+        continue;
+      if (nd.type != Type::Float && nd.type != tt) continue;
+      subs.emplace_back(dagCost(subexpr(t, i), *cfg_.model, prog_.inputs), i);
+    }
+    std::stable_sort(subs.begin(), subs.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    if (subs.size() > cfg_.maxShared) subs.resize(cfg_.maxShared);
+    for (const auto& sub : subs) leaves.push_back(subexpr(t, sub.second));
   }
-  std::stable_sort(subs.begin(), subs.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
-  if (subs.size() > cfg_.maxShared) subs.resize(cfg_.maxShared);
-  for (const auto& [cost, node] : subs) {
-    Expr s = subexpr(t, node);
+  for (Expr& s : leaves) {
+    const uint32_t cost = dagCost(s, *cfg_.model, prog_.inputs);
     const Type ty = s.nodes[s.root].type;
     const std::vector<float> v = evalAll(s, tests_, kProfileRef);
     std::copy(v.begin(), v.begin() + width(ty) * n_, scratch_.begin());

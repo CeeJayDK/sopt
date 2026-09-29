@@ -42,6 +42,11 @@ struct SearchConfig {
   // full and to -1 (strictly cheaper only) when it is full and half the time is gone.
   bool bestBound = true;
   int slack = 1;
+  // Library forms of the target (Options::library, set by the driver): their
+  // subexpressions are shared leaves too, and seedBound (> 0: the cheapest form verified
+  // on the stage-2 points) is the starting best-so-far bound.
+  std::vector<Expr> seeds;
+  uint32_t seedBound = 0;
   std::string diskDir;
   size_t diskBudget = 0;
   size_t diskTileFloats = size_t{1} << 24;  // 64 MB of fingerprints per tile

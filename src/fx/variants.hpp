@@ -99,5 +99,10 @@ struct ReportInfo {
 };
 
 std::string markdownReport(const std::vector<RegionResult>& results, const ReportInfo& info);
+// Every faster variant found (written or with assumed ranges; not the accuracy-only ones)
+// as a rule in the rewrite library's format (search/library.hpp), one per distinct
+// rewrite, with the region, costs and accuracy in a comment above it: material for the
+// library (owner, 2026-09-29: people and AI look at them, generalize, then add them).
+std::string foundRewrites(const std::vector<RegionResult>& results);
 
 }  // namespace sopt::fx

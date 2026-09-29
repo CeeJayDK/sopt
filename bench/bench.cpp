@@ -12,6 +12,7 @@
 
 #include "ir/parser.hpp"
 #include "search/driver.hpp"
+#include "search/library.hpp"
 
 using namespace sopt;
 
@@ -167,6 +168,19 @@ int main(int argc, char** argv) {
     else if (a == "--no-best-bound") opt.search.bestBound = false;
     else if (a == "--top-down") opt.search.topDown = true;
     else if (a == "--no-top-down") opt.search.topDown = false;
+    else if (a == "--library") opt.library = true;
+    else if (a == "--library-file") {
+      static Library lib;  // alive for the whole run
+      const char* f = next();
+      try {
+        lib = loadLibrary(f);
+      } catch (const std::exception& e) {
+        std::fprintf(stderr, "%s\n", e.what());
+        return 2;
+      }
+      opt.library = true;
+      opt.libraryRules = &lib;
+    }
     else if (a == "--disk") opt.search.diskDir = next();
     else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);

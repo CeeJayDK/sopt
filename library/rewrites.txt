@@ -1,0 +1,65 @@
+# sopt rewrite library: verified rewrites for the program, people and AI.
+#
+# One rule per line:   pattern -> replacement   where condition, condition, ...   # comment
+#
+# Names in the pattern are variables that stand for any subexpression (the same name twice
+# means the same subexpression); numbers must match exactly; functions and operators are
+# ReShade FX / HLSL. Conditions (optional):
+#   x const          x is a constant (or a preprocessor constant)
+#   x in [lo, hi]    x's values lie in [lo, hi]; ( ) for open ends
+#   x >= c           also x > c, x <= c, x < c, x != c
+#   x : float3       x's type for the rule check (default float)
+# Every rule is checked by `sopt --check-library` and the tests: over the variables'
+# domains (default [-100, 100], narrowed by the conditions) the replacement must stay
+# within rel 1e-6 of the pattern or be at least as close to exact math, under every GPU
+# semantic profile. sopt --library applies the rules before the search; every rewritten
+# form is verified again against the region's own budget.
+
+# lerp(a, b, t) = a + t * (b - a)
+lerp(a, b, t) -> mad(t, b - a, a)
+lerp(a, b, t) -> mad(t, b, mad(-t, a, a))   where t in [0, 1]   # no b - a
+1.0 - lerp(1.0, b, t) -> mad(-t, b, t)   where t in [0, 1]   # = t * (1 - b)
+lerp(a, b, step(e, x)) -> x >= e ? b : a
+
+# step(e, x) = x >= e ? 1 : 0
+step(e, x) -> x >= e ? 1.0 : 0.0
+a * step(e, x) -> x >= e ? a : 0.0
+1.0 - step(e, x) -> x < e ? 1.0 : 0.0
+
+# pow(x, y) = exp2(y * log2(x)): three instructions, two of them transcendental
+pow(x, 1.0) -> x
+pow(x, 2.0) -> x * x
+pow(abs(x), 2.0) -> x * x
+pow(x, 3.0) -> x * x * x
+pow(abs(x), 3.0) -> abs(x) * (x * x)
+pow(x, 4.0) -> (x * x) * (x * x)
+pow(abs(x), 4.0) -> (x * x) * (x * x)
+pow(x, 0.5) -> sqrt(x)
+pow(x, 1.5) -> x * sqrt(x)
+pow(x, -0.5) -> rsqrt(x)
+pow(x, -1.0) -> rcp(x)
+
+# clamping
+saturate(saturate(x)) -> saturate(x)
+min(max(x, 0.0), 1.0) -> saturate(x)
+max(min(x, 1.0), 0.0) -> saturate(x)
+clamp(x, 0.0, 1.0) -> saturate(x)
+saturate(x) -> x   where x in [0, 1]
+max(x, 0.0) -> x   where x >= 0
+min(x, 1.0) -> x   where x <= 1
+abs(x) -> x        where x >= 0
+
+# roots and reciprocals
+abs(x) * abs(x) -> x * x
+sqrt(x * x) -> abs(x)
+1.0 / sqrt(x) -> rsqrt(x)
+1.0 / x -> rcp(x)
+x / c -> x * (1.0 / c)   where c const, c != 0
+
+# factoring
+a * b + a * c -> a * (b + c)
+a * b - a * c -> a * (b - c)
+
+# vectors
+length(v) * length(v) -> dot(v, v)   where v : float3
+normalize(v) * length(v) -> v        where v : float3

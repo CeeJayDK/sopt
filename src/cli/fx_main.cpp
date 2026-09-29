@@ -21,6 +21,7 @@
 #include "measure/sass.hpp"
 #include "measure/tools.hpp"
 #include "search/driver.hpp"
+#include "search/library.hpp"
 #include "verify/bound.hpp"
 
 using namespace sopt;
@@ -92,6 +93,9 @@ void usage() {
       "                    memory budget holds fingerprints, the rest go to zstd-compressed\n"
       "                    tiles in DIR (a temporary file); --disk-max GB caps it (default:\n"
       "                    the free space minus a reserve)\n"
+      "  --library         rewrite with the rule library before the search (library/rewrites.txt\n"
+      "                    or $SOPT_LIBRARY; the rewritten forms are candidates and seed the search)\n"
+      "  --library-file F  the same with the rules in F\n"
       "  --no-top-down     no top-down split (default: after each level, look up the missing\n"
       "                    operand b of op(a, b) = target for each new entry a: add, sub, mul, div)\n"
       "  --slack N         best-so-far bound: keep hits and parts of hits up to N above the\n"
@@ -212,6 +216,19 @@ int main(int argc, char** argv) {
     else if (a == "--no-best-bound") opt.search.bestBound = false;
     else if (a == "--top-down") opt.search.topDown = true;
     else if (a == "--no-top-down") opt.search.topDown = false;
+    else if (a == "--library") opt.library = true;
+    else if (a == "--library-file") {
+      static Library lib;  // alive for the whole run
+      const char* f = next();
+      try {
+        lib = loadLibrary(f);
+      } catch (const std::exception& e) {
+        std::fprintf(stderr, "%s\n", e.what());
+        return 2;
+      }
+      opt.library = true;
+      opt.libraryRules = &lib;
+    }
     else if (a == "--disk") opt.search.diskDir = next();
     else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
@@ -769,10 +786,14 @@ int main(int argc, char** argv) {
     std::ofstream f(outDir / "sopt-report.md", std::ios::binary);
     f << fx::markdownReport(results, info);
   }
+  {
+    std::ofstream f(outDir / "sopt-found.txt", std::ios::binary);
+    f << fx::foundRewrites(results);
+  }
   if (!errors.empty()) std::fprintf(stderr, "%s", errors.c_str());
   size_t improved = 0;
   for (const auto& r : results) improved += !r.variants.empty();
-  std::printf("%zu of %zu regions have cheaper variants; wrote %zu files and sopt-report.md to %s\n",
+  std::printf("%zu of %zu regions have cheaper variants; wrote %zu files, sopt-report.md and sopt-found.txt to %s\n",
               improved, results.size(), files.size(), outDir.string().c_str());
   std::printf("variant check: %zu of %zu parses failed\n", checkFailures, checks);
   return info.failed.empty() && checkFailures == 0 ? 0 : 1;

@@ -56,7 +56,15 @@ add_library(sopt-search
   src/search/driver.cpp
   src/search/generalize.cpp
   src/search/subtrees.cpp
-  src/search/cuts.cpp)
+  src/search/cuts.cpp
+  src/search/library.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/library_builtin.cpp)
+# The rewrite library is built in (used when library/rewrites.txt is not found at run time).
+add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/library_builtin.cpp
+  COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_CURRENT_SOURCE_DIR}/library/rewrites.txt
+          -DOUT=${CMAKE_CURRENT_BINARY_DIR}/library_builtin.cpp -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_library.cmake
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/library/rewrites.txt ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_library.cmake
+  VERBATIM)
 target_link_libraries(sopt-search PUBLIC sopt-verify PRIVATE sopt-zstd)
 sopt_fp_flags(sopt-search)
 
@@ -142,10 +150,12 @@ if(SOPT_BUILD_TESTS)
     tests/test_vector.cpp
     tests/test_accuracy.cpp
     tests/test_bound.cpp
+    tests/test_library.cpp
     tests/test_fx.cpp)
   target_link_libraries(sopt-tests PRIVATE sopt-search sopt-measure sopt-fx-lib)
   target_compile_definitions(sopt-tests PRIVATE SOPT_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples"
-    SOPT_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    SOPT_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    SOPT_LIBRARY_FILE="${CMAKE_CURRENT_SOURCE_DIR}/library/rewrites.txt")
   sopt_fp_flags(sopt-tests)
   add_test(NAME sopt-tests COMMAND sopt-tests)
 endif()

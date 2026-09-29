@@ -9,6 +9,8 @@
 
 namespace sopt {
 
+struct Library;
+
 struct Options {
   uint32_t numTests = 32;        // fingerprint points
   uint32_t stage2Points = 4096;  // CEGIS filter
@@ -62,6 +64,15 @@ struct Options {
   bool cuts = true;  // default (owner, 2026-09-27); --no-cuts
   double cutTime = 1.0;
   uint32_t maxCuts = 8;
+  // Rewrite library (owner, 2026-09-29; search/library.hpp, flag --library): before the
+  // search, the target is rewritten with the library's rules; the forms become candidates,
+  // the cheapest verified one starts the best-so-far bound, and its subexpressions are
+  // extra shared leaves and subtree / cut points. libraryRules: the rules (nullptr = the
+  // default library, library/rewrites.txt).
+  bool library = false;
+  const Library* libraryRules = nullptr;
+  uint32_t librarySteps = 4;
+  uint32_t libraryForms = 256;
   unsigned threads = 0;          // 0 = hardware concurrency
   SearchConfig search;
 };
@@ -104,6 +115,8 @@ struct RunResult {
   uint32_t subtreeSearches = 0;  // Options::subtrees: subexpressions searched (not cached)
   double subtreeSec = 0.0;
   double v3Sec = 0.0;  // Options::v3
+  uint32_t libraryForms = 0;     // Options::library: rewritten forms tried
+  uint32_t libraryBest = 0;      // ... cost of the cheapest one that passed stage 2 (0 = none)
   uint32_t cutSearches = 0;  // Options::cuts: parts searched (not cached)
   double cutSec = 0.0;
   uint64_t v2Points = 0;  // domain size when V2 applied, else 0  // passed ref but failed mix/fma/gpu

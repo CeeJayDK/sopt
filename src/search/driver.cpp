@@ -1,6 +1,7 @@
 #include "search/driver.hpp"
 
 #include "search/cuts.hpp"
+#include "search/library.hpp"
 #include "search/subtrees.hpp"
 #include "verify/bound.hpp"
 #include "verify/exact.hpp"
@@ -133,6 +134,31 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   cfg.rational = cfg.rational && opt.accuracyVariants;
   res.v2Points = opt.v2Max ? domainSize(prog, opt.v2Max) : 0;
 
+  // Library (Options::library): rewritten forms of the target are candidates; the
+  // cheapest one that passes stage 2 seeds the search (bound, shared leaves) and the
+  // subtree / cut searches (its structure).
+  std::vector<Candidate> libCands;
+  Program seedProg;
+  bool haveSeed = false;
+  if (opt.library) {
+    const Library& lib = opt.libraryRules ? *opt.libraryRules : defaultLibrary();
+    std::vector<LibraryForm> forms =
+        libraryRewrites(prog, lib, stage2, *opt.search.model, opt.librarySteps, opt.libraryForms);
+    res.libraryForms = static_cast<uint32_t>(forms.size());
+    for (auto& f : forms) {
+      if (f.cost > res.targetCost) break;
+      if (!haveSeed && compare(prog, f.expr, stage2, kProfileRef, 1, &stage2Target, s2x, s2s).pass) {
+        haveSeed = true;
+        res.libraryBest = f.cost;
+        cfg.seeds.push_back(f.expr);
+        if (f.cost < res.targetCost) cfg.seedBound = f.cost;
+        seedProg = prog;
+        seedProg.target = f.expr;
+      }
+      if (f.cost < res.targetCost) libCands.push_back({std::move(f.expr), f.cost});
+    }
+  }
+
   std::vector<Candidate> subCands;  // Options::subtrees, computed once
   bool subDone = false;
   std::vector<Candidate> cutCands;  // Options::cuts, computed once
@@ -156,16 +182,25 @@ RunResult optimize(const Program& progIn, const Options& opt) {
       subDone = true;
       const double tsub = nowSeconds();
       subCands = subtreeCandidates(prog, opt, res.targetCost, &res.subtreeSearches);
+      if (haveSeed) {
+        std::vector<Candidate> more = subtreeCandidates(seedProg, opt, res.targetCost, &res.subtreeSearches);
+        subCands.insert(subCands.end(), more.begin(), more.end());
+      }
       res.subtreeSec += nowSeconds() - tsub;
     }
     if (opt.cuts && !cutDone && res.search.limitHit) {
       cutDone = true;
       const double tcut = nowSeconds();
       cutCands = cutCandidates(prog, opt, res.targetCost, &res.cutSearches);
+      if (haveSeed) {
+        std::vector<Candidate> more = cutCandidates(seedProg, opt, res.targetCost, &res.cutSearches);
+        cutCands.insert(cutCands.end(), more.begin(), more.end());
+      }
       res.cutSec += nowSeconds() - tcut;
     }
     cands.insert(cands.end(), cutCands.begin(), cutCands.end());
     cands.insert(cands.end(), subCands.begin(), subCands.end());
+    cands.insert(cands.end(), libCands.begin(), libCands.end());
     for (auto& c : cands) {
       c.expr = simplifyIdentities(c.expr);
       c.cost = dagCost(c.expr, *opt.search.model, prog.inputs);

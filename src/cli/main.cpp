@@ -10,6 +10,7 @@
 #include "measure/isa.hpp"
 #include "measure/sass.hpp"
 #include "search/driver.hpp"
+#include "search/library.hpp"
 
 using namespace sopt;
 
@@ -48,6 +49,10 @@ void usage() {
       "                    memory budget holds fingerprints, the rest go to zstd-compressed\n"
       "                    tiles in DIR (a temporary file); --disk-max GB caps it (default:\n"
       "                    the free space minus a reserve)\n"
+      "  --library         rewrite with the rule library before the search (library/rewrites.txt\n"
+      "                    or $SOPT_LIBRARY; the rewritten forms are candidates and seed the search)\n"
+      "  --library-file F  the same with the rules in F\n"
+      "  --check-library   check every rule of the library (or --library-file) and exit\n"
       "  --no-top-down     no top-down split (default: after each level, look up the missing\n"
       "                    operand b of op(a, b) = target for each new entry a: add, sub, mul, div)\n"
       "  --slack N         best-so-far bound: keep hits and parts of hits up to N above the\n"
@@ -112,6 +117,7 @@ int main(int argc, char** argv) {
   opt.loose = 100;
   size_t top = 20;
   bool stats = false;
+  bool checkLibrary = false;
   bool isa = false;
   IsaConfig isaCfg;
   if (const char* v = std::getenv("SOPT_FXSTAT")) isaCfg.fxstat = v;
@@ -154,6 +160,20 @@ int main(int argc, char** argv) {
     else if (a == "--no-best-bound") opt.search.bestBound = false;
     else if (a == "--top-down") opt.search.topDown = true;
     else if (a == "--no-top-down") opt.search.topDown = false;
+    else if (a == "--library") opt.library = true;
+    else if (a == "--check-library") checkLibrary = true;
+    else if (a == "--library-file") {
+      static Library lib;  // alive for the whole run
+      const char* f = next();
+      try {
+        lib = loadLibrary(f);
+      } catch (const std::exception& e) {
+        std::fprintf(stderr, "%s\n", e.what());
+        return 2;
+      }
+      opt.library = true;
+      opt.libraryRules = &lib;
+    }
     else if (a == "--disk") opt.search.diskDir = next();
     else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
@@ -185,6 +205,28 @@ int main(int argc, char** argv) {
     else if (a == "-h" || a == "--help") { usage(); return 0; }
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     else path = a;
+  }
+  if (checkLibrary) {
+    // Every rule checked on its own (see checkRule); exit code 1 if any fails.
+    try {
+      const Library& lib = opt.libraryRules ? *opt.libraryRules : defaultLibrary();
+      std::printf("%s: %zu rules\n", lib.path.c_str(), lib.rules.size());
+      int failed = 0;
+      for (const auto& rule : lib.rules) {
+        const RuleCheck c = checkRule(rule);
+        if (c.pass) {
+          std::printf("ok    max rel %-9.3g %s\n", c.maxRel, rule.text.c_str());
+        } else {
+          ++failed;
+          std::printf("FAIL  %s: %s\n      (%s)\n", rule.source.c_str(), rule.text.c_str(), c.note.c_str());
+        }
+      }
+      std::printf("%d of %zu rules failed\n", failed, lib.rules.size());
+      return failed ? 1 : 0;
+    } catch (const std::exception& e) {
+      std::fprintf(stderr, "%s\n", e.what());
+      return 2;
+    }
   }
   if (path.empty()) {
     usage();
@@ -372,6 +414,9 @@ int main(int argc, char** argv) {
                   (unsigned long long)s.overflowChecked, (unsigned long long)s.overflowKept);
     if (s.objPruned)
       std::printf("objective: %llu entries pruned (cost >= target)\n", (unsigned long long)s.objPruned);
+    if (opt.library)
+      std::printf("library: %u rewritten forms, cheapest verified on stage 2: %s\n", r.libraryForms,
+                  r.libraryBest ? std::to_string(r.libraryBest).c_str() : "none");
     std::printf("time: search %.3fs, verify %.3fs, total %.3fs\n", r.searchSec, r.verifySec,
                 r.totalSec);
     std::printf("level  generated      added\n");
