@@ -25,6 +25,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`
 - Tests: `ctest --test-dir build --output-on-failure` (or `build/sopt-tests [filter]`)
 - CLI: `build/sopt examples/screen.sopt --stats`
+- Library: `build/sopt --check-library [--library-file F]` checks every rule; `--library` uses it
 - FX: `build/sopt-fx -I <reshade-shaders>/Shaders -o out <dir or .fx>... [--isa --sass]`
   (`--list --skips` shows regions, facts and why statements were skipped)
   (`--region F[:L]` searches only matching regions, e.g. long runs: `--region ASCII.fx:254 --time 600`;
@@ -439,7 +440,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   `SearchConfig::threads`. Next: B6 top-down split or B7 shared leaves.
   Owner: less accurate variants stay in SOPT_ALL; --loose 100 is fine for now.
 - Next (owner, 2026-09-28: "your order is fine, as long as we try them all at some point"):
-  1. top-down split B6 (done, default), 2. snippet library /
+  1. top-down split B6 (done, default), 2. snippet library (in progress: --library, flag) /
   lerp-step rewrites before the search, 3. long --disk runs on hard regions (running),
   4. M5 rest (probe effect, facts database, __DEVICE__ paths).
 - Best-so-far bound (owner, 2026-09-28: compare against the best candidate so far, not the
@@ -462,9 +463,22 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   146-150 (44 in the unbounded corpus run, 47 in both others) gives 47 alone in all three
   modes, and Vignette 73-75 (19 bound, 20 top-down) gives 20 in both: timing noise of
   parallel runs, nothing lost.
-- Library of small verified snippets/rewrites that humans, AI or the tool can reuse.
-  Owner (2026-09-27): many regions that hit the limit contain lerp/step used in ways known
-  to be cheaper expanded; later, apply library rewrites before searching (and try them out)
-  to shrink the search.
+- Rewrite library (owner, 2026-09-27 / 09-29: verified rewrites that the program, people and
+  AI use; the program adds what it finds): `library/rewrites.txt`, one rule per line,
+  `pattern -> replacement   where x const, t in [0, 1], x >= 0, v : float3   # comment`
+  (names = pattern variables, the same name = the same subexpression, commutative operands
+  either order; search/library.cpp). `sopt --check-library [--library-file F]` and the tests
+  check every rule (rel 1e-6 or at least as close to exact, all 6 profiles, variables in
+  [-100, 100] narrowed by the conditions); the check rejected 3 of the first 36 (lerp forms
+  that cancel). Built in via cmake/embed_library.cmake; at run time $SOPT_LIBRARY or
+  library/rewrites.txt next to the executable (or up to two directories up) wins.
+  `--library` (flag, `Options::library`): up to 4 rule applications, 256 forms (constants
+  folded, identities removed); forms cheaper than the target are candidates, the cheapest
+  that passes stage 2 sets SearchConfig::seedBound (start of the best-so-far bound), its
+  subexpressions are extra shared leaves (SearchConfig::seeds) and subtrees / cuts also
+  run on it. sopt-fx writes every faster variant (written or assumed-range, not
+  accuracy-only) to sopt-found.txt in the library format (inputs that are not plain
+  names become in1.. with a legend; ranges as `where`); it parses and checks as a library.
+  Owner: start by collecting all found variants there, then study, generalize and add.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
