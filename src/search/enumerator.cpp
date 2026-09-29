@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -890,12 +891,69 @@ void Enumerator::boundBy(const Expr& e, uint32_t objCost) {
   updateLimit();
 }
 
-bool Enumerator::plausible(const Expr& e) {
+void Enumerator::pruneHits() {
+  // Hits above the current bound have no advantage any more; if that is not enough, the
+  // cheapest half stays (also among hits of equal cost: the search going deeper matters
+  // more than keeping every equivalent alternative).
+  struct Ref {
+    uint32_t cost;
+    uint8_t kind;
+    uint32_t i;
+  };
+  std::vector<Ref> refs;
+  for (size_t i = 0; i < hits_.size(); ++i) refs.push_back({obj(hits_[i]), 0, static_cast<uint32_t>(i)});
+  for (size_t i = 0; i < altHits_.size(); ++i) refs.push_back({altHits_[i].obj, 1, static_cast<uint32_t>(i)});
+  for (size_t i = 0; i < affineHits_.size(); ++i) {
+    const AffineHit& h = affineHits_[i];
+    refs.push_back({h.cost ? h.cost : obj(h.idx) + 1, 2, static_cast<uint32_t>(i)});
+  }
+  // Over the bound, or false hits (they only fit the test points; checked once each,
+  // on the extra points, loose budget so less accurate candidates stay).
+  auto isNew = [&](const Ref& r) {
+    return r.i >= (r.kind == 0 ? checkedHits_[0] : r.kind == 1 ? checkedHits_[1] : checkedHits_[2]);
+  };
+  auto exprOf = [&](const Ref& r) {
+    if (r.kind == 0) return extract(entry(hits_[r.i]));
+    if (r.kind == 1) return extract(altHits_[r.i]);
+    return extract(affineHits_[r.i]);
+  };
+  // Real costs (shared leaves count 0 in objective costs, see boundBy).
+  for (Ref& r : refs) r.cost = std::max(r.cost, dagCost(exprOf(r), *cfg_.model, prog_.inputs));
+  refs.erase(std::remove_if(refs.begin(), refs.end(),
+                            [&](const Ref& r) {
+                              // The best cost itself stays, also when only strictly cheaper
+                              // new hits are wanted (slack -1).
+                              const uint32_t lim = std::max(objLimit_, bestHitObj_ == UINT32_MAX ? 0 : bestHitObj_ + 1);
+                              return r.cost >= lim || (isNew(r) && !plausible(exprOf(r), true));
+                            }),
+             refs.end());
+  const size_t keep = std::max<size_t>(cfg_.maxHits / 2, 1);
+  if (refs.size() > keep) {
+    std::stable_sort(refs.begin(), refs.end(), [](const Ref& a, const Ref& b) { return a.cost < b.cost; });
+    refs.resize(keep);
+  }
+  std::vector<char> k0(hits_.size(), 0), k1(altHits_.size(), 0), k2(affineHits_.size(), 0);
+  for (const Ref& r : refs) (r.kind == 0 ? k0 : r.kind == 1 ? k1 : k2)[r.i] = 1;
+  // Compact in order; every kept hit has now been checked.
+  auto compact = [](auto& v, const std::vector<char>& k) {
+    size_t n = 0;
+    for (size_t i = 0; i < v.size(); ++i)
+      if (k[i]) v[n++] = v[i];
+    v.resize(n);
+    return n;
+  };
+  checkedHits_[0] = compact(hits_, k0);
+  checkedHits_[1] = compact(altHits_, k1);
+  checkedHits_[2] = compact(affineHits_, k2);
+}
+
+bool Enumerator::plausible(const Expr& e, bool loose) {
   if (boundPts_.size() == 0) {
     boundPts_ = makeRandomPoints(prog_, 512, 0x5eed, true);
     boundTarget_ = evalAll(prog_.target, boundPts_, kProfileRef);
   }
-  return compare(prog_, e, boundPts_, kProfileRef, 1, &boundTarget_).pass;
+  const Metrics m = compare(prog_, e, boundPts_, kProfileRef, 1, &boundTarget_);
+  return loose ? m.loosePass : m.pass;
 }
 
 void Enumerator::checkLimits(SearchStats& stats) {
@@ -907,6 +965,8 @@ void Enumerator::checkLimits(SearchStats& stats) {
       updateLimit();
     }
   }
+  // A full hit list does not end the search (owner): clear it out instead.
+  if (numHits() >= cfg_.maxHits && cfg_.bestBound) pruneHits();
   if ((bankFull() && !cfg_.overflow) || numHits() >= cfg_.maxHits ||
       nowSeconds() - start_ > cfg_.timeLimitSec) {
     stop_ = true;
@@ -1430,7 +1490,10 @@ void Enumerator::topDownPass(uint32_t cost, SearchStats& stats) {
         const Item item{op, static_cast<uint16_t>(entry(a).cost + entry(b).cost + ord.opCost(op, w)), swap ? b : a,
                         swap ? a : b, 0, 0};
         Entry e;
-        if (prepare(item, e, fp.data()) != Prep::Ok || e.type != T || e.obj >= objLimit_) continue;
+        // Top-down hits must be strictly cheaper than the best so far: it finds many
+        // equivalent programs at the bound, and those only fill the hit list.
+        if (prepare(item, e, fp.data()) != Prep::Ok || e.type != T || e.obj >= std::min(objLimit_, bestHitObj_))
+          continue;
         ++stats.topDownChecked;
         if ((stats.topDownChecked & 4095) == 0) {
           checkLimits(stats);

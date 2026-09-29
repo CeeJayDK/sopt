@@ -415,8 +415,10 @@ class Enumerator {
   // rejects it).
   PointSet boundPts_;
   std::vector<float> boundTarget_;
-  bool plausible(const Expr& e);
+  bool plausible(const Expr& e, bool loose = false);
+  size_t checkedHits_[3] = {0, 0, 0};  // hits_, altHits_, affineHits_: prefix already checked
   void boundBy(const Expr& e, uint32_t objCost);
+  void pruneHits();
   void updateLimit() {
     objLimit_ = targetCost_;
     if (cfg_.bestBound && bestHitObj_ != UINT32_MAX)
