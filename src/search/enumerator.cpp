@@ -890,7 +890,9 @@ void Enumerator::boundBy(const Expr& e, uint32_t objCost) {
   // using them is dearer than its obj (its DAG cost); otherwise obj (tree cost) is the
   // measure entries are pruned by.
   const uint32_t c = std::max(objCost, dagCost(e, *cfg_.model, prog_.inputs));
-  if (c >= bestHitObj_ || !plausible(e)) return;
+  // A hit as dear as the target is no gain: it must not count as the best so far (with
+  // --two-phase it would end phase 1 early for nothing).
+  if (c >= bestHitObj_ || c >= targetCost_ || !plausible(e)) return;
   bestHitObj_ = c;
   updateLimit();
 }

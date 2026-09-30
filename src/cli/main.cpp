@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
     else if (a == "--v2") opt.v2Candidates = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--max-bank") opt.search.maxBank = std::strtoull(next(), nullptr, 10);
     else if (a == "--time") opt.search.timeLimitSec = std::strtod(next(), nullptr);
-    else if (a == "--threads") opt.threads = static_cast<unsigned>(std::strtoul(next(), nullptr, 10));
+    else if (a == "--threads") opt.threads = opt.search.threads = static_cast<unsigned>(std::strtoul(next(), nullptr, 10));
     else if (a == "--seed") opt.seed = std::strtoull(next(), nullptr, 10);
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
