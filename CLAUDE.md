@@ -489,6 +489,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   PD80 Color_Gamut 182 / Color_Balance 176 / Color_Spaces 56, qUINT_lightroom 717; better:
   Tonemap.fxh 109 / 173 nv 129 -> 81, PD80 Sharpening 244-246 57 -> 54; lost only FILMGRAIN
   451 (fixed since).
+- Back buffer formats (owner, 2026-09-30: the buffer format gives the range; RGBA8 / RGB10A2
+  sample [0, 1], scRGB FP16 goes to 80+ and below 0): sopt-fx (default, `--no-format-checks`)
+  checks variants of regions that read or write the back buffer again: 10-bit (back buffer
+  inputs on grid 1023; a back buffer output, budget reason "back buffer", counted in 10-bit
+  codes) and scRGB (inputs from a second extraction with RegionOptions::hdrBackBuffer, back
+  buffer [kScRgbLo, kScRgbHi] = [-0.5, 125]; a back buffer output within rel 2^-11). Failing
+  variants get Variant::formatGuard (`BUFFER_COLOR_BIT_DEPTH == 8` / `BUFFER_COLOR_SPACE <= 1`)
+  in the variant's #if; inlined statements come back under the negation of all variant
+  conditions. Corpus: 44 variants checked, none 8-bit only, 5 SDR only, all rightly (they drop
+  a clamp that only [0, 1] makes redundant): EyeAdaption 167 pow(saturate(c), 1/2.2), Tonemap.fxh
+  173 abs(...), PD80 Color_Gamut 182 max(..., 0), PD80 Film_Grain 427 x2 saturate.
 - Two-phase search (owner's idea, 2026-09-29; flag `--two-phase`, SearchConfig::twoPhase, not
   default): phase 1 slack -1 (only strictly cheaper hits); once there is a hit, from the end of
   the levels or 75% of the time on, phase 2 goes over the levels again with the slack, trying
