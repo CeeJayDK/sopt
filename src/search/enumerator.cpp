@@ -1467,7 +1467,11 @@ void Enumerator::topDownPass(uint32_t cost, SearchStats& stats) {
   enum Kind { kAdd, kSub, kSubR, kMul, kDiv, kDivR };
   auto has = [&](Op op) { return std::find(ops_.begin(), ops_.end(), op) != ops_.end(); };
   const bool hasAdd = has(Op::Add), hasSub = has(Op::Sub), hasMul = has(Op::Mul), hasDiv = has(Op::Div);
+  uint32_t visited = 0;
   for (uint32_t a : fresh) {
+    // The time limit also holds here: few candidates pass the second-point filter on a
+    // large level, so the check below alone can leave the pass running for seconds.
+    if ((++visited & 255) == 0) checkLimits(stats);
     if (stop_) break;
     if (obj(a) + 1 >= objLimit_) continue;  // only hits within the best-so-far bound
     const float* va = fpOf(a);
