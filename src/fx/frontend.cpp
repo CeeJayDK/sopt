@@ -1013,6 +1013,8 @@ Range Extractor::samplerRange(uint32_t valueId) {
   const SamplerInfo& s = si->second;
   using F = reshadefx::texture_format;
   const std::string sem = upper(s.textureSemantic);
+  if ((sem == "COLOR" || sem == "SV_TARGET") && opt_.hdrBackBuffer)
+    return Range::of(kScRgbLo, kScRgbHi, "BackBuffer (scRGB)");
   if (sem == "COLOR" || sem == "SV_TARGET")
     return s.srgb ? Range::of(0, 1, "BackBuffer (sRGB sampler)")
                   : Range::of(0, 1, "BackBuffer (8-bit SDR assumed)", 255);
@@ -1403,12 +1405,13 @@ Budget Extractor::budgetFor(const Function& f, const Statement& s, std::string& 
   if (s.kind == Statement::Kind::Return) {
     // A pixel shader's result written to an 8-bit target without blending.
     if (f.type == reshadefx::shader_type::pixel && !f.returnType.is_struct()) {
-      bool eightBit = true, anyPass = false;
+      bool eightBit = true, anyPass = false, backBuffer = false;
       for (const auto& t : cg_.mod().techniques)
         for (const auto& p : t.passes) {
           if (p.ps_entry_point != f.uniqueName) continue;
           anyPass = true;
           if (p.blend_enable[0] || p.srgb_write_enable) eightBit = false;
+          if (p.render_target_names[0].empty()) backBuffer = true;
           if (!p.render_target_names[0].empty()) {
             bool fmt8 = false;
             for (const auto& tex : cg_.mod().textures)
@@ -1422,7 +1425,10 @@ Budget Extractor::budgetFor(const Function& f, const Statement& s, std::string& 
       if (anyPass && eightBit) {
         b.kind = Budget::Kind::Color8;
         b.maxCodeDiff = 0;
-        reason = "pixel shader output, 8-bit target, no blending";
+        // The back buffer is assumed 8-bit SDR here; sopt-fx also checks 10-bit and scRGB
+        // (the reason names the back buffer).
+        reason = backBuffer ? "pixel shader output, back buffer (8-bit SDR), no blending"
+                            : "pixel shader output, 8-bit target, no blending";
         return b;
       }
     }

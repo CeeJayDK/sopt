@@ -31,6 +31,11 @@ struct Variant {
   // (-1 = not measured) and whether the code is identical to the original's there.
   int spirv = -1, dxbc = -1;
   bool spirvSame = false, dxbcSame = false;
+  // Back buffer formats (owner, 2026-09-30): a variant of a region that reads the back
+  // buffer is checked for 10-bit (RGB10A2) and scRGB (FP16) back buffers too; where it
+  // fails, it applies only under this preprocessor condition (e.g. "BUFFER_COLOR_SPACE <= 1"),
+  // elsewhere the original is used.
+  std::string formatGuard;
 };
 
 struct RegionResult {
@@ -45,6 +50,9 @@ struct RegionResult {
   uint32_t onlyContraction = 0;  // cheaper only by explicit fma or free swizzles (dropped)
   int targetAmd = -1, targetNv = -1;
   int targetSpirv = -1, targetDxbc = -1;  // backend normalization of the original
+  // The region's inputs with the back buffer as scRGB (FP16, [-0.5, 125]); empty when no
+  // input range depends on the back buffer.
+  std::vector<InputDecl> hdrInputs;
   double targetExactAbs = -1;    // the original's max error vs exact math (-1: not measured)
   uint32_t measuredNoGain = 0;   // dropped: not cheaper in the measured ISA
   uint32_t completedCost = 0;   // levels complete up to this (order-model units) ...

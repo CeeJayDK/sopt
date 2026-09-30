@@ -13,6 +13,10 @@
 
 namespace sopt::fx {
 
+// scRGB back buffer (FP16) range for the HDR check: -0.5 is scRGB's lower bound (colors
+// outside the sRGB gamut are negative), 125 is 10000 nits.
+inline constexpr double kScRgbLo = -0.5, kScRgbHi = 125.0;
+
 struct LoadOptions {
   std::vector<std::filesystem::path> includePaths;
   std::vector<std::pair<std::string, std::string>> macros;  // extra definitions
@@ -109,6 +113,9 @@ struct RegionOptions {
   double maxWidth = 7680;     // largest target width: SV_Position range [0, maxWidth] and
                               // the texcoord budget (8K; hardware limit 16384)
   const UserRanges* userRanges = nullptr;  // ranges for inputs without facts
+  // The back buffer as scRGB (FP16: [-0.5, 125], 125 = 10000 nits) instead of 8-bit SDR
+  // (sopt-fx extracts once more with this to check variants for HDR back buffers).
+  bool hdrBackBuffer = false;
 };
 
 struct SkipCount {

@@ -514,3 +514,68 @@ TEST(fx_windows_include_names) {
   CHECK(e != nullptr);
   if (!e) std::printf("  %s\n", err.c_str());
 }
+
+// Back buffer formats (owner, 2026-09-30): an scRGB extraction gives back buffer inputs
+// [-0.5, 125] (derived values follow), and a variant with a format guard applies only
+// under it, the statements it inlines coming back where the original is used.
+TEST(fx_back_buffer_formats) {
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(kEffect, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  fx::RegionOptions hdr;
+  hdr.hdrBackBuffer = true;
+  const auto regions = fx::extractRegions(*e, nullptr, hdr, sk);
+  bool fetchHdr = false, derivedHdr = false, ret = false;
+  for (const auto& r : regions) {
+    if (fs::path(r.file).filename() != "sopt_test.fx") continue;
+    for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
+      const auto& d = r.prog.inputs[k];
+      if (r.line == 32 && r.facts[k].fetch) fetchHdr = d.lo == fx::kScRgbLo && d.hi == fx::kScRgbHi && d.grid == 0;
+      if (r.line == 23 && d.name == "color") derivedHdr = d.lo == fx::kScRgbLo && d.hi == fx::kScRgbHi;
+    }
+    if (r.kind == fx::Region::Kind::Return) ret = r.budgetReason.find("back buffer") != std::string::npos;
+  }
+  CHECK(fetchHdr);
+  CHECK(derivedHdr);
+  CHECK(ret);  // the pixel shader writes the back buffer
+
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_chain.fx";
+  auto c = fx::loadEffect(path, lo, err);
+  CHECK(c != nullptr);
+  if (!c) return;
+  const auto chain = fx::extractRegions(*c, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* e3 = nullptr;
+  for (const auto& r : chain)
+    if (r.line == 33 && r.removed.size() == 3) e3 = &r;
+  CHECK(e3 != nullptr);
+  if (!e3) return;
+  fx::RegionResult rr;
+  rr.region = *e3;
+  rr.targetCost = 10;
+  fx::Variant v;
+  v.text = "uv.y * uv.y";
+  v.cost = 5;
+  v.formatGuard = "BUFFER_COLOR_SPACE <= 1";
+  rr.variants.push_back(v);
+  const fs::path out = fs::temp_directory_path() / "sopt_test_fx_formats";
+  std::error_code ec;
+  fs::remove_all(out, ec);
+  std::string errors;
+  CHECK(fx::writeVariants({rr}, out, errors).size() == 1);
+  std::ifstream f(out / "sopt_chain.fx");
+  std::stringstream ss;
+  ss << f.rdbuf();
+  const std::string text = ss.str();
+  CHECK(text.find("#if SOPT_sopt_chain_30_33 >= 1 && (BUFFER_COLOR_SPACE <= 1)\n") != std::string::npos);
+  CHECK(text.find("#if !((SOPT_sopt_chain_30_33 >= 1 && (BUFFER_COLOR_SPACE <= 1)))\n") != std::string::npos);
+  for (const char* space : {"1", "2"}) {
+    fx::LoadOptions o;
+    o.macros = {{"SOPT_ALL", "1"}, {"BUFFER_COLOR_SPACE", space}};
+    std::string err2;
+    CHECK(fx::loadEffect(out / "sopt_chain.fx", o, err2) != nullptr);
+  }
+  fs::remove_all(out, ec);
+}

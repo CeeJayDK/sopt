@@ -124,7 +124,10 @@ void usage() {
       "                    users can change as compile-time inputs\n"
       "  --max-width N     largest render target width: SV_Position in [0, N], texture\n"
       "                    coordinates within 0.01 px at N (default 7680 = 8K; the\n"
-      "                    hardware limit is 16384)");
+      "                    hardware limit is 16384)\n"
+      "  --no-format-checks  no back buffer format checks (default: variants of regions that\n"
+      "                    read or write the back buffer are also checked for 10-bit and scRGB\n"
+      "                    back buffers and guarded where they fail)");
 }
 
 void collect(const fs::path& p, std::vector<fs::path>& out) {
@@ -146,6 +149,7 @@ int main(int argc, char** argv) {
   std::vector<fs::path> inputs;
   fx::LoadOptions load;
   fx::RegionOptions ropt;
+  bool formatChecks = true;  // back buffer formats: 10-bit and scRGB checks, see below
   fs::path outDir = "sopt-out";
   bool list = false, skips = false;
   std::vector<std::string> regionFilter;
@@ -248,6 +252,7 @@ int main(int argc, char** argv) {
     else if (a == "--ask") ask = true;
     else if (a == "--no-macro-inputs") symbolic = false;
     else if (a == "--max-width") ropt.maxWidth = std::strtod(next(), nullptr);
+    else if (a == "--no-format-checks") formatChecks = false;
     else if (a == "--sass") sass = true;
     else if (a == "--backends") backends = true;
     else if (a == "--sm") sassCfg.sm = std::atoi(next());
@@ -309,10 +314,39 @@ int main(int argc, char** argv) {
       auto fx2 = fx::loadEffect(p, alt, altErr);
       info.effects.push_back(p.string());
       effectFiles.emplace_back(p, fx->sourceFiles);
+      // The regions once more with the back buffer as scRGB: inputs whose range changes
+      // depend on the back buffer (checked for HDR below).
+      std::map<std::tuple<std::string, uint32_t, size_t>, fx::Region> hdr;
+      if (formatChecks) {
+        fx::RegionOptions hopt = ropt;
+        hopt.hdrBackBuffer = true;
+        fx::SkipCount hs;
+        for (auto& h : fx::extractRegions(*fx, fx2.get(), hopt, hs))
+          hdr.emplace(std::make_tuple(h.file, h.line, h.removed.size()), std::move(h));
+      }
       for (auto& r : fx::extractRegions(*fx, fx2.get(), ropt, info.skipped)) {
         if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
         fx::RegionResult rr;
         rr.effect = p.string();
+        if (formatChecks) {
+          const auto h = hdr.find({r.file, r.line, r.removed.size()});
+          bool bb = false;  // reads the back buffer directly
+          for (const auto& f : r.facts) bb = bb || f.source.rfind("BackBuffer", 0) == 0;
+          if (h != hdr.end() && h->second.prog.inputs.size() == r.prog.inputs.size() &&
+              toString(h->second.prog.target, h->second.prog.inputs) == toString(r.prog.target, r.prog.inputs)) {
+            bool differs = false;
+            for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+              differs = differs || h->second.prog.inputs[k].lo != r.prog.inputs[k].lo ||
+                        h->second.prog.inputs[k].hi != r.prog.inputs[k].hi;
+            if (differs) rr.hdrInputs = h->second.prog.inputs;
+          } else if (bb) {
+            // Not found the same way: the back buffer inputs at the scRGB range.
+            rr.hdrInputs = r.prog.inputs;
+            for (size_t k = 0; k < r.facts.size() && k < rr.hdrInputs.size(); ++k)
+              if (r.facts[k].source.rfind("BackBuffer", 0) == 0)
+                rr.hdrInputs[k].lo = fx::kScRgbLo, rr.hdrInputs[k].hi = fx::kScRgbHi, rr.hdrInputs[k].grid = 0;
+          }
+        }
         rr.targetCost = dagCost(r.prog.target, *opt.search.model, r.prog.inputs);
         rr.region = std::move(r);
         results.push_back(std::move(rr));
@@ -718,6 +752,55 @@ int main(int argc, char** argv) {
       for (const auto& f : rr.region.facts) assumed = assumed || f.assumed;
       if (assumed && !rr.variants.empty()) rr.unwritten = std::move(rr.variants), rr.variants.clear();
     }
+
+  // Back buffer formats (owner, 2026-09-30): the variants above were verified for an
+  // 8-bit SDR back buffer. Regions that read it are checked for a 10-bit one (input grid
+  // 1023; a back buffer output counts 10-bit codes) and for scRGB (FP16, inputs from
+  // hdrInputs; a back buffer output within one FP16 ulp, rel 2^-11). A variant that fails
+  // is written with a guard, so that those formats get the original.
+  if (formatChecks) {
+    const auto f0 = std::chrono::steady_clock::now();
+    std::atomic<size_t> checked{0}, guard10{0}, guardHdr{0};
+    parallelFor(results.size(), jobs, [&](size_t i) {
+      auto& rr = results[i];
+      if (rr.variants.empty()) return;
+      const fx::Region& r = rr.region;
+      const bool toBackBuffer = r.budgetReason.find("back buffer") != std::string::npos;
+      Program p10 = r.prog;
+      bool bb8 = false;
+      for (size_t k = 0; k < r.facts.size() && k < p10.inputs.size(); ++k)
+        if (r.facts[k].source.rfind("BackBuffer (8-bit", 0) == 0) p10.inputs[k].grid = 1023, bb8 = true;
+      if (toBackBuffer && p10.budget.kind == Budget::Kind::Color8) p10.budget.kind = Budget::Kind::Color10, bb8 = true;
+      Program ph = r.prog;
+      const bool hdrCheck = !rr.hdrInputs.empty() || toBackBuffer;
+      if (!rr.hdrInputs.empty()) ph.inputs = rr.hdrInputs;
+      if (toBackBuffer && (ph.budget.kind == Budget::Kind::Color8 || ph.budget.kind == Budget::Kind::Color10)) {
+        ph.budget.kind = Budget::Kind::Rel;
+        ph.budget.eps = 1.0 / 2048.0;
+      }
+      auto passes = [&](Program p, const fx::Variant& v) {
+        p.budget.vsExact = p.budget.vsExact && opt.exactRule;
+        p.budget.loose = v.klass == Klass::LessAccurate ? opt.loose : 0.0;
+        const uint64_t dom = domainSize(p, uint64_t{1} << 22);
+        const PointSet ps = dom ? PointSet() : makeRandomPoints(p, size_t{1} << 18, opt.seed + 5, true);
+        for (const auto& prof : kAllProfiles) {
+          const Metrics m = dom ? compareExhaustive(p, v.expr, prof, 1) : compare(p, v.expr, ps, prof, 1);
+          if (!m.loosePass) return false;
+        }
+        return true;
+      };
+      for (auto& v : rr.variants) {
+        std::string g;
+        if (bb8 && !passes(p10, v)) g = "BUFFER_COLOR_BIT_DEPTH == 8", ++guard10;
+        if (hdrCheck && !passes(ph, v)) g += std::string(g.empty() ? "" : " && ") + "BUFFER_COLOR_SPACE <= 1", ++guardHdr;
+        v.formatGuard = g;
+        checked += bb8 || hdrCheck;
+      }
+    });
+    std::printf("back buffer formats: %zu variants checked, %zu only for 8-bit, %zu only for SDR (%.1f s)\n",
+                checked.load(), guard10.load(), guardHdr.load(),
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - f0).count());
+  }
 
   // V3: a formal bound for the variants that are written (continuous domains; V2 covered
   // the small ones).

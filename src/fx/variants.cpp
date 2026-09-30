@@ -216,9 +216,23 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       // A window across #if lines applies only while they compile as when it was found.
       // Its terms are parenthesized: "(A) && !defined(B)".
       const std::string guard = r.guard.empty() ? std::string() : " && " + r.guard;
+      // Condition under which variant k is used (a back buffer format guard included).
+      bool anyFormat = false;
+      for (const Variant& v : rr->variants) anyFormat = anyFormat || !v.formatGuard.empty();
+      auto cond = [&](size_t k) {
+        const bool last = k + 1 == rr->variants.size();
+        const std::string& fg = rr->variants[k].formatGuard;
+        return sw + (last ? " >= " : " == ") + std::to_string(k + 1) + guard + (fg.empty() ? "" : " && (" + fg + ")");
+      };
       if (!p.root) {
         // A statement inlined into the variants: only the original needs it.
-        out += "#if " + sw + " < 1" + (r.guard.empty() ? std::string() : " || !(" + r.guard + ")") + "\n";
+        if (anyFormat) {
+          std::string any;
+          for (size_t k = 0; k < rr->variants.size(); ++k) any += (k ? " || (" : "(") + cond(k) + ")";
+          out += "#if !(" + any + ")\n";
+        } else {
+          out += "#if " + sw + " < 1" + (r.guard.empty() ? std::string() : " || !(" + r.guard + ")") + "\n";
+        }
         for (; next <= p.last; ++next) out += (*lines)[next - 1] + "\n";
         out += "#endif\n";
         continue;
@@ -228,9 +242,7 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         const Variant& v = rr->variants[k];
         // The last variant also takes larger values, so SOPT_ALL = k works for regions
         // with fewer than k variants.
-        const bool last = k + 1 == rr->variants.size();
-        out += std::string(k == 0 ? "#if " : "#elif ") + sw + (last ? " >= " : " == ") +
-               std::to_string(k + 1) + guard + "\n";
+        out += std::string(k == 0 ? "#if " : "#elif ") + cond(k) + "\n";
         char note[320];
         int len = std::snprintf(note, sizeof(note), " // sopt: %s, cost %u -> %u",
                                 variantClass(v, r.prog.budget.codeBits()).c_str(), rr->targetCost, v.cost);
@@ -248,6 +260,7 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         if (v.dxbc >= 0 && rr->targetDxbc >= 0)
           back += v.dxbcSame ? ", dxbc: same code as original"
                              : ", dxbc " + std::to_string(rr->targetDxbc) + " -> " + std::to_string(v.dxbc);
+        if (!v.formatGuard.empty()) back += "; only where " + v.formatGuard;
         out += ind + variantStatement(r, v.text) + note + back + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
       }
       out += "#else\n";
@@ -372,7 +385,9 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       if (info.nv) s += " " + withGain(v.nv, rr.targetNv) + " |";
       if (info.spirv) s += " " + (v.spirvSame ? std::string("same") : withGain(v.spirv, rr.targetSpirv)) + " |";
       if (info.dxbc) s += " " + (v.dxbcSame ? std::string("same") : withGain(v.dxbc, rr.targetDxbc)) + " |";
-      std::snprintf(buf, sizeof(buf), " %s | %.3g |", variantClass(v, r.prog.budget.codeBits()).c_str(), v.worst.maxAbs);
+      std::string cls = variantClass(v, r.prog.budget.codeBits());
+      if (!v.formatGuard.empty()) cls += "; only where `" + v.formatGuard + "`";
+      std::snprintf(buf, sizeof(buf), " %s | %.3g |", cls.c_str(), v.worst.maxAbs);
       s += buf;
       if (exact) {
         std::snprintf(buf, sizeof(buf), " %.3g |", v.worst.exactAbs);
