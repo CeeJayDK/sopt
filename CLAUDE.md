@@ -489,5 +489,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   PD80 Color_Gamut 182 / Color_Balance 176 / Color_Spaces 56, qUINT_lightroom 717; better:
   Tonemap.fxh 109 / 173 nv 129 -> 81, PD80 Sharpening 244-246 57 -> 54; lost only FILMGRAIN
   451 (fixed since).
+- Two-phase search (owner's idea, 2026-09-29; flag `--two-phase`, SearchConfig::twoPhase, not
+  default): phase 1 slack -1 (only strictly cheaper hits); once there is a hit, from the end of
+  the levels or 75% of the time on, phase 2 goes over the levels again with the slack, trying
+  only candidates phase 1 pruned (`p1Level_` / `p1Limit_`), plus `refitPass` (fitted hits of
+  stored entries that phase 1's bound rejected); top-down and the bank-full pressure are off in
+  phase 2. Bench (time 30): identical bests, searches end sooner. Corpus (library default,
+  run package by package, each package with and without back to back): 94 -> 95 regions (+
+  Fubax Waveform 224-226), 88 -> 84 min (enumeration -10%, subtrees -12%); worse: PD80
+  Film_Grain 230 / 234 / 240 (20 -> 23) and FILMGRAIN 287 (amd 2 -> 3). Film_Grain 230 alone:
+  default 20 in 2 of 2 runs, --two-phase 20 in 1 of 2 (timing dependent).
+  Container note (2026-09-30): the cloud container restarts when the session is idle and a
+  background task hits its time limit; long corpus runs go in chunks of ~20-30 min
+  (scratchpad tp2/pair.sh), one background task each.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
