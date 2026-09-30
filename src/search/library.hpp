@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cmath>
 #include <optional>
 #include <string>
@@ -36,6 +37,9 @@ struct RewriteRule {
 struct Library {
   std::string path;  // where it was loaded from ("built-in" for the embedded copy)
   std::vector<RewriteRule> rules;
+  // Rule indices by the pattern's root op: a node is only matched against the rules for its
+  // op (parseLibrary fills it).
+  std::array<std::vector<uint32_t>, static_cast<size_t>(Op::Count)> byRoot;
 };
 
 // Throws ParseError naming the line.

@@ -353,6 +353,7 @@ Library parseLibrary(std::string_view text, const std::string& name) {
       throw ParseError(where + ": " + ex.what());
     }
     if (r.lhs.nodes[r.lhs.root].op == Op::Input) throw ParseError(where + ": the pattern is a bare variable");
+    lib.byRoot[static_cast<size_t>(r.lhs.nodes[r.lhs.root].op)].push_back(static_cast<uint32_t>(lib.rules.size()));
     lib.rules.push_back(std::move(r));
   }
   return lib;
@@ -429,7 +430,8 @@ std::vector<LibraryForm> libraryRewrites(const Program& prog, const Library& lib
       const Expr& e = f.expr;
       for (uint32_t i = 0; i < e.nodes.size() && out.size() < maxForms; ++i) {
         if (e.nodes[i].op == Op::Input || e.nodes[i].op == Op::Const) continue;
-        for (uint32_t ri = 0; ri < lib.rules.size() && out.size() < maxForms; ++ri) {
+        for (uint32_t ri : lib.byRoot[static_cast<size_t>(e.nodes[i].op)]) {
+          if (out.size() >= maxForms) break;
           const RewriteRule& r = lib.rules[ri];
           Matcher m{r.lhs, e, std::vector<uint32_t>(r.vars.size(), UINT32_MAX)};
           if (!m.match(r.lhs.root, i)) continue;
