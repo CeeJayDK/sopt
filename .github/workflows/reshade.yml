@@ -28,11 +28,23 @@ jobs:
         run: |
           mkdir -p dist
           cp reshade/bin/x64/Release/ReShade64.dll dist/ReShade64-6.8.0-unchanged.dll
+          cp reshade/res/shaders/copy_ps.cso copy_ps-unchanged.cso
           cd reshade
           git apply ../tools/reshade/internal-shaders.patch
           MSYS_NO_PATHCONV=1 msbuild.exe ReShade.sln /t:ReShade /p:Configuration=Release /p:Platform=64-bit /m /v:minimal
           cp bin/x64/Release/ReShade64.dll ../dist/ReShade64-6.8.0-sopt.dll
           git diff --stat
+      - name: Check the patched DLL
+        shell: bash
+        run: |
+          # The patched DLL embeds the new mipmap shader and its log line; the unchanged one does not.
+          grep -aq "shared corner of the 2x2 source texels" dist/ReShade64-6.8.0-sopt.dll
+          grep -aq "Using bilinear mipmap generation shader" dist/ReShade64-6.8.0-sopt.dll
+          ! grep -aq "Using bilinear mipmap generation shader" dist/ReShade64-6.8.0-unchanged.dll
+          # copy_ps was recompiled: no sampler (s0) in the new bytecode, so the files differ.
+          ! cmp -s copy_ps-unchanged.cso reshade/res/shaders/copy_ps.cso
+          ! cmp -s dist/ReShade64-6.8.0-unchanged.dll dist/ReShade64-6.8.0-sopt.dll
+          ls -l dist
       - uses: actions/upload-artifact@v4
         with:
           name: reshade-6.8.0-sopt
