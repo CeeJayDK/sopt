@@ -23,7 +23,8 @@ col.a = 1.0;
 - The pass is bandwidth bound, so there is no visible FPS difference. The saving is issue slots
   and helper lanes.
 - The copy sampler is gone on the C++ side too: the copy pipeline layout has only the source view,
-  and the sampler state, its creation, descriptor push and destruction are removed.
+  and the sampler state, its creation, descriptor push and destruction are removed. This final
+  version was tested again on the GTX 1660: screenshots SHA256-identical to the unchanged build.
 
 **2. OpenGL mipmap generation: one bilinear fetch per output texel**
 
