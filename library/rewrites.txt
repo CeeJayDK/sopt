@@ -101,3 +101,63 @@ a * b - a * c -> a * (b - c)
 # vectors
 length(v) * length(v) -> dot(v, v)   where v : float3
 normalize(v) * length(v) -> v        where v : float3
+
+# from Mesa's NIR algebraic rules (src/compiler/nir/nir_opt_algebraic.py), the ones that hold under
+# sopt's check and are cheaper in rdna3; RADV and other Mesa drivers already apply most of them
+sign(a) * (a * a) -> abs(a) * a
+saturate(a) + saturate(-a) -> saturate(abs(a))
+a + frac(-a) -> ceil(a)
+a - frac(a) -> floor(a)
+a - floor(a) -> frac(a)
+a + (b - frac(a)) -> b + floor(a)
+frac(frac(a)) -> frac(a)
+max(max(a, b), b) -> max(a, b)
+min(min(a, b), b) -> min(a, b)
+min(max(a, b), a) -> a
+max(min(a, b), a) -> a
+-max(-a, -b) -> min(a, b)
+-min(-a, -b) -> max(a, b)
+min(a, -a) -> -abs(a)
+min(a, -abs(a)) -> -abs(a)
+max(a, abs(a)) -> abs(a)
+max(a, -a) -> abs(a)
+max(abs(a), 0.0) -> abs(a)
+min(max(a, -1.0), 0.0) -> -saturate(-a)
+max(min(a, 0.0), -1.0) -> -saturate(-a)
+min(max(min(max(a, b), c), b), c) -> min(max(a, b), c)
+max(saturate(a), saturate(b)) -> saturate(max(a, b))
+saturate(a) -> 1.0   where a >= 1
+saturate(a) -> 0.0   where a <= 0
+max(a, 0.0) -> saturate(a)   where a <= 1
+min(a, 1.0) -> saturate(a)   where a >= 0
+saturate(max(a, b)) -> saturate(a)   where b <= 0
+saturate(min(a, b)) -> saturate(a)   where b >= 1
+min(c + a, c + b) -> c + min(a, b)   where c const
+max(c + a, c + b) -> c + max(a, b)   where c const
+(a == b ? b : a) -> a   where b != 0
+(a < 0.0 ? 0.0 : sqrt(a)) -> sqrt(max(a, 0.0))
+(a >= 0.0 ? sqrt(a) : 0.0) -> sqrt(max(a, 0.0))
+sqrt(a) * sqrt(a) -> abs(a)
+rcp(sqrt(a)) -> rsqrt(a)
+rcp(rsqrt(a)) -> sqrt(a)
+exp2(log2(a) * 0.5) -> sqrt(a)
+exp2(log2(a) * 2.0) -> a * a
+exp2(log2(a) * 3.0) -> (a * a) * a
+exp2(log2(a) * 4.0) -> (a * a) * (a * a)
+exp2(log2(a) * 5.0) -> ((a * a) * (a * a)) * a
+exp2(log2(a) * 6.0) -> ((a * a) * (a * a)) * (a * a)
+exp2(log2(a) * 8.0) -> ((a * a) * (a * a)) * ((a * a) * (a * a))
+sqrt(exp2(a)) -> exp2(0.5 * a)
+rcp(exp2(a)) -> exp2(-a)
+rsqrt(exp2(a)) -> exp2(-0.5 * a)
+log2(sqrt(a)) -> 0.5 * log2(a)
+log2(rcp(a)) -> -log2(a)
+log2(rsqrt(a)) -> -0.5 * log2(a)
+lerp(0.0, a, b) -> a * b
+lerp(a, 0.0, c) -> mad(-a, c, a)
+lerp(a, a + b, c) -> mad(b, c, a)
+lerp(a * b, a * c, d) -> lerp(b, c, d) * a
+a * (1.0 - c) + b * c -> lerp(a, b, c)
+mad(-a, -b, c) -> mad(a, b, c)
+mad(a, b, c * d) + e -> mad(a, b, mad(c, d, e))
+mad(a, b, mad(c, d, e * f)) + g -> mad(a, b, mad(c, d, mad(e, f, g)))
