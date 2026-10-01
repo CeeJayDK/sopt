@@ -577,8 +577,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   sopt-timer does not see it; PIX / Nsight would). OpenGL mipmaps, sopt DLL (owner, GTX 1660,
   sopt_MipTest vs the 2x2 average of the level above, levels 1-5): red disappears at tolerance
   0.501 (RGBA8), 0.125 (RGB10A2), 0.063 (RGBA16F), 0.001 (R32F) 8-bit steps = half a step of each
-  format (correct rounding; R32F differs only in the last bits). Still to do: the same with the
-  unchanged DLL for comparison; then report to crosire.
+  format (correct rounding; R32F differs only in the last bits). Unchanged DLL: the same except
+  RGBA16F 0.109-0.117 (level 3 / level 1), just under one fp16 ulp near 1 (0.125): the old shader
+  averages in fp32 and imageStore converts to fp16 by truncation on this driver, while the
+  bilinear fetch already returns a correctly rounded fp16 value. So the patch is equal or more
+  accurate. Both parts tested: next, report to crosire.
   Owner's idea (go 2026-10-01): sopt-opbench (tools/windows/opbench, measure-gpu.bat, in the
   sopt-windows-tools artifact): D3D11 compute tests, HLSL generated and compiled at run time with
   D3DCompile -O3 (the ReShade D3D path), steps x = mad(f(x, c), c.x, c.y) in long chains with
