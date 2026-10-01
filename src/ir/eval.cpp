@@ -43,12 +43,12 @@ inline float fStep(float v, int dir) {
 
 void evalArray(Op op, const float* a, const float* b, const float* c, float* out, size_t n,
                const Profile& profile) {
-  if (profile.ulpStep != 0 && !info(op).exact && op != Op::Div) {
+  if (profile.ulpStep != 0 && !info(op).exact && op != Op::Div && op != Op::Smoothstep) {
     Profile p = profile;
     p.ulpStep = 0;
     evalArray(op, a, b, c, out, n, p);
     if (op == Op::Sqrt || op == Op::Rsqrt || op == Op::Rcp || op == Op::Exp || op == Op::Log ||
-        op == Op::Sin || op == Op::Cos || op == Op::Pow)
+        op == Op::Sin || op == Op::Cos || op == Op::Pow || op == Op::Exp2 || op == Op::Log2)
       for (size_t i = 0; i < n; ++i) out[i] = fStep(out[i], profile.ulpStep);
     return;
   }
@@ -77,6 +77,10 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
     case Op::Log: SOPT_LOOP1(std::log(x))
     case Op::Sin: SOPT_LOOP1(std::sin(x))
     case Op::Cos: SOPT_LOOP1(std::cos(x))
+    case Op::Exp2: SOPT_LOOP1(std::exp2(x))
+    case Op::Log2: SOPT_LOOP1(std::log2(x))
+    case Op::Round: SOPT_LOOP1(std::nearbyint(x))  // round half to even (default rounding mode)
+    case Op::Ceil: SOPT_LOOP1(std::ceil(x))
     case Op::Add: SOPT_LOOP2(x + y)
     case Op::Sub: SOPT_LOOP2(x - y)
     case Op::Mul: SOPT_LOOP2(x * y)
@@ -107,6 +111,22 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
       SOPT_LOOP3(x + z * (y - x))
     case Op::Clamp: SOPT_LOOP3(fMin(fMax(x, y), z))
     case Op::Select: SOPT_LOOP3(x != 0.0f ? y : z)
+    case Op::Smoothstep: {
+      // DXC's lowering: s = saturate((x - a) / (b - a)); s * (s * (3 - 2 s)), the division as
+      // the profile divides (a * rcp(b) on GPUs, one float step off under gpu+ / gpu-).
+      const int d = profile.ulpStep;
+      for (size_t i = 0; i < n; ++i) {
+        const float num = c[i] - a[i], den = b[i] - a[i];
+        float q;
+        const float r = 1.0f / den;
+        if (profile.divRcp) q = num * (d != 0 ? fStep(r, d) : r);
+        else q = d != 0 ? fStep(num / den, d) : num / den;
+        const float s = fSaturate(q);
+        const float t = profile.madFused ? std::fma(-2.0f, s, 3.0f) : 3.0f - s * 2.0f;
+        out[i] = s * (s * t);
+      }
+      return;
+    }
   }
 }
 

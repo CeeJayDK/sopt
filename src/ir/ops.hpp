@@ -21,11 +21,13 @@ enum class Op : uint8_t {
   Input, Const,
   // unary
   Neg, Abs, Saturate, Floor, Frac, Sign, Sqrt, Rsqrt, Rcp, Exp, Log, Sin, Cos,
+  Exp2, Log2, Round, Ceil,
   // binary
   Add, Sub, Mul, Div, Min, Max, Step, Pow,
   Lt, Le, Gt, Ge, Eq, Ne,
   // ternary
   Mad, Lerp, Clamp, Select,
+  Smoothstep,  // pure helper: s * s * (3 - 2s), s = saturate((x - a) / (b - a)) (DXC's lowering)
   // vectors: pure helpers (dot = mul + fmas, length = sqrt(dot), normalize = v *
   // rsqrt(dot(v, v)), distance = length(a - b)), component selection and construction
   Dot, Length, Normalize, Distance, Swizzle, Construct,
@@ -61,7 +63,7 @@ const OpInfo& info(Op op);
 // step = cmp + cndmask), as opposed to single instructions or modifiers.
 inline bool isPureHelper(Op op) {
   return op == Op::Lerp || op == Op::Step || op == Op::Dot || op == Op::Length ||
-         op == Op::Normalize || op == Op::Distance;
+         op == Op::Normalize || op == Op::Distance || op == Op::Smoothstep;
 }
 std::optional<Op> opFromCall(std::string_view name, uint8_t arity);
 

@@ -149,6 +149,21 @@ OpEval evalOp(Op op, const I* a, unsigned nargs) {
       break;
     case Op::Sin: r.v = isin(x); r.d[0] = icos(x); r.dd[0][0] = neg(r.v); break;
     case Op::Cos: r.v = icos(x); r.d[0] = neg(isin(x)); r.dd[0][0] = neg(r.v); break;
+    case Op::Exp2: {  // 2^x = e^(x ln 2)
+      const double l2 = 0.6931471805599453;
+      r.v = iexp(mul(x, I{down(l2), up(l2)}));
+      r.d[0] = mul(r.v, I{down(l2), up(l2)});
+      r.dd[0][0] = mul(r.d[0], I{down(l2), up(l2)});
+      break;
+    }
+    case Op::Log2: {
+      if (x.lo <= 0.0) r.fail = true;
+      const I il2 = I{down(1.4426950408889634), up(1.4426950408889634)};
+      r.v = mul(ilog(x), il2);
+      r.d[0] = mul(recip(x), il2);
+      r.dd[0][0] = neg(mul(sqr(recip(x)), il2));
+      break;
+    }
     case Op::Add: r.v = add(x, y); r.d[0] = r.d[1] = pt(1.0); break;
     case Op::Sub: r.v = sub(x, y); r.d[0] = pt(1.0); r.d[1] = pt(-1.0); break;
     case Op::Mul: r.v = mul(x, y); r.d[0] = y; r.d[1] = x; r.dd[0][1] = r.dd[1][0] = pt(1.0); break;
@@ -212,7 +227,7 @@ double roundRel(Op op, const Profile*) {
   switch (op) {
     case Op::Add: case Op::Sub: case Op::Mul: return kU;
     case Op::Sqrt: case Op::Rsqrt: case Op::Rcp: case Op::Exp: case Op::Log: case Op::Sin: case Op::Cos:
-    case Op::Pow: return kInexact;
+    case Op::Pow: case Op::Exp2: case Op::Log2: return kInexact;
     case Op::Div: return kDiv;
     default: return 0.0;
   }
@@ -337,6 +352,15 @@ class Evaluator {
     r.e = up(a.e + kU * mag(widen(r.x, a.e)) + kFtz);
     return r;
   }
+  // ceil / round: exact where the widened argument stays within one step.
+  Val stepOp(Op op, const Val& a) const {
+    if (a.fail) return failed();
+    const I w = widen(a.x, a.e);
+    const double lo = op == Op::Ceil ? std::ceil(w.lo) : std::nearbyint(w.lo);
+    const double hi = op == Op::Ceil ? std::ceil(w.hi) : std::nearbyint(w.hi);
+    if (lo != hi) return failed();
+    return constVal(lo);
+  }
   // 1 if the relation holds everywhere, 0 if nowhere, fail otherwise.
   Val compare(Op op, const Val& a, const Val& b) const {
     if (a.fail || b.fail) return failed();
@@ -421,6 +445,14 @@ class BoxEval {
           for (unsigned c = 0; c < w; ++c) {
             switch (n.op) {
               case Op::Floor: o[c] = ev.floorOp(arg(0, c), false); break;
+              case Op::Ceil: case Op::Round: o[c] = ev.stepOp(n.op, arg(0, c)); break;
+              case Op::Smoothstep: {  // DXC's expansion over the ops V3 knows
+                const Val s = ev.unary(Op::Saturate, ev.binary(Op::Div, ev.binary(Op::Sub, arg(2, c), arg(0, c)),
+                                                               ev.binary(Op::Sub, arg(1, c), arg(0, c))));
+                const Val t = ev.ternary(Op::Mad, ev.constant(-2.0f), s, ev.constant(3.0f));
+                o[c] = ev.binary(Op::Mul, s, ev.binary(Op::Mul, s, t));
+                break;
+              }
               case Op::Frac: o[c] = ev.floorOp(arg(0, c), true); break;
               case Op::Sign: o[c] = ev.signOp(arg(0, c)); break;
               case Op::Step: o[c] = ev.compare(Op::Ge, arg(1, c), arg(0, c)); break;  // step(e, x) = x >= e

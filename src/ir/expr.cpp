@@ -276,6 +276,38 @@ bool containsInexact(const Expr& e) {
   return false;
 }
 
+bool isSugarCall(std::string_view name, size_t arity) {
+  if (arity == 1) return name == "radians" || name == "degrees" || name == "log10" || name == "tan";
+  return arity == 2 && name == "cross";
+}
+
+uint32_t buildSugarCall(ExprBuilder& b, std::string_view name, const uint32_t* args, size_t arity) {
+  if (!isSugarCall(name, arity)) throw std::invalid_argument("unknown intrinsic " + std::string(name));
+  const auto& ns = b.nodes();
+  // Operands are built one statement at a time: argument evaluation order is unspecified,
+  // and node order decides how the DAG prints.
+  if (name == "radians" || name == "degrees") {
+    const uint32_t k = b.constant(name == "radians" ? 0.017453292519943295f : 57.29577951308232f);
+    return b.op(Op::Mul, args[0], k);
+  }
+  if (name == "log10") {
+    const uint32_t l = b.op(Op::Log2, args[0]);
+    return b.op(Op::Mul, l, b.constant(0.30102999566398120f));
+  }
+  if (name == "tan") {
+    const uint32_t s = b.op(Op::Sin, args[0]);
+    return b.op(Op::Div, s, b.op(Op::Cos, args[0]));
+  }
+  if (ns[args[0]].type != Type::Float3 || ns[args[1]].type != Type::Float3)
+    throw std::invalid_argument("cross needs float3 operands");
+  static constexpr uint8_t kYzx[3] = {1, 2, 0}, kZxy[3] = {2, 0, 1};
+  const uint32_t ay = b.swizzle(args[0], kYzx, 3), bz = b.swizzle(args[1], kZxy, 3);
+  const uint32_t l = b.op(Op::Mul, ay, bz);
+  const uint32_t az = b.swizzle(args[0], kZxy, 3), by = b.swizzle(args[1], kYzx, 3);
+  const uint32_t r = b.op(Op::Mul, az, by);
+  return b.op(Op::Sub, l, r);
+}
+
 bool containsOp(const Expr& e, Op op) {
   for (const auto& n : e.nodes)
     if (n.op == op) return true;

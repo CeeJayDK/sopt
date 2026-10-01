@@ -819,9 +819,13 @@ void Extractor::collect(uint32_t id) {
         return;
       }
       const auto op = opFromCall(v.name, static_cast<uint8_t>(v.args.size()));
-      if (!op) throw Unsupported("intrinsic " + v.name);
+      const bool sugar = !op && isSugarCall(v.name, v.args.size());
+      if (!op && !sugar) throw Unsupported("intrinsic " + v.name);
       if (!isFloatType(v.type)) throw Unsupported("non-float intrinsic");
-      if (*op == Op::Pow || *op == Op::Exp || *op == Op::Log || *op == Op::Sin || *op == Op::Cos)
+      if (sugar && v.name == "cross" && v.type.rows != 3) throw Unsupported("intrinsic cross");
+      if (sugar && (v.name == "log10" || v.name == "tan")) usesPow_ = true;
+      if (op && (*op == Op::Pow || *op == Op::Exp || *op == Op::Log || *op == Op::Exp2 || *op == Op::Log2 ||
+          *op == Op::Sin || *op == Op::Cos))
         usesPow_ = true;
       for (uint32_t a : v.args) {
         const auto ai = cg_.values.find(a);
@@ -961,6 +965,12 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       if (fetchText_.count(id)) {
         const Leaf& l = fetchLeaf(id);
         r = b.input(l.input, floatType(std::popcount(l.mask)));
+        break;
+      }
+      if (isSugarCall(v.name, v.args.size())) {
+        uint32_t a[2] = {0, 0};
+        for (size_t k = 0; k < v.args.size(); ++k) a[k] = build(v.args[k], b);
+        r = buildSugarCall(b, v.name, a, v.args.size());
         break;
       }
       const Op op = *opFromCall(v.name, static_cast<uint8_t>(v.args.size()));

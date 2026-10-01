@@ -114,4 +114,12 @@ unsigned operandCount(const Node& n);
 std::string toString(const Expr& e, const std::vector<InputDecl>& inputs);
 std::string formatFloat(float v);
 
+// HLSL intrinsics that are not ops but written out the way DXC lowers them: radians(x) =
+// x * (pi / 180), degrees(x) = x * (180 / pi), log10(x) = log2(x) * (ln 2 / ln 10), tan(x) =
+// sin(x) / cos(x), cross(a, b) = a.yzx * b.zxy - a.zxy * b.yzx (float3). isSugarCall says
+// whether buildSugarCall knows the name and arity; buildSugarCall throws
+// std::invalid_argument when the operand types don't fit.
+bool isSugarCall(std::string_view name, size_t arity);
+uint32_t buildSugarCall(ExprBuilder& b, std::string_view name, const uint32_t* args, size_t arity);
+
 }  // namespace sopt

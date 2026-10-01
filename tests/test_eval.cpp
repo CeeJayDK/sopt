@@ -74,6 +74,23 @@ TEST(eval_semantics) {
   CHECK(ev(Op::Lerp, 1.0f, 3.0f, 0.5f) == 2.0f);
 }
 
+TEST(eval_new_ops) {
+  CHECK(ev(Op::Exp2, 3.0f) == 8.0f);
+  CHECK(ev(Op::Log2, 8.0f) == 3.0f);
+  CHECK(ev(Op::Round, 2.5f) == 2.0f);  // to nearest even (HLSL round_ne)
+  CHECK(ev(Op::Round, -1.5f) == -2.0f);
+  CHECK(ev(Op::Round, 0.49f) == 0.0f);
+  CHECK(ev(Op::Ceil, 1.25f) == 2.0f);
+  CHECK(ev(Op::Ceil, -0.5f) == 0.0f);
+  // smoothstep(a, b, x): s = saturate((x - a) / (b - a)), s * s * (3 - 2s).
+  CHECK(ev(Op::Smoothstep, 0.0f, 1.0f, 0.5f) == 0.5f);
+  CHECK(ev(Op::Smoothstep, 0.0f, 1.0f, -1.0f) == 0.0f);
+  CHECK(ev(Op::Smoothstep, 0.0f, 1.0f, 2.0f) == 1.0f);
+  CHECK(ev(Op::Smoothstep, 2.0f, 4.0f, 3.0f) == 0.5f);
+  CHECK(ev(Op::Smoothstep, 0.0f, 1.0f, 0.25f) == 0.15625f);
+  CHECK(ev(Op::Smoothstep, 1.0f, 0.0f, 0.25f) == 0.84375f);  // reversed edges
+}
+
 TEST(eval_lerp_profiles_differ) {
   // HLSL lerp (a + t*(b-a)) and GLSL mix (a*(1-t) + b*t) round differently.
   int diffs = 0;

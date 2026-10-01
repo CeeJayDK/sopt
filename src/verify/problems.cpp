@@ -117,7 +117,8 @@ std::vector<ProblemRange> findProblemRanges(const Program& prog, const Expr& can
       case Op::Rcp: arg = n.args[0]; side = Side::Zero; break;
       case Op::Div: arg = n.args[1]; side = Side::Zero; break;
       case Op::Rsqrt: arg = n.args[0]; side = Side::NonPos; break;
-      case Op::Log: arg = n.args[0]; side = Side::NonPos; break;
+      case Op::Log:
+      case Op::Log2: arg = n.args[0]; side = Side::NonPos; break;
       case Op::Sqrt: arg = n.args[0]; side = Side::Neg; break;
       case Op::Pow: arg = n.args[0]; side = Side::Neg; break;
       default: continue;

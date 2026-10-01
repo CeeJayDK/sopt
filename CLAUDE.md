@@ -535,8 +535,16 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   isnan 12, atan2 10, log10 8, ceil 6, atan 6, asin 6. DXC: exp(x) = exp2(x * log2 e), log =
   log2 * ln 2, log10 = log2 * ln2/ln10, smoothstep = s * s * (3 - 2s) with s = saturate((x - a) /
   (b - a)), pow = exp2(y * log2 x) except pow(x, 2) = x * x (fxc compat mode: integer exponents as
-  multiply chains), atan/asin/acos/tan as polynomial expansions. Proposed (not decided): exp2 /
-  log2 ops (exp, log, pow then show their hidden mul, constants fold into the exponent),
-  smoothstep as a pure helper, radians / log10 / round / ceil / tan / cross next.
+  multiply chains), atan/asin/acos/tan as polynomial expansions. Done (owner's go "1, 2, 3"):
+  ops exp2 / log2 (inexact, gpu+/- step them; rdna3 16, nvidia 32: exp = 20 = mul + exp2),
+  round (to nearest even; GLSLstd450Round leaves ties to the driver) / ceil (exact), all non-base
+  (enumerated only when in the target); smoothstep a pure helper evaluated as DXC lowers it
+  (s * (s * (3 - 2s)), the division as the profile divides); radians / degrees / log10 / tan /
+  cross written out at parse time (`buildSugarCall`, expr.cpp; parser and sopt-fx). Library:
+  exp / log / pow -> exp2 / log2 with a constant folded into the multiply, exp2 / log sums, the
+  smoothstep expansion. Corpus (SweetFX + 10 packages, --list): 2328 -> 2487 regions. Open: the
+  exp rules need range conditions (rel 1e-6 vs the accurate CPU exp: the error grows with the
+  exponent), so exp(x * 2.0) on [-4, 4] is not rewritten; the search cannot find exp2(x * c)
+  itself (no inner scale fit).
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).

@@ -21,6 +21,12 @@ const std::array<OpInfo, static_cast<size_t>(Op::Count)> kInfo = {{
   {"log",       "",   Syntax::Call,      1, Shape::Comp,     false, false, false, 9},
   {"sin",       "",   Syntax::Call,      1, Shape::Comp,     false, false, false, 9},
   {"cos",       "",   Syntax::Call,      1, Shape::Comp,     false, false, false, 9},
+  // exp2 / log2: the hardware's transcendentals (exp and log are exp2(x * log2 e) and
+  // log2(x) * ln 2); round (to nearest even) and ceil: one instruction each.
+  {"exp2",      "",   Syntax::Call,      1, Shape::Comp,     false, false, false, 9},
+  {"log2",      "",   Syntax::Call,      1, Shape::Comp,     false, false, false, 9},
+  {"round",     "",   Syntax::Call,      1, Shape::Comp,     false, true,  false, 9},
+  {"ceil",      "",   Syntax::Call,      1, Shape::Comp,     false, true,  false, 9},
   {"add",       "+",  Syntax::Infix,     2, Shape::Comp,     true,  true,  true,  5},
   {"sub",       "-",  Syntax::Infix,     2, Shape::Comp,     false, true,  true,  5},
   {"mul",       "*",  Syntax::Infix,     2, Shape::Comp,     true,  true,  true,  6},
@@ -40,6 +46,8 @@ const std::array<OpInfo, static_cast<size_t>(Op::Count)> kInfo = {{
   {"lerp",      "",   Syntax::Call,      3, Shape::Comp,     false, true,  true,  9},
   {"clamp",     "",   Syntax::Call,      3, Shape::Comp,     false, true,  true,  9},
   {"select",    "?:", Syntax::Ternary,   3, Shape::Select,   false, true,  true,  2},
+  // smoothstep(a, b, x): a pure helper (not enumerated); inexact through its division.
+  {"smoothstep","",   Syntax::Call,      3, Shape::Comp,     false, false, true,  9},
   // dot/length/distance: a sum of products and a sqrt (inexact through sqrt/rsqrt and
   // the order of the sum); exact only as far as the ops they expand to.
   {"dot",       "",   Syntax::Call,      2, Shape::Reduce,   true,  true,  true,  9},
@@ -51,14 +59,15 @@ const std::array<OpInfo, static_cast<size_t>(Op::Count)> kInfo = {{
 }};
 
 // Per-op costs in Op order (input, const, neg, abs, saturate, floor, frac, sign, sqrt,
-// rsqrt, rcp, exp, log, sin, cos, add, sub, mul, div, min, max, step, pow,
-// lt, le, gt, ge, eq, ne, mad, lerp, clamp, select, dot, length, normalize, distance,
-// swizzle, construct). Costs are per float1; CostModel::opCost scales them to floatN,
-// the dot..distance entries are their float1 values (opCost computes them).
+// rsqrt, rcp, exp, log, sin, cos, exp2, log2, round, ceil, add, sub, mul, div, min, max,
+// step, pow, lt, le, gt, ge, eq, ne, mad, lerp, clamp, select, smoothstep, dot, length,
+// normalize, distance, swizzle, construct). Costs are per float1; CostModel::opCost
+// scales them to floatN; smoothstep and dot..distance are computed there (their entries
+// are placeholders >= 1).
 const CostModel kGeneric{"generic",
   {0, 0, 1, 1, 1, 2, 3, 2, 5,
-   5, 5, 6, 6, 6, 6, 2, 2, 3, 5, 2, 2, 2, 8,
-   2, 2, 2, 2, 2, 2, 4, 6, 3, 2,
+   5, 5, 6, 6, 6, 6, 5, 5, 2, 2, 2, 2, 3, 5, 2, 2, 2, 8,
+   2, 2, 2, 2, 2, 2, 4, 6, 3, 2, 1,
    3, 8, 11, 10, 1, 1},
   0, false};
 
@@ -72,8 +81,8 @@ const CostModel kGeneric{"generic",
 // combinations need an extra v_mov (a * 999.0 + 1.0 is 2 VALU, a * 0.3 + 0.7 is 1).
 const CostModel kRdna3{"rdna3",
   {0, 0, 1, 1, 1, 4, 4, 16, 16,
-   16, 16, 20, 20, 20, 20, 4, 4, 4, 20, 4, 4, 8, 36,
-   4, 4, 4, 4, 4, 4, 4, 8, 4, 4,
+   16, 16, 20, 20, 20, 20, 16, 16, 4, 4, 4, 4, 4, 20, 4, 4, 8, 36,
+   4, 4, 4, 4, 4, 4, 4, 8, 4, 4, 1,
    4, 20, 24, 24, 1, 1},
   1, true};
 // NVIDIA Ada (sm_89) SASS via ptxas + nvdisasm, in quarter-ALU units (4 = one FP32
@@ -84,8 +93,8 @@ const CostModel kRdna3{"rdna3",
 // FFMA takes one non-inline immediate, a second constant costs a MOV.
 const CostModel kNvidia{"nvidia",
   {0, 0, 1, 1, 1, 4, 8, 12, 32,
-   32, 32, 36, 36, 36, 36, 4, 4, 4, 36, 4, 4, 4, 68,
-   4, 4, 4, 4, 4, 4, 4, 8, 8, 4,
+   32, 32, 36, 36, 36, 36, 32, 32, 4, 4, 4, 4, 4, 36, 4, 4, 4, 68,
+   4, 4, 4, 4, 4, 4, 4, 8, 8, 4, 1,
    4, 36, 40, 40, 1, 1},
   1, true};
 
@@ -97,8 +106,8 @@ const CostModel kNvidia{"nvidia",
 // nvidia's own costs as order (10/11 examples vs 8/11, planted equal).
 const CostModel kSearch{"search",
   {0, 0, 1, 1, 1, 4, 4, 8, 8,
-   8, 8, 12, 12, 12, 12, 4, 4, 4, 12, 4, 4, 8, 20,
-   4, 4, 4, 4, 4, 4, 4, 8, 4, 4,
+   8, 8, 12, 12, 12, 12, 8, 8, 4, 4, 4, 4, 4, 12, 4, 4, 8, 20,
+   4, 4, 4, 4, 4, 4, 4, 8, 4, 4, 1,
    4, 12, 16, 16, 1, 1},
   1, true};
 // clang-format on
@@ -125,6 +134,9 @@ uint32_t CostModel::opCost(Op op, unsigned w) const {
     case Op::Length: return opCost(Op::Dot, w) + m[Op::Sqrt];
     case Op::Normalize: return opCost(Op::Dot, w) + m[Op::Rsqrt] + w * m[Op::Mul];
     case Op::Distance: return w * m[Op::Sub] + opCost(Op::Length, w);
+    // DXC: (x - a) / (b - a), saturate, 3 - 2s (one fma), two multiplies.
+    case Op::Smoothstep:
+      return w * (2 * m[Op::Sub] + m[Op::Div] + m[Op::Saturate] + m[Op::Mad] + 2 * m[Op::Mul]);
     case Op::Swizzle:
     case Op::Construct: return m[op];
     default: return info(op).shape == Shape::Cmp ? m[op] : w * m[op];

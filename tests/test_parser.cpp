@@ -41,6 +41,19 @@ TEST(parser_constant_folding) {
   CHECK(roundtrip("saturate(1.5)") == "1.0");
 }
 
+// Intrinsics written out the way DXC lowers them.
+TEST(parser_sugar) {
+  CHECK(roundtrip("radians(a)") == "a * 0.017453292");
+  CHECK(roundtrip("degrees(a)") == "a * 57.29578");
+  CHECK(roundtrip("log10(a)") == roundtrip("log2(a) * 0.3010299956639812"));
+  CHECK(roundtrip("tan(a)") == "sin(a) / cos(a)");
+  CHECK(throws("cross(a, b)"));  // float3 only
+  InputDecl u{"u", -1.0, 1.0, 0}, v{"v", -1.0, 1.0, 0};
+  u.type = v.type = Type::Float3;
+  const std::vector<InputDecl> in = {u, v};
+  CHECK(toString(parseExpr("cross(u, v)", in), in) == toString(parseExpr("u.yzx * v.zxy - u.zxy * v.yzx", in), in));
+}
+
 TEST(parser_errors) {
   CHECK(throws("foo(a)"));
   CHECK(throws("a +"));

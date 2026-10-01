@@ -285,6 +285,11 @@ class ExprParser {
       expect(")");
       if (tok.text == "float2" || tok.text == "float3" || tok.text == "float4")
         return makeConstruct(args, static_cast<unsigned>(tok.text[5] - '0'));
+      if (isSugarCall(tok.text, args.size())) {
+        if (tok.text == "cross" && (typeOf(args[0]) != Type::Float3 || typeOf(args[1]) != Type::Float3))
+          err("cross needs float3 operands");
+        return buildSugarCall(b_, tok.text, args.data(), args.size());
+      }
       const auto op = opFromCall(tok.text, static_cast<uint8_t>(args.size()));
       if (!op)
         err("unknown function " + tok.text + " with " + std::to_string(args.size()) + " arguments");

@@ -39,6 +39,28 @@ pow(x, 1.5) -> x * sqrt(x)
 pow(x, -0.5) -> rsqrt(x)
 pow(x, -1.0) -> rcp(x)
 
+# exp, log and pow are exp2 / log2 with a multiply (DXC: exp(x) = exp2(x * log2 e), log(x) =
+# log2(x) * ln 2, pow(x, y) = exp2(y * log2 x); GPUs only have the base-2 instructions), so a
+# constant factor folds into that multiply. The ranges keep the exponent small enough for
+# rel 1e-6 against the CPU's accurate exp / pow.
+exp(x * c) -> exp2(x * (c * 1.4426950408889634))   where c const, x in [-8, 8], c in [-1, 1]
+exp(x * c) -> exp2(x * (c * 1.4426950408889634))   where c const, x in [-100, 100], c in [-0.08, 0.08]
+exp(x / c) -> exp2(x * (1.4426950408889634 / c))   where c const, x in [-8, 8], c in [1, 100]
+log(x) * c -> log2(x) * (c * 0.6931471805599453)   where c const, x > 0
+log(x) / c -> log2(x) * (0.6931471805599453 / c)   where c const, x > 0, c != 0
+exp(c * log(x)) -> exp2(c * log2(x))   where c const, x > 0, c in [-8, 8]   # pow(x, c)
+pow(2.0, x) -> exp2(x)
+pow(c, x) -> exp2(x * log2(c))   where c const, c in [0.5, 2], x in [-8, 8]
+exp2(x) * exp2(y) -> exp2(x + y)   where x in [-8, 8], y in [-8, 8]
+exp(x) * exp(y) -> exp(x + y)      where x in [-8, 8], y in [-8, 8]
+log2(x) + log2(y) -> log2(x * y)   where x in [1e-18, 1e18], y in [1e-18, 1e18]
+log(x) + log(y) -> log(x * y)      where x in [1e-18, 1e18], y in [1e-18, 1e18]
+
+# smoothstep(a, b, x) = s * (s * (3 - 2s)) with s = saturate((x - a) / (b - a)) (DXC)
+smoothstep(a, b, x) -> saturate((x - a) / (b - a)) * (saturate((x - a) / (b - a)) * mad(saturate((x - a) / (b - a)), -2.0, 3.0))
+smoothstep(0.0, 1.0, x) -> saturate(x) * (saturate(x) * mad(saturate(x), -2.0, 3.0))
+smoothstep(0.0, 1.0, x) -> x * (x * mad(x, -2.0, 3.0))   where x in [0, 1]
+
 # clamping
 saturate(saturate(x)) -> saturate(x)
 min(max(x, 0.0), 1.0) -> saturate(x)

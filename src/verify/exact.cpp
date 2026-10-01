@@ -21,6 +21,10 @@ double exactOp(Op op, double x, double y, double z) {
     case Op::Log: return std::log(x);
     case Op::Sin: return std::sin(x);
     case Op::Cos: return std::cos(x);
+    case Op::Exp2: return std::exp2(x);
+    case Op::Log2: return std::log2(x);
+    case Op::Round: return std::nearbyint(x);
+    case Op::Ceil: return std::ceil(x);
     case Op::Add: return x + y;
     case Op::Sub: return x - y;
     case Op::Mul: return x * y;
@@ -39,6 +43,11 @@ double exactOp(Op op, double x, double y, double z) {
     case Op::Lerp: return x + z * (y - x);
     case Op::Clamp: return std::min(std::max(x, y), z);
     case Op::Select: return x != 0.0 ? y : z;
+    case Op::Smoothstep: {  // smoothstep(a = x, b = y, t = z)
+      const double q = (z - x) / (y - x);
+      const double s = q < 0.0 ? 0.0 : (q > 1.0 ? 1.0 : q);
+      return s * s * (3.0 - 2.0 * s);
+    }
     default: return 0.0;  // leaves and vector ops: see eval()
   }
 }
@@ -55,7 +64,7 @@ double scaleOp(Op op, double x, double y, double z, double sx, double sy, double
     case Op::Min: return y < x ? sy : sx;
     case Op::Max: return x < y ? sy : sx;
     case Op::Select: return x != 0.0 ? sy : sz;
-    case Op::Floor: case Op::Sign: case Op::Step:
+    case Op::Floor: case Op::Sign: case Op::Step: case Op::Round: case Op::Ceil:
     case Op::Lt: case Op::Le: case Op::Gt: case Op::Ge: case Op::Eq: case Op::Ne:
       return 0.0;  // piecewise constant: errors move the steps, they do not scale
     case Op::Frac: return sx;
@@ -74,6 +83,15 @@ double scaleOp(Op op, double x, double y, double z, double sx, double sy, double
     case Op::Exp: s = av * sx + av; break;
     case Op::Log: s = sx / std::fabs(x) + av; break;
     case Op::Sin: case Op::Cos: s = sx + av; break;
+    case Op::Exp2: s = av * 0.6931471805599453 * sx + av; break;
+    case Op::Log2: s = sx / (std::fabs(x) * 0.6931471805599453) + av; break;
+    case Op::Smoothstep: {  // d/dt = 6 q (1 - q) / (b - a) inside (0, 1), 0 outside
+      const double ba = y - x, q = (z - x) / ba;
+      if (q <= 0.0 || q >= 1.0) return 0.0;
+      const double sq = (sz + sx + std::fabs(z - x)) / std::fabs(ba) + std::fabs(q) * (sx + sy + std::fabs(ba)) / std::fabs(ba) + std::fabs(q);
+      s = 6.0 * q * (1.0 - q) * sq + 3.0 * av;
+      break;
+    }
     case Op::Pow: s = av * (std::fabs(y) * sx / std::fabs(x) + std::fabs(std::log(std::fabs(x))) * sy) + av; break;
     default: s = av; break;
   }
