@@ -1,6 +1,7 @@
 Two small changes to ReShade's internal shaders (patch against v6.8.0 attached,
 `internal-shaders.patch`, 9 files, +98/-5). Both were found while running a shader
-superoptimizer over ReShade's own shaders, and both were tested on a GTX 1660.
+superoptimizer over ReShade's own shaders, and both were tested on a GTX 1660; the copy change
+also on an Intel Iris 540.
 
 **1. copy_ps.hlsl: `Load` instead of `Sample` (D3D10/11/12)**
 
@@ -17,7 +18,8 @@ col.a = 1.0;
   On RDNA3 (RGA, gfx1100) it goes from 26 to 11 instructions; the attribute interpolation,
   `s_wqm` and the sampler descriptor load are gone. The DXBC is `ftoi` + `ld` instead of `sample`.
 - The result is bit-identical. Tested with D3D11 and a 4x MSAA back buffer at 1920x1080, with
-  Vibrance + Curves and with Vibrance alone: the screenshots have identical SHA256 hashes.
+  Vibrance + Curves and with Vibrance alone: the screenshots have identical SHA256 hashes, on a
+  GTX 1660 and on an Intel Iris 540.
 - The pass is bandwidth bound, so there is no visible FPS difference. The saving is issue slots
   and helper lanes.
 - Not in the patch, to keep it minimal: the copy sampler and its descriptor push could now be
@@ -45,4 +47,5 @@ four `texelFetch`.
 - D3D12 (`mipmap_cs_5_0.hlsl`) could do the same, but it reads through a UAV; a bilinear fetch
   would need an SRV and a sampler in the root signature. That is not part of this patch.
 
-**Not tested yet:** AMD and Intel hardware, and timings beyond "no visible difference".
+**Not tested yet:** AMD hardware, the OpenGL change on Intel, and timings beyond "no visible
+difference".
