@@ -528,5 +528,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   depth handling, the standard vertex shader) and DisplayDepth.fx (the tool for checking the
   depth buffer setup), both the owner's, from reshade-shaders; and SweetFX (popular, the
   owner's). The rest of reshade-shaders matters little.
+- DXC review (owner, 2026-10-01; sparse clone of microsoft/DirectXShaderCompiler, lib/HLSL/
+  HLOperationLower.cpp, DxilExpandTrigIntrinsics.cpp): intrinsic lowerings give the semantics and
+  cost of ops sopt lacks. Corpus skips (12 packages, `--list --skips`): smoothstep 223, exp2 145,
+  mul (matrix) 101, all 94, radians 76, ddx 51, tan 37, log2 34, cross 33, round 20, fwidth 13,
+  isnan 12, atan2 10, log10 8, ceil 6, atan 6, asin 6. DXC: exp(x) = exp2(x * log2 e), log =
+  log2 * ln 2, log10 = log2 * ln2/ln10, smoothstep = s * s * (3 - 2s) with s = saturate((x - a) /
+  (b - a)), pow = exp2(y * log2 x) except pow(x, 2) = x * x (fxc compat mode: integer exponents as
+  multiply chains), atan/asin/acos/tan as polynomial expansions. Proposed (not decided): exp2 /
+  log2 ops (exp, log, pow then show their hidden mul, constants fold into the exponent),
+  smoothstep as a pure helper, radians / log10 / round / ceil / tan / cross next.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
