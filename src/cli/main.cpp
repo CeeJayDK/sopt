@@ -49,8 +49,9 @@ void usage() {
       "                    memory budget holds fingerprints, the rest go to zstd-compressed\n"
       "                    tiles in DIR (a temporary file); --disk-max GB caps it (default:\n"
       "                    the free space minus a reserve)\n"
-      "  --two-phase       only strictly cheaper hits first (deepest search), then the slack's\n"
-      "                    alternatives near the best in the last quarter of the time\n"
+      "  --no-two-phase    one phase with the slack (default: only strictly cheaper hits first,\n"
+      "                    the deepest search, then the slack's alternatives near the best in\n"
+      "                    the last quarter of the time)\n"
       "  --no-library      no rule library (default: rewrite with library/rewrites.txt or\n"
       "                    $SOPT_LIBRARY before the search; the forms are candidates and seed it)\n"
       "  --library-file F  the rule library in F\n"
@@ -165,6 +166,7 @@ int main(int argc, char** argv) {
     else if (a == "--library") opt.library = true;
     else if (a == "--no-library") opt.library = false;
     else if (a == "--two-phase") opt.search.twoPhase = true;
+    else if (a == "--no-two-phase") opt.search.twoPhase = false;
     else if (a == "--check-library") checkLibrary = true;
     else if (a == "--library-file") {
       static Library lib;  // alive for the whole run

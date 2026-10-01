@@ -181,8 +181,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - Every new search technique goes behind a flag and must improve time-to-best on the
   bench (section 6 of the design) before becoming default, unless the owner decides
   otherwise (shared leaves, subtrees and cut points: default by the owner's decision, 2026-09-27;
-  top-down split and library 2026-09-29). Tests that check what the bank alone reaches (test_rewrites
-  expectRewrite) turn off overflow, shared leaves, subtrees, cuts, top-down and the library.
+  top-down split and library 2026-09-29, two-phase 2026-10-01). Tests that check what the bank alone
+  reaches (test_rewrites expectRewrite) turn off overflow, shared leaves, subtrees, cuts, top-down,
+  two-phase and the library.
 
 ## Known limitations (v1, by design)
 - Bank cost is tree cost: solutions that need a shared intermediate value are missed
@@ -506,8 +507,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   conditions. Corpus: 44 variants checked, none 8-bit only, 5 SDR only, all rightly (they drop
   a clamp that only [0, 1] makes redundant): EyeAdaption 167 pow(saturate(c), 1/2.2), Tonemap.fxh
   173 abs(...), PD80 Color_Gamut 182 max(..., 0), PD80 Film_Grain 427 x2 saturate.
-- Two-phase search (owner's idea, 2026-09-29; flag `--two-phase`, SearchConfig::twoPhase, not
-  default): phase 1 slack -1 (only strictly cheaper hits); once there is a hit, from the end of
+- Two-phase search (owner's idea, 2026-09-29; SearchConfig::twoPhase, default since 2026-10-01 by
+  the owner's decision, `--no-two-phase`): phase 1 slack -1 (only strictly cheaper hits); once there is a hit, from the end of
   the levels or 75% of the time on, phase 2 goes over the levels again with the slack, trying
   only candidates phase 1 pruned (`p1Level_` / `p1Limit_`), plus `refitPass` (fitted hits of
   stored entries that phase 1's bound rejected); top-down and the bank-full pressure are off in

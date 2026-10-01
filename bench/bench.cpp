@@ -171,6 +171,7 @@ int main(int argc, char** argv) {
     else if (a == "--library") opt.library = true;
     else if (a == "--no-library") opt.library = false;
     else if (a == "--two-phase") opt.search.twoPhase = true;
+    else if (a == "--no-two-phase") opt.search.twoPhase = false;
     else if (a == "--library-file") {
       static Library lib;  // alive for the whole run
       const char* f = next();

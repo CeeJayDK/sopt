@@ -47,12 +47,12 @@ struct SearchConfig {
   // on the stage-2 points) is the starting best-so-far bound.
   std::vector<Expr> seeds;
   uint32_t seedBound = 0;
-  // Two phases (owner, 2026-09-29, flag --two-phase): first only strictly cheaper hits
+  // Two phases (owner, 2026-09-29; default since 2026-10-01, --no-two-phase): first only strictly cheaper hits
   // (slack -1: the most pruning, so the search gets deepest fastest); then, from the end of
   // the levels or phase1Share of the time on, the levels once more with the slack above,
   // only for the candidates phase 1 pruned: equally fast or slightly slower, more accurate
   // alternatives near the best. Only once a hit exists (else phase 1 takes all the time).
-  bool twoPhase = false;
+  bool twoPhase = true;
   double phase1Share = 0.75;
   std::string diskDir;
   size_t diskBudget = 0;
