@@ -38,7 +38,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   NVIDIA: `SOPT_PTXAS=... SOPT_NVDISASM=... build/sopt ... --sass` (pip:
   nvidia-cuda-nvcc-cu12 for ptxas, nvidia-cuda-nvdisasm for nvdisasm).
   Harness (M4, Windows): `sopt-host --api dx11|vulkan --bench` with ReShade (full add-on
-  support) and `sopt-timer.addon64` (tools/timer/README.md); CI artifact sopt-windows-tools.
+  support) and `sopt-timer.addon64`; one click: `run-bench.bat` (tools/windows/README.md: ReShade64.dll or
+  the ReShade add-on setup exe + a test package next to it; DX11 + Vulkan, screenshots, results zip);
+  CI artifact sopt-windows-tools (flat folder).
   Tools: ReShade-Testing-Initiative (`build_reshade_testing_initiative.sh`, needs
   spirv-tools, flex, bison) and RGA 2.14 (`rga-linux-2.14.tgz` from GitHub releases).
 
@@ -72,13 +74,16 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   fewer for 58, more for 2 (Temporal_AA rational forms, faster in AMD/NVIDIA ISA). SPIR-V
   identity is too strict (inputs read from the test texture differently, e.g. Daltonize
   folds to 0 alu in both): counts only; DXBC identity is meaningful.
-- `tools/timer` (sopt-timer, ReShade add-on): passive per-technique GPU timestamps (median,
+- `tools/windows` (Windows bench, owner 2026-10-01: one folder, documented in its README.md;
+  `run-bench.ps1` / `.bat`: own run folder and ReShade.ini, ReShade as dxgi.dll for DX11 and as a
+  Vulkan layer via VK_ADD_LAYER_PATH / VK_INSTANCE_LAYERS, sopt-timer Screenshots=1).
+  `tools/windows/timer` (sopt-timer, ReShade add-on): passive per-technique GPU timestamps (median,
   p10-p90, 60-frame mean like ReShade's statistics); bench walks the bundle's sopt-*.ini
   presets, renders each X_orig / X_sopt pair itself on the frame before any effect (A B B A /
   B A A B, per-frame paired difference), writes sopt-timer.csv. ReShade does not send an
   add-on the events its own render_technique causes: validity = the chain rendered the
   technique this frame. D3D11 frames bracketed by TIMESTAMP_DISJOINT (ReShade never checks).
-  `tools/host` (sopt-host): DX11 / Vulkan window, fixed image, vsync off; Vulkan loaded at
+  `tools/windows/host` (sopt-host): DX11 / Vulkan window, fixed image, vsync off; Vulkan loaded at
   run time; synthetic depth (owner's go 2026-09-27): z prepass of a procedural scene,
   reversed Z, 256x144 grid in 144 draws (generic depth skips <= 3 vertices / <= 8 draws),
   shaders depth.hlsl -> depth_dxbc.h (Microsoft D3DCompile) and depth.vert -> depth_spv.h;
@@ -339,8 +344,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
    made it much easier).
 1. Optional (owner: "could"): after search, try re-writing the best candidates with pure
    helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only.
-2. M4: backend normalization done; harness written (sopt-timer + sopt-host), waiting for
-   the owner's first runs on Windows (AMD/NVIDIA, DX11/Vulkan). Then: new test package
+2. M4: backend normalization done; harness written (sopt-timer + sopt-host + one-click
+   run-bench.bat), waiting for the owner's first runs on Windows (AMD/NVIDIA, DX11/Vulkan;
+   owner, 2026-10-01: remind them to test it, resend the artifact link and a test package). Then: new test package
    (bundle presets double as bench presets), merge sopt-timer.csv results into the report.
 3. M5 rest: probe effect, facts database, `__DEVICE__` paths.
 4. M7 search scaling (owner's go 2026-09-27). Default since 2026-09-27 (owner: "not too much

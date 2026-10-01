@@ -1,4 +1,44 @@
-# sopt-timer and sopt-host (M4 benchmark harness)
+# Windows bench tools (M4)
+
+Measures the real speed of sopt's variants on a Windows PC: every `X_orig` / `X_sopt` pair of a
+test package is timed on the GPU, on DX11 and Vulkan, with a screenshot per preset.
+
+## Quick start (one click)
+
+1. Download the `sopt-windows-tools` artifact of the latest CI run (GitHub, Actions, the run's
+   Artifacts) and extract it into a folder.
+2. Put into the same folder:
+   - `ReShade64.dll` from ReShade **with full add-on support**, or simply the
+     `ReShade_Setup_X.Y.Z_Addon.exe` installer from https://reshade.me (the script takes the DLL
+     out of it; nothing gets installed);
+   - the test package: the extracted `sopt-compare-*.zip` (a folder with `sopt-presets\` and
+     `reshade-shaders\`).
+3. Double-click `run-bench.bat`. A 4K window opens and closes by itself, first for DX11, then
+   for Vulkan; each preset warms up, is timed for 300 frames and gets a screenshot.
+4. Send the `results-<date>.zip` it writes next to the script: `sopt-timer-dx11.csv`,
+   `sopt-timer-vulkan.csv`, the screenshots per API (`screenshots\dx11`, `screenshotsulkan`;
+   the bundle's presets end in the Compare effect, so a black image means orig and sopt render
+   the same), ReShade's logs and the GPU name.
+
+Options (`run-bench.bat -Apis dx11 -Frames 600 -Width 2560 -Height 1440`): `-Apis`, `-Frames`,
+`-Width`, `-Height`, `-ReShade <dll>`, `-Package <folder>`. The run uses its own folder (`run\`)
+with its own `ReShade.ini`, so no ReShade installation and no game is touched. Vulkan uses the
+DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host only.
+
+## Contents
+
+| file | what |
+|---|---|
+| `sopt-host.exe` | a window with a fixed test image and a synthetic depth buffer, vsync off (DX11 or Vulkan) |
+| `sopt-timer.addon64` / `.addon32` | the ReShade add-on that times the techniques and runs the bench |
+| `run-bench.bat`, `run-bench.ps1` | the one-click bench above |
+| `sopt-fxc.exe` | Microsoft's fxc -O3 on one HLSL entry point (for `sopt-fx --backends`, see tools/fxc) |
+| `timings.py` | merges several CSVs into one Markdown table |
+
+Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host), this
+folder (scripts).
+
+# sopt-timer and sopt-host (details)
 
 **sopt-timer** is a ReShade add-on (`sopt-timer.addon64`). It needs ReShade *with full add-on
 support*: the standard build skips `.addon` files.
@@ -46,9 +86,10 @@ Settings go in the `[SOPT_TIMER]` section of `ReShade.ini`:
 | `PresetPattern` (name prefix) | `sopt-` |
 | `AutoRun` | 0 |
 | `ExitWhenDone` | 0 |
+| `Screenshots` (one per preset after the warm-up, ReShade's screenshot path) | 0 |
 
 Several CSVs (DX11 / Vulkan, AMD / NVIDIA) merge into one Markdown table:
-`python3 tools/timer/timings.py dx11-amd.csv vulkan-nv.csv > timings.md`. Each cell reads
+`python3 tools/windows/timer/timings.py dx11-amd.csv vulkan-nv.csv > timings.md`. Each cell reads
 orig -> sopt in µs, followed by the median difference in % and a verdict. The verdict comes
 from the difference's p10 and p90:
 - faster: both are below 0;
@@ -81,7 +122,7 @@ prepass does, so ReShade's generic depth picks it up and depth effects do real w
 - The format is D24S8 (typeless) on DX11 and D32 on Vulkan.
 - `--no-depth` leaves it out.
 
-The shaders are `tools/host/depth.hlsl` and `tools/host/depth.vert`; keep them in sync.
+The shaders are `tools/windows/host/depth.hlsl` and `tools/windows/host/depth.vert`; keep them in sync.
 They are embedded as `depth_dxbc.h`, compiled with Microsoft's `D3DCompile` (vs_5_0,
 entry VS, O3), and `depth_spv.h` (`glslangValidator -V depth.vert`). In D3D11,
 `SV_VertexID` does not include a draw's start vertex, so the vertex index comes from a

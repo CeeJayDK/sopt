@@ -66,6 +66,7 @@ struct Config {
   int warmup = 120, frames = 300, repeats = 2;
   std::string pattern = "sopt-";
   bool autoRun = false, exitWhenDone = false;
+  bool screenshots = false;  // one screenshot per preset once it has warmed up (ReShade's SavePath)
 };
 
 enum class Phase { Idle, Switch, Settle, Measure, Done };
@@ -151,6 +152,7 @@ void readConfig() {
   reshade::get_config_value(nullptr, "SOPT_TIMER", "Repeats", c.repeats);
   reshade::get_config_value(nullptr, "SOPT_TIMER", "AutoRun", c.autoRun);
   reshade::get_config_value(nullptr, "SOPT_TIMER", "ExitWhenDone", c.exitWhenDone);
+  reshade::get_config_value(nullptr, "SOPT_TIMER", "Screenshots", c.screenshots);
   char pat[256] = "";
   size_t n = sizeof(pat);
   if (reshade::get_config_value(nullptr, "SOPT_TIMER", "PresetPattern", pat, &n) && pat[0]) c.pattern = pat;
@@ -158,6 +160,7 @@ void readConfig() {
   char env[16];
   if (GetEnvironmentVariableA("SOPT_TIMER_AUTO", env, sizeof(env))) c.autoRun = std::atoi(env) != 0;
   if (GetEnvironmentVariableA("SOPT_TIMER_EXIT", env, sizeof(env))) c.exitWhenDone = std::atoi(env) != 0;
+  if (GetEnvironmentVariableA("SOPT_TIMER_SHOTS", env, sizeof(env))) c.screenshots = std::atoi(env) != 0;
   c.warmup = std::max(c.warmup, 8);
   c.frames = std::max(c.frames, 10);
   c.repeats = std::clamp(c.repeats, 1, 16);
@@ -423,6 +426,9 @@ void stepBench(effect_runtime* rt) {
       for (const Pair& p : g.pairs) ready = ready && chainRendered(p.a) && chainRendered(p.b);
       g.settle = ready ? g.settle + 1 : 0;
       if (g.settle >= g.cfg.warmup) {
+        // The preset's chain as displayed (for the bundle's presets: the Compare difference
+        // image, black where orig and sopt agree), named after the preset.
+        if (g.cfg.screenshots) rt->save_screenshot((" " + utf8(fs::u8path(g.presets[g.presetIdx]).stem())).c_str());
         ++g.gen;
         g.phase = Phase::Measure;
         g.tick = GetTickCount64();
