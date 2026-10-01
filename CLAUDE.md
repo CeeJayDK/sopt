@@ -550,5 +550,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   exp rules need range conditions (rel 1e-6 vs the accurate CPU exp: the error grows with the
   exponent), so exp(x * 2.0) on [-4, 4] is not rewritten; the search cannot find exp2(x * c)
   itself (no inner scale fit).
+- Mesa review (owner sent nir_opt_algebraic.py, nir_opcodes.py, nir_search_helpers.h,
+  aco_optimizer.cpp, 2026-10-01; gitlab.freedesktop.org is blocked here): the rule file run with
+  stub modules (scratchpad mesa/dump.py, translate.py) gives 3461 rules, 188 float rules in
+  sopt's ops, 169 pass `--check-library`, 117 cheaper in rdna3; 57 curated (not trivial, not
+  already in the library) in scratchpad mesa/curated.txt, all pass: waiting for the owner.
+  Failing ones are the add reassociations and lerp <-> a + t(b - a) (the mix profile).
+  ACO (RADV's AMD compiler) context effects the rdna3 model lacks: output modifier omod
+  (x * 2, * 4, * 0.5, also negated, folded into the producing VALU op, needs FTZ and no
+  signed-zero preservation; rcp(x) * 0.5 too), v_max3 / v_min3 (max(max(a, b), c) one
+  instruction), GFX11 v_minmax / v_maxmin (min(max(a, b), c)), v_med3 (clamp to constants),
+  (cond ? 1 : 0) * a -> one cndmask, clamp and neg / abs modifiers free. Proposed (not
+  decided): context costs in the rdna3 model.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
