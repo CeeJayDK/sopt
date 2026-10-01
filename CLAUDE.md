@@ -576,7 +576,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   full-screen copy, the saving is issue slots / helper lanes, microseconds; not a technique, so
   sopt-timer does not see it; PIX / Nsight would). Still to do: the OpenGL mipmap test; then
   report to crosire.
-  Owner's idea (go 2026-10-01): sopt-opbench (tools/windows/opbench, run-opbench.bat, in the
+  Owner's idea (go 2026-10-01): sopt-opbench (tools/windows/opbench, measure-gpu.bat, in the
   sopt-windows-tools artifact): D3D11 compute tests, HLSL generated and compiled at run time with
   D3DCompile -O3 (the ReShade D3D path), steps x = mad(f(x, c), c.x, c.y) in long chains with
   per-step cbuffer constants (nothing folds; checked in the DXBC: fxc writes x * 2 as add x, x),

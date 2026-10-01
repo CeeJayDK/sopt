@@ -6,17 +6,15 @@ test package is timed on the GPU, on DX11 and Vulkan, with a screenshot per pres
 ## Quick start (one click)
 
 1. Download the `sopt-windows-tools` artifact of the latest CI run (GitHub, Actions, the run's
-   Artifacts) and extract it into a folder.
-2. Put into the same folder:
-   - `ReShade64.dll` from ReShade **with full add-on support**, or simply the
-     `ReShade_Setup_X.Y.Z_Addon.exe` installer from https://reshade.me (the script takes the DLL
-     out of it; nothing gets installed);
-   - the test package: the extracted `sopt-compare-*.zip` (a folder with `sopt-presets\` and
-     `reshade-shaders\`).
+   Artifacts) and extract it into a folder. It contains everything, `ReShade64.dll` included
+   (ReShade 6.8.0 with full add-on support, built by CI from crosire's unchanged source; an
+   official add-on build next to the script works too).
+2. Extract the test package (`sopt-compare-*.zip`, a folder with `sopt-presets\` and
+   `reshade-shaders\`) into the same folder.
 3. Double-click `run-bench.bat`. A 4K window opens and closes by itself, first for DX11, then
    for Vulkan; each preset warms up, is timed for 300 frames and gets a screenshot.
 4. Send the `results-<date>.zip` it writes next to the script: `sopt-timer-dx11.csv`,
-   `sopt-timer-vulkan.csv`, the screenshots per API (`screenshots\dx11`, `screenshotsulkan`;
+   `sopt-timer-vulkan.csv`, the screenshots per API (`screenshots\dx11`, `screenshots\vulkan`;
    the bundle's presets end in the Compare effect, so a black image means orig and sopt render
    the same), ReShade's logs and the GPU name.
 
@@ -34,7 +32,8 @@ DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host
 | `run-bench.bat`, `run-bench.ps1` | the one-click bench above |
 | `sopt-fxc.exe` | Microsoft's fxc -O3 on one HLSL entry point (for `sopt-fx --backends`, see tools/fxc) |
 | `timings.py` | merges several CSVs into one Markdown table |
-| `sopt-opbench.exe`, `run-opbench.bat` | instruction costs on this GPU, for sopt's cost models (below) |
+| `ReShade64.dll`, `ReShade-LICENSE.md` | ReShade 6.8.0, full add-on support, unchanged (CI build) |
+| `sopt-opbench.exe`, `measure-gpu.bat` | instruction costs on this GPU, for sopt's cost models (below) |
 
 Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host),
 `tools/windows/opbench` (sopt-opbench), this folder (scripts).
@@ -139,7 +138,7 @@ vertex buffer.
 
 ## sopt-opbench (instruction costs)
 
-`run-opbench.bat` (or `sopt-opbench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
+`measure-gpu.bat` (or `sopt-opbench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
 measures what single instructions and instruction patterns cost on this PC's GPU, to calibrate
 sopt's cost models (rdna3, nvidia). No ReShade or game needed; close GPU-heavy programs first.
 It takes a few minutes and writes `opbench-<gpu>.csv` (send that) and `opbench-dxbc\` (the HLSL
