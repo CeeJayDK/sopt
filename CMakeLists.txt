@@ -139,6 +139,8 @@ if(WIN32)
   add_executable(sopt-opbench tools/windows/opbench/sopt_opbench.cpp)
   target_compile_features(sopt-opbench PRIVATE cxx_std_17)
   target_link_libraries(sopt-opbench PRIVATE d3d11 dxgi d3dcompiler)
+  # Static C runtime: the exe is handed to other people, who may not have the VC++ redistributable.
+  set_property(TARGET sopt-opbench PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 
 if(SOPT_BUILD_TESTS)
