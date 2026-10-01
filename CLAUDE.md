@@ -589,7 +589,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   D3DCompile -O3 (the ReShade D3D path), steps x = mad(f(x, c), c.x, c.y) in long chains with
   per-step cbuffer constants (nothing folds; checked in the DXBC: fxc writes x * 2 as add x, x),
   cost = (time - base test's time) / mad time * 4; configs tput (8 chains, 1M threads), dep,
-  lat; single ops plus omod / max3 / minmax / satmad / contract. Waiting for the owner's runs
-  (GTX 1660, Intel NUC). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+  lat; single ops plus omod / max3 / minmax / satmad / contract. Results in docs/opbench/.
+  Intel Iris 540 (Gen9, NUC, 2026-10-01), tput, extra cost over the base (mad = 4): add / sub /
+  mad / floor / ceil / round / frac / step ~4 (one op), min / max 4.5, neg / abs / saturate ~0
+  (modifiers, satmad 0.0), clamp 8.3 (no med3), max3 / minmax +3 (no 3-operand form), select /
+  lerp 7.4 (two ops), sign 14, rcp / sqrt / rsqrt / exp2 / log2 / cos ~11.9 (3x an fma), sin 13.4,
+  exp 14.3, log 12, pow 29.7; omod2 (x + x after rcp) +2.3, x * 0.5 / x * 3 after rcp +0.8 (the
+  mul pairs with the math op); a mul by a uniform before a mad was free in tput (the driver
+  reassociates x * c1 * c2 with loop-invariant constants) but one op in dep / lat. Latency (lat):
+  simple ops like mad, math ops ~2.9x. The fma rate was 0.31 TFLOPS (~40% of the nominal peak).
+  Proposed (not decided): an `intel` cost model from these numbers. Waiting for the GTX 1660 run. Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
