@@ -101,12 +101,14 @@ const CostModel& costGeneric();
 const CostModel& costRdna3();
 // nvidia: NVIDIA Ada SASS (ptxas + nvdisasm) in quarter-ALU units, MUFU at 8x.
 const CostModel& costNvidia();
+// intel-gen9: Intel Gen9 (Iris 540) from sopt-opbench timings, quarter units, math unit ~3x.
+const CostModel& costIntelGen9();
 // Default is rdna3 (searched in search order); --isa / --sass rank by real machine code.
 const CostModel& defaultCostModel();
 const CostModel* costModelByName(std::string_view name);
 // --no-amd-folds: rdna3 without CostModel::amdFolds (other models unchanged).
 const CostModel* withoutAmdFolds(const CostModel* m);
-// Enumeration order used when none is given: search for rdna3 and nvidia, else the model.
+// Enumeration order used when none is given: search for rdna3, nvidia and intel-gen9, else the model.
 const CostModel& defaultOrderFor(const CostModel& objective);
 
 // Backend semantic profiles. The same FX source can evaluate differently:

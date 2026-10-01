@@ -6,9 +6,10 @@ Full design and milestones: `docs/design.md` (Danish). Status: M0, M1, M2 done (
 MSVC/GCC/Clang, golden hashes match); M3 done (`sopt-fx`: FX front end, regions,
 facts, budgets, variant .fx; owner's ReShade test passed on DX11 and Vulkan); plus RDNA3 cost model, `gpu` semantic profile, ISA
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
-a separate enumeration order model (`--order-model`; rdna3 and nvidia default to
+a separate enumeration order model (`--order-model`; rdna3, nvidia and intel-gen9 default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
-cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost model: rdna3.
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), an `intel-gen9` cost model
+(sopt-opbench timings). Default cost model: rdna3.
 
 ## Working with the owner
 - Owner's principle (2026-09-26): fewer instructions at equal measured speed are still
@@ -598,6 +599,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   mul pairs with the math op); a mul by a uniform before a mad was free in tput (the driver
   reassociates x * c1 * c2 with loop-invariant constants) but one op in dep / lat. Latency (lat):
   simple ops like mad, math ops ~2.9x. The fma rate was 0.31 TFLOPS (~40% of the nominal peak).
-  Proposed (not decided): an `intel` cost model from these numbers. Waiting for the GTX 1660 run. Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+  Owner's go: cost model `intel-gen9` (`--cost-model intel-gen9`, ops.cpp kIntelGen9, search order;
+  owner: Iris 540 / Gen9 differs a lot from Arc, so it is named for Gen9 only). Not used by sopt-fx's
+  measured columns or SOPT_AUTO (no Intel ISA tool). Waiting for the GTX 1660 run. Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).

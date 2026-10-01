@@ -68,7 +68,7 @@ void usage() {
       "  --max-statements N  statements per window: a statement with the single-use\n"
       "                    temporaries it reads or the statements before it that compute\n"
       "                    its variable (default 4; 1 = single statements only)\n"
-      "  --cost-model M    rdna3 | nvidia | generic (default rdna3)\n"
+      "  --cost-model M    rdna3 | nvidia | intel-gen9 | generic (default rdna3)\n"
       "  --isa             measure original and variants with fxstat + RGA (AMD); variants\n"
       "                    must be cheaper for some measured vendor ($SOPT_FXSTAT, $SOPT_RGA)\n"
       "  --sass            same with ptxas + nvdisasm (NVIDIA; $SOPT_PTXAS, $SOPT_NVDISASM)\n"
