@@ -1,7 +1,7 @@
 // sopt-opbench: measures what single GPU instructions and instruction patterns cost on the
 // GPU in this machine (owner's idea, 2026-10-01), to calibrate sopt's cost models.
 //
-//   sopt-opbench [--adapter N] [--list] [--filter text] [--reps N] [--out file.csv]
+//   sopt-opbench [--adapter N] [--list] [--filter text] [--reps N] [--out file.csv] [--groups N]
 //
 // Every test is one HLSL step x = f(x, c) repeated in long dependent chains in a D3D11 compute
 // shader (compiled at run time with Microsoft's D3DCompile -O3, as ReShade does on D3D9-12; the
@@ -99,7 +99,7 @@ struct Config {
   int chains;
   UINT groups;
 };
-const Config kConfigs[] = {{"tput", 8, kGroupsFull}, {"dep", 1, kGroupsFull}, {"lat", 1, 1}};
+Config kConfigs[] = {{"tput", 8, kGroupsFull}, {"dep", 1, kGroupsFull}, {"lat", 1, 1}};
 
 [[noreturn]] void fail(const std::string& what) {
   std::fprintf(stderr, "sopt-opbench: %s\n", what.c_str());
@@ -244,8 +244,11 @@ int main(int argc, char** argv) {
     else if (a == "--filter") filter = next();
     else if (a == "--reps") reps = std::max(1, std::atoi(next()));
     else if (a == "--out") outPath = next();
-    else {
-      std::printf("usage: sopt-opbench [--adapter N] [--list] [--filter text] [--reps N] [--out file.csv]\n");
+    else if (a == "--groups") {  // thread groups of 64 for tput / dep (default 16384; small for a quick check)
+      const UINT n = UINT(std::max(1, std::min(int(kGroupsFull), std::atoi(next()))));
+      kConfigs[0].groups = kConfigs[1].groups = n;
+    } else {
+      std::printf("usage: sopt-opbench [--adapter N] [--list] [--filter text] [--reps N] [--out file.csv] [--groups N]\n");
       return a == "-h" || a == "--help" ? 0 : 1;
     }
   }
@@ -382,7 +385,7 @@ int main(int argc, char** argv) {
     g.ctx->CSSetShader(shaders["tput"]["mad"], nullptr, 0);
     setConstants(g, *mad, 256);
     const ULONGLONG start = GetTickCount64();
-    while (GetTickCount64() - start < 1500) timeDispatch(g, kGroupsFull);
+    while (GetTickCount64() - start < 1500) timeDispatch(g, kConfigs[0].groups);
   }
 
   for (const Config& c : kConfigs) {

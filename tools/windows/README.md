@@ -139,7 +139,7 @@ vertex buffer.
 
 ## sopt-opbench (instruction costs)
 
-`run-opbench.bat` (or `sopt-opbench.exe [--adapter N] [--list] [--filter text] [--reps N]`)
+`run-opbench.bat` (or `sopt-opbench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
 measures what single instructions and instruction patterns cost on this PC's GPU, to calibrate
 sopt's cost models (rdna3, nvidia). No ReShade or game needed; close GPU-heavy programs first.
 It takes a few minutes and writes `opbench-<gpu>.csv` (send that) and `opbench-dxbc\` (the HLSL
