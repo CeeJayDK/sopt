@@ -3,7 +3,7 @@
 // time (vulkan-1.dll), no SDK needed.
 //
 //   sopt-host [--api dx11|vulkan] [--width 3840] [--height 2160] [--image file.png]
-//             [--frames N] [--bench] [--no-depth]
+//             [--frames N] [--bench] [--no-depth] [--msaa N]
 //
 // --bench sets SOPT_TIMER_AUTO=1 and SOPT_TIMER_EXIT=1: sopt-timer runs its bench over the
 // sopt-*.ini presets and closes the window when done. Without --image the input is a
@@ -13,6 +13,9 @@
 // (ground plane up to a horizon, sky at the far plane, three spheres; reversed Z like
 // most current games and ReShade's default, near 0.1, far 1000), so ReShade's generic depth picks it up and depth effects do real
 // work. --no-depth leaves it out.
+// --msaa N (dx11): an N-sample back buffer (blt-model swap chain, no tearing). ReShade then
+// renders into a resolve texture and copies the result back with its copy_ps shader every frame,
+// the path its internal copy shader change affects.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -37,6 +40,7 @@
 #include <string>
 #include <vector>
 
+#include "blit_dxbc.h"
 #include "depth_dxbc.h"
 #include "depth_spv.h"
 
@@ -49,6 +53,7 @@ struct Options {
   uint64_t frames = 0;   // 0 = until closed
   bool bench = false;
   bool depth = true;
+  uint32_t msaa = 1;     // dx11: back buffer sample count
 };
 
 void fail(const char* what) {
@@ -220,15 +225,22 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
     if (FAILED(f5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &tearing, sizeof(tearing)))) tearing = FALSE;
     f5->Release();
   }
+  const bool msaa = o.msaa > 1;
+  if (msaa) {
+    UINT quality = 0;
+    if (FAILED(dev->CheckMultisampleQualityLevels(DXGI_FORMAT_R8G8B8A8_UNORM, o.msaa, &quality)) || quality == 0)
+      fail("the GPU does not support this --msaa sample count");
+    tearing = FALSE;  // flip-model only
+  }
   DXGI_SWAP_CHAIN_DESC1 sd = {};
   sd.Width = o.width;
   sd.Height = o.height;
   sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-  sd.SampleDesc.Count = 1;
+  sd.SampleDesc.Count = o.msaa;
   sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-  sd.BufferCount = 3;
+  sd.BufferCount = msaa ? 1 : 3;
   sd.Scaling = DXGI_SCALING_STRETCH;
-  sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+  sd.SwapEffect = msaa ? DXGI_SWAP_EFFECT_DISCARD : DXGI_SWAP_EFFECT_FLIP_DISCARD;  // flip model has no MSAA
   sd.Flags = tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
   IDXGISwapChain1* sc = nullptr;
   if (FAILED(factory->CreateSwapChainForHwnd(dev, hwnd, &sd, nullptr, nullptr, &sc))) fail("cannot create swap chain");
@@ -245,6 +257,22 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   const D3D11_SUBRESOURCE_DATA init = {px.data(), o.width * 4, 0};
   ID3D11Texture2D* img = nullptr;
   if (FAILED(dev->CreateTexture2D(&td, &init, &img))) fail("cannot create image texture");
+
+  // --msaa: the image is drawn into the back buffer (a copy cannot change the sample count).
+  ID3D11ShaderResourceView* imgSrv = nullptr;
+  ID3D11RenderTargetView* bbRtv = nullptr;
+  ID3D11VertexShader* blitVs = nullptr;
+  ID3D11PixelShader* blitPs = nullptr;
+  if (msaa) {
+    ID3D11Texture2D* bb = nullptr;
+    sc->GetBuffer(0, IID_PPV_ARGS(&bb));
+    const bool ok = SUCCEEDED(dev->CreateShaderResourceView(img, nullptr, &imgSrv)) &&
+                    SUCCEEDED(dev->CreateRenderTargetView(bb, nullptr, &bbRtv)) &&
+                    SUCCEEDED(dev->CreateVertexShader(kBlitVsDxbc, sizeof(kBlitVsDxbc), nullptr, &blitVs)) &&
+                    SUCCEEDED(dev->CreatePixelShader(kBlitPsDxbc, sizeof(kBlitPsDxbc), nullptr, &blitPs));
+    bb->Release();
+    if (!ok) fail("cannot create the --msaa image pass");
+  }
 
   // Depth pass objects: a D24S8 depth buffer (typeless, like most games) and a depth-only
   // draw of the scene.
@@ -290,10 +318,23 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   const D3D11_VIEWPORT vp = {0.0f, 0.0f, float(o.width), float(o.height), 0.0f, 1.0f};
 
   for (uint64_t frame = 0; pump() && (!o.frames || frame < o.frames); ++frame) {
-    ID3D11Texture2D* bb = nullptr;
-    sc->GetBuffer(0, IID_PPV_ARGS(&bb));
-    ctx->CopyResource(bb, img);
-    bb->Release();
+    if (msaa) {
+      ctx->OMSetRenderTargets(1, &bbRtv, nullptr);
+      ctx->RSSetState(nullptr);
+      ctx->RSSetViewports(1, &vp);
+      ctx->IASetInputLayout(nullptr);
+      ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+      ctx->VSSetShader(blitVs, nullptr, 0);
+      ctx->PSSetShader(blitPs, nullptr, 0);
+      ctx->PSSetShaderResources(0, 1, &imgSrv);
+      ctx->Draw(3, 0);
+      ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    } else {
+      ID3D11Texture2D* bb = nullptr;
+      sc->GetBuffer(0, IID_PPV_ARGS(&bb));
+      ctx->CopyResource(bb, img);
+      bb->Release();
+    }
     if (o.depth) {
       ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 0.0f, 0);  // reversed Z
       ctx->OMSetRenderTargets(0, nullptr, dsv);  // depth only (a z prepass): the image stays
@@ -312,7 +353,7 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
     showFps(hwnd, "dx11", frame);
   }
   ctx->ClearState();
-  for (IUnknown* u : std::initializer_list<IUnknown*>{rs, dss, layout, ids, vs, dsv, depthTex})
+  for (IUnknown* u : std::initializer_list<IUnknown*>{rs, dss, layout, ids, vs, dsv, depthTex, blitPs, blitVs, bbRtv, imgSrv})
     if (u) u->Release();
   img->Release();
   sc->Release();
@@ -804,13 +845,16 @@ int main(int argc, char** argv) {
     else if (a == "--frames") o.frames = std::strtoull(next(), nullptr, 10);
     else if (a == "--bench") o.bench = true;
     else if (a == "--no-depth") o.depth = false;
+    else if (a == "--msaa") o.msaa = uint32_t(std::strtoul(next(), nullptr, 10));
     else {
       std::printf("usage: sopt-host [--api dx11|vulkan] [--width 3840] [--height 2160] [--image file] [--frames N] "
-                  "[--bench] [--no-depth]\n");
+                  "[--bench] [--no-depth] [--msaa N]\n");
       return a == "-h" || a == "--help" ? 0 : 1;
     }
   }
   if (o.width == 0 || o.height == 0 || o.width > 16384 || o.height > 16384) fail("bad size");
+  if (o.msaa < 1 || o.msaa > 8 || (o.msaa & (o.msaa - 1)) != 0) fail("--msaa must be 1, 2, 4 or 8");
+  if (o.msaa > 1 && o.api != "dx11") fail("--msaa needs --api dx11");
   if (o.bench) {
     SetEnvironmentVariableA("SOPT_TIMER_AUTO", "1");
     SetEnvironmentVariableA("SOPT_TIMER_EXIT", "1");
