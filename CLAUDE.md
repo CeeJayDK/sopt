@@ -568,6 +568,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   (not itself folded) cost 1 per component. Assumes FTZ fp32 (ACO needs it for omod). Bench (time
   30, folds vs --no-amd-folds): examples identical; planted_1 16 -> 13, planted_10's target 17 -> 14
   (same best 4); rsqrt first hit 1.4 -> 3.1 s; generation speed unchanged (rational, 1 s runs).
+  ReShade internal shader patch (tools/reshade, owner's go 2026-10-01): CI workflow `reshade`
+  builds ReShade 6.8.0 64-bit unchanged and patched (copy_ps Load, GL bilinear mipmaps), checks
+  the patched DLL, artifact reshade-6.8.0-sopt with TESTING.md and sopt_MipTest.fx. Owner's test 1
+  (sopt-host --api dx11 --msaa 4, 1920x1080, no effect): screenshots SHA256-identical. Still to do:
+  a pair with an effect on, the OpenGL mipmap test; then report to crosire.
   Owner's idea (go 2026-10-01): sopt-opbench (tools/windows/opbench, run-opbench.bat, in the
   sopt-windows-tools artifact): D3D11 compute tests, HLSL generated and compiled at run time with
   D3DCompile -O3 (the ReShade D3D path), steps x = mad(f(x, c), c.x, c.y) in long chains with
