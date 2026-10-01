@@ -43,9 +43,12 @@ Dolphin or PCSX2 with OpenGL, Minecraft Java Edition. DLL as `opengl32.dll`.
 1. ReShade.log: the sopt DLL logs "Using bilinear mipmap generation shader for filterable formats.",
    the unchanged DLL does not. (A "Failed to compile bilinear mipmap generation shader" warning means
    it fell back to the old shader: report it.)
-2. Put `sopt_MipTest.fx` in the effect folder and turn it on alone. Mode "Over tolerance (red)":
-   for every Format (RGBA8, RGBA16F, R32F, RGB10A2) and Level 1-5 the screen must be dark gray with no
-   red, with both DLLs.
+2. Put `sopt_MipTest.fx` in the effect folder and turn it on alone. Mode "Over tolerance (red)"
+   (Tolerance 1): for every Format (RGBA8, RGBA16F, R32F, RGB10A2) and Level 1-5 the screen must be
+   dark gray with no red, with both DLLs. Each level is compared with the 2x2 average of the level
+   above, which is what ReShade's mipmap shaders compute. (On D3D11 and Vulkan the driver generates
+   the mips, unchanged by the patch: there red appears once a level above has an odd size, e.g. from
+   level 4 at 1080 lines, because the driver then filters differently.)
 3. Mode "Difference (amplified)": the noise should look the same with both DLLs (equal or within one
    8-bit step per level). A screenshot per DLL of Format RGBA8 / Level 3 in this mode is useful.
 4. A real effect that uses mipmaps (e.g. qUINT or iMMERSE MXAO, a bloom with a mip chain): screenshots

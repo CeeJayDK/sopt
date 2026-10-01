@@ -3,12 +3,16 @@
 // Pass 1 fills four render targets (RGBA8, RGBA16F, R32F, RGB10A2) with per-pixel noise; ReShade
 // then generates their mip levels. Pass 2 shows one level of one of them:
 //   Mode 0: the mip level as ReShade generated it
-//   Mode 1: the reference (the average of the 2^L x 2^L block of level 0 under each texel)
-//   Mode 2: |mip - reference| amplified (black = equal)
+//   Mode 1: the reference: the average of the 2x2 texels (2t, 2t + 1) of level L - 1, which is what
+//           ReShade's own mipmap shaders compute (OpenGL, D3D12)
+//   Mode 2: |mip - reference| amplified (black = equal; RGBA8 / RGB10A2 show their rounding as grey
+//           noise here, which is expected)
 //   Mode 3: red where |mip - reference| exceeds Tolerance (in 8-bit steps), else dark gray
-// Only RGB is compared (RGB10A2's alpha has two bits). Every level is a 2x2 box filter of the level
-// above, rounded to the format, so RGBA8 / RGB10A2 differ from the exact block average by up to
-// about half a step per level; that is why Tolerance defaults to the level number.
+// Only RGB is compared (RGB10A2's alpha has two bits). The level is rounded to the format once, so
+// half a step is the most it can differ: Tolerance 1 step.
+// Only meaningful where ReShade generates the mips itself (OpenGL, D3D12). D3D11 (GenerateMips) and
+// Vulkan (vkCmdBlitImage) use the driver's filter: the same for even sizes, but once a level above
+// has an odd size (1080 lines: 1080, 540, 270, 135 -> from level 4) it filters differently.
 
 #include "ReShade.fxh"
 
@@ -16,7 +20,7 @@ uniform int Format < ui_type = "combo"; ui_items = "RGBA8\0RGBA16F\0R32F\0RGB10A
 uniform int Level < ui_type = "slider"; ui_min = 1; ui_max = 5; > = 1;
 uniform int Mode < ui_type = "combo"; ui_items = "Mip level\0Reference\0Difference (amplified)\0Over tolerance (red)\0"; > = 3;
 uniform float Amplify < ui_type = "slider"; ui_min = 1.0; ui_max = 256.0; > = 32.0;
-uniform float Tolerance < ui_type = "slider"; ui_min = 0.0; ui_max = 8.0; ui_tooltip = "In 8-bit steps; 0 = the level number"; > = 0.0;
+uniform float Tolerance < ui_type = "slider"; ui_min = 0.0; ui_max = 8.0; ui_tooltip = "In 8-bit steps"; > = 1.0;
 
 texture texMipA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; MipLevels = 6; Format = RGBA8; };
 texture texMipB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; MipLevels = 6; Format = RGBA16F; };
@@ -61,22 +65,18 @@ float3 fetch(int2 t, int lod)
 
 float3 PS_Show(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
 {
-	const int scale = 1 << Level;
-	const int2 size = int2(BUFFER_WIDTH, BUFFER_HEIGHT) >> Level;
+	const int2 size = max(int2(BUFFER_WIDTH, BUFFER_HEIGHT) >> Level, 1);
 	const int2 t = min(int2(uv * float2(size)), size - 1);
 
 	const float3 mip = fetch(t, Level);
-	float3 ref = 0.0;
-	for (int y = 0; y < scale; ++y)
-		for (int x = 0; x < scale; ++x)
-			ref += fetch(t * scale + int2(x, y), 0);
-	ref /= float(scale * scale);
+	const float3 ref = 0.25 * (fetch(t * 2, Level - 1) + fetch(t * 2 + int2(1, 0), Level - 1) +
+	                           fetch(t * 2 + int2(0, 1), Level - 1) + fetch(t * 2 + int2(1, 1), Level - 1));
 
 	const float3 diff = abs(mip - ref);
 	if (Mode == 0) return mip;
 	if (Mode == 1) return ref;
 	if (Mode == 2) return saturate(diff * Amplify);
-	const float tol = (Tolerance > 0.0 ? Tolerance : float(Level)) / 255.0;
+	const float tol = Tolerance / 255.0;
 	return any(diff > tol) ? float3(1.0, 0.0, 0.0) : float3(0.1, 0.1, 0.1);
 }
 
