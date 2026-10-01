@@ -78,6 +78,22 @@ sqrt(x * x) -> abs(x)
 1.0 / x -> rcp(x)
 x / c -> x * (1.0 / c)   where c const, c != 0
 
+# constants merged (spirv-opt's folding rules; add / sub chains of constants are left out:
+# they cancel, e.g. (x + a) + b -> x + (a + b) fails near x + a + b = 0)
+(x * a) * b -> x * (a * b)   where a const, b const
+(x / a) * b -> x * (b / a)   where a const, b const, a != 0
+(a / x) * b -> (a * b) / x   where a const, b const
+(x * a) / b -> x * (a / b)   where a const, b const, b != 0
+a / (x / b) -> (a * b) / x   where a const, b const
+a / (x * b) -> (a / b) / x   where a const, b const, b != 0
+(x / a) / b -> x * (1.0 / (a * b))   where a const, b const, a != 0, b != 0
+-(x * a) -> x * -a   where a const
+(x >= e ? a : b) * k -> x >= e ? a * k : b * k   where a const, b const, k const
+(x >= e ? a : b) + k -> x >= e ? a + k : b + k   where a const, b const, k const
+lerp(a, b, 0.0) -> a
+lerp(a, b, 1.0) -> b
+dot(v, float3(1.0, 0.0, 0.0)) -> v.x   where v : float3
+
 # factoring
 a * b + a * c -> a * (b + c)
 a * b - a * c -> a * (b - c)
