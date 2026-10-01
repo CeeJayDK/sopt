@@ -93,6 +93,8 @@ void usage() {
       "                    memory budget holds fingerprints, the rest go to zstd-compressed\n"
       "                    tiles in DIR (a temporary file); --disk-max GB caps it (default:\n"
       "                    the free space minus a reserve)\n"
+      "  --no-amd-folds    rdna3 without AMD context effects (default: x * +-2/4/0.5 is an output\n"
+      "                    modifier, min/max over min/max one instruction)\n"
       "  --no-two-phase    one phase with the slack (default: only strictly cheaper hits first,\n"
       "                    the deepest search, then the slack's alternatives near the best in\n"
       "                    the last quarter of the time)\n"
@@ -180,6 +182,7 @@ int main(int argc, char** argv) {
   backCfg.wine = "wine";
 #endif
   if (const char* v = std::getenv("SOPT_WINE")) backCfg.wine = v;
+  bool noAmdFolds = false;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     auto next = [&]() -> const char* {
@@ -227,6 +230,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-library") opt.library = false;
     else if (a == "--two-phase") opt.search.twoPhase = true;
     else if (a == "--no-two-phase") opt.search.twoPhase = false;
+    else if (a == "--no-amd-folds") noAmdFolds = true;
     else if (a == "--library-file") {
       static Library lib;  // alive for the whole run
       const char* f = next();
@@ -262,6 +266,7 @@ int main(int argc, char** argv) {
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     else collect(a, inputs);
   }
+  if (noAmdFolds) opt.search.model = withoutAmdFolds(opt.search.model);
   if (inputs.empty()) {
     usage();
     return 2;

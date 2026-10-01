@@ -76,6 +76,11 @@ struct CostModel {
   // becomes one fma, and the add/sub then costs fusedAdd instead. 0 = no contraction.
   uint16_t fusedAdd;
   bool divIsMul;  // a / b is lowered to a * rcp(b)
+  // AMD context effects (rdna3; owner, 2026-10-01, from ACO): a multiply by +-2, +-4 or +-0.5 is
+  // the output modifier (omod) of the instruction producing the other operand, and min / max over
+  // a min / max is one instruction (v_max3 / v_min3 / v_minmax / v_maxmin / v_med3). The folded
+  // node costs 1 per component, like the other modifiers. See amdFoldedNodes (expr.hpp).
+  bool amdFolds = false;
 
   uint16_t operator[](Op op) const { return cost[static_cast<size_t>(op)]; }
   // Cost of one node of this op producing / reducing floatN (w = operand width for
@@ -99,6 +104,8 @@ const CostModel& costNvidia();
 // Default is rdna3 (searched in search order); --isa / --sass rank by real machine code.
 const CostModel& defaultCostModel();
 const CostModel* costModelByName(std::string_view name);
+// --no-amd-folds: rdna3 without CostModel::amdFolds (other models unchanged).
+const CostModel* withoutAmdFolds(const CostModel* m);
 // Enumeration order used when none is given: search for rdna3 and nvidia, else the model.
 const CostModel& defaultOrderFor(const CostModel& objective);
 

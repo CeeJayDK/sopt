@@ -147,6 +147,7 @@ int main(int argc, char** argv) {
   uint64_t seed = 1;
   Options opt;
   opt.v1Points = 1u << 18;
+  bool noAmdFolds = false;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     auto next = [&]() { return i + 1 < argc ? argv[++i] : (std::exit(2), argv[0]); };
@@ -172,6 +173,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-library") opt.library = false;
     else if (a == "--two-phase") opt.search.twoPhase = true;
     else if (a == "--no-two-phase") opt.search.twoPhase = false;
+    else if (a == "--no-amd-folds") noAmdFolds = true;
     else if (a == "--library-file") {
       static Library lib;  // alive for the whole run
       const char* f = next();
@@ -217,6 +219,7 @@ int main(int argc, char** argv) {
       return 2;
     }
   }
+  if (noAmdFolds) opt.search.model = withoutAmdFolds(opt.search.model);
   if (examples.empty() && planted == 0) examples = "examples";
   const CostModel& model = *opt.search.model;
   std::printf("cost model: %s%s%s\n", std::string(model.name).c_str(),

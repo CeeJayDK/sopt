@@ -560,7 +560,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   (x * 2, * 4, * 0.5, also negated, folded into the producing VALU op, needs FTZ and no
   signed-zero preservation; rcp(x) * 0.5 too), v_max3 / v_min3 (max(max(a, b), c) one
   instruction), GFX11 v_minmax / v_maxmin (min(max(a, b), c)), v_med3 (clamp to constants),
-  (cond ? 1 : 0) * a -> one cndmask, clamp and neg / abs modifiers free. Proposed (not
-  decided): context costs in the rdna3 model.
+  (cond ? 1 : 0) * a -> one cndmask, clamp and neg / abs modifiers free. Owner (2026-10-01): add
+  the 57 curated rules (done) and context costs in rdna3 as the default (done:
+  CostModel::amdFolds, `amdFoldedNodes` in expr.cpp, Enumerator::amdFolds for the objective,
+  compiledCost; `--no-amd-folds`): a mul by +-2 / +-4 / +-0.5 over a single-use, same-width
+  instruction result (not contracted into an fma) and a min / max over a single-use min / max
+  (not itself folded) cost 1 per component. Assumes FTZ fp32 (ACO needs it for omod).
+  Owner's idea (not decided): a tool that measures instruction latency / throughput on real
+  hardware (micro-benchmark effects timed by sopt-timer) to calibrate the cost models.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).

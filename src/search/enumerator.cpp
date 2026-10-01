@@ -519,6 +519,27 @@ uint32_t Enumerator::addConst(Type t, const float* v, SearchStats& stats) {
   return static_cast<uint32_t>(bank_.size() - 1);
 }
 
+bool Enumerator::amdFolds(Op op, Type type, uint32_t a, uint32_t b) const {
+  auto minMax = [](Op o) { return o == Op::Min || o == Op::Max; };
+  if (op == Op::Mul) {
+    for (int k = 0; k < 2; ++k) {
+      const uint32_t c = k ? b : a, v = k ? a : b;
+      const Entry& ec = entry(c);
+      const Entry& ev = entry(v);
+      if (ec.isConst && ec.type == Type::Float && isOmodScale(constValue(c)) && !ev.isConst && !ev.ctime &&
+          ev.type == type && takesOmod(ev.op) && !amdFolds(ev.op, ev.type, ev.args[0], ev.args[1]))
+        return true;
+    }
+  } else if (minMax(op)) {
+    for (const uint32_t v : {a, b}) {
+      const Entry& ev = entry(v);
+      if (minMax(ev.op) && !ev.ctime && ev.type == type && !amdFolds(ev.op, ev.type, ev.args[0], ev.args[1]))
+        return true;
+    }
+  }
+  return false;
+}
+
 // target ~ p * v + q: least squares over the finite target points, then the budget
 // check on the float result of the wrapper. Cheaper wrappers (v + q, v * p, q - v) are
 // preferred when they also pass. top is v's op (a mul/div under an add/sub contracts)
@@ -1052,11 +1073,16 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   for (uint8_t k = 0; k < oi.arity; ++k) ctime = ctime && (entry(args[k]).isConst || entry(args[k]).ctime);
   uint32_t obj = 0;
   for (uint8_t k = 0; k < oi.arity; ++k) obj += entry(args[k]).obj;
+  // A mul that is an output modifier is not contracted as well (dagCost counts the fma).
   auto fuses = [&](uint32_t x) {
-    return !entry(x).ctime && model.fusesIntoAdd(entry(x).op) && entry(x).type == type;
+    const Entry& ex = entry(x);
+    return !ex.ctime && model.fusesIntoAdd(ex.op) && ex.type == type &&
+           !(model.amdFolds && amdFolds(ex.op, ex.type, ex.args[0], ex.args[1]));
   };
   if (ctime)
     obj = 0;
+  else if (model.amdFolds && amdFolds(op, type, a, b))
+    obj += w;
   else if (model.fusedAdd && (op == Op::Add || op == Op::Sub) && (fuses(a) || fuses(b)))
     obj += w * model.fusedAdd;
   else

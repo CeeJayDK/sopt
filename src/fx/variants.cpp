@@ -53,8 +53,9 @@ std::string budgetString(const Budget& b) {
 }
 
 uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
-  const auto uses = m.fusedAdd ? useCounts(e) : std::vector<uint32_t>();
+  const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
   const auto ct = compileTimeNodes(e, inputs);
+  const auto folded = amdFoldedNodes(e, uses, m);
   auto isArith = [&](uint32_t i) {
     const Op op = e.nodes[i].op;
     return op != Op::Input && op != Op::Const && op != Op::Swizzle && op != Op::Construct;
@@ -71,6 +72,10 @@ uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<Input
     const Node& n = e.nodes[i];
     if (n.op == Op::Swizzle || n.op == Op::Construct || ct[i]) continue;
     if (const int f = m.fusedAdd ? fusedArg(e, i, uses, m.divIsMul) : -1; f >= 0 && !ct[n.args[f]]) continue;
+    // Output modifier (omod) of the producing instruction, or part of a 3-operand min / max.
+    if (folded[i] && (!ct[n.args[0]] || e.nodes[n.args[0]].op == Op::Const) &&
+        (!ct[n.args[1]] || e.nodes[n.args[1]].op == Op::Const))
+      continue;
     // Source modifiers of the consuming instruction.
     if ((n.op == Op::Neg || n.op == Op::Abs) && i != e.root) continue;
     // Output modifier of the producing instruction (clamp(x, 0, 1) is saturate).

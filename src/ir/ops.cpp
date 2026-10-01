@@ -84,7 +84,7 @@ const CostModel kRdna3{"rdna3",
    16, 16, 20, 20, 20, 20, 16, 16, 4, 4, 4, 4, 4, 20, 4, 4, 8, 36,
    4, 4, 4, 4, 4, 4, 4, 8, 4, 4, 1,
    4, 20, 24, 24, 1, 1},
-  1, true};
+  1, true, true};
 // NVIDIA Ada (sm_89) SASS via ptxas + nvdisasm, in quarter-ALU units (4 = one FP32
 // instruction), MUFU at 8x (FP32 : MUFU throughput 128 : 16 per SM per clock).
 // Measured op by op like rdna3. Differences from rdna3: clamp = two FMNMX (no med3),
@@ -147,9 +147,18 @@ const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }
 const CostModel& costNvidia() { return kNvidia; }
 const CostModel& defaultCostModel() { return kRdna3; }
+// rdna3 without the context effects (--no-amd-folds).
+const CostModel kRdna3NoFolds = [] {
+  CostModel m = kRdna3;
+  m.amdFolds = false;
+  return m;
+}();
+
 const CostModel& defaultOrderFor(const CostModel& objective) {
-  return &objective == &kRdna3 || &objective == &kNvidia ? kSearch : objective;
+  return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kNvidia ? kSearch : objective;
 }
+
+const CostModel* withoutAmdFolds(const CostModel* m) { return m == &kRdna3 ? &kRdna3NoFolds : m; }
 
 const CostModel* costModelByName(std::string_view name) {
   if (name == kGeneric.name) return &kGeneric;

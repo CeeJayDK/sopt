@@ -107,6 +107,14 @@ std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& 
 std::vector<uint32_t> useCounts(const Expr& e);
 // For an add/sub node: the operand index (0/1) that contracts into an fma, else -1.
 int fusedArg(const Expr& e, uint32_t node, const std::vector<uint32_t>& uses, bool divIsMul);
+// CostModel::amdFolds: per node, whether it folds into another instruction (cost 1 per component):
+// a mul by a constant +-2 / +-4 / +-0.5 whose other operand is a single-use, same-width result of
+// an instruction with output modifiers (and that is not itself contracted into an fma), or a
+// min / max with a single-use min / max operand that does not fold itself (three operands).
+std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& uses, const CostModel& m);
+// The ops whose instruction takes an output modifier (omod) in amdFoldedNodes.
+bool takesOmod(Op op);
+bool isOmodScale(float v);
 bool containsInexact(const Expr& e);
 bool containsOp(const Expr& e, Op op);
 Type nodeType(const Expr& e, uint32_t node);

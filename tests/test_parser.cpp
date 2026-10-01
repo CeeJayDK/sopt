@@ -68,6 +68,25 @@ TEST(parser_dag_cost_counts_shared_nodes_once) {
     CHECK(dagCost(e, *m) == (*m)[Op::Mul] + (*m)[Op::Add]);  // shared mul: no contraction
 }
 
+// rdna3 context effects (CostModel::amdFolds): omod and three-operand min / max cost 1.
+TEST(cost_amd_folds) {
+  const CostModel& m = costRdna3();
+  const CostModel& off = *withoutAmdFolds(&m);
+  auto cost = [&](const char* s, const CostModel& model) { return dagCost(parseExpr(s, abcx()), model); };
+  CHECK(cost("rcp(a) * 2.0", m) == 17u);   // v_rcp_f32 with omod
+  CHECK(cost("rcp(a) * 2.0", off) == 20u);
+  CHECK(cost("rcp(a) * -0.5", m) == 17u);
+  CHECK(cost("rcp(a) * 3.0", m) == 20u);   // not an omod scale
+  CHECK(cost("a * 2.0", m) == 4u);         // nothing to fold into
+  CHECK(cost("(a + b) * 4.0", m) == 5u);
+  CHECK(cost("a * 2.0 + b", m) == 5u);     // an fma, not an omod
+  CHECK(cost("rcp(a) * 2.0 * rcp(a)", m) == 24u);  // shared rcp: no omod
+  CHECK(cost("max(max(a, b), c)", m) == 5u);       // v_max3
+  CHECK(cost("min(max(a, b), c)", m) == 5u);       // v_minmax / v_med3
+  CHECK(cost("max(max(max(a, b), c), x)", m) == 9u);  // max3 + max
+  CHECK(cost("max(max(a, b), c)", off) == 8u);
+}
+
 TEST(cost_contraction) {
   const CostModel& m = costRdna3();
   // Single-use mul (or div) under add/sub is one fma.

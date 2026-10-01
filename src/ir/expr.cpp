@@ -225,15 +225,67 @@ int fusedArg(const Expr& e, uint32_t node, const std::vector<uint32_t>& uses, bo
   return -1;
 }
 
+bool takesOmod(Op op) {
+  switch (op) {
+    case Op::Add: case Op::Sub: case Op::Mul: case Op::Mad: case Op::Div: case Op::Lerp: case Op::Dot:
+    case Op::Rcp: case Op::Rsqrt: case Op::Sqrt: case Op::Length:
+    case Op::Exp: case Op::Log: case Op::Exp2: case Op::Log2: case Op::Sin: case Op::Cos: case Op::Pow:
+    case Op::Floor: case Op::Frac: case Op::Round: case Op::Ceil:
+      return true;
+    default: return false;
+  }
+}
+
+bool isOmodScale(float v) {
+  const float a = std::fabs(v);
+  return a == 2.0f || a == 4.0f || a == 0.5f;
+}
+
+std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& uses, const CostModel& m) {
+  std::vector<bool> folded(e.nodes.size(), false);
+  if (!m.amdFolds) return folded;
+  std::vector<bool> fused(e.nodes.size(), false);  // a mul contracted into its consumer's fma
+  if (m.fusedAdd)
+    for (uint32_t i = 0; i < e.nodes.size(); ++i)
+      if (const int f = fusedArg(e, i, uses, m.divIsMul); f >= 0) fused[e.nodes[i].args[f]] = true;
+  auto omodConst = [&](uint32_t i) {
+    const Node& c = e.nodes[i];
+    if (c.op != Op::Const || !isOmodScale(c.value[0])) return false;
+    for (unsigned k = 1; k < width(c.type); ++k)
+      if (c.value[k] != c.value[0]) return false;
+    return true;
+  };
+  auto isMinMax = [](Op op) { return op == Op::Min || op == Op::Max; };
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op == Op::Mul && !fused[i]) {
+      for (int k = 0; k < 2 && !folded[i]; ++k) {
+        const uint32_t v = n.args[1 - k];
+        const Node& p = e.nodes[v];
+        folded[i] = omodConst(n.args[k]) && uses[v] == 1 && p.type == n.type && takesOmod(p.op) && !folded[v];
+      }
+    } else if (isMinMax(n.op)) {
+      for (int k = 0; k < 2 && !folded[i]; ++k) {
+        const uint32_t v = n.args[k];
+        const Node& p = e.nodes[v];
+        folded[i] = isMinMax(p.op) && uses[v] == 1 && p.type == n.type && !folded[v];
+      }
+    }
+  }
+  return folded;
+}
+
 uint32_t dagCost(const Expr& e, const CostModel& m) {
-  const auto uses = m.fusedAdd ? useCounts(e) : std::vector<uint32_t>();
+  const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
+  const auto folded = amdFoldedNodes(e, uses, m);
   uint32_t cost = 0;
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     const Node& n = e.nodes[i];
     const bool reduce = info(n.op).shape == Shape::Reduce;
     const unsigned w = width(reduce ? e.nodes[n.args[0]].type : n.type);
-    cost += (m.fusedAdd && fusedArg(e, i, uses, m.divIsMul) >= 0) ? w * m.fusedAdd
-                                                                   : m.opCost(n.op, w);
+    cost += folded[i] ? w
+            : (m.fusedAdd && fusedArg(e, i, uses, m.divIsMul) >= 0) ? w * m.fusedAdd
+                                                                     : m.opCost(n.op, w);
   }
   return cost;
 }
@@ -257,7 +309,8 @@ std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& 
 
 uint32_t dagCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
   const auto ct = compileTimeNodes(e, inputs);
-  const auto uses = m.fusedAdd ? useCounts(e) : std::vector<uint32_t>();
+  const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
+  const auto folded = amdFoldedNodes(e, uses, m);
   uint32_t cost = 0;
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     if (ct[i]) continue;
@@ -265,7 +318,9 @@ uint32_t dagCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>
     const bool reduce = info(n.op).shape == Shape::Reduce;
     const unsigned w = width(reduce ? e.nodes[n.args[0]].type : n.type);
     const int f = m.fusedAdd ? fusedArg(e, i, uses, m.divIsMul) : -1;
-    cost += (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd : m.opCost(n.op, w);
+    bool fold = folded[i];
+    for (unsigned k = 0; fold && k < operandCount(n); ++k) fold = !ct[n.args[k]] || e.nodes[n.args[k]].op == Op::Const;
+    cost += fold ? w : (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd : m.opCost(n.op, w);
   }
   return cost;
 }
