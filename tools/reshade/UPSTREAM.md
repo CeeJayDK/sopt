@@ -1,5 +1,5 @@
 Two small changes to ReShade's internal shaders (patch against v6.8.0 attached,
-`internal-shaders.patch`, 9 files, +93/-5). Both were found while running a shader
+`internal-shaders.patch`, 9 files, +98/-5). Both were found while running a shader
 superoptimizer over ReShade's own shaders, and both were tested on a GTX 1660.
 
 **1. copy_ps.hlsl: `Load` instead of `Sample` (D3D10/11/12)**
