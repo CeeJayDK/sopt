@@ -37,8 +37,9 @@ sopt-host.exe (CI artifact `sopt-windows-tools`) shows a fixed image; `--msaa 4`
 
 ## 2. OpenGL mipmaps (sopt_MipTest.fx)
 
-Any OpenGL 4.3 program, e.g. GZDoom with the OpenGL renderer, RetroArch with the `gl` video driver,
-Dolphin or PCSX2 with OpenGL, Minecraft Java Edition. DLL as `opengl32.dll`.
+Simplest: `sopt-host.exe --api gl --width 1920 --height 1080` with the DLL as `opengl32.dll` next
+to it (sopt-windows-tools artifact). Any other OpenGL 4.3 program works too (GZDoom with the OpenGL
+renderer, RetroArch with the `gl` video driver, ...).
 
 1. ReShade.log: the sopt DLL logs "Using bilinear mipmap generation shader for filterable formats.",
    the unchanged DLL does not. (A "Failed to compile bilinear mipmap generation shader" warning means

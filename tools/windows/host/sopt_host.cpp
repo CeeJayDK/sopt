@@ -2,7 +2,7 @@
 // can be benchmarked without a game (M4 harness). DX11 or Vulkan; Vulkan is loaded at run
 // time (vulkan-1.dll), no SDK needed.
 //
-//   sopt-host [--api dx11|vulkan] [--width 3840] [--height 2160] [--image file.png]
+//   sopt-host [--api dx11|vulkan|gl] [--width 3840] [--height 2160] [--image file.png]
 //             [--frames N] [--bench] [--no-depth] [--msaa N]
 //
 // --bench sets SOPT_TIMER_AUTO=1 and SOPT_TIMER_EXIT=1: sopt-timer runs its bench over the
@@ -16,6 +16,8 @@
 // --msaa N (dx11): an N-sample back buffer (blt-model swap chain, no tearing). ReShade then
 // renders into a resolve texture and copies the result back with its copy_ps shader every frame,
 // the path its internal copy shader change affects.
+// --api gl: an OpenGL window (compatibility context, the image drawn with glDrawPixels, no depth)
+// for checking ReShade's OpenGL path (opengl32.dll next to the exe); see tools/reshade/TESTING.md.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -24,6 +26,7 @@
 #include <d3d11.h>
 #include <dxgi1_5.h>
 #include <wincodec.h>
+#include <GL/gl.h>
 
 #define VK_NO_PROTOTYPES
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -362,6 +365,51 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   dxgiDev->Release();
   ctx->Release();
   dev->Release();
+  return 0;
+}
+
+// ---- OpenGL ------------------------------------------------------------------------------
+
+int runGl(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
+  HDC dc = GetDC(hwnd);
+  PIXELFORMATDESCRIPTOR pfd = {};
+  pfd.nSize = sizeof(pfd);
+  pfd.nVersion = 1;
+  pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+  pfd.iPixelType = PFD_TYPE_RGBA;
+  pfd.cColorBits = 32;
+  pfd.cAlphaBits = 8;
+  pfd.cDepthBits = 24;
+  pfd.cStencilBits = 8;
+  const int format = ChoosePixelFormat(dc, &pfd);
+  if (format == 0 || !SetPixelFormat(dc, format, &pfd)) fail("cannot set an OpenGL pixel format");
+  // A compatibility context: drivers give the highest version (4.x), and glDrawPixels needs no
+  // extension loading.
+  HGLRC rc = wglCreateContext(dc);
+  if (!rc || !wglMakeCurrent(dc, rc)) fail("cannot create an OpenGL context");
+  using SwapInterval = BOOL(WINAPI*)(int);
+  if (auto swapInterval = reinterpret_cast<SwapInterval>(wglGetProcAddress("wglSwapIntervalEXT"))) swapInterval(0);
+  std::printf("OpenGL %s, %s\n", reinterpret_cast<const char*>(glGetString(GL_VERSION)),
+              reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
+
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+  for (uint64_t frame = 0; pump() && (!o.frames || frame < o.frames); ++frame) {
+    RECT cr;
+    GetClientRect(hwnd, &cr);
+    const int w = std::max<int>(1, cr.right - cr.left), h = std::max<int>(1, cr.bottom - cr.top);
+    glViewport(0, 0, w, h);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    // The image is top-down: start at the top-left corner and draw downwards, scaled to the window.
+    glRasterPos2f(-1.0f, 1.0f);
+    glPixelZoom(float(w) / float(o.width), -float(h) / float(o.height));
+    glDrawPixels(GLsizei(o.width), GLsizei(o.height), GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    SwapBuffers(dc);
+    showFps(hwnd, "gl", frame);
+  }
+  wglMakeCurrent(nullptr, nullptr);
+  wglDeleteContext(rc);
+  ReleaseDC(hwnd, dc);
   return 0;
 }
 
@@ -847,7 +895,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-depth") o.depth = false;
     else if (a == "--msaa") o.msaa = uint32_t(std::strtoul(next(), nullptr, 10));
     else {
-      std::printf("usage: sopt-host [--api dx11|vulkan] [--width 3840] [--height 2160] [--image file] [--frames N] "
+      std::printf("usage: sopt-host [--api dx11|vulkan|gl] [--width 3840] [--height 2160] [--image file] [--frames N] "
                   "[--bench] [--no-depth] [--msaa N]\n");
       return a == "-h" || a == "--help" ? 0 : 1;
     }
@@ -864,6 +912,7 @@ int main(int argc, char** argv) {
   HWND hwnd = makeWindow(o);
   if (o.api == "dx11") return runDx11(o, hwnd, px);
   if (o.api == "vulkan") return runVulkan(o, hwnd, px);
-  fail("--api must be dx11 or vulkan");
+  if (o.api == "gl") return runGl(o, hwnd, px);
+  fail("--api must be dx11, vulkan or gl");
   return 1;
 }

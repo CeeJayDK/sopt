@@ -99,7 +99,7 @@ from the difference's p10 and p90:
 ## sopt-host
 
 ```
-sopt-host [--api dx11|vulkan] [--width 3840] [--height 2160] [--image file.png] [--frames N] [--bench]
+sopt-host [--api dx11|vulkan|gl] [--width 3840] [--height 2160] [--image file.png] [--frames N] [--bench]
           [--no-depth] [--msaa N]
 ```
 
@@ -110,6 +110,9 @@ sopt-host [--api dx11|vulkan] [--width 3840] [--height 2160] [--image file.png] 
 no tearing); the image is drawn into it with a small shader (`host/blit.hlsl`, embedded as
 `blit_dxbc.h`). ReShade then renders into a resolve texture and copies back with its internal
 copy shader every frame (tools/reshade/TESTING.md).
+
+**OpenGL (`--api gl`):** a compatibility context showing the image with `glDrawPixels` (no
+depth), for checking ReShade's OpenGL path: put ReShade as `opengl32.dll` next to `sopt-host.exe`.
 
 **Vulkan:** ReShade is a Vulkan layer, installed by the ReShade setup for the exe. The Vulkan
 window's client area must be the full size; larger than the screen is allowed. The DX11 swap
