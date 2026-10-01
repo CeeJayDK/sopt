@@ -516,5 +516,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
 - Full corpus run (owner, 2026-10-01, not urgent): later, every package the installer can
   install (EffectPackages.ini, 45 entries; we use 12), to collect as many new variants as
   possible in sopt-found.txt for improving the library. Run in chunks (container note above).
+  Rotation (owner, 2026-10-01): smaller tests should use other installer packages each time
+  (both arms of an A/B comparison on the same set), so new packages get checked as a bonus and
+  may turn up bugs.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
