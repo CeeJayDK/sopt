@@ -83,6 +83,28 @@ interpolate in the converted space instead. Only matters with the overlay open i
 - Mipmaps are generated through the texture's linear view (`tex.srv[0]`), so textures written
   with `SRGBWriteEnable` are averaged in their encoded values, on every API.
 
+## sopt on a ReShade FX port
+
+`examples/fx/ReShadeInternal.fx` ports `copy_ps` and the mipmap reduce to ReShade FX.
+- `copy_ps` has no arithmetic (a sample and a constant alpha): nothing for the search.
+- The reduce `(v0 + v1 + v2 + v3) * 0.25` (4 x float4 = 16 components, above sopt-fx's 8, so
+  searched per channel with `sopt`, inputs [0, 1]): no cheaper form for exact, rel 1e-6 or
+  8-bit budgets (20 s each). Four values need three additions and the scale; a mad can fold the
+  scale into one of them but not save an operation.
+
+So the gains above are all in the choice of texture operation (Load instead of Sample, one
+bilinear fetch or Gathers instead of four loads), which sopt treats as fixed inputs.
+
+## Gather (owner's question, 2026-10-01)
+
+- `copy_ps`: no help; each pixel needs one texel and a Gather returns four.
+- Mipmaps: `GatherRed/Green/Blue/Alpha` at the shared corner return one channel of all four
+  texels. For RGBA that is 4 fetches, as many as the 4 loads now (alpha is needed: effect
+  textures carry it), and the bilinear fetch above is 1. Gathers win for one- and two-channel
+  formats (R8, R16F, R32F, R32UI, RG...: 1 or 2 fetches instead of 4) and for integer formats,
+  which cannot be filtered; formats without alpha (R11G11B10) need 3. Like the bilinear
+  fetch, it needs an SRV and a sampler: the GL path has them, D3D12 reads through UAVs.
+
 ## Next
 
 The proposals need a hardware check (sopt-timer can time the copy pass with an MSAA or
