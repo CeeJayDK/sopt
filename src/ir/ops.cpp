@@ -111,7 +111,21 @@ const CostModel kIntelGen9{"intel-gen9",
    4, 16, 20, 20, 1, 1},
   1, true};
 
-// Enumeration order for the measured objectives (rdna3, nvidia, intel-gen9): rdna3's cheap ops,
+// NVIDIA Turing (GTX 1660, TU116, sm_75), measured with sopt-opbench on the owner's PC (D3D11,
+// docs/opbench/nvidia-gtx-1660.csv), quarter units (4 = one fma, throughput). add/sub/mul/mad one
+// op; neg/abs/saturate free modifiers; the quarter-rate unit (rcp, rsqrt, sqrt, exp2, log2, sin,
+// cos, and on Turing also floor/ceil/round/frac) 3 more than the fma it overlaps, exp/log/div the
+// same (their mul hides under it), pow two of them. min/max/step/compare/select run on the ALU pipe
+// beside the FMAs: one is ~free next to a mad, two cost one op (max3, clamp), so 2 each as an
+// additive approximation; lerp two ops, sign ~2 ops. Contraction to fma; no omod, no max3.
+const CostModel kNvidiaTuring{"nvidia-turing",
+  {0, 0, 1, 1, 1, 12, 12, 8, 12,
+   12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 4, 4, 4, 12, 2, 2, 2, 28,
+   2, 2, 2, 2, 2, 2, 4, 8, 4, 2, 1,
+   4, 16, 20, 20, 1, 1},
+  1, true};
+
+// Enumeration order for the measured objectives (rdna3, nvidia, nvidia-turing, intel-gen9): rdna3's cheap ops,
 // transcendentals at half cost (rcp/sqrt/rsqrt 8, exp/log/sin/cos/div 12, pow 20, sign 8). Ordering them
 // at full cost puts one rsqrt behind every program of ~4 VALU ops; generic order
 // reaches them but misorders cheap ops (loses planted problems). Chosen on the bench
@@ -159,6 +173,7 @@ uint32_t CostModel::opCost(Op op, unsigned w) const {
 const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }
 const CostModel& costNvidia() { return kNvidia; }
+const CostModel& costNvidiaTuring() { return kNvidiaTuring; }
 const CostModel& costIntelGen9() { return kIntelGen9; }
 const CostModel& defaultCostModel() { return kRdna3; }
 // rdna3 without the context effects (--no-amd-folds).
@@ -169,7 +184,8 @@ const CostModel kRdna3NoFolds = [] {
 }();
 
 const CostModel& defaultOrderFor(const CostModel& objective) {
-  return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kNvidia || &objective == &kIntelGen9
+  return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kNvidia ||
+                 &objective == &kNvidiaTuring || &objective == &kIntelGen9
              ? kSearch
              : objective;
 }
@@ -181,6 +197,7 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kRdna3.name) return &kRdna3;
   if (name == kSearch.name || name == "rdna3-search") return &kSearch;
   if (name == kNvidia.name) return &kNvidia;
+  if (name == kNvidiaTuring.name) return &kNvidiaTuring;
   if (name == kIntelGen9.name) return &kIntelGen9;
   return nullptr;
 }

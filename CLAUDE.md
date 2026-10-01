@@ -6,9 +6,9 @@ Full design and milestones: `docs/design.md` (Danish). Status: M0, M1, M2 done (
 MSVC/GCC/Clang, golden hashes match); M3 done (`sopt-fx`: FX front end, regions,
 facts, budgets, variant .fx; owner's ReShade test passed on DX11 and Vulkan); plus RDNA3 cost model, `gpu` semantic profile, ISA
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
-a separate enumeration order model (`--order-model`; rdna3, nvidia and intel-gen9 default to
+a separate enumeration order model (`--order-model`; rdna3, nvidia, nvidia-turing and intel-gen9 default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
-cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), an `intel-gen9` cost model
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9` and `nvidia-turing` cost models
 (sopt-opbench timings). Default cost model: rdna3.
 
 ## Working with the owner
@@ -212,8 +212,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), an `intel-gen9`
 - normalize_x (x * rsqrt(x*x + y*y), rdna3 cost 28, two inputs) is not reached by any
   order: the bank fills first.
 - NVIDIA data is the CUDA compiler (ptxas), not the graphics driver's; the MUFU weight
-  (8x on sm_86+, 4x on sm_75/80) is from memory of the CUDA guide's throughput table and
-  still to be verified (docs.nvidia.com is blocked from the cloud sandbox).
+  (8x on sm_86+, 4x on sm_75/80) is from memory of the CUDA guide's throughput table; 4x on
+  sm_75 confirmed by opbench on the GTX 1660 (sm_86+ still unverified).
 - Inner fitting covers u(v + c) for u = rcp/sqrt/rsqrt only (one inner shift, no inner
   scale: exp/sin/log need one); it costs up to ~40% generation speed on planted problems.
 - Affine and inner fitting use the fingerprint points, so exact budgets rarely fit.
@@ -603,6 +603,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), an `intel-gen9`
   simple ops like mad, math ops ~2.9x. The fma rate was 0.31 TFLOPS (~40% of the nominal peak).
   Owner's go: cost model `intel-gen9` (`--cost-model intel-gen9`, ops.cpp kIntelGen9, search order;
   owner: Iris 540 / Gen9 differs a lot from Arc, so it is named for Gen9 only). Not used by sopt-fx's
-  measured columns or SOPT_AUTO (no Intel ISA tool). Waiting for the GTX 1660 run. Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+  measured columns or SOPT_AUTO (no Intel ISA tool). GTX 1660 (Turing, owner, 2026-10-01; docs/opbench/nvidia-gtx-1660.csv), tput, extra over the base:
+  add / sub / mad 4, neg / abs / saturate ~0, rcp / rsqrt / sqrt / exp2 / log2 / sin / cos / div / exp /
+  log 12 (quarter rate; exp / log / div's mul hides under it), floor / ceil / round / frac 12 too
+  (quarter rate on Turing), pow 28, lerp 8, sign 8.4; min / max / step ~0.6 and clamp / select / a second
+  max ~4: FP32 min / max / compare / select run on the ALU pipe beside the FMAs (one is free next to a
+  mad, two cost one op). Owner (2026-10-01): one profile per family / generation where results group,
+  not one per vendor. Cost model `nvidia-turing` (ops.cpp kNvidiaTuring, search order): measured values,
+  min / max / step / compares / select 2 each (additive approximation of the dual pipe). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
