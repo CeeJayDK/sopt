@@ -515,7 +515,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   run package by package, each package with and without back to back): 94 -> 95 regions (+
   Fubax Waveform 224-226), 88 -> 84 min (enumeration -10%, subtrees -12%); worse: PD80
   Film_Grain 230 / 234 / 240 (20 -> 23) and FILMGRAIN 287 (amd 2 -> 3). Film_Grain 230 alone:
-  default 20 in 2 of 2 runs, --two-phase 20 in 1 of 2 (timing dependent).
+  default 20 in 2 of 2 runs, --two-phase 20 in 1 of 2 (timing dependent). Rerun after the
+  top-down time check and boundBy fixes (12 packages, same build, back to back per package):
+  93 / 93 regions, 105 / 108 variants, 116 / 114 min; only Vignette 73 / 82 differ (static
+  14 -> 15), and Vignette 73 alone gives 14 in both modes in 3 of 3 runs (timing noise).
   Container note (2026-09-30): the cloud container restarts when the session is idle and a
   background task hits its time limit; long corpus runs go in chunks of ~20-30 min
   (scratchpad tp2/pair.sh), one background task each.
