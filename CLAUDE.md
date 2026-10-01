@@ -574,8 +574,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   (sopt-host --api dx11 --msaa 4, 1920x1080, GTX 1660): screenshots SHA256-identical with Vibrance +
   Curves and with Vibrance alone; no visible performance difference (expected: a bandwidth-bound
   full-screen copy, the saving is issue slots / helper lanes, microseconds; not a technique, so
-  sopt-timer does not see it; PIX / Nsight would). Still to do: the OpenGL mipmap test; then
-  report to crosire.
+  sopt-timer does not see it; PIX / Nsight would). OpenGL mipmaps, sopt DLL (owner, GTX 1660,
+  sopt_MipTest vs the 2x2 average of the level above, levels 1-5): red disappears at tolerance
+  0.501 (RGBA8), 0.125 (RGB10A2), 0.063 (RGBA16F), 0.001 (R32F) 8-bit steps = half a step of each
+  format (correct rounding; R32F differs only in the last bits). Still to do: the same with the
+  unchanged DLL for comparison; then report to crosire.
   Owner's idea (go 2026-10-01): sopt-opbench (tools/windows/opbench, measure-gpu.bat, in the
   sopt-windows-tools artifact): D3D11 compute tests, HLSL generated and compiled at run time with
   D3DCompile -O3 (the ReShade D3D path), steps x = mad(f(x, c), c.x, c.y) in long chains with
