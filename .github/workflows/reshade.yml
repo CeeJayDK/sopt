@@ -37,11 +37,11 @@ jobs:
       - name: Check the patched DLL
         shell: bash
         run: |
-          # The patched DLL embeds the new mipmap shader and its log line; the unchanged one does not.
+          # The patched DLL embeds the new mipmap shader and its fallback warning; the unchanged one does not.
           grep -aq "shared corner of the 2x2 source texels" dist/ReShade64-6.8.0-sopt.dll
-          grep -aq "Using bilinear mipmap generation shader" dist/ReShade64-6.8.0-sopt.dll
-          ! grep -aq "Using bilinear mipmap generation shader" dist/ReShade64-6.8.0-unchanged.dll
-          # copy_ps was recompiled: no sampler (s0) in the new bytecode, so the files differ.
+          grep -aq "Failed to compile bilinear mipmap generation shader" dist/ReShade64-6.8.0-sopt.dll
+          ! grep -aq "shared corner of the 2x2 source texels" dist/ReShade64-6.8.0-unchanged.dll
+          # copy_ps was recompiled (Load, no sampler), so the bytecode differs.
           ! cmp -s copy_ps-unchanged.cso reshade/res/shaders/copy_ps.cso
           ! cmp -s dist/ReShade64-6.8.0-unchanged.dll dist/ReShade64-6.8.0-sopt.dll
           ls -l dist

@@ -139,10 +139,10 @@ index 35fb18e..109b085 100644
  		}
  	}
 diff --git a/source/opengl/opengl_impl_device.cpp b/source/opengl/opengl_impl_device.cpp
-index e659863..9bd00cd 100644
+index e659863..2efba5a 100644
 --- a/source/opengl/opengl_impl_device.cpp
 +++ b/source/opengl/opengl_impl_device.cpp
-@@ -259,13 +259,51 @@ reshade::opengl::device_impl::device_impl(HDC initial_hdc, HGLRC shared_hglrc, c
+@@ -259,13 +259,47 @@ reshade::opengl::device_impl::device_impl(HDC initial_hdc, HGLRC shared_hglrc, c
  		gl.LinkProgram(_mipmap_program);
  		gl.DeleteShader(mipmap_cs);
  	}
@@ -169,10 +169,6 @@ index e659863..9bd00cd 100644
 +			reshade::log::message(reshade::log::level::warning, "Failed to compile bilinear mipmap generation shader, using texel fetches instead.");
 +			gl.DeleteProgram(_mipmap_linear_program);
 +			_mipmap_linear_program = 0;
-+		}
-+		else
-+		{
-+			reshade::log::message(reshade::log::level::info, "Using bilinear mipmap generation shader for filterable formats.");
 +		}
 +
 +		// Linear filtering within the selected level, clamped at the edges (the corner coordinates never reach outside anyway)
@@ -208,3 +204,78 @@ index e4c5b9a..e0213d2 100644
  
  		struct map_info
  		{
+diff --git a/source/runtime.cpp b/source/runtime.cpp
+index 9ad4b62..9d3afd9 100644
+--- a/source/runtime.cpp
++++ b/source/runtime.cpp
+@@ -442,15 +442,9 @@ bool reshade::runtime::on_init()
+ 				goto exit_failure;
+ 			}
+ 
+-			api::sampler_desc sampler_desc = {};
+-			sampler_desc.filter = api::filter_mode::min_mag_mip_point;
+-			sampler_desc.address_u = api::texture_address_mode::clamp;
+-			sampler_desc.address_v = api::texture_address_mode::clamp;
+-			sampler_desc.address_w = api::texture_address_mode::clamp;
+-
+-			api::pipeline_layout_param layout_params[2];
+-			layout_params[0] = api::descriptor_range { 0, 0, 0, 1, api::shader_stage::all, 1, api::descriptor_type::sampler };
+-			layout_params[1] = api::descriptor_range { 0, 0, 0, 1, api::shader_stage::all, 1, api::descriptor_type::shader_resource_view };
++			// The copy shader reads texels directly (no sampler), so the layout only has the source view
++			api::pipeline_layout_param layout_params[1];
++			layout_params[0] = api::descriptor_range { 0, 0, 0, 1, api::shader_stage::all, 1, api::descriptor_type::shader_resource_view };
+ 
+ 			const resources::data_resource vs = resources::load_data_resource(IDR_FULLSCREEN_VS);
+ 			const resources::data_resource ps = resources::load_data_resource(IDR_COPY_PS);
+@@ -462,9 +456,8 @@ bool reshade::runtime::on_init()
+ 			subobjects.push_back({ api::pipeline_subobject_type::vertex_shader, 1, &vs_desc });
+ 			subobjects.push_back({ api::pipeline_subobject_type::pixel_shader, 1, &ps_desc });
+ 
+-			if (!_device->create_pipeline_layout(2, layout_params, &_copy_pipeline_layout) ||
+-				!_device->create_pipeline(_copy_pipeline_layout, static_cast<uint32_t>(subobjects.size()), subobjects.data(), &_copy_pipeline) ||
+-				!_device->create_sampler(sampler_desc, &_copy_sampler_state))
++			if (!_device->create_pipeline_layout(1, layout_params, &_copy_pipeline_layout) ||
++				!_device->create_pipeline(_copy_pipeline_layout, static_cast<uint32_t>(subobjects.size()), subobjects.data(), &_copy_pipeline))
+ 			{
+ 				log::message(log::level::error, "Failed to create copy pipeline!");
+ 				goto exit_failure;
+@@ -601,8 +594,6 @@ exit_failure:
+ 	_copy_pipeline = {};
+ 	_device->destroy_pipeline_layout(_copy_pipeline_layout);
+ 	_copy_pipeline_layout = {};
+-	_device->destroy_sampler(_copy_sampler_state);
+-	_copy_sampler_state = {};
+ 
+ 	_device->destroy_resource(_back_buffer_resolved);
+ 	_back_buffer_resolved = {};
+@@ -656,8 +647,6 @@ void reshade::runtime::on_reset()
+ 	_copy_pipeline = {};
+ 	_device->destroy_pipeline_layout(_copy_pipeline_layout);
+ 	_copy_pipeline_layout = {};
+-	_device->destroy_sampler(_copy_sampler_state);
+-	_copy_sampler_state = {};
+ 
+ 	_device->destroy_resource(_back_buffer_resolved);
+ 	_back_buffer_resolved = {};
+@@ -904,8 +893,7 @@ void reshade::runtime::on_present()
+ 
+ 			cmd_list->bind_pipeline(api::pipeline_stage::all_graphics, _copy_pipeline);
+ 
+-			cmd_list->push_descriptors(api::shader_stage::pixel, _copy_pipeline_layout, 0, api::descriptor_table_update { {}, 0, 0, 1, api::descriptor_type::sampler, &_copy_sampler_state });
+-			cmd_list->push_descriptors(api::shader_stage::pixel, _copy_pipeline_layout, 1, api::descriptor_table_update { {}, 0, 0, 1, api::descriptor_type::shader_resource_view, &_back_buffer_resolved_srv });
++			cmd_list->push_descriptors(api::shader_stage::pixel, _copy_pipeline_layout, 0, api::descriptor_table_update { {}, 0, 0, 1, api::descriptor_type::shader_resource_view, &_back_buffer_resolved_srv });
+ 
+ 			const api::viewport viewport = { 0.0f, 0.0f, static_cast<float>(_width), static_cast<float>(_height), 0.0f, 1.0f };
+ 			cmd_list->bind_viewports(0, 1, &viewport);
+diff --git a/source/runtime.hpp b/source/runtime.hpp
+index 5c204b2..797ea9d 100644
+--- a/source/runtime.hpp
++++ b/source/runtime.hpp
+@@ -332,7 +332,6 @@ namespace reshade
+ #endif
+ 		api::pipeline _copy_pipeline = {};
+ 		api::pipeline_layout _copy_pipeline_layout = {};
+-		api::sampler  _copy_sampler_state = {};
+ 
+ 		api::resource _back_buffer_resolved = {};
+ 		api::resource_view _back_buffer_resolved_srv = {};

@@ -1,5 +1,5 @@
 Two small changes to ReShade's internal shaders (patch against v6.8.0 attached,
-`internal-shaders.patch`, 9 files, +98/-5). Both were found while running a shader
+`internal-shaders.patch`, 11 files, +100/-24). Both were found while running a shader
 superoptimizer over ReShade's own shaders, and both were tested on a GTX 1660; the copy change
 also on an Intel Iris 540.
 
@@ -22,8 +22,8 @@ col.a = 1.0;
   GTX 1660 and on an Intel Iris 540.
 - The pass is bandwidth bound, so there is no visible FPS difference. The saving is issue slots
   and helper lanes.
-- Not in the patch, to keep it minimal: the copy sampler and its descriptor push could now be
-  dropped on the C++ side.
+- The copy sampler is gone on the C++ side too: the copy pipeline layout has only the source view,
+  and the sampler state, its creation, descriptor push and destruction are removed.
 
 **2. OpenGL mipmap generation: one bilinear fetch per output texel**
 
@@ -42,8 +42,6 @@ four `texelFetch`.
   where it is off by almost one fp16 step on this driver. It averages in fp32, and `imageStore`
   appears to truncate when converting to fp16, while the filtered fetch comes back already
   rounded. So the new path is equal or more accurate.
-- The patch also adds an info log line ("Using bilinear mipmap generation shader ...") to confirm
-  which path runs during testing. It can be removed.
 - D3D12 (`mipmap_cs_5_0.hlsl`) could do the same, but it reads through a UAV; a bilinear fetch
   would need an SRV and a sampler in the root signature. That is not part of this patch.
 

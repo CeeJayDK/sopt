@@ -4,13 +4,12 @@
 (docs/reshade-internal-shaders.md):
 
 1. `copy_ps.hlsl` (D3D10/11/12): `Load` of the texel under the pixel instead of a point-sampled
-   `Sample`. It runs every frame when the back buffer is multisampled (MSAA) or has no alpha
-   channel (B8G8R8X8 / R8G8B8X8): ReShade then renders into its own texture and copies the result
-   back with this shader. Result must be bit-identical.
+   `Sample` (and no copy sampler on the C++ side). It runs every frame when the back buffer is
+   multisampled (MSAA) or has no alpha channel (B8G8R8X8 / R8G8B8X8): ReShade then renders into its
+   own texture and copies the result back with this shader. Result must be bit-identical.
 2. OpenGL mipmap generation (`GenerateMipMaps` in effects): one bilinear fetch at the shared corner
    of each 2x2 block instead of four texel fetches, for filterable formats (integer formats keep the
-   old shader). Result must match to within the format's rounding; ReShade.log says
-   "Using bilinear mipmap generation shader for filterable formats." when it is active.
+   old shader). Result must match to within the format's rounding.
 
 The CI artifact `reshade-6.8.0-sopt` has two DLLs built from the same source with the same compiler:
 `ReShade64-6.8.0-unchanged.dll` and `ReShade64-6.8.0-sopt.dll` (64-bit, full add-on support).
@@ -41,9 +40,8 @@ Simplest: `sopt-host.exe --api gl --width 1920 --height 1080` with the DLL as `o
 to it (sopt-windows-tools artifact). Any other OpenGL 4.3 program works too (GZDoom with the OpenGL
 renderer, RetroArch with the `gl` video driver, ...).
 
-1. ReShade.log: the sopt DLL logs "Using bilinear mipmap generation shader for filterable formats.",
-   the unchanged DLL does not. (A "Failed to compile bilinear mipmap generation shader" warning means
-   it fell back to the old shader: report it.)
+1. ReShade.log must not contain "Failed to compile bilinear mipmap generation shader" (that warning
+   means it fell back to the old shader: report it).
 2. Put `sopt_MipTest.fx` in the effect folder and turn it on alone. Mode "Over tolerance (red)"
    (Tolerance 1): for every Format (RGBA8, RGBA16F, R32F, RGB10A2) and Level 1-5 the screen must be
    dark gray with no red, with both DLLs. Each level is compared with the 2x2 average of the level

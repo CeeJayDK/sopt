@@ -585,7 +585,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), an `intel-gen9`
   averages in fp32 and imageStore converts to fp16 by truncation on this driver, while the
   bilinear fetch already returns a correctly rounded fp16 value. So the patch is equal or more
   accurate. Both parts tested: next, report to crosire. Copy test also identical on the Intel Iris 540
-  (owner, 2026-10-01). Write-up for crosire: tools/reshade/UPSTREAM.md.
+  (owner, 2026-10-01). Write-up for crosire: tools/reshade/UPSTREAM.md. Owner: removed the info log line
+  and the copy sampler (pipeline layout with only the SRV; sampler state, push and destroy gone).
   Owner's idea (go 2026-10-01): sopt-opbench (tools/windows/opbench, measure-gpu.bat, in the
   sopt-windows-tools artifact): D3D11 compute tests, HLSL generated and compiled at run time with
   D3DCompile -O3 (the ReShade D3D path), steps x = mad(f(x, c), c.x, c.y) in long chains with
