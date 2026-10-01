@@ -16,6 +16,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   do not veto such variants. ReShade's own performance statistics need a look too (owner is
   not sure they are consistent).
 - Christian (CeeJay, SweetFX/ReShade). Communicates in Danish; prefers brief, direct answers.
+  Hardware (owner, 2026-10-01): NVIDIA GTX 1660 and an Intel NUC; no AMD card (AMD numbers come
+  from RGA / ACO only).
 - When asking the owner to do or download something, repeat the links/files in that message
   (resend packages, give the CI run link) so nothing has to be searched for in the thread.
 - Do not implement your own improvisations or design changes without asking first.
@@ -588,6 +590,6 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   per-step cbuffer constants (nothing folds; checked in the DXBC: fxc writes x * 2 as add x, x),
   cost = (time - base test's time) / mad time * 4; configs tput (8 chains, 1M threads), dep,
   lat; single ops plus omod / max3 / minmax / satmad / contract. Waiting for the owner's runs
-  (AMD, NVIDIA). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+  (GTX 1660, Intel NUC). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
