@@ -565,7 +565,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   CostModel::amdFolds, `amdFoldedNodes` in expr.cpp, Enumerator::amdFolds for the objective,
   compiledCost; `--no-amd-folds`): a mul by +-2 / +-4 / +-0.5 over a single-use, same-width
   instruction result (not contracted into an fma) and a min / max over a single-use min / max
-  (not itself folded) cost 1 per component. Assumes FTZ fp32 (ACO needs it for omod).
+  (not itself folded) cost 1 per component. Assumes FTZ fp32 (ACO needs it for omod). Bench (time
+  30, folds vs --no-amd-folds): examples identical; planted_1 16 -> 13, planted_10's target 17 -> 14
+  (same best 4); rsqrt first hit 1.4 -> 3.1 s; generation speed unchanged (rational, 1 s runs).
   Owner's idea (not decided): a tool that measures instruction latency / throughput on real
   hardware (micro-benchmark effects timed by sopt-timer) to calibrate the cost models.
 - Precomputing equivalent instruction forms per input domain to prune the search
