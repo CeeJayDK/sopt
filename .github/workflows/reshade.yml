@@ -53,3 +53,4 @@ jobs:
             tools/reshade/internal-shaders.patch
             tools/reshade/TESTING.md
             tools/reshade/sopt_MipTest.fx
+            tools/reshade/UPSTREAM.md
