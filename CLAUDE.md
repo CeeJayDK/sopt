@@ -568,7 +568,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   (not itself folded) cost 1 per component. Assumes FTZ fp32 (ACO needs it for omod). Bench (time
   30, folds vs --no-amd-folds): examples identical; planted_1 16 -> 13, planted_10's target 17 -> 14
   (same best 4); rsqrt first hit 1.4 -> 3.1 s; generation speed unchanged (rational, 1 s runs).
-  Owner's idea (not decided): a tool that measures instruction latency / throughput on real
-  hardware (micro-benchmark effects timed by sopt-timer) to calibrate the cost models.
+  Owner's idea (go 2026-10-01): sopt-opbench (tools/windows/opbench, run-opbench.bat, in the
+  sopt-windows-tools artifact): D3D11 compute tests, HLSL generated and compiled at run time with
+  D3DCompile -O3 (the ReShade D3D path), steps x = mad(f(x, c), c.x, c.y) in long chains with
+  per-step cbuffer constants (nothing folds; checked in the DXBC: fxc writes x * 2 as add x, x),
+  cost = (time - base test's time) / mad time * 4; configs tput (8 chains, 1M threads), dep,
+  lat; single ops plus omod / max3 / minmax / satmad / contract. Waiting for the owner's runs
+  (AMD, NVIDIA). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).

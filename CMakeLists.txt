@@ -135,6 +135,10 @@ if(WIN32)
   target_include_directories(sopt-host PRIVATE third_party/vulkan)
   target_compile_features(sopt-host PRIVATE cxx_std_17)
   target_link_libraries(sopt-host PRIVATE d3d11 dxgi ole32 windowscodecs)
+  # sopt-opbench: instruction costs on the local GPU (D3D11 compute, tools/windows/README.md).
+  add_executable(sopt-opbench tools/windows/opbench/sopt_opbench.cpp)
+  target_compile_features(sopt-opbench PRIVATE cxx_std_17)
+  target_link_libraries(sopt-opbench PRIVATE d3d11 dxgi d3dcompiler)
 endif()
 
 if(SOPT_BUILD_TESTS)

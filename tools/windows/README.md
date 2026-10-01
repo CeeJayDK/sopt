@@ -34,9 +34,10 @@ DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host
 | `run-bench.bat`, `run-bench.ps1` | the one-click bench above |
 | `sopt-fxc.exe` | Microsoft's fxc -O3 on one HLSL entry point (for `sopt-fx --backends`, see tools/fxc) |
 | `timings.py` | merges several CSVs into one Markdown table |
+| `sopt-opbench.exe`, `run-opbench.bat` | instruction costs on this GPU, for sopt's cost models (below) |
 
-Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host), this
-folder (scripts).
+Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host),
+`tools/windows/opbench` (sopt-opbench), this folder (scripts).
 
 # sopt-timer and sopt-host (details)
 
@@ -135,6 +136,26 @@ entry VS, O3), and `depth_spv.h` (`glslangValidator -V depth.vert`). In D3D11,
 vertex buffer.
 
 **Closing:** `--bench` closes the window when the CSV is written. Shift+Esc closes it by hand.
+
+## sopt-opbench (instruction costs)
+
+`run-opbench.bat` (or `sopt-opbench.exe [--adapter N] [--list] [--filter text] [--reps N]`)
+measures what single instructions and instruction patterns cost on this PC's GPU, to calibrate
+sopt's cost models (rdna3, nvidia). No ReShade or game needed; close GPU-heavy programs first.
+It takes a few minutes and writes `opbench-<gpu>.csv` (send that) and `opbench-dxbc\` (the HLSL
+and DXBC of every test).
+
+How: each test is a step `x = f(x, c)` repeated in long chains in a D3D11 compute shader,
+compiled at run time with Microsoft's D3DCompile -O3 (what ReShade does on D3D9-12), then by the
+driver. The constants come from a constant buffer and differ per step, so nothing folds. Every
+step ends in `mad(y, c.x, c.y)`; the plain mad step is the reference, and a test's cost is its
+time per step minus its base test's, in sopt's units (4 = one fma). Configurations: `tput`
+(8 independent chains per thread, 1M threads: throughput), `dep` (1 chain per thread, 1M
+threads), `lat` (1 chain, one thread group: latency relative to mad's). Besides single ops it
+tests the context effects the rdna3 model assumes: `omod2` / `omodhalf` (x * 2, x * 0.5 after
+rcp: AMD output modifier, expected ~0; `omod3` is the control), `max3`, `minmax`, `satmad`,
+`contract`. Clock drift shows as "mad again" per configuration. The GPU's clock is not known, so
+latency is relative too.
 
 ## ReShade's own statistics (6.8.0 source, `runtime.cpp` / `runtime_gui.cpp`)
 
