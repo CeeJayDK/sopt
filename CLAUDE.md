@@ -518,6 +518,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm). Default cost mo
   possible in sopt-found.txt for improving the library. Run in chunks (container note above).
   Rotation (owner, 2026-10-01): smaller tests should use other installer packages each time
   (both arms of an A/B comparison on the same set), so new packages get checked as a bonus and
-  may turn up bugs.
+  may turn up bugs. Fixed core in every test (owner): ReShade.fxh (used by nearly every effect:
+  depth handling, the standard vertex shader) and DisplayDepth.fx (the tool for checking the
+  depth buffer setup), both the owner's, from reshade-shaders; and SweetFX (popular, the
+  owner's). The rest of reshade-shaders matters little.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
