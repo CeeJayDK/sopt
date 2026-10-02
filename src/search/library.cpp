@@ -388,6 +388,10 @@ RuleCheck checkRule(const RewriteRule& r, size_t points, uint64_t seed) {
   RuleCheck out;
   Program prog;
   prog.inputs = r.vars;
+  // Constants are not sampled at tiny magnitudes (specialValues): a * b of two 1e-20 constants
+  // underflows, but shader constants are not that small.
+  for (const RuleCond& c : r.conds)
+    if (c.kind == RuleCond::Kind::Const) prog.inputs[c.var].compileTime = true;
   prog.target = r.lhs;
   prog.budget.kind = Budget::Kind::Rel;
   prog.budget.eps = 1e-6;

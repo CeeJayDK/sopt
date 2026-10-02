@@ -131,8 +131,8 @@ const CostModel kNvidiaTuring{"nvidia-turing",
 // quarter-rate unit (rcp, rsqrt, sqrt, exp2, log2, sin, cos) and floor/ceil/round/frac ~6x an fma
 // (the second FP32 pipe makes fmas relatively cheaper than on Turing), exp/log/div the same (the mul
 // hides), pow two of them; sign ~7x on Ampere / ~4.5x on Blackwell (fxc's sign ends in an int->float
-// conversion). min/max/step/compares ~1.25 ops on Ampere, ~0.8 on Blackwell; compare + select 10.6 /
-// 8; clamp two min/max. Contraction to fma; no omod, no max3.
+// conversion). min/max/step/compares ~1.25 ops on Ampere, ~0.8 on Blackwell (min/max 1 there, so clamp =
+// min + max: fxc writes clamp as max + min); compare + select 10.6 / 8; clamp two min/max. Contraction to fma; no omod, no max3.
 const CostModel kNvidiaAmpere{"nvidia-ampere",
   {0, 0, 1, 1, 1, 24, 24, 28, 24,
    24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 4, 4, 4, 24, 5, 5, 5, 52,
@@ -141,7 +141,7 @@ const CostModel kNvidiaAmpere{"nvidia-ampere",
   1, true};
 const CostModel kNvidiaBlackwell{"nvidia-blackwell",
   {0, 0, 1, 1, 1, 23, 23, 18, 23,
-   23, 23, 24, 23, 25, 24, 23, 23, 23, 23, 4, 4, 4, 23, 3, 3, 3, 50,
+   23, 23, 24, 23, 25, 24, 23, 23, 23, 23, 4, 4, 4, 23, 4, 4, 3, 50,
    3, 3, 3, 3, 3, 3, 4, 8, 8, 5, 1,
    4, 27, 31, 31, 1, 1},
   1, true};

@@ -24,6 +24,14 @@ std::vector<float> specialValues(const InputDecl& d, const Expr& target) {
   addIfInside(0.0);
   addIfInside(1.0);
   addIfInside(-1.0);
+  // Tiny magnitudes (the smallest normal float up): uniform samples of a range around 0 never
+  // reach them, and rounding tricks fail there (a ceil that gave 0 for x in (0, 6e-8)).
+  // Not for compile-time constants (preprocessor definitions, library `const` variables).
+  if (!d.compileTime)
+    for (double m : {1.1754943508222875e-38, 1e-30, 1e-20, 1e-10, 1e-7, 1e-4}) {
+      addIfInside(m);
+      addIfInside(-m);
+    }
   // Constants from the target are likely thresholds (step, comparisons, clamp):
   // test exactly at them and next to them.
   for (const auto& n : target.nodes) {

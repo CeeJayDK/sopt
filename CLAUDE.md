@@ -640,6 +640,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   precise propagates backwards to the ops feeding the value (no contraction there). Targeted searches
   (scratchpad ff/, 20 s, 5 models): round 24 / 23 / 12 -> 8 (library); sign: rdna3 16 -> 8 (clamp),
   intel 14 -> 10 (mad_sat form); floor / frac / ceil: nothing cheaper; signed pow: Turing finds the
-  two-way select.
+  two-way select. Then floor / ceil / frac rules from the add-round (r - saturate((r - x) * 1e38), r +
+  saturate((x - r) * 1e38), d + saturate(d * -1e38); 5 instructions as precise, fxc checked): Ampere /
+  Blackwell 23-24 -> 20-21. Batch 2 (sign rerun, ceil, clamp, select, lerp, pow, exp, sin): sign 28 / 18
+  -> 10 (mad_sat form) on Ampere / Blackwell; clamp, select, lerp, pow, exp, sin: nothing cheaper
+  (Blackwell min / max raised 3 -> 4 so clamp = min + max: fxc writes clamp as max + min).
+  Exhaustive float check (scratchpad ff/exh.c, every float in [-2^22, 2^22], FTZ): the round, floor,
+  ceil, frac and mad_sat sign forms are exact; sopt's own Blackwell ceil x + C - (x + C - (x + 0.5)) was
+  wrong for x in (0, 6e-8) (x + 0.5 rounds to 0.5, the tie goes to even) but passed sampling: a
+  verification gap. Fix: specialValues adds tiny magnitudes (+-FLT_MIN, 1e-30, 1e-20, 1e-10, 1e-7, 1e-4)
+  inside the range, not for compile-time / library `const` variables; it rejects that ceil; it also
+  showed frac(frac(a)) -> frac(a) (Mesa) wrong for tiny negative a (now `where a >= 0`). Bench (examples,
+  time 30): identical.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).

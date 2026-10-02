@@ -110,7 +110,7 @@ a + frac(-a) -> ceil(a)
 a - frac(a) -> floor(a)
 a - floor(a) -> frac(a)
 a + (b - frac(a)) -> b + floor(a)
-frac(frac(a)) -> frac(a)
+frac(frac(a)) -> frac(a)   where a >= 0   # frac(-1e-20) rounds to 1.0, whose frac is 0
 max(max(a, b), b) -> max(a, b)
 min(min(a, b), b) -> min(a, b)
 min(max(a, b), a) -> a
