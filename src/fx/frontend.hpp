@@ -27,6 +27,9 @@ struct LoadOptions {
   // the source lines in symbolicExclude ("file\nline") where a constant is needed.
   bool bufferSymbolic = false;
   std::set<std::string> symbolicExclude;
+  // With bufferSymbolic: global static consts computed from the sizes (ReShade::PixelSize)
+  // stay expressions of them (the parser's sopt_named_expressions).
+  bool namedExpressions = false;
 };
 
 // One parse of an effect: the recorded dataflow graph plus the preprocessed text of

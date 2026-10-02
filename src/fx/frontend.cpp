@@ -127,6 +127,7 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   fx->path = path;
   fx->cg = std::make_unique<Codegen>();
   reshadefx::parser parser;
+  parser.sopt_named_expressions = opt.bufferSymbolic && opt.namedExpressions;
   if (!parser.parse(pp.output(), fx->cg.get())) {
     errors = pp.errors() + parser.errors();
     return nullptr;
@@ -147,22 +148,29 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
 std::unique_ptr<Effect> loadEffectBufferSymbolic(const fs::path& path, LoadOptions& opt,
                                                  std::string& errors) {
   opt.bufferSymbolic = true;
-  for (int attempt = 0; attempt < 256; ++attempt) {
-    errors.clear();
-    if (auto fx = loadEffect(path, opt, errors)) return fx;
-    // "file(line, col): error ..." lines: expand the macros there to their value.
-    bool added = false;
-    std::istringstream in(errors);
-    for (std::string l; std::getline(in, l);) {
-      const size_t e = l.find("): error");
-      const size_t p = e == std::string::npos ? e : l.rfind('(', e);
-      if (p == std::string::npos) continue;
-      const unsigned long line = std::strtoul(l.c_str() + p + 1, nullptr, 10);
-      added = opt.symbolicExclude.insert(l.substr(0, p) + '\n' + std::to_string(line)).second || added;
+  // With named expressions first; a named expression used where a constant is needed
+  // (an array size) cannot be excluded line by line, so then once more without them.
+  for (bool named : {true, false}) {
+    opt.namedExpressions = named;
+    opt.symbolicExclude.clear();
+    for (int attempt = 0; attempt < 256; ++attempt) {
+      errors.clear();
+      if (auto fx = loadEffect(path, opt, errors)) return fx;
+      // "file(line, col): error ..." lines: expand the macros there to their value.
+      bool added = false;
+      std::istringstream in(errors);
+      for (std::string l; std::getline(in, l);) {
+        const size_t e = l.find("): error");
+        const size_t p = e == std::string::npos ? e : l.rfind('(', e);
+        if (p == std::string::npos) continue;
+        const unsigned long line = std::strtoul(l.c_str() + p + 1, nullptr, 10);
+        added = opt.symbolicExclude.insert(l.substr(0, p) + '\n' + std::to_string(line)).second || added;
+      }
+      if (!added) break;
     }
-    if (!added) break;
   }
   opt.bufferSymbolic = false;
+  opt.namedExpressions = false;
   opt.symbolicExclude.clear();
   return nullptr;
 }

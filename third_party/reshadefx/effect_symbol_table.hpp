@@ -30,6 +30,7 @@ namespace reshadefx
 		function,
 		intrinsic,
 		structure,
+		sopt_named, // sopt: a global static const that is re-parsed at each use (see parser::sopt_named_expressions)
 	};
 
 	/// <summary>

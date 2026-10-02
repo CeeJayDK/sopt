@@ -743,6 +743,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   baked [-1.3, 6.2]). SweetFX A/B (time 3, both with threshold points): baked 10 of 310 regions with
   variants, --buffer-inputs 10 of 318, the same regions (the wrong ASCII variants are gone); baked equals
   the run before the threshold points. Default still off: asked the owner.
+  Static consts (owner: ReShade::PixelSize etc. are fixed per resolution and recompiled when it changes,
+  like the macros): named expressions (parser `sopt_named_expressions`, LoadOptions::namedExpressions;
+  a global static const with a non-literal initializer is parsed again at each use, errors point at its
+  declaration; fallback without them when the exclusion loop cannot converge). 12 packages: "depends on
+  BUFFER_WIDTH/HEIGHT" 39 -> 0, +43 regions; Warp-FX (now laid out as installed: its effects include
+  ../ReShade.fxh, so 8 of 10 failed to parse in the earlier A/B) 80 regions baked, 101 buffer inputs.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

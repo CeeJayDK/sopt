@@ -314,8 +314,9 @@ TEST(fx_buffer_inputs) {
     std::printf("  %s\n", err.c_str());
     return;
   }
-  // The texture size and static const lines need constants: they keep the numbers.
-  CHECK(lo.symbolicExclude.size() == 2);
+  // The texture size line needs constants: it keeps the numbers. The static consts become
+  // named expressions (each use parses the initializer again).
+  CHECK(lo.symbolicExclude.size() == 1 && lo.namedExpressions);
   lo.width = fx::kAltWidth;
   lo.height = fx::kAltHeight;
   auto alt = fx::loadEffect(path, lo, err);
@@ -334,8 +335,9 @@ TEST(fx_buffer_inputs) {
       if (d.find(key) != std::string::npos) return true;
     return false;
   };
-  // SCREEN_SIZE and PIXEL_SIZE expand to the symbolic sizes: compile-time inputs with a fact.
-  for (uint32_t line : {17u, 18u}) {
+  // SCREEN_SIZE and PIXEL_SIZE expand to the symbolic sizes, kPixel and kAspect are named
+  // expressions of them: compile-time inputs with a fact.
+  for (uint32_t line : {17u, 18u, 20u, 21u}) {
     const fx::Region* r = region(line);
     CHECK(r != nullptr);
     if (!r) continue;
@@ -351,8 +353,6 @@ TEST(fx_buffer_inputs) {
   }
   // BUFFER_WIDTH / 3 is an integer division: not float arithmetic, skipped.
   CHECK(region(19) == nullptr && skipped(19, "non-float arithmetic"));
-  // kPixel is a static const (numbers): still resolution dependent.
-  CHECK(region(20) == nullptr && skipped(20, "depends on BUFFER_WIDTH/HEIGHT"));
   // Baked sizes: kAspect = H / W is 0.5625 at 1920x1080 and at 2560x1440; the 32:9 second
   // parse sees that the region depends on the aspect ratio.
   fx::LoadOptions plain;

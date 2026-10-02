@@ -28,6 +28,13 @@ namespace reshadefx
 		bool parse(std::string source, class codegen *backend);
 
 		/// <summary>
+		/// sopt addition: global 'static const' variables whose initial value is not a literal expression
+		/// (only possible with symbolic macros) become named expressions: each use parses the initializer
+		/// again, so the value stays an expression of the symbolic macros.
+		/// </summary>
+		bool sopt_named_expressions = false;
+
+		/// <summary>
 		/// Gets the list of error messages.
 		/// </summary>
 		const std::string &errors() const { return _errors; }
@@ -81,6 +88,8 @@ namespace reshadefx
 		token _token;
 		token _token_next;
 		token _token_backup;
+
+		std::vector<std::pair<std::string, location>> _sopt_named; // sopt: initializer text and location
 
 		std::vector<uint32_t> _loop_break_target_stack;
 		std::vector<uint32_t> _loop_continue_target_stack;
