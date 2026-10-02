@@ -683,5 +683,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   (6) (owner's go) every test twice, forward then backward through the list, averaged: slow drift
   cancels, and spikes (RTX 4070 sqrt +2.2) show as a disagreement between the two passes (flag it);
   about double the run time.
+- Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
+  conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
+  0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such
+  forms itself, which needs bitcast / integer ops in sopt (design change, not decided). Corpus count
+  (12 packages, --list --skips): ~280 statements skipped for non-float reasons (non-float variable 164,
+  arithmetic 64, select 22, intrinsic 13, fetch 11) + ~130 windows, against ~2500 float regions; most
+  are int loop counters / indices. Real bit code (shifts, asuint / asfloat, reversebits) is almost all
+  iMMERSE (LAUNCHPAD, mmx_qmc / mmx_sfc / mmx_hash: hashes, QMC sequences, space-filling curves; it
+  already uses asfloat((u >> 9) | 0x3F800000) - 1 for uint -> [0, 1)).
+- Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
+  that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
+  early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
