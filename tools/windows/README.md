@@ -146,6 +146,8 @@ measures what single instructions and instruction patterns cost on this PC's GPU
 sopt's cost models (rdna3, nvidia). No ReShade or game needed; close GPU-heavy programs first.
 It takes a few minutes and writes `opbench-<gpu>.csv` (send that) and `opbench-dxbc\` (the HLSL
 and DXBC of every test).
+It needs the Microsoft Visual C++ 2015-2022 redistributable (x64), which almost every gaming PC already
+has: https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 How: each test is a step `x = f(x, c)` repeated in long chains in a D3D11 compute shader,
 compiled at run time with Microsoft's D3DCompile -O3 (what ReShade does on D3D9-12), then by the

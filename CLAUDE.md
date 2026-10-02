@@ -658,8 +658,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 - opbench version 2 (owner, 2026-10-02: wait a day for more reports, then release together): the new
   fast-form tests (signmad, signsat, signclamp, signsel, signsel2, roundadd, flooradd, fracadd, already
   in the code) plus a VERSIONINFO resource (product, version, description) and a manifest for
-  sopt-opbench.exe: Windows 11 Defender flags v1 as Trojan:Win32/Sabsik.FL.A!ml (an ML heuristic false
-  positive on an unsigned exe). Report false positives at microsoft.com/en-us/wdsi/filesubmission (per
+  sopt-opbench.exe: Windows 11 Defender flags the static-CRT build as Trojan:Win32/Sabsik.FL.A!ml (an ML
+  heuristic false positive on an unsigned exe); the dynamic-CRT build is not flagged (owner, 2026-10-02:
+  keep that one; CMake back to the default runtime, README names the VC++ redistributable). Report false positives at microsoft.com/en-us/wdsi/filesubmission (per
   build); code signing (Azure Trusted Signing, or SignPath if the repo is public) is the real fix, later.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).

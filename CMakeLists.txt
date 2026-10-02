@@ -139,8 +139,9 @@ if(WIN32)
   add_executable(sopt-opbench tools/windows/opbench/sopt_opbench.cpp)
   target_compile_features(sopt-opbench PRIVATE cxx_std_17)
   target_link_libraries(sopt-opbench PRIVATE d3d11 dxgi d3dcompiler)
-  # Static C runtime: the exe is handed to other people, who may not have the VC++ redistributable.
-  set_property(TARGET sopt-opbench PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+  # Dynamic C runtime (the default): Windows Defender flagged the static-CRT build as
+  # Trojan:Win32/Sabsik.FL.A!ml (ML false positive) and not this one (owner, 2026-10-02).
+  # Needs the VC++ 2015-2022 redistributable, which nearly every gaming PC has.
 endif()
 
 if(SOPT_BUILD_TESTS)
