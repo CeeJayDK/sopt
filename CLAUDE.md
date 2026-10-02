@@ -627,7 +627,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   architecture names. GT 1030 (Pascal, GP108, ~1.2 TFLOPS from the mad rate): MUFU / floor / ceil / round /
   frac ~10, add / sub 3.5, min / max / step 6.8 (no free ALU-pipe min / max as on Turing), abs and -abs
   3.5 (not free here, neg is), saturate 0.2, clamp 14, select 12, lerp 7.6, sign 10.5, pow 24, max3 /
-  minmax +7.1: its own group, no model yet. GTX 1660 Ti (nvidia-gtx-1660-ti.csv): unreliable like the
+  minmax +7.1: its own group, no model yet. First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
+  the base step mad(x, c.x, c.y) is 2 instructions there (GCN's constant bus takes one SGPR per VALU op, so
+  one constant needs a v_mov), so 1 instruction = ~2.1 units: add / sub / min / max / floor / ceil / round /
+  frac 1 op, neg / abs / saturate / satmad free, omod2 / omodhalf 0.0 (output modifier confirmed), omod3
+  1 op (control), step 2, select / lerp 3, sign 5, rcp / sqrt / rsqrt / exp2 / log2 4 (quarter-rate
+  transcendental), exp / sin / cos 5, pow 9, clamp / max3 / minmax 1 op + the v_mov (med3 / max3 one op),
+  mul before a mad folded by the driver (-1.4). GCN, not RDNA (the rdna3 model is from RGA on gfx1100).
+  GTX 1660 Ti (nvidia-gtx-1660-ti.csv): unreliable like the
   first RTX 4070 run (neg -1.82, satmad +6.8: the clock changed during the run); rerun with locked clocks asked. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
   Blackwell models, targeted searches, library rules, opbench tests, precise in sopt-fx).
