@@ -158,8 +158,19 @@ time per step minus its base test's, in sopt's units (4 = one fma). Configuratio
 threads), `lat` (1 chain, one thread group: latency relative to mad's). Besides single ops it
 tests the context effects the rdna3 model assumes: `omod2` / `omodhalf` (x * 2, x * 0.5 after
 rcp: AMD output modifier, expected ~0; `omod3` is the control), `max3`, `minmax`, `satmad`,
-`contract`. Clock drift shows as "mad again" per configuration. The GPU's clock is not known, so
-latency is relative too.
+`contract`. The GPU's clock is not known, so latency is relative too.
+
+Version 2 (0.1.0): a 2-second warm-up, then every test is measured twice, forward and backward
+through the list, each time with a fresh reference mad right before it, so a GPU clock change only
+moves the tests around it. The summary at the end shows the throughput costs in a fixed order (the
+same on every GPU) with a bar and a comment per test, the other GPUs Windows reports (with
+`--adapter N`), and warnings when the reference drifted more than 5% or the two passes disagree.
+The CSV has the GPU, vendor, device, driver and the drift once in `#` header lines, then one row
+per configuration and test (`units_vs_base` is the average of `vs_base_fwd` and `vs_base_bwd`).
+The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics
+(`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases: the
+`sopt-opbench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases (exe, measure-gpu.bat,
+README.txt).
 
 ## ReShade's own statistics (6.8.0 source, `runtime.cpp` / `runtime_gui.cpp`)
 

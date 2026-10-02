@@ -677,8 +677,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 - docs/inexact-tricks.md (owner, 2026-10-02): every not-exact or conditional trick we find, with what is
   wrong with it and when it is safe (to avoid them when found again, and for programmers who can rule
   the limitation out). Add new ones there as they turn up.
-- opbench version 2 WISHLIST (owner, 2026-10-02: collect more reports first; build only when the owner
-  says so): (1) warm-up before measuring and a fresh mad base right before every test, so a GPU clock change
+- opbench version 2 (owner, 2026-10-02: "make v2 now" with the signing work, no v1 update; built as
+  0.1.0 = `project(sopt VERSION 0.1.0)`, items 1-7 below all done; mingw cross-build and a Wine run checked;
+  CSV readers must skip '#' lines (scratchpad opt/table.py does)). Release / signing (owner's go, plan
+  2026-10-02): `.github/workflows/release.yml` (tag v* or manual = draft: Windows build, version-info check,
+  sopt-opbench-<v>.zip + sopt-windows-tools-<v>.zip + SHA256SUMS.txt; SignPath step only when the secret
+  SIGNPATH_API_TOKEN exists), VERSIONINFO (CompanyName CeeJay.dk, `sopt_version_info` in CMakeLists.txt,
+  tools/windows/version.rc.in) and tools/windows/app.manifest on the exes, README code signing policy +
+  privacy sections, docs/signing.md (the owner's SignPath steps, artifact configuration XML). Was the
+  WISHLIST: (1) warm-up before measuring and a fresh mad base right before every test, so a GPU clock change
   only hits one test, with a warning when the base drifts (the RTX 4070 run); (2) the new
   fast-form tests (signmad, signsat, signclamp, signsel, signsel2, roundadd, flooradd, fracadd, already
   in the code); (3) CSV: gpu / vendor / device / driver once in header lines at the top instead of on every

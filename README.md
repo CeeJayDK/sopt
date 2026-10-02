@@ -276,3 +276,30 @@ build/sopt examples/step_lerp.sopt --isa --sass [--sm 75|86|89|120] [--sass-keep
 
 This is the CUDA compiler, not the graphics driver's shader compiler (believed to share
 the backend); Nsight Graphics on real hardware is the ground truth.
+
+## Windows tools and releases
+
+Ready-built Windows tools are on the [Releases](https://github.com/CeeJayDK/sopt/releases) page:
+`sopt-opbench-<version>.zip` (what GPU instructions cost on your card, see its README.txt) and
+`sopt-windows-tools-<version>.zip` (the benchmark harness, [tools/windows/README.md](tools/windows/README.md)).
+They are built from this repository by GitHub Actions (`.github/workflows/release.yml`).
+
+### Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/) (once the application is approved; until then the
+release files are unsigned and listed with SHA256 checksums).
+
+- Committers and reviewers: [CeeJayDK](https://github.com/CeeJayDK)
+- Approvers: [CeeJayDK](https://github.com/CeeJayDK)
+
+Only binaries built from this repository's source by its release workflow are signed
+(sopt-opbench.exe, sopt-host.exe, sopt-fxc.exe, sopt-timer.addon64 / .addon32). ReShade64.dll in the
+tools zip is built unchanged from crosire's ReShade 6.8.0 source and is not signed by this project.
+
+### Privacy
+
+This program will not transfer any information to other networked systems unless specifically
+requested by the user or the person installing or operating it. sopt-opbench only writes
+`opbench-<GPU>.csv` and the folder `opbench-dxbc` next to itself; sopt-host and the sopt-timer
+add-on only write their CSV, log and screenshots into the run folder.

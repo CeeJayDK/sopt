@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sopt LANGUAGES C CXX)
+project(sopt VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -139,6 +139,29 @@ if(WIN32)
   add_executable(sopt-opbench tools/windows/opbench/sopt_opbench.cpp)
   target_compile_features(sopt-opbench PRIVATE cxx_std_17)
   target_link_libraries(sopt-opbench PRIVATE d3d11 dxgi d3dcompiler)
+  target_compile_definitions(sopt-opbench PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
+  # Version resource (name, publisher, version under Properties > Details) on every tool we
+  # distribute, and a manifest (asInvoker, supported Windows versions) on the executables:
+  # unsigned executables without them look more suspicious to Windows Defender.
+  function(sopt_version_info target filename description filetype)
+    set(SOPT_RC_NAME ${target})
+    set(SOPT_RC_FILENAME ${filename})
+    set(SOPT_RC_DESCRIPTION ${description})
+    set(SOPT_RC_FILETYPE ${filetype})
+    configure_file(tools/windows/version.rc.in ${CMAKE_CURRENT_BINARY_DIR}/${target}_version.rc @ONLY)
+    target_sources(${target} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/${target}_version.rc)
+    if(filetype STREQUAL "VFT_APP")
+      target_sources(${target} PRIVATE tools/windows/app.manifest)
+    endif()
+  endfunction()
+  sopt_version_info(sopt-opbench sopt-opbench.exe "sopt GPU instruction cost benchmark" VFT_APP)
+  sopt_version_info(sopt-host sopt-host.exe "sopt benchmark host window (DX11 / Vulkan)" VFT_APP)
+  sopt_version_info(sopt-fxc sopt-fxc.exe "sopt helper: HLSL to DXBC with Microsoft fxc" VFT_APP)
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    sopt_version_info(sopt-timer sopt-timer.addon64 "sopt GPU timer add-on for ReShade" VFT_DLL)
+  else()
+    sopt_version_info(sopt-timer sopt-timer.addon32 "sopt GPU timer add-on for ReShade" VFT_DLL)
+  endif()
   # Dynamic C runtime (the default): Windows Defender flagged the static-CRT build as
   # Trojan:Win32/Sabsik.FL.A!ml (ML false positive) and not this one (owner, 2026-10-02).
   # Needs the VC++ 2015-2022 redistributable, which nearly every gaming PC has.
