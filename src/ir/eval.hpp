@@ -25,4 +25,14 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
 void evalNode(const Node& node, const Type* argTypes, const float* const (*arg)[4],
               float* const* out, size_t n, const Profile& profile, std::vector<float>& tmp);
 
+// Copies node i of src into b (operands already mapped by `map`); a node whose operands
+// are all constants is folded into a constant (reference profile).
+uint32_t foldCopyNode(const Expr& src, uint32_t i, const std::vector<uint32_t>& map, ExprBuilder& b);
+
+// e with the compile-time inputs replaced by their values (InputDecl::value) and
+// constant subexpressions folded, as the shader compiler does. The other inputs are
+// renumbered: `remaining` receives them, oldIndex (optional) their original indices.
+Expr specializeCompileTime(const Expr& e, const std::vector<InputDecl>& inputs,
+                           std::vector<InputDecl>& remaining, std::vector<uint32_t>* oldIndex = nullptr);
+
 }  // namespace sopt

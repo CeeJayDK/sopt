@@ -31,16 +31,33 @@ struct InputDecl {
   double hi = 1.0;
   uint32_t grid = 0;  // 0 = continuous, N = values lo + k*(hi-lo)/N
   Type type = Type::Float;  // float1..4; every component has the same domain
+  // A compile-time constant (a preprocessor definition the user can change): the
+  // compiler folds expressions of these, so they cost nothing.
+  bool compileTime = false;
+  double value = 0.0;  // compileTime: the current value (a preprocessor definition's)
 };
 
 // Error budget per output value (design 4.2). Color8/Color10: max difference in
 // 8/10-bit code values after quantization. Texcoord: max deviation in pixels at 4K
-// width (eps = px / 3840). Exact also covers conditions, temporal feedback and depth.
+// width by default (eps = px / width). Exact also covers conditions, temporal feedback and depth.
 struct Budget {
   enum class Kind { Exact, Color8, Color10, Abs, Rel, Texcoord } kind = Kind::Exact;
   double eps = 0.0;     // Abs, Rel, Texcoord
   int maxCodeDiff = 1;  // Color8, Color10
-  double px = 0.0;      // Texcoord: pixels at 3840 wide
+  double px = 0.0;      // Texcoord: pixels at `width` wide (eps = px / width)
+  double width = 3840.0;
+  // Owner's accuracy rule: a candidate may also differ from the float32 original where
+  // it is at least as close to the exact (real-number) value, or within the budget of
+  // it (see pointAccurate). Never for Exact budgets.
+  bool vsExact = true;
+  // Less accurate variants (owner: listed with their accuracy, the user decides): a
+  // factor > 1 also accepts candidates within `loose` times the budget (color budgets:
+  // one more code) and `loose` times the original's own error. 0 = off.
+  double loose = 0.0;
+  // Rel: relative to max(|t|, S), S = the original's own rounding-error scale (see
+  // relBase). Off where the float32 original does not follow exact math (driver).
+  bool errorScale = true;
+  bool scaledRel() const { return kind == Kind::Rel && errorScale; }
   int codeBits() const { return kind == Kind::Color10 ? 10 : 8; }
 };
 
@@ -82,14 +99,39 @@ class ExprBuilder {
 // Static cost with sharing: every distinct node counts once. With contraction, an
 // add/sub over a single-use mul (or div) costs model.fusedAdd.
 uint32_t dagCost(const Expr& e, const CostModel& model = defaultCostModel());
+// The same with compile-time inputs (InputDecl::compileTime): nodes computed only from
+// constants and compile-time inputs are folded by the compiler and cost nothing.
+uint32_t dagCost(const Expr& e, const CostModel& model, const std::vector<InputDecl>& inputs);
+// Per node: computed only from constants and compile-time inputs.
+std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& inputs);
 std::vector<uint32_t> useCounts(const Expr& e);
 // For an add/sub node: the operand index (0/1) that contracts into an fma, else -1.
 int fusedArg(const Expr& e, uint32_t node, const std::vector<uint32_t>& uses, bool divIsMul);
+// CostModel::amdFolds: per node, whether it folds into another instruction (cost 1 per component):
+// a mul by a constant +-2 / +-4 / +-0.5 whose other operand is a single-use, same-width result of
+// an instruction with output modifiers (and that is not itself contracted into an fma), or a
+// min / max with a single-use min / max operand that does not fold itself (three operands).
+std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& uses, const CostModel& m);
+// The ops whose instruction takes an output modifier (omod) in amdFoldedNodes.
+bool takesOmod(Op op);
+bool isOmodScale(float v);
 bool containsInexact(const Expr& e);
 bool containsOp(const Expr& e, Op op);
+// Whether e relies on exact float rounding that fxc -O3 would reassociate away: (v + c) - c,
+// (v + c) + -c or mad(a, b, c) - c with |c| >= 2^22 (the add-round trick). Such forms must be
+// written as precise.
+bool needsPrecise(const Expr& e);
 Type nodeType(const Expr& e, uint32_t node);
 unsigned operandCount(const Node& n);
 std::string toString(const Expr& e, const std::vector<InputDecl>& inputs);
 std::string formatFloat(float v);
+
+// HLSL intrinsics that are not ops but written out the way DXC lowers them: radians(x) =
+// x * (pi / 180), degrees(x) = x * (180 / pi), log10(x) = log2(x) * (ln 2 / ln 10), tan(x) =
+// sin(x) / cos(x), cross(a, b) = a.yzx * b.zxy - a.zxy * b.yzx (float3). isSugarCall says
+// whether buildSugarCall knows the name and arity; buildSugarCall throws
+// std::invalid_argument when the operand types don't fit.
+bool isSugarCall(std::string_view name, size_t arity);
+uint32_t buildSugarCall(ExprBuilder& b, std::string_view name, const uint32_t* args, size_t arity);
 
 }  // namespace sopt

@@ -49,40 +49,89 @@ region) and writes to the output directory:
   ```
 
   `SOPT_ALL = k` (preprocessor definition in ReShade) selects variant k of every
-  region at once. Point ReShade at the output directory: effects find the changed
-  headers next to them, the rest through the normal include paths.
-- `sopt-report.md`: each region's original, inputs with their ranges and where they
-  come from, the budget, and the variants with cost, class and error; regions without
-  gains; skipped statements by reason.
+  region at once (the last variant where a region has fewer; a switch set on its own
+  wins). With `--isa`/`--sass`, `SOPT_AUTO = 1` makes every switch not set on its own
+  take the variant measured fastest on the GPU's vendor (`__VENDOR__`: AMD 0x1002,
+  NVIDIA 0x10DE; other vendors and regions without a gain there keep the original;
+  less accurate variants are never picked). Point ReShade at the output directory:
+  effects find the changed headers next to them, the rest through the normal include
+  paths.
+- `sopt-report.md`: each region's original (row 0) with its cost, inputs with their
+  ranges and where they come from, the budget, and the variants with cost and measured
+  instructions (with the change in %), class, error vs the original and vs exact math,
+  and which variant SOPT_AUTO picks per vendor; regions without gains; skipped
+  statements by reason.
 
 Every variant effect is re-parsed with `SOPT_ALL = 0..n`.
 
 **Regions.** A region is one statement (`float3 x = ...;`, `x.rgb = ...;`, `x *= ...;`,
 `return ...;`) of pure arithmetic, alone on its lines, without macros (texture fetch
 calls are copied verbatim, so macros inside them are fine), plus windows: the statement
-with the declarations of single-use temporaries it reads (same block; a variant removes
-them). Inputs are the variables and texture fetches it reads. Statements whose value
+with the declarations of single-use temporaries it reads, and with the statements
+before it that compute its own variable (chains such as `d = 1.0 - d; d /= F - d;`, in
+straight-line code, when nothing else reads the intermediate values). A variant removes
+the inlined statements. A window across `#if`/`#else`/`#endif` lines applies only while
+they compile as in the parse: its switch becomes `#if SOPT_x >= 1 && (COND)`.
+`--max-statements N` (default 4) and `--max-ops N` (default 24) bound the regions.
+Inputs are the variables and texture fetches it reads. Statements whose value
 depends on `BUFFER_WIDTH/HEIGHT` through a `static const` are found by parsing twice
 and skipped.
 
-**Facts (input ranges).** `ui_min`/`ui_max` (and `ui_type = "color"`), `TEXCOORD` in
-[0, 1], `SV_Position` in [0, 3840], texture fetches by format (the back buffer as
+**Facts (input ranges).** `ui_min`/`ui_max` (and `ui_type = "color"`), pixel shader
+inputs from what the passes' vertex shaders write (`PostProcessVS` texcoord in [0, 1],
+other vertex shaders by range analysis, including out parameters of functions they
+call; where that finds nothing, TEXCOORD0..9 are [0, 1] by convention, also for members
+of struct inputs), `SV_Position` in pixels ([0, 7680], 8K; `--max-width N` up to the hardware limit 16384), texture fetches by format (the back buffer as
 8-bit SDR, grid 255; depth [0, 1]), helper parameters from their call sites, and
 interval propagation over reaching definitions. Otherwise the range is *assumed*
 ([-1000, 1000]): such regions are searched, but their variants only appear in the
 report (sampling cannot see a difference confined to a small part of a wide range),
 unless `--assumed`.
 
+**Preprocessor definitions.** Numeric definitions the user can change (those the effect
+tests with `#ifndef`, as ReShade shows them) stay symbolic: the effect is parsed a second
+time with each of them as a named compile-time input (their value is still used in
+`#if`). Variants print the name, so they stay valid for every setting, and
+sub-expressions of such inputs and constants cost nothing (the compiler folds them).
+Their range is asked for like other missing ranges (key `macro global NAME`). Other
+macros in a statement still skip it. `--no-macro-inputs` turns this off. In `.sopt`
+files, `input F : const float in [lo, hi] [= value]` declares such an input (value:
+the current setting, default the midpoint).
+
+The search specializes: it runs with each compile-time input set to its value, then
+replaces the numeric constants of every candidate with small expressions of the
+inputs (up to 4 operations over the inputs and 1, 2, 0.5 and the target's constants,
+matching the constant within 2e-5 relative) and verifies the result over the whole
+range. Example: `examples/depth_far.sopt` (ReShade.fxh's reversed depth, cost 29 ->
+24 on rdna3). An effect whose code needs a definition's value as a literal (e.g. as a
+uniform's initializer, DisplayDepth.fx) keeps that definition as a number.
+
+**Missing ranges.** Every run writes `sopt-facts.txt` to the output directory: the
+ranges given so far, and each input without a known range as a commented line with a
+suggestion (from a COLOR semantic, its name, a uniform's default value, or the
+texture it reads):
+
+```
+CRT.fx corner coord = [0, 1]
+# CRT.fx intersect xy = [-1000, 1000]   # no guess (the default); 2 regions
+```
+
+Uncomment or edit lines and rerun with `--facts sopt-facts.txt`. `--ask` asks in the
+terminal instead (Enter takes the suggestion, `s` skips, `q` stops), uniforms and
+parameters first; after each answer the effects are read again, so values computed
+from it get a range too. A range is a fact for the variable wherever the analysis
+has none (key: file, function or `global` for uniforms, variable).
+
 **Budget from use.** Pixel shader output to an 8-bit target without blending: 8-bit
 identical (color8, max code diff 0). Used in a comparison: exact. Only used as texture
-coordinates: 0.01 px at 3840. Otherwise rel 1e-6.
+coordinates: 0.01 px at the largest width (`--max-width`, default 7680 = 8K). Otherwise rel 1e-6.
 
 **What counts as cheaper.** The static cost, after what the GPU compiler does anyway:
 `a * b + c` becomes an fma, neg/abs are source modifiers, saturate and clamp(x, 0, 1)
 an output modifier, swizzles and constructors are free. With `--isa` / `--sass` the
 original and the variants are compiled (fxstat + RGA, ptxas + nvdisasm); a variant is
-kept only if no vendor gets slower and one gets faster, and variants are ranked by
-measured cost.
+kept if some vendor gets faster (it may be slower on another; the report shows both),
+and variants are ranked by their summed relative gain.
 
 ## Input format (`.sopt`)
 
@@ -113,7 +162,21 @@ Budgets (per output component):
 | `color8 [maxdiff N]`, `color10 [maxdiff N]` | 8/10-bit code values differ by at most N (default 1) |
 | `texcoord [PX]` | at most PX pixels at 3840 wide (default 0.25) |
 | `abs EPS` | `|candidate - target| <= EPS` |
-| `rel EPS` | `|candidate - target| <= EPS * max(1, |target|)` |
+| `rel EPS` | `|candidate - target| <= EPS * |target|` (also for small values; near zero candidates pass by the accuracy rule) |
+
+**Accuracy rule** (default; `--no-exact-rule` to disable). The target is the float32
+original, whose own rounding error can exceed the budget. So a candidate also passes
+at a point where it is at least as close to the exact (real-number) value as the
+original is, or within the budget of the exact value. Exact values are computed in
+double precision; the float32 evaluation stays the reference semantics. Candidates
+that pass only this way are classed "as accurate". Not for exact budgets. Example:
+ReShade's depth linearization with far plane F in [100, 10000] has error 4.2e-4 vs
+exact math; its cheaper rewrite (cost 29 -> 24) has 1.5e-7.
+
+**Less accurate candidates** (`--loose F`, default 100, 0 = off): candidates within F
+times the budget or F times the original's error vs exact math (color budgets: one
+more code) are listed as "less accurate", with their errors, so the user decides.
+sopt-fx writes them after the accurate variants, and only if cheaper than all of them.
 
 `dot`, `length`, `normalize` and `distance` are pure helpers (no GPU has an FP32 dot
 instruction): they are evaluated and costed as their expansions, and the search builds
@@ -122,11 +185,19 @@ the expansions (components of vector inputs are free leaves), not the helpers.
 ## Output
 
 Every verified alternative cheaper than the target, sorted by cost, with class
-(bit-exact / 8-bit identical / within budget), max error, max 8-bit code difference
+(bit-exact / 8-bit identical / within budget / as accurate / less accurate), max error,
+max error vs exact math (and the original's), max 8-bit code difference
 and the fraction of sample points whose 8-bit code changed. Verification is dense
-sampling (1M points) under four semantic profiles: `ref` (HLSL lerp, unfused mad),
-`mix` (GLSL mix formula), `fma` (fused mad) and `gpu` (what drivers emit: a single-use
-product under +/- contracted to fma, `a / b` as `a * rcp(b)`).
+sampling (1M points) under six semantic profiles: `ref` (HLSL lerp, unfused mad),
+`mix` (GLSL mix formula), `fma` (fused mad), `gpu` (what drivers emit: a single-use
+product under +/- contracted to fma, `a / b` as `a * rcp(b)`), and `gpu+` / `gpu-` (`gpu`
+with every rcp, rsqrt, division, exp, log, sin, cos and pow result one float step up /
+down, as GPU approximations are not correctly rounded).
+
+Accuracy variants: a candidate that is not cheaper but has at most a quarter of the
+original's error against exact math is kept as "more accurate" (sopt-fx: if at most one
+instruction slower per measured vendor; never picked by `SOPT_AUTO`).
+`--no-accuracy-variants` turns this off.
 
 ## Exhaustive verification (V2)
 
@@ -144,6 +215,14 @@ the M1 placeholder weights. Under `rdna3` alone the search does not reach deep
 candidates (bank limit), so it enumerates in `search` order
 (same cheap ops, transcendentals at half cost) while rdna3 still decides hits and
 ranking. `--order-model M` picks another order (e.g. `rdna3`, `generic`).
+
+## Search past a full bank (default; `--no-overflow` to disable)
+
+When the bank is full, the search keeps combining the stored entries and checks the new
+values as hits without storing them, until the time limit (`--time`, which covers all
+CEGIS iterations together). This reaches one more level for the top operation at no
+memory cost: on the bench it found length_squared and a needs-sharing planted problem
+that the bank alone does not reach.
 
 ## Symbolic constants (default; `--no-affine` to disable)
 
@@ -197,3 +276,30 @@ build/sopt examples/step_lerp.sopt --isa --sass [--sm 75|86|89|120] [--sass-keep
 
 This is the CUDA compiler, not the graphics driver's shader compiler (believed to share
 the backend); Nsight Graphics on real hardware is the ground truth.
+
+## Windows tools and releases
+
+Ready-built Windows tools are on the [Releases](https://github.com/CeeJayDK/sopt/releases) page:
+`sopt-opbench-<version>.zip` (what GPU instructions cost on your card, see its README.txt) and
+`sopt-windows-tools-<version>.zip` (the benchmark harness, [tools/windows/README.md](tools/windows/README.md)).
+They are built from this repository by GitHub Actions (`.github/workflows/release.yml`).
+
+### Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/) (once the application is approved; until then the
+release files are unsigned and listed with SHA256 checksums).
+
+- Committers and reviewers: [CeeJayDK](https://github.com/CeeJayDK)
+- Approvers: [CeeJayDK](https://github.com/CeeJayDK)
+
+Only binaries built from this repository's source by its release workflow are signed
+(sopt-opbench.exe, sopt-host.exe, sopt-fxc.exe, sopt-timer.addon64 / .addon32). ReShade64.dll in the
+tools zip is built unchanged from crosire's ReShade 6.8.0 source and is not signed by this project.
+
+### Privacy
+
+This program will not transfer any information to other networked systems unless specifically
+requested by the user or the person installing or operating it. sopt-opbench only writes
+`opbench-<GPU>.csv` and the folder `opbench-dxbc` next to itself; sopt-host and the sopt-timer
+add-on only write their CSV, log and screenshots into the run folder.

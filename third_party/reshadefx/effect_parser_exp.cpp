@@ -1219,6 +1219,27 @@ bool reshadefx::parser::parse_expression_unary(expression &exp)
 			// Constants are loaded into the access chain
 			exp.reset_to_rvalue_constant(location, symbol.constant, symbol.type);
 		}
+		else if (symbol.op == symbol_type::sopt_named)
+		{
+			// sopt: parse the named expression's initializer again here (errors point at its declaration)
+			const auto &named = _sopt_named[symbol.id];
+			lexer *const outer = _lexer;
+			const token saved_token = _token, saved_next = _token_next, saved_backup = _token_backup;
+			_lexer = new lexer(named.first, true, true, true, false, false, true, named.second);
+			consume();
+			const bool named_success = parse_expression_assignment(exp) && peek(tokenid::end_of_file);
+			delete _lexer;
+			_lexer = outer;
+			_token = saved_token;
+			_token_next = saved_next;
+			_token_backup = saved_backup;
+			if (!named_success)
+			{
+				error(named.second, 3011, '\'' + identifier + "': initial value must be a literal expression");
+				return false;
+			}
+			exp.add_cast_operation(symbol.type);
+		}
 		else
 		{
 			// Can only reference variables and constants by name, functions need to be called

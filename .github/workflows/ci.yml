@@ -23,3 +23,47 @@ jobs:
       - name: Test
         # includes the golden-hash test: exact ops must match bit for bit across compilers
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Build 32-bit add-on
+        # sopt-timer.addon32 for 32-bit games (ReShade loads .addon32 there)
+        if: matrix.name == 'msvc'
+        run: |
+          cmake -S . -B build32 -A Win32 -DSOPT_BUILD_TESTS=OFF
+          cmake --build build32 --config Release --target sopt-timer
+      - name: Cache ReShade build
+        # ReShade 6.8.0, 64-bit, full add-on support, unchanged: run-bench.bat needs it next to
+        # sopt-host (built once, then cached).
+        if: matrix.name == 'msvc'
+        id: reshade-cache
+        uses: actions/cache@v4
+        with:
+          path: reshade-bin
+          key: reshade-6.8.0-release-x64-v1
+      - name: MSBuild for ReShade
+        if: matrix.name == 'msvc' && steps.reshade-cache.outputs.cache-hit != 'true'
+        uses: microsoft/setup-msbuild@v2
+      - name: Build ReShade
+        if: matrix.name == 'msvc' && steps.reshade-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          git clone --depth 1 --branch v6.8.0 --recurse-submodules --shallow-submodules https://github.com/crosire/reshade reshade
+          touch reshade/res/shaders/*.spv
+          cd reshade
+          MSYS_NO_PATHCONV=1 msbuild.exe ReShade.sln /t:ReShade /p:Configuration=Release /p:Platform=64-bit /m /v:minimal
+          mkdir -p ../reshade-bin
+          cp bin/x64/Release/ReShade64.dll ../reshade-bin/
+          cp LICENSE.md ../reshade-bin/ReShade-LICENSE.md
+      - name: Stage Windows tools
+        # One flat folder: the artifact is extracted next to ReShade and the test package and
+        # run with run-bench.bat (tools/windows/README.md).
+        if: matrix.name == 'msvc'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, build/Release/sopt-opbench.exe, tools/windows/measure-gpu.bat, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md dist/
+      - name: Upload Windows tools
+        # sopt-host, sopt-timer (M4 harness), the one-click bench, ReShade64.dll, sopt-opbench, sopt-fxc
+        if: matrix.name == 'msvc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sopt-windows-tools
+          path: dist/

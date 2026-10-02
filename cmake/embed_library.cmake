@@ -1,0 +1,15 @@
+# Writes library/rewrites.txt as a C++ string (sopt::kBuiltinLibrary), in pieces below
+# MSVC's 16 KB limit per string literal. Usage: cmake -DIN=... -DOUT=... -P embed_library.cmake
+file(READ "${IN}" text)
+string(LENGTH "${text}" len)
+set(body "")
+set(pos 0)
+while(pos LESS len)
+  string(SUBSTRING "${text}" ${pos} 8000 piece)
+  string(APPEND body "R\"sopt_lib(${piece})sopt_lib\"\n")
+  math(EXPR pos "${pos} + 8000")
+endwhile()
+if(body STREQUAL "")
+  set(body "\"\"")
+endif()
+file(WRITE "${OUT}" "// Generated from library/rewrites.txt by cmake/embed_library.cmake.\nnamespace sopt {\nextern const char* const kBuiltinLibrary;\nconst char* const kBuiltinLibrary =\n${body};\n}  // namespace sopt\n")

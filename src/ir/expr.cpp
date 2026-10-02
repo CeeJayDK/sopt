@@ -225,15 +225,102 @@ int fusedArg(const Expr& e, uint32_t node, const std::vector<uint32_t>& uses, bo
   return -1;
 }
 
+bool takesOmod(Op op) {
+  switch (op) {
+    case Op::Add: case Op::Sub: case Op::Mul: case Op::Mad: case Op::Div: case Op::Lerp: case Op::Dot:
+    case Op::Rcp: case Op::Rsqrt: case Op::Sqrt: case Op::Length:
+    case Op::Exp: case Op::Log: case Op::Exp2: case Op::Log2: case Op::Sin: case Op::Cos: case Op::Pow:
+    case Op::Floor: case Op::Frac: case Op::Round: case Op::Ceil:
+      return true;
+    default: return false;
+  }
+}
+
+bool isOmodScale(float v) {
+  const float a = std::fabs(v);
+  return a == 2.0f || a == 4.0f || a == 0.5f;
+}
+
+std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& uses, const CostModel& m) {
+  std::vector<bool> folded(e.nodes.size(), false);
+  if (!m.amdFolds) return folded;
+  std::vector<bool> fused(e.nodes.size(), false);  // a mul contracted into its consumer's fma
+  if (m.fusedAdd)
+    for (uint32_t i = 0; i < e.nodes.size(); ++i)
+      if (const int f = fusedArg(e, i, uses, m.divIsMul); f >= 0) fused[e.nodes[i].args[f]] = true;
+  auto omodConst = [&](uint32_t i) {
+    const Node& c = e.nodes[i];
+    if (c.op != Op::Const || !isOmodScale(c.value[0])) return false;
+    for (unsigned k = 1; k < width(c.type); ++k)
+      if (c.value[k] != c.value[0]) return false;
+    return true;
+  };
+  auto isMinMax = [](Op op) { return op == Op::Min || op == Op::Max; };
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op == Op::Mul && !fused[i]) {
+      for (int k = 0; k < 2 && !folded[i]; ++k) {
+        const uint32_t v = n.args[1 - k];
+        const Node& p = e.nodes[v];
+        folded[i] = omodConst(n.args[k]) && uses[v] == 1 && p.type == n.type && takesOmod(p.op) && !folded[v];
+      }
+    } else if (isMinMax(n.op)) {
+      for (int k = 0; k < 2 && !folded[i]; ++k) {
+        const uint32_t v = n.args[k];
+        const Node& p = e.nodes[v];
+        folded[i] = isMinMax(p.op) && uses[v] == 1 && p.type == n.type && !folded[v];
+      }
+    }
+  }
+  return folded;
+}
+
 uint32_t dagCost(const Expr& e, const CostModel& m) {
-  const auto uses = m.fusedAdd ? useCounts(e) : std::vector<uint32_t>();
+  const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
+  const auto folded = amdFoldedNodes(e, uses, m);
   uint32_t cost = 0;
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     const Node& n = e.nodes[i];
     const bool reduce = info(n.op).shape == Shape::Reduce;
     const unsigned w = width(reduce ? e.nodes[n.args[0]].type : n.type);
-    cost += (m.fusedAdd && fusedArg(e, i, uses, m.divIsMul) >= 0) ? w * m.fusedAdd
-                                                                   : m.opCost(n.op, w);
+    cost += folded[i] ? w
+            : (m.fusedAdd && fusedArg(e, i, uses, m.divIsMul) >= 0) ? w * m.fusedAdd
+                                                                     : m.opCost(n.op, w);
+  }
+  return cost;
+}
+
+std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& inputs) {
+  std::vector<bool> ct(e.nodes.size(), false);
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op == Op::Const) {
+      ct[i] = true;
+    } else if (n.op == Op::Input) {
+      ct[i] = n.input < inputs.size() && inputs[n.input].compileTime;
+    } else {
+      bool all = true;
+      for (unsigned k = 0; k < operandCount(n); ++k) all = all && ct[n.args[k]];
+      ct[i] = all;
+    }
+  }
+  return ct;
+}
+
+uint32_t dagCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
+  const auto ct = compileTimeNodes(e, inputs);
+  const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
+  const auto folded = amdFoldedNodes(e, uses, m);
+  uint32_t cost = 0;
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    if (ct[i]) continue;
+    const Node& n = e.nodes[i];
+    const bool reduce = info(n.op).shape == Shape::Reduce;
+    const unsigned w = width(reduce ? e.nodes[n.args[0]].type : n.type);
+    const int f = m.fusedAdd ? fusedArg(e, i, uses, m.divIsMul) : -1;
+    bool fold = folded[i];
+    for (unsigned k = 0; fold && k < operandCount(n); ++k) fold = !ct[n.args[k]] || e.nodes[n.args[k]].op == Op::Const;
+    cost += fold ? w : (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd : m.opCost(n.op, w);
   }
   return cost;
 }
@@ -244,9 +331,67 @@ bool containsInexact(const Expr& e) {
   return false;
 }
 
+bool isSugarCall(std::string_view name, size_t arity) {
+  if (arity == 1) return name == "radians" || name == "degrees" || name == "log10" || name == "tan";
+  return arity == 2 && name == "cross";
+}
+
+uint32_t buildSugarCall(ExprBuilder& b, std::string_view name, const uint32_t* args, size_t arity) {
+  if (!isSugarCall(name, arity)) throw std::invalid_argument("unknown intrinsic " + std::string(name));
+  const auto& ns = b.nodes();
+  // Operands are built one statement at a time: argument evaluation order is unspecified,
+  // and node order decides how the DAG prints.
+  if (name == "radians" || name == "degrees") {
+    const uint32_t k = b.constant(name == "radians" ? 0.017453292519943295f : 57.29577951308232f);
+    return b.op(Op::Mul, args[0], k);
+  }
+  if (name == "log10") {
+    const uint32_t l = b.op(Op::Log2, args[0]);
+    return b.op(Op::Mul, l, b.constant(0.30102999566398120f));
+  }
+  if (name == "tan") {
+    const uint32_t s = b.op(Op::Sin, args[0]);
+    return b.op(Op::Div, s, b.op(Op::Cos, args[0]));
+  }
+  if (ns[args[0]].type != Type::Float3 || ns[args[1]].type != Type::Float3)
+    throw std::invalid_argument("cross needs float3 operands");
+  static constexpr uint8_t kYzx[3] = {1, 2, 0}, kZxy[3] = {2, 0, 1};
+  const uint32_t ay = b.swizzle(args[0], kYzx, 3), bz = b.swizzle(args[1], kZxy, 3);
+  const uint32_t l = b.op(Op::Mul, ay, bz);
+  const uint32_t az = b.swizzle(args[0], kZxy, 3), by = b.swizzle(args[1], kYzx, 3);
+  const uint32_t r = b.op(Op::Mul, az, by);
+  return b.op(Op::Sub, l, r);
+}
+
 bool containsOp(const Expr& e, Op op) {
   for (const auto& n : e.nodes)
     if (n.op == op) return true;
+  return false;
+}
+
+bool needsPrecise(const Expr& e) {
+  auto big = [&](uint32_t i, float sign, const Node* other) {
+    const Node& c = e.nodes[i];
+    if (c.op != Op::Const) return false;
+    for (unsigned k = 0; k < width(c.type); ++k) {
+      const float v = c.value[k], o = other ? other->value[std::min<unsigned>(k, width(other->type) - 1)] : v;
+      if (!(std::fabs(v) >= 4194304.0f) || (other && v != sign * o)) return false;
+    }
+    return true;
+  };
+  for (const auto& n : e.nodes) {
+    if ((n.op != Op::Sub && n.op != Op::Add) || n.nargs < 2) continue;
+    const float sign = n.op == Op::Sub ? 1.0f : -1.0f;
+    for (int side = 0; side < (n.op == Op::Add ? 2 : 1); ++side) {
+      const Node& inner = e.nodes[n.args[side]];
+      const uint32_t outer = n.args[1 - side];
+      if (!big(outer, 1.0f, nullptr)) continue;
+      if (inner.op == Op::Add)
+        for (int j = 0; j < 2; ++j)
+          if (big(inner.args[j], sign, &e.nodes[outer])) return true;
+      if (inner.op == Op::Mad && big(inner.args[2], sign, &e.nodes[outer])) return true;  // mad(a, b, c) - c
+    }
+  }
   return false;
 }
 
@@ -271,13 +416,41 @@ uint8_t precOf(const Expr& e, uint32_t idx) {
   return info(n.op).prec;
 }
 
+// A vector constant with all components equal (float3(0.5, 0.5, 0.5)).
+bool splatConst(const Node& c) {
+  if (c.op != Op::Const || width(c.type) < 2) return false;
+  for (unsigned k = 1; k < width(c.type); ++k)
+    if (c.value[k] != c.value[0]) return false;
+  return true;
+}
+
 std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t idx) {
   const auto& n = e.nodes[idx];
   const auto& oi = info(n.op);
+  // Componentwise ops broadcast scalars (here and in HLSL): a splat constant next to a
+  // non-constant vector operand prints as a scalar, mad(v, 0.5, 0.5).
+  bool scalarSplats = false;
+  if (oi.shape == Shape::Comp)
+    for (uint8_t k = 0; k < n.nargs; ++k) {
+      const Node& c = e.nodes[n.args[k]];
+      scalarSplats = scalarSplats || (c.op != Op::Const && width(c.type) > 1);
+    }
   auto sub = [&](uint32_t child, bool paren) {
-    std::string s = print(e, inputs, child);
+    const Node& c = e.nodes[child];
+    std::string s = scalarSplats && splatConst(c) ? formatFloat(c.value[0]) : print(e, inputs, child);
     return paren ? "(" + s + ")" : s;
   };
+  // a + -c prints as a - c.
+  auto negConst = [&](uint32_t child) {
+    const Node& c = e.nodes[child];
+    return c.op == Op::Const && (width(c.type) == 1 || (scalarSplats && splatConst(c))) && c.value[0] < 0.0f;
+  };
+  if (n.op == Op::Add && n.nargs == 2 && (negConst(n.args[0]) != negConst(n.args[1]))) {
+    const uint32_t v = negConst(n.args[1]) ? n.args[0] : n.args[1];
+    const Node& c = e.nodes[negConst(n.args[1]) ? n.args[1] : n.args[0]];
+    const uint8_t p = info(Op::Sub).prec;
+    return sub(v, precOf(e, v) < p) + " - " + formatFloat(-c.value[0]);
+  }
   switch (oi.syntax) {
     case Syntax::Leaf:
       if (n.op == Op::Input)

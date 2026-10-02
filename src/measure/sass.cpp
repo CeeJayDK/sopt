@@ -154,6 +154,19 @@ std::string emitPtx(const Expr& e, const std::vector<InputDecl>& inputs, int sm)
           break;
         case Op::Sin: body << "  sin.approx.ftz.f32 " << o << ", " << a << ";\n"; break;
         case Op::Cos: body << "  cos.approx.ftz.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Exp2: body << "  ex2.approx.ftz.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Log2: body << "  lg2.approx.ftz.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Round: body << "  cvt.rni.f32.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Ceil: body << "  cvt.rpi.f32.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Smoothstep: {  // s = sat((t - a) * rcp(b - a)); s * (s * (3 - 2 s))
+          x = f(), y = f();
+          const std::string r = f(), q = f(), u = f();
+          body << "  sub.f32 " << x << ", " << cc << ", " << a << ";\n  sub.f32 " << y << ", " << b << ", " << a
+               << ";\n  rcp.approx.ftz.f32 " << r << ", " << y << ";\n  mul.sat.f32 " << q << ", " << x << ", " << r
+               << ";\n  fma.rn.f32 " << u << ", " << q << ", 0fC0000000, 0f40400000;\n  mul.f32 " << u << ", " << q
+               << ", " << u << ";\n  mul.f32 " << o << ", " << q << ", " << u << ";\n";
+          break;
+        }
         case Op::Add: body << "  add.f32 " << o << ", " << a << ", " << b << ";\n"; break;
         case Op::Sub: body << "  sub.f32 " << o << ", " << a << ", " << b << ";\n"; break;
         case Op::Mul: body << "  mul.f32 " << o << ", " << a << ", " << b << ";\n"; break;
@@ -264,8 +277,11 @@ SassCost parseSass(const std::string& disasm, int sm) {
   return c;
 }
 
-std::vector<SassCost> measureSass(const std::vector<const Expr*>& exprs,
-                                  const std::vector<InputDecl>& inputs, const SassConfig& cfg) {
+std::vector<SassCost> measureSass(const std::vector<const Expr*>& exprsIn,
+                                  const std::vector<InputDecl>& inputsIn, const SassConfig& cfg) {
+  const Specialized sp = specializeForCompiler(exprsIn, inputsIn);
+  const auto& exprs = sp.exprs;
+  const auto& inputs = sp.inputs;
   std::vector<SassCost> out(exprs.size());
   std::string err;
   const fs::path dir = makeWorkDir(cfg.keepDir, "sopt-sass-", err);

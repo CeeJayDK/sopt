@@ -9,11 +9,53 @@
 #include <cstdio> // fclose, fopen, fread, fseek
 #include <cassert>
 #include <algorithm> // std::find_if
+#include <cctype> // std::tolower (sopt)
 
 #ifndef _WIN32
 	// On Linux systems the native path encoding is UTF-8 already, so no conversion necessary
 	#define u8path(p) path(p)
 	#define u8string() string()
+
+// sopt: Windows file names ignore case and ReShade assumes Windows (OtisFX includes
+// "Reshade.fxh"). Resolves 'rel' below 'base' matching each component ignoring case.
+static bool find_ignoring_case(const std::filesystem::path &base, const std::filesystem::path &rel, std::filesystem::path &out)
+{
+	std::error_code ec;
+	std::filesystem::path cur = base;
+	for (const std::filesystem::path &part : rel)
+	{
+		if (part == "." || part.empty())
+			continue;
+		if (part == "..")
+		{
+			cur /= part;
+			continue;
+		}
+		if (std::filesystem::exists(cur / part, ec))
+		{
+			cur /= part;
+			continue;
+		}
+		std::string want = part.string();
+		std::transform(want.begin(), want.end(), want.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		bool found = false;
+		for (const auto &entry : std::filesystem::directory_iterator(cur.empty() ? "." : cur, ec))
+		{
+			std::string name = entry.path().filename().string();
+			std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			if (name == want)
+			{
+				cur /= entry.path().filename();
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+			return false;
+	}
+	out = cur;
+	return std::filesystem::exists(out, ec);
+}
 #endif
 
 enum op_type
@@ -729,7 +771,12 @@ void reshadefx::preprocessor::parse_include()
 		return;
 	}
 
-	std::filesystem::path file_name = std::filesystem::u8path(_token.literal_as_string);
+	std::string file_name_string = _token.literal_as_string;
+#ifndef _WIN32
+	// sopt: Windows path separators in #include (e.g. iMMERSE's ".\MartysMods\x.fxh") on other platforms.
+	std::replace(file_name_string.begin(), file_name_string.end(), '\\', '/');
+#endif
+	std::filesystem::path file_name = std::filesystem::u8path(file_name_string);
 	std::filesystem::path file_path = std::filesystem::u8path(_output_location.source);
 	file_path.replace_filename(file_name);
 
@@ -738,6 +785,21 @@ void reshadefx::preprocessor::parse_include()
 		for (const std::filesystem::path &include_path : _include_paths)
 			if (std::filesystem::exists(file_path = include_path / file_name, ec))
 				break;
+#ifndef _WIN32
+	if (!std::filesystem::exists(file_path, ec))
+	{
+		std::filesystem::path found;
+		if (find_ignoring_case(std::filesystem::u8path(_output_location.source).parent_path(), file_name, found))
+			file_path = found;
+		else
+			for (const std::filesystem::path &include_path : _include_paths)
+				if (find_ignoring_case(include_path, file_name, found))
+				{
+					file_path = found;
+					break;
+				}
+	}
+#endif
 
 	const std::string file_path_string = file_path.u8string();
 
@@ -776,6 +838,14 @@ void reshadefx::preprocessor::parse_include()
 
 bool reshadefx::preprocessor::evaluate_expression()
 {
+	// sopt: symbolic macros keep their value in #if expressions
+	struct sopt_condition_scope
+	{
+		int &depth;
+		explicit sopt_condition_scope(int &d) : depth(d) { ++depth; }
+		~sopt_condition_scope() { --depth; }
+	} sopt_scope(_sopt_condition);
+
 	struct rpn_token
 	{
 		int value;
@@ -1155,6 +1225,15 @@ bool reshadefx::preprocessor::evaluate_identifier_as_macro()
 		const std::unordered_set<std::string> &hidden_macros = _input_stack[_current_input_index].hidden_macros;
 		if (hidden_macros.find(_token.literal_as_string) != hidden_macros.end())
 			return false;
+	}
+
+	// sopt: keep symbolic macros as an identifier in code
+	if (_sopt_condition == 0 && symbolic_macros.find(_token.literal_as_string) != symbolic_macros.end() &&
+		(symbolic_exclude.empty() ||
+		 symbolic_exclude.find(_token.location.source + '\n' + std::to_string(_token.location.line)) == symbolic_exclude.end()))
+	{
+		push("__sopt_" + _token.literal_as_string);
+		return true;
 	}
 
 	const location macro_location = _token.location;

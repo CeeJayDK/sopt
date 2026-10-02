@@ -1,0 +1,15 @@
+# ReShade.fxh GetLinearizedDepth with reversed depth and the far plane F as a
+# compile-time input (the preprocessor definition RESHADE_DEPTH_LINEARIZATION_FAR_PLANE,
+# default 1000, realistic range 100..10000). The search runs at F = 1000, then the
+# candidate's constants are generalized into expressions of F and verified over the
+# whole range. The original's own rounding error (4.2e-4 at F = 10000) exceeds the rel
+# 1e-6 budget; the rewrite (1 - t) / (1 + (F - 1) t) passes by the accuracy rule
+# (1.5e-7 vs exact math) and is an accuracy variant: it costs about the same on GPUs.
+# The partial fraction mad(rcp(t + 1/(F-1)), F/(F-1)^2, 1/(1-F)) found earlier is not
+# accepted any more: it ends in a cancellation, so its relative error near t = 1 is large
+# (with GPU rcp, and relative budgets without the max(1, |t|) floor).
+# expect: (t - 1.0) * rcp(mad(t, 1.0 - F, -1.0))
+input t : float in [0, 1] grid 16777215
+input F : const float in [100, 10000] = 1000
+output r = (1.0 - t) / (F - (1.0 - t) * (F - 1.0))
+budget r : rel 1e-6

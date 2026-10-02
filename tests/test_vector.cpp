@@ -138,6 +138,7 @@ TEST(vector_rewrite_normalize_length) {
   Options opt;
   opt.v1Points = 1u << 16;
   opt.search.maxBank = 200'000;
+  opt.search.overflow = false;
   const RunResult r = optimize(prog, opt);
   CHECK(!r.accepted.empty());
   if (!r.accepted.empty()) CHECK(r.accepted[0].text == "v" && r.accepted[0].cost == 0);

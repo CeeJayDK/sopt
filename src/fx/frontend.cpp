@@ -4,6 +4,7 @@
 #include <bit>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <set>
@@ -97,6 +98,18 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   pp.add_macro_definition("BUFFER_COLOR_FORMAT", "28");
   pp.add_macro_definition("BUFFER_COLOR_BIT_DEPTH", "8");
   for (const auto& [k, v] : opt.macros) pp.add_macro_definition(k, v);
+  pp.symbolic_macros.insert(opt.symbolic.begin(), opt.symbolic.end());
+  std::string decls;
+  for (const auto& m : opt.symbolic) decls += "uniform float " + std::string(kSymbolicPrefix) + m + ";\n";
+  if (opt.bufferSymbolic) {
+    // int, as the literals ReShade defines: BUFFER_WIDTH / 3 stays an integer division.
+    for (const char* m : {"BUFFER_WIDTH", "BUFFER_HEIGHT"}) {
+      pp.symbolic_macros.insert(m);
+      decls += "uniform int " + std::string(kSymbolicPrefix) + m + ";\n";
+    }
+    pp.symbolic_exclude.insert(opt.symbolicExclude.begin(), opt.symbolicExclude.end());
+  }
+  if (!decls.empty()) pp.append_string(decls);
   pp.append_string(
       "#define tex2Doffset(s, coords, offset) tex2D(s, coords, offset)\n"
       "#define tex2Dlodoffset(s, coords, offset) tex2Dlod(s, coords, offset)\n"
@@ -114,14 +127,75 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   fx->path = path;
   fx->cg = std::make_unique<Codegen>();
   reshadefx::parser parser;
+  parser.sopt_named_expressions = opt.bufferSymbolic && opt.namedExpressions;
   if (!parser.parse(pp.output(), fx->cg.get())) {
     errors = pp.errors() + parser.errors();
     return nullptr;
   }
   mapLines(pp.output(), fx->ppLines);
+  for (const auto& [k, v] : pp.used_macro_definitions()) fx->userMacros[k] = v;
+  fx->symbolic = opt.symbolic;
+  fx->width = opt.width;
+  fx->height = opt.height;
+  fx->bufferSymbolic = opt.bufferSymbolic;
+  for (const auto& [name, m] : pp.sopt_macros())
+    if (!m.is_function_like) fx->objectMacros[name] = m.replacement_list;
   fx->sourceFiles.push_back(pathString(path));
   for (const auto& f : pp.included_files()) fx->sourceFiles.push_back(pathString(f));
   return fx;
+}
+
+std::unique_ptr<Effect> loadEffectBufferSymbolic(const fs::path& path, LoadOptions& opt,
+                                                 std::string& errors) {
+  opt.bufferSymbolic = true;
+  // With named expressions first; a named expression used where a constant is needed
+  // (an array size) cannot be excluded line by line, so then once more without them.
+  for (bool named : {true, false}) {
+    opt.namedExpressions = named;
+    opt.symbolicExclude.clear();
+    for (int attempt = 0; attempt < 256; ++attempt) {
+      errors.clear();
+      if (auto fx = loadEffect(path, opt, errors)) return fx;
+      // "file(line, col): error ..." lines: expand the macros there to their value.
+      bool added = false;
+      std::istringstream in(errors);
+      for (std::string l; std::getline(in, l);) {
+        const size_t e = l.find("): error");
+        const size_t p = e == std::string::npos ? e : l.rfind('(', e);
+        if (p == std::string::npos) continue;
+        const unsigned long line = std::strtoul(l.c_str() + p + 1, nullptr, 10);
+        added = opt.symbolicExclude.insert(l.substr(0, p) + '\n' + std::to_string(line)).second || added;
+      }
+      if (!added) break;
+    }
+  }
+  opt.bufferSymbolic = false;
+  opt.namedExpressions = false;
+  opt.symbolicExclude.clear();
+  return nullptr;
+}
+
+std::set<std::string> symbolicMacros(const fs::path& path, const LoadOptions& opt,
+                                     const Effect& plain) {
+  auto numeric = [](const std::string& v) {
+    std::string t = v;
+    while (!t.empty() && std::isspace(static_cast<unsigned char>(t.back()))) t.pop_back();
+    if (!t.empty() && (t.back() == 'f' || t.back() == 'F')) t.pop_back();
+    char* end = nullptr;
+    std::strtod(t.c_str(), &end);
+    return !t.empty() && end && *end == 0;
+  };
+  // Each alone, then together (greedily, in name order).
+  std::set<std::string> ok;
+  for (const auto& [name, value] : plain.userMacros) {
+    if (!numeric(value)) continue;
+    LoadOptions o = opt;
+    o.symbolic = ok;
+    o.symbolic.insert(name);
+    std::string err;
+    if (loadEffect(path, o, err)) ok.insert(name);
+  }
+  return ok;
 }
 
 namespace {
@@ -344,8 +418,154 @@ Range clampR(const Range& a, double lo, double hi) {
   return derived(std::clamp(a.lo, lo, hi), std::clamp(a.hi, lo, hi), {&a});
 }
 
+std::string semanticKey(std::string s);
+Range semanticConvention(const std::string& semantic, double maxWidth);
+
+// A texture fetch call in current ReShade FX syntax (variants are written with it):
+// the deprecated texNDoffset / texNDlodoffset / tex2Dgather(s, c, comp) /
+// tex2Dgatheroffset(s, c, o, comp) become texND(s, c, o), texNDlod(s, c, o) and
+// tex2DgatherR/G/B/A(s, c[, o]). Other calls are returned unchanged.
+std::string modernFetch(const std::string& call) {
+  const size_t open = call.find('(');
+  if (open == std::string::npos || call.back() != ')') return call;
+  const std::string name = trim(call.substr(0, open));
+  std::vector<std::string> args;
+  int depth = 0;
+  size_t start = open + 1;
+  for (size_t i = open + 1; i + 1 < call.size(); ++i) {
+    const char c = call[i];
+    if (c == '(' || c == '[') ++depth;
+    if (c == ')' || c == ']') --depth;
+    if (c == ',' && depth == 0) {
+      args.push_back(trim(call.substr(start, i - start)));
+      start = i + 1;
+    }
+  }
+  args.push_back(trim(call.substr(start, call.size() - 1 - start)));
+  auto join = [](const std::string& fn, const std::vector<std::string>& a) {
+    std::string out = fn + "(";
+    for (size_t k = 0; k < a.size(); ++k) out += (k ? ", " : "") + a[k];
+    return out + ")";
+  };
+  static const char* rgba = "RGBA";
+  auto comp = [&](const std::string& c) -> std::string {
+    return c.size() == 1 && c[0] >= '0' && c[0] <= '3' ? std::string(1, rgba[c[0] - '0']) : std::string();
+  };
+  // tex1D/2D/3D: "texN" + "Dlodoffset" / "Doffset".
+  const bool texN = name.size() > 4 && name.rfind("tex", 0) == 0 && name[3] >= '1' && name[3] <= '3';
+  if (texN && name.substr(4) == "Dlodoffset" && args.size() == 3) return join(name.substr(0, 5) + "lod", args);
+  if (texN && name.substr(4) == "Doffset" && args.size() == 3) return join(name.substr(0, 5), args);
+  if (name == "tex2Dgather" && args.size() == 3 && !comp(args[2]).empty())
+    return join("tex2Dgather" + comp(args[2]), {args[0], args[1]});
+  if (name == "tex2Dgatheroffset" && args.size() == 4 && !comp(args[3]).empty())
+    return join("tex2Dgather" + comp(args[3]), {args[0], args[1], args[2]});
+  return call;
+}
+
 bool isTexFetch(const std::string& n) {
   return n.rfind("tex1D", 0) == 0 || n.rfind("tex2D", 0) == 0 || n.rfind("tex3D", 0) == 0;
+}
+
+
+// ---------------------------------------------------------------------------
+// Preprocessor conditionals around windows
+
+// Directive of a source line: "if", "ifdef", "elif", ... and its argument.
+bool directiveOf(const std::string& line, std::string& word, std::string& arg) {
+  size_t i = line.find_first_not_of(" \t");
+  if (i == std::string::npos || line[i] != '#') return false;
+  i = line.find_first_not_of(" \t", i + 1);
+  if (i == std::string::npos) return false;
+  size_t j = i;
+  while (j < line.size() && std::isalpha(static_cast<unsigned char>(line[j]))) ++j;
+  word = line.substr(i, j - i);
+  arg = line.substr(j);
+  if (const size_t c = arg.find("//"); c != std::string::npos) arg.erase(c);
+  for (size_t c = arg.find("/*"); c != std::string::npos; c = arg.find("/*")) {
+    const size_t e = arg.find("*/", c + 2);
+    arg.erase(c, e == std::string::npos ? std::string::npos : e + 2 - c);
+  }
+  arg = trim(arg);
+  return true;
+}
+
+// The preprocessor condition under which the lines [first, last] of `file` compile as
+// in this parse (a window's statements are all there or all not): for every #if group
+// with a directive inside the span, the condition of the branch taken now. Empty when
+// the span has no directives. False if a group's taken branch cannot be told.
+bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32_t last,
+               std::string& guard, std::string& why) {
+  guard.clear();
+  const std::vector<std::string>* lines = sourceLines(file);
+  if (!lines) { why = "no source text"; return false; }
+  struct Branch {
+    uint32_t line;
+    std::string cond;  // empty: #else
+  };
+  struct Group {
+    std::vector<Branch> branches;
+    uint32_t end = 0;
+  };
+  std::vector<Group> groups, stack;
+  for (uint32_t l = 1; l <= lines->size(); ++l) {
+    std::string word, arg;
+    if (!directiveOf((*lines)[l - 1], word, arg)) continue;
+    if (!arg.empty() && arg.back() == '\\') { why = "preprocessor line continuation"; return false; }
+    if (word == "if" || word == "ifdef" || word == "ifndef") {
+      const std::string c = word == "if" ? "(" + arg + ")"
+                            : word == "ifdef" ? "defined(" + arg + ")" : "!defined(" + arg + ")";
+      stack.push_back({{{l, c}}, 0});
+    } else if ((word == "elif" || word == "else") && !stack.empty()) {
+      stack.back().branches.push_back({l, word == "elif" ? "(" + arg + ")" : std::string()});
+    } else if (word == "endif" && !stack.empty()) {
+      stack.back().end = l;
+      groups.push_back(std::move(stack.back()));
+      stack.pop_back();
+    }
+  }
+  // Whether a code line in (a, b) exists / is compiled now.
+  auto lineIn = [&](uint32_t a, uint32_t b, bool compiled) {
+    for (uint32_t l = a + 1; l < b; ++l) {
+      std::string w, arg;
+      if (directiveOf((*lines)[l - 1], w, arg) || tokens((*lines)[l - 1]).empty()) continue;
+      if (!compiled) return true;
+      const auto it = fx.ppLines.find({file, l});
+      if (it != fx.ppLines.end() && !tokens(it->second).empty()) return true;
+    }
+    return false;
+  };
+  std::vector<std::string> terms;
+  for (const Group& g : groups) {
+    bool touched = g.end >= first && g.end <= last;
+    for (const Branch& b : g.branches) touched = touched || (b.line >= first && b.line <= last);
+    if (!touched) continue;
+    auto end = [&](size_t k) { return k + 1 < g.branches.size() ? g.branches[k + 1].line : g.end; };
+    // Condition of taking branch k: the earlier ones false, its own true.
+    auto takes = [&](size_t k) {
+      std::vector<std::string> t;
+      for (size_t j = 0; j < k; ++j) t.push_back("!" + g.branches[j].cond);
+      if (!g.branches[k].cond.empty()) t.push_back(g.branches[k].cond);
+      return t;
+    };
+    int taken = -1;
+    for (size_t k = 0; k < g.branches.size() && taken < 0; ++k)
+      if (lineIn(g.branches[k].line, end(k), true)) taken = static_cast<int>(k);
+    if (taken >= 0) {
+      for (auto& t : takes(taken)) terms.push_back(t);
+      continue;
+    }
+    // No branch with code is taken: none of them may be.
+    for (size_t k = 0; k < g.branches.size(); ++k) {
+      if (!lineIn(g.branches[k].line, end(k), false)) continue;
+      const auto t = takes(k);
+      if (t.empty()) { why = "preprocessor conditional"; return false; }  // #else with code
+      std::string c;
+      for (const auto& x : t) c += (c.empty() ? "" : " && ") + x;
+      terms.push_back(t.size() == 1 ? "!" + c : "!(" + c + ")");
+    }
+  }
+  for (const auto& t : terms) guard += (guard.empty() ? "" : " && ") + t;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -377,7 +597,20 @@ class Extractor {
         if (s.kind != Statement::Kind::Return) defs_[s.var].push_back(&s);
         stmtUses_[s.value].push_back(&s);
       }
-      for (uint32_t p : f->params) paramOf_[p] = f.get();
+      for (uint32_t p : f->params) paramOf_[p] = f.get(), varFunction_[p] = f.get();
+      for (const auto& st : f->stmts)
+        if (st.kind != Statement::Kind::Return) varFunction_.emplace(st.var, f.get());
+    }
+    for (const auto& [id, v] : cg_.values) {
+      if (v.kind != Value::Kind::Call) continue;
+      const Function* g = cg_.function(v.name);
+      if (!g) continue;
+      for (size_t k = 0; k < v.args.size() && k < g->params.size(); ++k) {
+        const auto pv = cg_.variables.find(g->params[k]);
+        if (pv != cg_.variables.end() && pv->second.type.has(reshadefx::type::q_out) &&
+            cg_.variables.count(v.args[k]))
+          outArgOf_[v.args[k]] = {g, k, v.seq};
+      }
     }
   }
 
@@ -397,6 +630,7 @@ class Extractor {
     uint32_t input = 0;          // IR input index
     std::vector<uint8_t> remap;  // component -> input component
     bool fetch = false;          // texture fetch: prefix is its call text
+    std::string semantic;        // of the struct member the prefix ends in, if any
   };
   Leaf& fetchLeaf(uint32_t id);
 
@@ -411,9 +645,28 @@ class Extractor {
 
   Range range(uint32_t valueId);
   Range varRange(uint32_t var, uint32_t seq, uint32_t block);
+  Range varRangeRaw(uint32_t var, uint32_t seq, uint32_t block);
+  std::string varKey(uint32_t var) const;  // UserRanges key of a variable
+  std::unordered_map<uint32_t, const Function*> varFunction_;  // local/param -> function
   Range samplerRange(uint32_t valueId);
   Budget budgetFor(const Function& f, const Statement& s, std::string& reason);
   void useKinds(uint32_t valueId, bool& cmp, bool& coord, bool& other, int depth);
+  static bool outOnly(const Variable& v);
+  bool isSymbolic(uint32_t var) const {
+    const auto it = cg_.variables.find(var);
+    return it != cg_.variables.end() && it->second.kind == Variable::Kind::Uniform &&
+           it->second.name.rfind(kSymbolicPrefix, 0) == 0;
+  }
+  void suggest(const Leaf& l, Fact& f) const;
+  std::vector<std::string> sourceTokens(const std::string& src) const;
+  Range outParamRange(const Function& g, size_t index);
+  Range pixelInputRange(const Function& ps, const std::string& semantic);
+  struct OutArg {
+    const Function* callee = nullptr;
+    size_t index = 0;
+    uint32_t seq = 0;  // of the call
+  };
+  std::unordered_map<uint32_t, OutArg> outArgOf_;  // temporary variable -> call
 
   const Effect& fx_;
   const Codegen& cg_;
@@ -423,6 +676,12 @@ class Extractor {
   std::unordered_map<uint32_t, std::vector<const Statement*>> stmtUses_;
   std::unordered_map<uint32_t, const Function*> paramOf_;
   std::unordered_map<uint32_t, Range> rangeMemo_;
+  // Ranges with BUFFER_WIDTH / BUFFER_HEIGHT fixed to one of kBufferSizes (sizeFix_ >= 0):
+  // interval arithmetic over the symbolic sizes loses correlations such as
+  // trunc(S / b * t) * (b / S), so leaf ranges are the union over these sizes.
+  int sizeFix_ = -1;
+  std::vector<std::unordered_map<uint32_t, Range>> sizeMemo_;
+  Range leafRange(uint32_t valueId);
   std::unordered_set<uint32_t> varBusy_;
   std::unordered_set<uint64_t> localBusy_;  // (variable, load seq)
 
@@ -431,7 +690,13 @@ class Extractor {
   std::unordered_map<uint32_t, uint32_t> built_;
   bool usesPow_ = false;
   std::unordered_map<uint32_t, uint32_t> inline_;  // temporary variable -> its value
+  std::unordered_map<uint32_t, uint32_t> inlineLoad_;  // load -> value of its (chain) definition
+  bool findChain(const Statement& s, size_t length, std::vector<const Statement*>& defs);
+  bool leavesUnchanged(const Statement& s, const std::vector<const Statement*>& defs) const;
+  bool writesBetween(uint32_t var, uint32_t after, uint32_t before,
+                     const std::vector<const Statement*>& window) const;
   std::unordered_map<uint32_t, std::string> fetchText_;  // fetch value -> call text
+  std::vector<const Statement*> window_;  // statements inlined into the current region
   void mapFetches(const Statement& s, const std::string& text);
 };
 
@@ -443,6 +708,7 @@ std::string Extractor::varText(uint32_t var) const {
     case Variable::Kind::Local:
     case Variable::Kind::Param: return v.name;
     case Variable::Kind::Uniform: {
+      if (v.name.rfind(kSymbolicPrefix, 0) == 0) return v.name.substr(std::strlen(kSymbolicPrefix));
       if (v.uniqueName == "V" + v.name) return v.name;
       // "VNs__name" -> "Ns::name"
       std::string ns = v.uniqueName.substr(1, v.uniqueName.size() - 1 - v.name.size());
@@ -464,6 +730,7 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
   if (auto it = cg_.variables.find(v.base); it != cg_.variables.end()) var = &it->second;
   if (!var) throw Unsupported("load of a non-variable");
   std::string text = varText(v.base);
+  std::string semantic;
   reshadefx::type t = var->type;
   size_t i = 0;
   for (; i < v.chain.size(); ++i) {
@@ -471,6 +738,7 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
     if (!op.from.is_array() && !op.from.is_struct() && !op.from.is_matrix()) break;
     if (op.op == reshadefx::expression::operation::op_member) {
       text += "." + cg_.structMemberName(op.from.struct_definition, op.index);
+      semantic = cg_.structMemberSemantic(op.from.struct_definition, op.index);
     } else if (op.op == reshadefx::expression::operation::op_constant_index && op.from.is_array()) {
       text += "[" + std::to_string(op.index) + "]";
     } else {
@@ -479,6 +747,11 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
     t = op.to;
   }
   vecStart = i;
+  // BUFFER_WIDTH / BUFFER_HEIGHT (int) converted to float: a float compile-time input.
+  if (var->kind == Variable::Kind::Uniform && isSymbolic(v.base) && t.is_integral() && t.is_scalar() &&
+      i < v.chain.size() && v.chain[i].op == reshadefx::expression::operation::op_cast &&
+      isFloatType(v.chain[i].to))
+    t.base = reshadefx::type::t_float;
   if (!isFloatType(t)) throw Unsupported("non-float variable");
   for (auto& l : leaves_)
     if (l.var == v.base && l.prefix == text) return l;
@@ -486,6 +759,11 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
   l.var = v.base;
   l.prefix = text;
   l.type = t;
+  // Semantics of pixel shader inputs only (members of an entry point's struct parameter).
+  if (var->kind == Variable::Kind::Param) {
+    const auto pf = paramOf_.find(v.base);
+    if (pf != paramOf_.end() && pf->second->type == reshadefx::shader_type::pixel) l.semantic = semantic;
+  }
   leaves_.push_back(l);
   return leaves_.back();
 }
@@ -522,6 +800,10 @@ uint32_t chainMask(const std::vector<reshadefx::expression::operation>& chain, s
   if (op.op == O::op_cast && isFloatType(op.to) && op.to.rows < op.from.rows)
     return (1u << op.to.rows) - 1;
   if (op.op == O::op_cast && isFloatType(op.from) && isFloatType(op.to)) return (1u << rows) - 1;
+  // int scalar -> float(N): only symbolic BUFFER_WIDTH / HEIGHT get here (leafOf rejects
+  // other int variables, collect() int arithmetic).
+  if (op.op == O::op_cast && op.from.is_integral() && op.from.is_scalar() && isFloatType(op.to))
+    return (1u << rows) - 1;
   throw Unsupported("access chain");
 }
 
@@ -535,6 +817,11 @@ void Extractor::collect(uint32_t id) {
       if (!isFloatType(v.type)) throw Unsupported("non-float constant");
       return;
     case K::Load: {
+      if (const auto it = inlineLoad_.find(id); it != inlineLoad_.end()) {
+        collect(it->second);
+        chainMask(v.chain, 0, 4);  // validates
+        return;
+      }
       if (const auto it = inline_.find(v.base); it != inline_.end()) {
         collect(it->second);
         chainMask(v.chain, 0, 4);  // validates
@@ -592,9 +879,13 @@ void Extractor::collect(uint32_t id) {
         return;
       }
       const auto op = opFromCall(v.name, static_cast<uint8_t>(v.args.size()));
-      if (!op) throw Unsupported("intrinsic " + v.name);
+      const bool sugar = !op && isSugarCall(v.name, v.args.size());
+      if (!op && !sugar) throw Unsupported("intrinsic " + v.name);
       if (!isFloatType(v.type)) throw Unsupported("non-float intrinsic");
-      if (*op == Op::Pow || *op == Op::Exp || *op == Op::Log || *op == Op::Sin || *op == Op::Cos)
+      if (sugar && v.name == "cross" && v.type.rows != 3) throw Unsupported("intrinsic cross");
+      if (sugar && (v.name == "log10" || v.name == "tan")) usesPow_ = true;
+      if (op && (*op == Op::Pow || *op == Op::Exp || *op == Op::Log || *op == Op::Exp2 || *op == Op::Log2 ||
+          *op == Op::Sin || *op == Op::Cos))
         usesPow_ = true;
       for (uint32_t a : v.args) {
         const auto ai = cg_.values.find(a);
@@ -680,6 +971,10 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       break;
     }
     case K::Load: {
+      if (const auto it = inlineLoad_.find(id); it != inlineLoad_.end()) {
+        r = applyVectorChain(build(it->second, b), v.chain, 0, b, nullptr);
+        break;
+      }
       if (const auto it = inline_.find(v.base); it != inline_.end()) {
         r = applyVectorChain(build(it->second, b), v.chain, 0, b, nullptr);
         break;
@@ -732,6 +1027,12 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         r = b.input(l.input, floatType(std::popcount(l.mask)));
         break;
       }
+      if (isSugarCall(v.name, v.args.size())) {
+        uint32_t a[2] = {0, 0};
+        for (size_t k = 0; k < v.args.size(); ++k) a[k] = build(v.args[k], b);
+        r = buildSugarCall(b, v.name, a, v.args.size());
+        break;
+      }
       const Op op = *opFromCall(v.name, static_cast<uint8_t>(v.args.size()));
       uint32_t a[3] = {0, 0, 0};
       for (size_t k = 0; k < v.args.size(); ++k) a[k] = build(v.args[k], b);
@@ -782,6 +1083,8 @@ Range Extractor::samplerRange(uint32_t valueId) {
   const SamplerInfo& s = si->second;
   using F = reshadefx::texture_format;
   const std::string sem = upper(s.textureSemantic);
+  if ((sem == "COLOR" || sem == "SV_TARGET") && opt_.hdrBackBuffer)
+    return Range::of(kScRgbLo, kScRgbHi, "BackBuffer (scRGB)");
   if (sem == "COLOR" || sem == "SV_TARGET")
     return s.srgb ? Range::of(0, 1, "BackBuffer (sRGB sampler)")
                   : Range::of(0, 1, "BackBuffer (8-bit SDR assumed)", 255);
@@ -796,7 +1099,8 @@ Range Extractor::samplerRange(uint32_t valueId) {
 }
 
 Range Extractor::range(uint32_t id) {
-  if (auto it = rangeMemo_.find(id); it != rangeMemo_.end()) return it->second;
+  auto& memo = sizeFix_ < 0 ? rangeMemo_ : sizeMemo_[sizeFix_];
+  if (auto it = memo.find(id); it != memo.end()) return it->second;
   if (cg_.variables.count(id)) {
     // Call arguments are passed as variables (the parser copies them).
     const auto& d = defs_[id];
@@ -814,12 +1118,21 @@ Range Extractor::range(uint32_t id) {
           v.type.base != reshadefx::type::t_uint)
         break;
       double lo = INFINITY, hi = -INFINITY;
-      for (unsigned k = 0; k < v.type.components() && k < 16; ++k) {
-        const double x = v.type.base == reshadefx::type::t_float ? v.constant.as_float[k]
-                         : v.type.base == reshadefx::type::t_int ? v.constant.as_int[k]
-                                                                 : v.constant.as_uint[k];
-        lo = std::min(lo, x);
-        hi = std::max(hi, x);
+      // All components; for an array, of every element (an index may pick any).
+      std::function<void(const reshadefx::constant&)> add = [&](const reshadefx::constant& c) {
+        for (unsigned k = 0; k < v.type.components() && k < 16; ++k) {
+          const double x = v.type.base == reshadefx::type::t_float ? c.as_float[k]
+                           : v.type.base == reshadefx::type::t_int ? c.as_int[k]
+                                                                   : c.as_uint[k];
+          lo = std::min(lo, x);
+          hi = std::max(hi, x);
+        }
+        for (const auto& e : c.array_data) add(e);
+      };
+      if (v.type.is_array() && !v.constant.array_data.empty()) {
+        for (const auto& e : v.constant.array_data) add(e);
+      } else {
+        add(v.constant);
       }
       r = Range::of(lo, hi, "constant");
       break;
@@ -915,14 +1228,71 @@ Range Extractor::range(uint32_t id) {
     case K::Call: break;
   }
   if (r.known && !(std::isfinite(r.lo) && std::isfinite(r.hi))) r = Range::unknown();
-  rangeMemo_[id] = r;
+  memo[id] = r;
   return r;
 }
 
+// Common back buffer sizes (width, height), from small to 8K, ultrawide and portrait.
+constexpr unsigned kBufferSizes[][2] = {{640, 480},   {800, 600},   {1280, 720},  {1366, 768},
+                                        {1920, 1080}, {2560, 1080}, {2560, 1440}, {3440, 1440},
+                                        {3840, 2160}, {5120, 1440}, {7680, 4320}, {1080, 1920}};
+
+Range Extractor::leafRange(uint32_t id) {
+  Range r = range(id);
+  if (!fx_.bufferSymbolic) return r;
+  constexpr size_t n = sizeof(kBufferSizes) / sizeof(kBufferSizes[0]);
+  sizeMemo_.resize(n);
+  Range u;
+  for (size_t k = 0; k < n; ++k) {
+    sizeFix_ = static_cast<int>(k);
+    const Range rk = range(id);
+    u = k == 0 ? rk : unite(u, rk);
+  }
+  sizeFix_ = -1;
+  if (!u.known || (r.known && u.lo <= r.lo && u.hi >= r.hi)) return r;
+  u.why = "derived (at common back buffer sizes)";
+  return u;
+}
+
+// "<file> <function> <name>" (uniforms: function "global").
+std::string Extractor::varKey(uint32_t var) const {
+  const auto vi = cg_.variables.find(var);
+  if (vi == cg_.variables.end()) return {};
+  const Variable& v = vi->second;
+  const auto fi = varFunction_.find(var);
+  const std::string function = v.kind == Variable::Kind::Uniform ? "global"
+                               : fi != varFunction_.end()       ? fi->second->name
+                                                                : std::string();
+  if (function.empty()) return {};
+  if (isSymbolic(var)) return "macro global " + varText(var);  // preprocessor definition
+  return pathFrom(v.loc.source).filename().string() + " " + function + " " +
+         (v.kind == Variable::Kind::Uniform ? varText(var) : v.name);
+}
+
+// The analysed range, or the user's where the analysis has no fact.
 Range Extractor::varRange(uint32_t var, uint32_t seq, uint32_t block) {
+  Range r = varRangeRaw(var, seq, block);
+  if ((!r.known || r.assumed) && opt_.userRanges) {
+    const auto u = opt_.userRanges->find(varKey(var));
+    if (u != opt_.userRanges->end()) r = Range::of(u->second.first, u->second.second, "user (facts file)");
+  }
+  return r;
+}
+
+Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
   const auto vi = cg_.variables.find(var);
   if (vi == cg_.variables.end()) return Range::unknown();
   const Variable& v = vi->second;
+  // BUFFER_WIDTH / BUFFER_HEIGHT: integers up to the --max-width limit.
+  if (isSymbolic(var) && isBufferSizeMacro(varText(var))) {
+    if (sizeFix_ >= 0) {
+      const double x = kBufferSizes[sizeFix_][varText(var) == "BUFFER_WIDTH" ? 0 : 1];
+      return Range::of(x, x, "back buffer size");
+    }
+    return Range::of(1, opt_.maxWidth, "back buffer size", static_cast<uint32_t>(opt_.maxWidth - 1));
+  }
+  // A preprocessor definition: the user can set any value, no fact.
+  if (isSymbolic(var)) return Range::unknown();
   switch (v.kind) {
     case Variable::Kind::Uniform: {
       double lo = NAN, hi = NAN;
@@ -952,16 +1322,25 @@ Range Extractor::varRange(uint32_t var, uint32_t seq, uint32_t block) {
     case Variable::Kind::Param:
     case Variable::Kind::Local: {
       // Range on entry: parameters from their semantic or call sites, locals none.
+      // A temporary passed as out/inout argument: after the call, the callee's value.
+      if (const auto oa = outArgOf_.find(var); oa != outArgOf_.end() && seq > oa->second.seq)
+        return outParamRange(*oa->second.callee, oa->second.index);
       auto entry = [&]() -> Range {
-        if (v.kind != Variable::Kind::Param) return Range::unknown();
-        const std::string sem = upper(v.semantic);
-        if (sem.rfind("TEXCOORD", 0) == 0) return Range::of(0, 1, "TEXCOORD (full-screen pass)");
-        if (sem == "SV_POSITION" || sem == "VPOS" || sem == "POSITION")
-          return Range::of(0, 3840, "SV_Position (up to 4K)");
-        // Helper function parameter: union over the call sites.
+        if (v.kind != Variable::Kind::Param || outOnly(v)) return Range::unknown();
         const auto pf = paramOf_.find(var);
-        if (pf == paramOf_.end() || !varBusy_.insert(var).second) return Range::unknown();
+        if (pf == paramOf_.end()) return Range::unknown();
         const Function* f = pf->second;
+        const std::string sem = upper(v.semantic);
+        if (sem == "SV_POSITION" || sem == "VPOS")
+          return Range::of(0, opt_.maxWidth, "SV_Position (pixels, up to --max-width)");
+        // Pixel shader input: what the vertex shaders of its passes write, else the
+        // semantic's convention.
+        if (f->type == reshadefx::shader_type::pixel) {
+          const Range r = pixelInputRange(*f, sem);
+          return r.known ? r : semanticConvention(sem, opt_.maxWidth);
+        }
+        // Helper function parameter: union over the call sites.
+        if (!varBusy_.insert(var).second) return Range::unknown();
         const size_t index = std::find(f->params.begin(), f->params.end(), var) - f->params.begin();
         Range r;
         bool any = false;
@@ -1007,11 +1386,74 @@ Range Extractor::varRange(uint32_t var, uint32_t seq, uint32_t block) {
         full = full || reach[k]->chain.empty();
       }
       localBusy_.erase(key);
-      if (!killed && v.kind == Variable::Kind::Param) return unite(r, entry());
+      if (!killed && v.kind == Variable::Kind::Param && !outOnly(v)) return unite(r, entry());
       return full ? r : Range::unknown();
     }
     case Variable::Kind::Global: break;
   }
+  return Range::unknown();
+}
+
+bool Extractor::outOnly(const Variable& v) {
+  return v.type.has(reshadefx::type::q_out) && !v.type.has(reshadefx::type::q_in);
+}
+
+// "TEXCOORD0" and "TEXCOORD" are the same semantic.
+std::string semanticKey(std::string s) {
+  s = upper(s);
+  size_t d = s.size();
+  while (d > 0 && std::isdigit(static_cast<unsigned char>(s[d - 1]))) --d;
+  const std::string index = s.substr(d);
+  return s.substr(0, d) + (index.empty() ? "0" : std::to_string(std::stoul(index)));
+}
+
+// Range of a function's out parameter after it returns. ReShade's PostProcessVS draws a
+// full-screen triangle: its texcoord is 0..2 at the vertices, 0..1 on screen.
+Range Extractor::outParamRange(const Function& g, size_t index) {
+  if (index >= g.params.size()) return Range::unknown();
+  const uint32_t p = g.params[index];
+  const Variable& pv = cg_.variables.at(p);
+  if (g.name == "PostProcessVS" && semanticKey(pv.semantic) == "TEXCOORD0")
+    return Range::of(0, 1, "TEXCOORD from PostProcessVS");
+  // All its definitions (the end of the function is after all of them).
+  Range r = varRange(p, UINT32_MAX, UINT32_MAX);
+  if (r.known && r.why != "constant") r.why = "vertex shader " + g.name;
+  return r;
+}
+
+// A pixel shader input: the union over the passes that use the shader of what their
+// vertex shader writes to the same semantic.
+Range Extractor::pixelInputRange(const Function& ps, const std::string& semantic) {
+  const std::string key = semanticKey(semantic);
+  Range r;
+  bool any = false;
+  for (const auto& t : cg_.mod().techniques)
+    for (const auto& pass : t.passes) {
+      if (pass.ps_entry_point != ps.uniqueName) continue;
+      const Function* vs = cg_.function(pass.vs_entry_point);
+      if (!vs) return Range::unknown();
+      Range out;
+      bool found = false;
+      for (size_t k = 0; k < vs->params.size(); ++k) {
+        const Variable& pv = cg_.variables.at(vs->params[k]);
+        if (pv.type.has(reshadefx::type::q_out) && semanticKey(pv.semantic) == key) {
+          out = outParamRange(*vs, k);
+          found = true;
+        }
+      }
+      if (!found) return Range::unknown();
+      r = any ? unite(r, out) : out;
+      any = true;
+    }
+  return any ? r : Range::unknown();
+}
+
+// Ranges that semantics imply for pixel shader inputs: SV_Position is in pixels;
+// TEXCOORD0..9 are texture coordinates by convention (programmers name them so), [0, 1].
+Range semanticConvention(const std::string& semantic, double maxWidth) {
+  const std::string key = semanticKey(semantic);
+  if (key == "SV_POSITION0" || key == "VPOS0") return Range::of(0, maxWidth, "SV_Position (pixels, up to --max-width)");
+  if (key.rfind("TEXCOORD", 0) == 0) return Range::of(0, 1, "TEXCOORD semantic (convention)");
   return Range::unknown();
 }
 
@@ -1064,12 +1506,13 @@ Budget Extractor::budgetFor(const Function& f, const Statement& s, std::string& 
   if (s.kind == Statement::Kind::Return) {
     // A pixel shader's result written to an 8-bit target without blending.
     if (f.type == reshadefx::shader_type::pixel && !f.returnType.is_struct()) {
-      bool eightBit = true, anyPass = false;
+      bool eightBit = true, anyPass = false, backBuffer = false;
       for (const auto& t : cg_.mod().techniques)
         for (const auto& p : t.passes) {
           if (p.ps_entry_point != f.uniqueName) continue;
           anyPass = true;
           if (p.blend_enable[0] || p.srgb_write_enable) eightBit = false;
+          if (p.render_target_names[0].empty()) backBuffer = true;
           if (!p.render_target_names[0].empty()) {
             bool fmt8 = false;
             for (const auto& tex : cg_.mod().textures)
@@ -1083,7 +1526,10 @@ Budget Extractor::budgetFor(const Function& f, const Statement& s, std::string& 
       if (anyPass && eightBit) {
         b.kind = Budget::Kind::Color8;
         b.maxCodeDiff = 0;
-        reason = "pixel shader output, 8-bit target, no blending";
+        // The back buffer is assumed 8-bit SDR here; sopt-fx also checks 10-bit and scRGB
+        // (the reason names the back buffer).
+        reason = backBuffer ? "pixel shader output, back buffer (8-bit SDR), no blending"
+                            : "pixel shader output, 8-bit target, no blending";
         return b;
       }
     }
@@ -1102,7 +1548,8 @@ Budget Extractor::budgetFor(const Function& f, const Statement& s, std::string& 
   } else if (coord && !other) {
     b.kind = Budget::Kind::Texcoord;
     b.px = opt_.texcoordPx;
-    b.eps = opt_.texcoordPx / 3840.0;
+    b.width = opt_.maxWidth;
+    b.eps = opt_.texcoordPx / opt_.maxWidth;
     reason = "used as texture coordinate";
   } else {
     b.kind = Budget::Kind::Rel;
@@ -1177,8 +1624,54 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
     if (it == fx_.ppLines.end()) { why = "uses a macro"; return false; }
     pp += it->second + '\n';
   }
-  if (tokens(withoutFetches(src)) != tokens(withoutFetches(pp))) { why = "uses a macro"; return false; }
+  std::vector<std::string> ppTokens = tokens(withoutFetches(pp));
+  const size_t prefixLen = std::strlen(kSymbolicPrefix);
+  for (auto& t : ppTokens)
+    if (t.rfind(kSymbolicPrefix, 0) == 0) t.erase(0, prefixLen);  // symbolic definitions
+  if (sourceTokens(withoutFetches(src)) != ppTokens) { why = "uses a macro"; return false; }
   return true;
+}
+
+// Tokens of source text with object-like macros such as BUFFER_SCREEN_SIZE or
+// BUFFER_RCP_WIDTH expanded when they consist of symbolic definitions, numbers, float
+// types and punctuation only (so the region's IR keeps them symbolic and a variant can
+// spell them out). Other macros stay as they are (the statement is then skipped).
+std::vector<std::string> Extractor::sourceTokens(const std::string& src) const {
+  auto symbolicName = [&](const std::string& t) {
+    return fx_.symbolic.count(t) || (fx_.bufferSymbolic && isBufferSizeMacro(t));
+  };
+  auto plain = [](const std::string& t) {
+    if (t.empty()) return false;
+    if (!std::isalpha(static_cast<unsigned char>(t[0])) && t[0] != '_') return true;  // number, punctuation
+    return t == "float" || t == "float2" || t == "float3" || t == "float4" || t == "int";
+  };
+  std::function<bool(const std::string&, int, std::vector<std::string>&, bool&)> expand =
+      [&](const std::string& t, int depth, std::vector<std::string>& out, bool& sym) {
+        if (symbolicName(t)) {
+          out.push_back(t);
+          sym = true;
+          return true;
+        }
+        const auto it = fx_.objectMacros.find(t);
+        if (it == fx_.objectMacros.end()) {
+          out.push_back(t);
+          return plain(t);
+        }
+        if (depth > 16) return false;
+        for (const auto& u : tokens(it->second))
+          if (!expand(u, depth + 1, out, sym)) return false;
+        return true;
+      };
+  std::vector<std::string> out;
+  for (const auto& t : tokens(src)) {
+    std::vector<std::string> e;
+    bool sym = false;
+    if (!symbolicName(t) && fx_.objectMacros.count(t) && expand(t, 0, e, sym) && sym)
+      out.insert(out.end(), e.begin(), e.end());
+    else
+      out.push_back(t);
+  }
+  return out;
 }
 
 // IR of a statement's value (with the temporaries in inline_ replaced by their
@@ -1189,7 +1682,13 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   usesPow_ = false;
   reg.prog.inputs.clear();
   reg.facts.clear();
+  fetchText_.clear();
   mapFetches(s, reg.text);
+  for (const Statement* d : window_) {
+    Region shape;
+    std::string w;
+    if (shapeOf(*d, shape, w)) mapFetches(*d, shape.text);
+  }
   try {
     collect(s.value);
     if (leaves_.size() > opt_.maxInputs) throw Unsupported("too many inputs");
@@ -1215,13 +1714,31 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
           if (l.mask & (1u << c)) d.name += xyzw[c];
       }
       d.type = floatType(w);
-      Range r = range(l.loadValue);
+      d.compileTime = !l.fetch && isSymbolic(l.var);
+      Range r = d.compileTime ? range(l.loadValue) : leafRange(l.loadValue);
       Fact fact;
       fact.input = d.name;
-      if (!r.known) {
-        r = Range::of(opt_.defaultLo, opt_.defaultHi, "assumed");
-        r.assumed = true;
+      const bool plainVar = !l.fetch && cg_.variables.count(l.var) && l.prefix == varText(l.var);
+      fact.key = plainVar ? varKey(l.var) : std::string();
+      if (fact.key.empty())
+        fact.key = pathFrom(reg.file).filename().string() + " " + reg.function + " " + l.prefix;
+      // Ask for uniforms and parameters first: other values are often computed from them.
+      const auto kv = cg_.variables.find(l.var);
+      fact.order = l.fetch ? 2
+                   : kv == cg_.variables.end() ? 3
+                   : kv->second.kind == Variable::Kind::Uniform ? 0
+                   : kv->second.kind == Variable::Kind::Param ? 1 : 3;
+      if (!r.known && !l.semantic.empty()) r = semanticConvention(l.semantic, opt_.maxWidth);
+      if (!r.known || r.assumed) {
+        const auto u = opt_.userRanges ? opt_.userRanges->find(fact.key) : UserRanges::const_iterator();
+        if (opt_.userRanges && u != opt_.userRanges->end()) {
+          r = Range::of(u->second.first, u->second.second, "user (facts file)");
+        } else if (!r.known) {
+          r = Range::of(opt_.defaultLo, opt_.defaultHi, "assumed");
+          r.assumed = true;
+        }
       }
+      if (r.assumed) suggest(l, fact);
       d.lo = r.lo;
       d.hi = r.hi;
       d.grid = r.grid;
@@ -1229,6 +1746,16 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       fact.assumed = r.assumed;
       fact.fetch = l.fetch;
       if (d.lo == d.hi) throw Unsupported("input is a constant");  // the compiler folds it
+      if (d.compileTime) {
+        // The definition's current value: the search specializes on it.
+        const std::string name = varText(l.var);
+        const auto m = fx_.userMacros.find(name);
+        d.value = name == "BUFFER_WIDTH"             ? fx_.width
+                  : name == "BUFFER_HEIGHT"          ? fx_.height
+                  : m == fx_.userMacros.end()        ? 0.5 * (d.lo + d.hi)
+                                                     : std::strtod(m->second.c_str(), nullptr);
+        d.value = std::clamp(d.value, d.lo, d.hi);
+      }
       reg.prog.inputs.push_back(d);
       reg.facts.push_back(fact);
     }
@@ -1249,13 +1776,15 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   if (ops < opt_.minOps) { why = "fewer than minOps operations"; return false; }
   if (ops > opt_.maxOps) { why = "more than maxOps operations"; return false; }
   if (reg.prog.inputs.empty()) { why = "constant expression"; return false; }
+  bool runtime = false;
+  for (const auto& d : reg.prog.inputs) runtime = runtime || !d.compileTime;
+  if (!runtime) { why = "compile-time constant expression"; return false; }
   return true;
 }
 
 // Texture fetches of a statement, matched to their call text in the statement: both
 // are in source order when no fetch is nested in another's arguments.
 void Extractor::mapFetches(const Statement& s, const std::string& text) {
-  fetchText_.clear();
   std::unordered_set<uint32_t> tree;
   treeValues(s.value, tree);
   std::vector<std::pair<uint32_t, uint32_t>> fetches;  // seq, id
@@ -1282,11 +1811,54 @@ void Extractor::mapFetches(const Statement& s, const std::string& text) {
     if (k >= text.size()) return;
     for (size_t m = i + 1; m < k; ++m)
       if (fetchAt(text, m)) return;  // nested fetch
-    calls.push_back(text.substr(i, k + 1 - i));
+    calls.push_back(modernFetch(text.substr(i, k + 1 - i)));
     i = k;
   }
   if (calls.size() != fetches.size()) return;
   for (size_t k = 0; k < calls.size(); ++k) fetchText_[fetches[k].second] = calls[k];
+}
+
+// A range to suggest for an input without facts, from its name, a uniform's default
+// value or the texture it is read from.
+void Extractor::suggest(const Leaf& l, Fact& f) const {
+  std::string n;
+  for (char c : l.prefix) n += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const size_t dot = n.find_last_of(".:");
+  const std::string last = dot == std::string::npos ? n : n.substr(dot + 1);
+  auto has = [&](std::initializer_list<const char*> words) {
+    for (const char* w : words)
+      if (last.find(w) != std::string::npos) return true;
+    return false;
+  };
+  auto set = [&](double lo, double hi, const char* why) {
+    f.suggestLo = lo;
+    f.suggestHi = hi;
+    f.suggestWhy = why;
+  };
+  if (l.fetch) return set(0, 1, "texture read (float format)");
+  std::string semantic = l.semantic;
+  if (const auto it = cg_.variables.find(l.var); semantic.empty() && it != cg_.variables.end())
+    semantic = it->second.semantic;
+  if (upper(semantic).rfind("COLOR", 0) == 0) return set(0, 1, "COLOR semantic (usually a color)");
+  if (!l.fetch && isSymbolic(l.var)) {
+    const auto m = fx_.userMacros.find(varText(l.var));
+    const double d = m == fx_.userMacros.end() ? 0.0 : std::strtod(m->second.c_str(), nullptr);
+    if (d > 0) return set(0, 2 * d, "preprocessor definition, twice its value");
+    if (d < 0) return set(2 * d, 0, "preprocessor definition, twice its value");
+    return set(-1, 1, "preprocessor definition (value 0)");
+  }
+  if (const auto it = cg_.variables.find(l.var); it != cg_.variables.end() &&
+      it->second.kind == Variable::Kind::Uniform && it->second.hasDefault &&
+      it->second.type.is_floating_point()) {
+    const double d = it->second.defaultValue.as_float[0];
+    if (d > 0) return set(0, 2 * d, "uniform, twice its default");
+    if (d < 0) return set(2 * d, 0, "uniform, twice its default");
+  }
+  if (has({"uv", "coord", "tex"})) return set(0, 1, "name looks like a texture coordinate");
+  if (has({"col", "rgb", "luma", "lum"})) return set(0, 1, "name looks like a color");
+  if (has({"depth"})) return set(0, 1, "name looks like depth");
+  if (has({"pos", "pixel"})) return set(0, opt_.maxWidth, "name looks like a pixel position");
+  set(opt_.defaultLo, opt_.defaultHi, "no guess (the default)");
 }
 
 // Values of a statement's tree (through Chain bases and operands).
@@ -1344,6 +1916,100 @@ void Extractor::findTemps(const Statement& use, std::vector<const Statement*>& d
   }
 }
 
+// Same-variable chain (`x = 1.0 - x; x /= F - x;`): the `length` statements before `s`
+// (a store to the whole variable) that compute the value of it `s` reads, in straight-
+// line code (one block). Their loads of the variable are inlined (inlineLoad_). False if
+// an intermediate value is read elsewhere or there are fewer statements.
+bool Extractor::findChain(const Statement& s, size_t length, std::vector<const Statement*>& defs) {
+  if (s.kind != Statement::Kind::Store || !s.chain.empty()) return false;
+  const auto vi = cg_.variables.find(s.var);
+  if (vi == cg_.variables.end() ||
+      (vi->second.kind != Variable::Kind::Local && vi->second.kind != Variable::Kind::Param))
+    return false;
+  const auto di = defs_.find(s.var);
+  if (di == defs_.end()) return false;
+  const Statement* cur = &s;
+  while (defs.size() < length) {
+    if (cur->kind == Statement::Kind::Init) return false;
+    std::unordered_set<uint32_t> tree;
+    treeValues(cur->value, tree);
+    std::vector<uint32_t> loads;
+    uint32_t firstLoad = UINT32_MAX;
+    for (uint32_t id : tree) {
+      const auto it = cg_.values.find(id);
+      if (it == cg_.values.end() || it->second.kind != Value::Kind::Load || it->second.base != s.var) continue;
+      loads.push_back(id);
+      firstLoad = std::min(firstLoad, it->second.seq);
+    }
+    if (loads.empty()) return false;
+    const Statement* d = nullptr;  // the reaching definition
+    for (const Statement* w : di->second)
+      if (w->seq < firstLoad && (!d || w->seq > d->seq)) d = w;
+    if (!d || !d->chain.empty() || d->block != s.block || d->loc.source != s.loc.source) return false;
+    for (const Statement* w : di->second)
+      if (w->seq > d->seq && w->seq < cur->seq) return false;
+    for (const auto& [id, v] : cg_.values) {
+      if (v.seq <= d->seq || v.seq >= cur->seq || v.kind == Value::Kind::Const) continue;
+      if (v.block != s.block) return false;  // control flow in between
+      if (v.kind == Value::Kind::Load && v.base == s.var && !tree.count(id)) return false;
+      if (v.kind == Value::Kind::Call)
+        for (uint32_t a : v.args)
+          if (a == s.var) return false;  // out argument
+    }
+    Region shape;
+    std::string why;
+    if (!shapeOf(*d, shape, why)) return false;
+    for (uint32_t l : loads) inlineLoad_[l] = d->value;
+    defs.push_back(d);
+    cur = d;
+  }
+  return true;
+}
+
+// Whether a window's leaves (variables read, not inlined) have at `s` the value they
+// have where the original reads them: no write to them in between outside the window,
+// and no window statement (removed in variants) writing them before the read.
+bool Extractor::leavesUnchanged(const Statement& s, const std::vector<const Statement*>& defs) const {
+  std::vector<const Statement*> window = defs;
+  window.push_back(&s);
+  for (const Statement* w : window) {
+    std::unordered_set<uint32_t> tree;
+    treeValues(w->value, tree);
+    // A texture fetch is copied as its call text: its arguments must not read an
+    // inlined (removed) value.
+    for (uint32_t id : tree) {
+      const auto it = cg_.values.find(id);
+      if (it == cg_.values.end() || it->second.kind != Value::Kind::Intrinsic || !isTexFetch(it->second.name))
+        continue;
+      std::unordered_set<uint32_t> args;
+      for (uint32_t a : it->second.args) treeValues(a, args);
+      for (uint32_t a : args) {
+        const auto ai = cg_.values.find(a);
+        if (ai != cg_.values.end() && ai->second.kind == Value::Kind::Load &&
+            (inlineLoad_.count(a) || inline_.count(ai->second.base)))
+          return false;
+      }
+    }
+    for (uint32_t id : tree) {
+      const auto it = cg_.values.find(id);
+      if (it == cg_.values.end()) continue;
+      const Value& v = it->second;
+      if (v.kind != Value::Kind::Load || inlineLoad_.count(id) || inline_.count(v.base)) continue;
+      if (const auto di = defs_.find(v.base); di != defs_.end())
+        for (const Statement* x : di->second) {
+          const bool removed = std::find(defs.begin(), defs.end(), x) != defs.end();
+          if (removed && x->seq < v.seq) return false;
+          if (!removed && x->seq > v.seq && x->seq < s.seq) return false;
+        }
+      for (const auto& [cid, cv] : cg_.values)
+        if (cv.kind == Value::Kind::Call && cv.seq > v.seq && cv.seq < s.seq)
+          for (uint32_t a : cv.args)
+            if (a == v.base) return false;
+    }
+  }
+  return true;
+}
+
 std::vector<Region> Extractor::run(SkipCount& skipped) {
 #define SKIPADD(r) skipped.add((r), s.loc.source, s.loc.line)
   // Functions reachable from pixel shaders.
@@ -1381,27 +2047,53 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
       } else {
         SKIPADD(why);
       }
-      // Window: the statement with the single-use temporaries it reads.
+      // Windows: the statement with the single-use temporaries it reads, and with the
+      // statements before it that compute its variable (chains of 1, 2, ...), each also
+      // with the temporaries of the chain.
       if (opt_.maxStatements < 2) continue;
-      std::vector<const Statement*> defs;
-      inline_.clear();
-      findTemps(s, defs, 0);
-      if (defs.empty()) continue;
-      std::sort(defs.begin(), defs.end(), [](const Statement* a, const Statement* b) { return a->seq < b->seq; });
-      Region win = reg;
-      std::string text;
-      for (const Statement* d : defs) {
-        Region shape;
-        shapeOf(*d, shape, why);
-        win.removed.emplace_back(shape.line, shape.lastLine);
-        text += shape.original + "\n";
+      for (size_t length = 0; length < opt_.maxStatements; ++length) {
+        std::vector<const Statement*> defs;
+        inline_.clear();
+        inlineLoad_.clear();
+        if (length > 0 && !findChain(s, length, defs)) break;
+        const std::vector<const Statement*> chainDefs = defs;
+        findTemps(s, defs, 0);
+        for (const Statement* c : chainDefs) findTemps(*c, defs, 0);
+        if (defs.empty()) continue;
+        std::sort(defs.begin(), defs.end(), [](const Statement* a, const Statement* b) { return a->seq < b->seq; });
+        if (!leavesUnchanged(s, defs)) continue;
+        Region win = reg;
+        // A chain from the variable's declaration: the variant replaces the declaration.
+        for (const Statement* c : chainDefs)
+          if (c->kind == Statement::Kind::Init) {
+            Region shape;
+            shapeOf(*c, shape, why);
+            win.kind = Region::Kind::Init;
+            win.lhs = shape.lhs;
+          }
+        std::string text;
+        for (const Statement* d : defs) {
+          Region shape;
+          shapeOf(*d, shape, why);
+          win.removed.emplace_back(shape.line, shape.lastLine);
+          text += shape.original + "\n";
+        }
+        win.original = text + reg.original;
+        if (!spanGuard(fx_, reg.file, win.removed.front().first, reg.lastLine, win.guard, why)) {
+          SKIPADD("window: " + why);
+          continue;
+        }
+        window_ = defs;
+        if (buildRegion(s, win, why)) {
+          win.prog.budget = budgetFor(f, s, win.budgetReason);
+          out.push_back(std::move(win));
+        } else {
+          SKIPADD("window: " + why);
+        }
+        window_.clear();
       }
-      win.original = text + reg.original;
-      if (buildRegion(s, win, why)) {
-        win.prog.budget = budgetFor(f, s, win.budgetReason);
-        out.push_back(std::move(win));
-      }
       inline_.clear();
+      inlineLoad_.clear();
     }
   }
 #undef SKIPADD
@@ -1410,18 +2102,58 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
 
 }  // namespace
 
+bool parseRange(const std::string& text, double& lo, double& hi) {
+  std::string t;
+  for (char c : text) t += (c == '[' || c == ']' || c == ',') ? ' ' : c;
+  std::istringstream in(t);
+  if (!(in >> lo >> hi)) return false;
+  std::string rest;
+  if (in >> rest) return false;
+  if (lo > hi) std::swap(lo, hi);
+  return true;
+}
+
+bool readUserRanges(const fs::path& file, UserRanges& out, std::string& error) {
+  std::ifstream f(file);
+  if (!f) {
+    error = "cannot read " + file.string();
+    return false;
+  }
+  std::string line;
+  for (int no = 1; std::getline(f, line); ++no) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (const size_t h = line.find('#'); h != std::string::npos) line.erase(h);
+    const std::string t = trim(line);
+    if (t.empty()) continue;
+    const size_t eq = t.rfind('=');
+    std::istringstream key(eq == std::string::npos ? std::string() : t.substr(0, eq));
+    std::string file_, function, input;
+    double lo = 0, hi = 0;
+    key >> file_ >> function;
+    std::getline(key, input);
+    input = trim(input);
+    if (eq == std::string::npos || input.empty() || !parseRange(t.substr(eq + 1), lo, hi)) {
+      error = file.string() + ":" + std::to_string(no) + ": expected '<file> <function> <input> = [lo, hi]'";
+      return false;
+    }
+    out[file_ + " " + function + " " + input] = {lo, hi};
+  }
+  return true;
+}
+
 std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const RegionOptions& opt,
                                    SkipCount& skipped) {
   std::vector<Region> regions = Extractor(fx, opt).run(skipped);
   if (!alt) return regions;
   SkipCount ignored;
   const std::vector<Region> other = Extractor(*alt, opt).run(ignored);
-  std::map<std::tuple<std::string, uint32_t, int, size_t>, std::string> texts;
+  using Key = std::tuple<std::string, uint32_t, int, std::vector<std::pair<uint32_t, uint32_t>>>;
+  std::map<Key, std::string> texts;
   for (const auto& r : other)
-    texts[{r.file, r.line, static_cast<int>(r.kind), r.removed.size()}] = toString(r.prog.target, r.prog.inputs);
+    texts[{r.file, r.line, static_cast<int>(r.kind), r.removed}] = toString(r.prog.target, r.prog.inputs);
   std::vector<Region> kept;
   for (auto& r : regions) {
-    const auto it = texts.find({r.file, r.line, static_cast<int>(r.kind), r.removed.size()});
+    const auto it = texts.find({r.file, r.line, static_cast<int>(r.kind), r.removed});
     if (it != texts.end() && it->second != toString(r.prog.target, r.prog.inputs)) {
       skipped.add("depends on BUFFER_WIDTH/HEIGHT", r.file, r.line);
       continue;

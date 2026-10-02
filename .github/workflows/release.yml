@@ -1,0 +1,110 @@
+name: release
+# Windows tools as a GitHub Release: a tag v* (or a manual run, which makes a draft) builds them,
+# signs them through SignPath once the project is approved there (docs/signing.md; skipped while
+# the SIGNPATH_API_TOKEN secret does not exist) and attaches two zips and SHA256SUMS.txt.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          v=$(sed -n 's/^project(sopt VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: |
+          cmake -S . -B build -DSOPT_BUILD_TESTS=OFF
+          cmake --build build --config Release --parallel
+          cmake -S . -B build32 -A Win32 -DSOPT_BUILD_TESTS=OFF
+          cmake --build build32 --config Release --target sopt-timer
+      - name: Cache ReShade build
+        # the same unchanged ReShade 6.8.0 build as ci.yml (shared cache key)
+        id: reshade-cache
+        uses: actions/cache@v4
+        with:
+          path: reshade-bin
+          key: reshade-6.8.0-release-x64-v1
+      - name: MSBuild for ReShade
+        if: steps.reshade-cache.outputs.cache-hit != 'true'
+        uses: microsoft/setup-msbuild@v2
+      - name: Build ReShade
+        if: steps.reshade-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          git clone --depth 1 --branch v6.8.0 --recurse-submodules --shallow-submodules https://github.com/crosire/reshade reshade
+          touch reshade/res/shaders/*.spv
+          cd reshade
+          MSYS_NO_PATHCONV=1 msbuild.exe ReShade.sln /t:ReShade /p:Configuration=Release /p:Platform=64-bit /m /v:minimal
+          mkdir -p ../reshade-bin
+          cp bin/x64/Release/ReShade64.dll ../reshade-bin/
+          cp LICENSE.md ../reshade-bin/ReShade-LICENSE.md
+      - name: Version info check
+        shell: pwsh
+        run: |
+          foreach ($f in 'build/Release/sopt-opbench.exe', 'build/Release/sopt-host.exe', 'build/Release/sopt-fxc.exe', 'build/Release/sopt-timer.addon64', 'build32/Release/sopt-timer.addon32') {
+            $v = (Get-Item $f).VersionInfo
+            "{0}: {1} {2} ({3})" -f $f, $v.ProductName, $v.FileVersion, $v.CompanyName
+            if ($v.CompanyName -ne 'CeeJay.dk') { throw "$f has no version resource" }
+          }
+      - name: Stage zips
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.version }}'
+          New-Item -ItemType Directory -Force -Path opbench, tools, unsigned | Out-Null
+          Copy-Item build/Release/sopt-opbench.exe, tools/windows/measure-gpu.bat, tools/windows/opbench/README.txt opbench/
+          Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, build/Release/sopt-opbench.exe, tools/windows/measure-gpu.bat, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md tools/
+          Compress-Archive -Path opbench/* -DestinationPath "unsigned/sopt-opbench-$v.zip"
+          Compress-Archive -Path tools/* -DestinationPath "unsigned/sopt-windows-tools-$v.zip"
+      - name: Upload unsigned
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned
+          path: unsigned/
+      - name: Sign (SignPath)
+        # our binaries only (artifact configuration in docs/signing.md); ReShade64.dll is crosire's
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+      - name: Collect release files
+        id: files
+        shell: bash
+        run: |
+          if [ -n "$SIGNPATH_API_TOKEN" ]; then src=signed; echo "signed=yes" >> "$GITHUB_OUTPUT"; else src=unsigned; echo "signed=no" >> "$GITHUB_OUTPUT"; fi
+          mkdir -p release
+          cp "$src"/*.zip release/
+          cd release && sha256sum *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
+          name: sopt ${{ steps.version.outputs.version }}
+          files: release/*
+          body: |
+            Windows tools of sopt ${{ steps.version.outputs.version }}.
+
+            - `sopt-opbench-${{ steps.version.outputs.version }}.zip`: measures what GPU instructions cost on your graphics card. Unzip, double-click `measure-gpu.bat`, send the CSV it writes (see README.txt inside).
+            - `sopt-windows-tools-${{ steps.version.outputs.version }}.zip`: the benchmark harness (sopt-host, sopt-timer add-on, run-bench.bat, ReShade64.dll 6.8.0) and sopt-opbench.
+
+            Code signing: ${{ steps.files.outputs.signed == 'yes' && 'signed through SignPath Foundation.' || 'not signed yet (SignPath application pending); Windows Defender may warn. Check the files against SHA256SUMS.txt.' }}

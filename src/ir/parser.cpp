@@ -285,6 +285,11 @@ class ExprParser {
       expect(")");
       if (tok.text == "float2" || tok.text == "float3" || tok.text == "float4")
         return makeConstruct(args, static_cast<unsigned>(tok.text[5] - '0'));
+      if (isSugarCall(tok.text, args.size())) {
+        if (tok.text == "cross" && (typeOf(args[0]) != Type::Float3 || typeOf(args[1]) != Type::Float3))
+          err("cross needs float3 operands");
+        return buildSugarCall(b_, tok.text, args.data(), args.size());
+      }
       const auto op = opFromCall(tok.text, static_cast<uint8_t>(args.size()));
       if (!op)
         err("unknown function " + tok.text + " with " + std::to_string(args.size()) + " arguments");
@@ -344,13 +349,16 @@ Program parseProgram(std::string_view text) {
 
     if (t[0].text == "input") {
       if (!exprText.empty()) err("inputs must be declared before the output");
-      const bool typeOk = kw(3, "float") || kw(3, "float2") || kw(3, "float3") || kw(3, "float4");
-      if (t[1].kind != Tok::Ident || !kw(2, ":") || !typeOk || !kw(4, "in") || !kw(5, "["))
-        err("expected: input <name> : float[2|3|4] in [lo, hi] [grid N]");
+      // "const": a compile-time constant (a preprocessor definition), folded by the compiler.
+      const size_t o = kw(3, "const") ? 1 : 0;
+      const bool typeOk = kw(3 + o, "float") || kw(3 + o, "float2") || kw(3 + o, "float3") || kw(3 + o, "float4");
+      if (t[1].kind != Tok::Ident || !kw(2, ":") || !typeOk || !kw(4 + o, "in") || !kw(5 + o, "["))
+        err("expected: input <name> : [const] float[2|3|4] in [lo, hi] [grid N] [= value]");
       InputDecl d;
       d.name = t[1].text;
-      d.type = t[3].text == "float" ? Type::Float : floatType(static_cast<unsigned>(t[3].text[5] - '0'));
-      size_t p = 6;
+      d.compileTime = o == 1;
+      d.type = t[3 + o].text == "float" ? Type::Float : floatType(static_cast<unsigned>(t[3 + o].text[5] - '0'));
+      size_t p = 6 + o;
       d.lo = parseSignedNumber(t, p, line);
       if (!kw(p, ",")) err("expected ','");
       ++p;
@@ -363,6 +371,13 @@ Program parseProgram(std::string_view text) {
         if (t[p].kind != Tok::Num || t[p].num < 1) err("grid needs a positive integer");
         d.grid = static_cast<uint32_t>(t[p].num);
         ++p;
+      }
+      if (kw(p, "=")) {  // current value of a const input
+        ++p;
+        if (!d.compileTime) err("only const inputs have a value");
+        d.value = parseSignedNumber(t, p, line);
+      } else if (d.compileTime) {
+        d.value = 0.5 * (d.lo + d.hi);
       }
       if (t[p].kind != Tok::End) err("trailing tokens");
       for (const auto& other : prog.inputs)

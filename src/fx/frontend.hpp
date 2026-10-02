@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -12,10 +13,23 @@
 
 namespace sopt::fx {
 
+// scRGB back buffer (FP16) range for the HDR check: -0.5 is scRGB's lower bound (colors
+// outside the sRGB gamut are negative), 125 is 10000 nits.
+inline constexpr double kScRgbLo = -0.5, kScRgbHi = 125.0;
+
 struct LoadOptions {
   std::vector<std::filesystem::path> includePaths;
   std::vector<std::pair<std::string, std::string>> macros;  // extra definitions
   unsigned width = 1920, height = 1080;                      // BUFFER_WIDTH / BUFFER_HEIGHT
+  // Preprocessor definitions kept symbolic in code (see symbolicMacros()).
+  std::set<std::string> symbolic;
+  // BUFFER_WIDTH / BUFFER_HEIGHT kept symbolic too (int compile-time inputs), except on
+  // the source lines in symbolicExclude ("file\nline") where a constant is needed.
+  bool bufferSymbolic = false;
+  std::set<std::string> symbolicExclude;
+  // With bufferSymbolic: global static consts computed from the sizes (ReShade::PixelSize)
+  // stay expressions of them (the parser's sopt_named_expressions).
+  bool namedExpressions = false;
 };
 
 // One parse of an effect: the recorded dataflow graph plus the preprocessed text of
@@ -25,7 +39,39 @@ struct Effect {
   std::unique_ptr<Codegen> cg;
   std::map<std::pair<std::string, uint32_t>, std::string> ppLines;  // (file, line) -> text
   std::vector<std::string> sourceFiles;  // the effect and its includes
+  // Preprocessor definitions the effect tests with #ifdef/#ifndef (the ones ReShade lets
+  // the user change), name -> value.
+  std::map<std::string, std::string> userMacros;
+  std::set<std::string> symbolic;  // of those, the ones kept symbolic in this parse
+  unsigned width = 1920, height = 1080;  // BUFFER_WIDTH / BUFFER_HEIGHT of this parse
+  bool bufferSymbolic = false;           // they are symbolic (see LoadOptions)
+  // Object-like macros' replacement lists (for source lines that use BUFFER_SCREEN_SIZE etc.).
+  std::map<std::string, std::string> objectMacros;
 };
+
+// The second parse that finds resolution-dependent regions: a 32:9 super ultrawide
+// size, so a region that depends only on the aspect ratio differs from 1920x1080 too.
+inline constexpr unsigned kAltWidth = 5120, kAltHeight = 1440;
+
+// The back buffer size macros that bufferSymbolic keeps symbolic.
+inline bool isBufferSizeMacro(const std::string& name) {
+  return name == "BUFFER_WIDTH" || name == "BUFFER_HEIGHT";
+}
+
+// Loads an effect with BUFFER_WIDTH / BUFFER_HEIGHT symbolic: lines that fail to parse that
+// way (texture sizes, array sizes, static const initializers) go to opt.symbolicExclude
+// and the parse is retried. Returns null when it does not converge.
+std::unique_ptr<Effect> loadEffectBufferSymbolic(const std::filesystem::path& path, LoadOptions& opt,
+                                                 std::string& errors);
+
+// Prefix of a symbolic preprocessor definition's identifier in the parsed code.
+inline constexpr const char* kSymbolicPrefix = "__sopt_";
+
+// The user-changeable numeric preprocessor definitions of an effect that can stay
+// symbolic: its code still parses with each of them (and all together) replaced by a
+// uniform. They become compile-time inputs of regions instead of baked-in numbers.
+std::set<std::string> symbolicMacros(const std::filesystem::path& path, const LoadOptions& opt,
+                                     const Effect& plain);
 
 // Preprocesses and parses one .fx file. Returns null and sets errors on failure.
 std::unique_ptr<Effect> loadEffect(const std::filesystem::path& path, const LoadOptions& opt,
@@ -37,7 +83,22 @@ struct Fact {
   bool fetch = false;  // the input is a texture fetch (its FX call text)
   std::string source;  // "ui_min/ui_max", "TEXCOORD", "BackBuffer (8-bit)", "assumed", ...
   bool assumed = false;
+  // Key for a user-given range (see UserRanges): "<file name> <function> <variable>".
+  std::string key;
+  // For assumed ranges: a suggestion for the user and why.
+  double suggestLo = 0, suggestHi = 0;
+  std::string suggestWhy;
+  int order = 3;  // asking order: uniforms, parameters, fetches, other variables
 };
+
+// Ranges the user supplied for inputs without facts, by Fact::key. File format, one per
+// line ('#' starts a comment):
+//   CRT.fx corner coord = [0, 0.1]
+using UserRanges = std::map<std::string, std::pair<double, double>>;
+// Reads a facts file into `out`; returns false and sets `error` on a malformed line.
+bool readUserRanges(const std::filesystem::path& file, UserRanges& out, std::string& error);
+// Parses "[lo, hi]", "lo hi" or "lo, hi".
+bool parseRange(const std::string& text, double& lo, double& hi);
 
 // One statement of a pixel shader whose value is pure arithmetic over variables:
 //   Init:   float3 x = <rhs>;
@@ -57,6 +118,9 @@ struct Region {
   // Window: declarations of single-use temporaries inlined into this statement
   // (line ranges in the same file, before `line`); a variant removes them.
   std::vector<std::pair<uint32_t, uint32_t>> removed;
+  // Window across #if/#else/#endif lines: the preprocessor condition under which its
+  // statements compile as in this parse (variants apply only then). Empty otherwise.
+  std::string guard;
   Program prog;
   std::vector<Fact> facts;   // one per input
   std::string budgetReason;  // how the budget was derived
@@ -70,7 +134,14 @@ struct RegionOptions {
   uint32_t maxSlots = 8;      // ... or more input components
   double defaultLo = -1000.0, defaultHi = 1000.0;  // range when nothing is known
   double relEps = 1e-6;       // budget for values with a general use
-  double texcoordPx = 0.01;   // budget for values only used as texture coordinates
+  double texcoordPx = 0.01;   // budget for values only used as texture coordinates, in
+                              // pixels on a target maxWidth wide
+  double maxWidth = 7680;     // largest target width: SV_Position range [0, maxWidth] and
+                              // the texcoord budget (8K; hardware limit 16384)
+  const UserRanges* userRanges = nullptr;  // ranges for inputs without facts
+  // The back buffer as scRGB (FP16: [-0.5, 125], 125 = 10000 nits) instead of 8-bit SDR
+  // (sopt-fx extracts once more with this to check variants for HDR back buffers).
+  bool hdrBackBuffer = false;
 };
 
 struct SkipCount {

@@ -6,6 +6,7 @@
 #include <thread>
 
 #include "ir/eval.hpp"
+#include "verify/exact.hpp"
 
 namespace sopt {
 
@@ -66,6 +67,8 @@ const char* klassName(Klass k, int codeBits) {
     case Klass::BitExact: return "bit-exact";
     case Klass::Identical8: return codeBits == 10 ? "10-bit identical" : "8-bit identical";
     case Klass::Within: return "within budget";
+    case Klass::Accurate: return "as accurate";
+    case Klass::LessAccurate: return "less accurate";
   }
   return "?";
 }
@@ -73,6 +76,8 @@ const char* klassName(Klass k, int codeBits) {
 void Metrics::merge(const Metrics& o) {
   if (pass && !o.pass) failPoint = o.failPoint;
   pass = pass && o.pass;
+  if (loosePass && !o.loosePass) looseFailPoint = o.looseFailPoint;
+  loosePass = loosePass && o.loosePass;
   bitExact = bitExact && o.bitExact;
   maxCodeDiff = std::max(maxCodeDiff, o.maxCodeDiff);
   maxAbs = std::max(maxAbs, o.maxAbs);
@@ -80,19 +85,35 @@ void Metrics::merge(const Metrics& o) {
   checked += o.checked;
   valueHash += o.valueHash;
   codeChanged += o.codeChanged;
+  viaExact += o.viaExact;
+  exactAbs = std::max(exactAbs, o.exactAbs);
+  exactRel = std::max(exactRel, o.exactRel);
 }
 
-bool pointWithinBudget(const Budget& b, float t, float c) {
-  if (!std::isfinite(c)) return false;
+
+Budget looseBudget(const Budget& b) {
+  Budget l = b;
+  l.eps *= b.loose;
+  l.maxCodeDiff += 1;
+  return l;
+}
+
+bool pointAccurate(const Budget& b, float t, double x, float c, double scale, double s) {
+  if (!std::isfinite(c) || !std::isfinite(x)) return false;
   switch (b.kind) {
-    case Budget::Kind::Exact: return c == t;
+    case Budget::Kind::Exact: return false;
     case Budget::Kind::Color8:
-    case Budget::Kind::Color10:
-      return std::abs(codeN(c, b.codeBits()) - codeN(t, b.codeBits())) <= b.maxCodeDiff;
-    case Budget::Kind::Texcoord: return std::fabs(static_cast<double>(c) - t) <= b.eps;
-    case Budget::Kind::Abs: return std::fabs(static_cast<double>(c) - t) <= b.eps;
+    case Budget::Kind::Color10: {
+      const int bits = b.codeBits();
+      const double cx = x < 0.0 ? 0.0 : (x > 1.0 ? 1.0 : x);
+      const int codeX = static_cast<int>(cx * ((1 << bits) - 1) + 0.5);
+      const int orig = std::abs(codeN(t, bits) - codeX) + (scale > 1.0 ? 1 : 0);
+      return std::abs(codeN(c, bits) - codeX) <= std::max(b.maxCodeDiff, orig);
+    }
+    case Budget::Kind::Texcoord:
+    case Budget::Kind::Abs: return std::fabs(c - x) <= std::max(b.eps, scale * std::fabs(t - x));
     case Budget::Kind::Rel:
-      return std::fabs(static_cast<double>(c) - t) <= b.eps * std::max(1.0, std::fabs(double(t)));
+      return std::fabs(c - x) <= std::max(b.eps * relBase(x, s), scale * std::fabs(t - x));
   }
   return false;
 }
@@ -100,15 +121,20 @@ bool pointWithinBudget(const Budget& b, float t, float c) {
 namespace {
 
 Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, size_t begin,
-                     size_t end, const Profile& profile, const std::vector<float>* targetVals) {
+                     size_t end, const Profile& profile, const std::vector<float>* targetVals,
+                     const std::vector<double>* exactVals, const std::vector<double>* scaleVals) {
   constexpr size_t kBlock = 4096;
   BlockEvaluator et, ec;
+  ExactEvaluator ex;
+  const bool rule = accuracyRule(prog.budget);
+  const bool rel = prog.budget.scaledRel();
+  ex.withScale = rel && !scaleVals;
   Metrics m;
   const unsigned w = width(prog.target.nodes[prog.target.root].type);
   const int bits = prog.budget.codeBits();
   if (cand.nodes[cand.root].type != prog.target.nodes[prog.target.root].type) {
-    m.pass = false;  // a candidate must have the target's type
-    m.failPoint = ps.point(begin);
+    m.pass = m.loosePass = false;  // a candidate must have the target's type
+    m.failPoint = m.looseFailPoint = ps.point(begin);
     return m;
   }
   const size_t total = ps.size();
@@ -121,8 +147,17 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
       tv = et.eval(prog.target, ps, b, count, profile);
     }
     const BlockEvaluator::Cols cv = ec.eval(cand, ps, b, count, profile);
+    ExactEvaluator::Cols xv{}, sv{};
+    const bool computed = (rule && !exactVals) || (rel && !scaleVals);
+    if (computed) xv = ex.eval(prog.target, ps, b, count);
+    if (rule && exactVals)
+      for (unsigned c = 0; c < w; ++c) xv[c] = exactVals->data() + c * total + b;
+    if (rel && scaleVals)
+      for (unsigned c = 0; c < w; ++c) sv[c] = scaleVals->data() + c * total + b;
+    else if (rel)
+      sv = ex.scale(prog.target);
     for (size_t i = 0; i < count; ++i) {
-      bool pointOk = true;
+      bool pointOk = true, looseOk = true;
       for (unsigned comp = 0; comp < w; ++comp) {
         const float t = tv[comp][i], c = cv[comp][i];
         if (!std::isfinite(t)) continue;
@@ -135,7 +170,21 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
           m.valueHash += z ^ (z >> 31);
         }
         ++m.checked;
-        pointOk = pointOk && pointWithinBudget(prog.budget, t, c);
+        const double s = rel ? sv[comp][i] : 0.0;
+        if (!pointWithinBudget(prog.budget, t, c, s)) {
+          if (rule && pointAccurate(prog.budget, t, xv[comp][i], c, 1.0, s)) {
+            ++m.viaExact;
+          } else {
+            pointOk = false;
+            looseOk = looseOk && pointLoose(prog.budget, t, rule ? &xv[comp][i] : nullptr, c, s);
+          }
+        }
+        if (rule && std::isfinite(xv[comp][i])) {
+          const double x = xv[comp][i];
+          const double d = std::isfinite(c) ? std::fabs(c - x) : INFINITY;
+          m.exactAbs = std::max(m.exactAbs, d);
+          m.exactRel = std::max(m.exactRel, d / relBase(x));
+        }
         if (!std::isfinite(c)) {
           m.bitExact = false;
           m.maxAbs = m.maxRel = INFINITY;
@@ -152,6 +201,13 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
       if (!pointOk && m.pass) {
         m.pass = false;
         m.failPoint = ps.point(b + i);
+      }
+      if (!looseOk && m.loosePass) {
+        m.loosePass = false;
+        m.looseFailPoint = ps.point(b + i);
+        // Rejected: callers only use the failing point, so the remaining points are not
+        // compared (each thread's range stops at its own first failure: deterministic).
+        return m;
       }
     }
   }
@@ -176,10 +232,12 @@ std::vector<float> evalAll(const Expr& e, const PointSet& ps, const Profile& pro
 }
 
 Metrics compare(const Program& prog, const Expr& cand, const PointSet& ps, const Profile& profile,
-                unsigned threads, const std::vector<float>* targetVals) {
+                unsigned threads, const std::vector<float>* targetVals,
+                const std::vector<double>* exactVals, const std::vector<double>* scaleVals) {
   const size_t n = ps.size();
   if (threads == 0) threads = std::max(1u, std::thread::hardware_concurrency());
-  if (n < 65536 || threads == 1) return compareRange(prog, cand, ps, 0, n, profile, targetVals);
+  if (n < 65536 || threads == 1)
+    return compareRange(prog, cand, ps, 0, n, profile, targetVals, exactVals, scaleVals);
 
   std::vector<Metrics> parts(threads);
   std::vector<std::thread> pool;
@@ -187,7 +245,9 @@ Metrics compare(const Program& prog, const Expr& cand, const PointSet& ps, const
   for (unsigned t = 0; t < threads; ++t) {
     const size_t b = t * chunk, e = std::min(n, b + chunk);
     if (b >= e) break;
-    pool.emplace_back([&, t, b, e] { parts[t] = compareRange(prog, cand, ps, b, e, profile, targetVals); });
+    pool.emplace_back([&, t, b, e] {
+      parts[t] = compareRange(prog, cand, ps, b, e, profile, targetVals, exactVals, scaleVals);
+    });
   }
   for (auto& th : pool) th.join();
   Metrics m;
@@ -220,7 +280,7 @@ Metrics compareExhaustive(const Program& prog, const Expr& cand, const Profile& 
   ps.slot = inputSlots(prog.inputs);
   ps.cols.resize(slots.size());
   std::vector<uint64_t> digit(slots.size(), 0);  // mixed-radix index of the next point
-  for (uint64_t start = 0; start < total && m.pass; start += kBlock) {
+  for (uint64_t start = 0; start < total && m.loosePass; start += kBlock) {
     const uint64_t count = std::min(kBlock, total - start);
     for (auto& c : ps.cols) c.resize(count);
     for (uint64_t i = 0; i < count; ++i) {
@@ -235,6 +295,8 @@ Metrics compareExhaustive(const Program& prog, const Expr& cand, const Profile& 
 Klass classify(const Program& prog, const Expr& cand, const Metrics& worst) {
   if (worst.bitExact && !containsInexact(prog.target) && !containsInexact(cand))
     return Klass::BitExact;
+  if (!worst.pass) return Klass::LessAccurate;
+  if (worst.viaExact) return Klass::Accurate;
   if ((prog.budget.kind == Budget::Kind::Color8 || prog.budget.kind == Budget::Kind::Color10) &&
       worst.maxCodeDiff == 0)
     return Klass::Identical8;

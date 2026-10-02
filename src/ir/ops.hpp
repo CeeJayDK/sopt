@@ -21,11 +21,13 @@ enum class Op : uint8_t {
   Input, Const,
   // unary
   Neg, Abs, Saturate, Floor, Frac, Sign, Sqrt, Rsqrt, Rcp, Exp, Log, Sin, Cos,
+  Exp2, Log2, Round, Ceil,
   // binary
   Add, Sub, Mul, Div, Min, Max, Step, Pow,
   Lt, Le, Gt, Ge, Eq, Ne,
   // ternary
   Mad, Lerp, Clamp, Select,
+  Smoothstep,  // pure helper: s * s * (3 - 2s), s = saturate((x - a) / (b - a)) (DXC's lowering)
   // vectors: pure helpers (dot = mul + fmas, length = sqrt(dot), normalize = v *
   // rsqrt(dot(v, v)), distance = length(a - b)), component selection and construction
   Dot, Length, Normalize, Distance, Swizzle, Construct,
@@ -61,7 +63,7 @@ const OpInfo& info(Op op);
 // step = cmp + cndmask), as opposed to single instructions or modifiers.
 inline bool isPureHelper(Op op) {
   return op == Op::Lerp || op == Op::Step || op == Op::Dot || op == Op::Length ||
-         op == Op::Normalize || op == Op::Distance;
+         op == Op::Normalize || op == Op::Distance || op == Op::Smoothstep;
 }
 std::optional<Op> opFromCall(std::string_view name, uint8_t arity);
 
@@ -74,6 +76,11 @@ struct CostModel {
   // becomes one fma, and the add/sub then costs fusedAdd instead. 0 = no contraction.
   uint16_t fusedAdd;
   bool divIsMul;  // a / b is lowered to a * rcp(b)
+  // AMD context effects (rdna3; owner, 2026-10-01, from ACO): a multiply by +-2, +-4 or +-0.5 is
+  // the output modifier (omod) of the instruction producing the other operand, and min / max over
+  // a min / max is one instruction (v_max3 / v_min3 / v_minmax / v_maxmin / v_med3). The folded
+  // node costs 1 per component, like the other modifiers. See amdFoldedNodes (expr.hpp).
+  bool amdFolds = false;
 
   uint16_t operator[](Op op) const { return cost[static_cast<size_t>(op)]; }
   // Cost of one node of this op producing / reducing floatN (w = operand width for
@@ -94,10 +101,19 @@ const CostModel& costGeneric();
 const CostModel& costRdna3();
 // nvidia: NVIDIA Ada SASS (ptxas + nvdisasm) in quarter-ALU units, MUFU at 8x.
 const CostModel& costNvidia();
+// nvidia-turing: NVIDIA Turing (GTX 1660) from sopt-opbench timings, quarter units, MUFU ~3x extra.
+const CostModel& costNvidiaTuring();
+// nvidia-ampere / nvidia-blackwell: provisional, from sopt-opbench (RTX 3050; RTX 5080 / 5090).
+const CostModel& costNvidiaAmpere();
+const CostModel& costNvidiaBlackwell();
+// intel-gen9: Intel Gen9 (Iris 540) from sopt-opbench timings, quarter units, math unit ~3x.
+const CostModel& costIntelGen9();
 // Default is rdna3 (searched in search order); --isa / --sass rank by real machine code.
 const CostModel& defaultCostModel();
 const CostModel* costModelByName(std::string_view name);
-// Enumeration order used when none is given: search for rdna3 and nvidia, else the model.
+// --no-amd-folds: rdna3 without CostModel::amdFolds (other models unchanged).
+const CostModel* withoutAmdFolds(const CostModel* m);
+// Enumeration order used when none is given: search for rdna3 and the nvidia / intel models, else the model.
 const CostModel& defaultOrderFor(const CostModel& objective);
 
 // Backend semantic profiles. The same FX source can evaluate differently:
@@ -110,13 +126,19 @@ struct Profile {
   bool madFused;
   bool contract = false;  // fuse single-use mul/div into add/sub (Expr-level, see verify)
   bool divRcp = false;    // a / b = a * (1 / b)
+  // GPU approximations: inexact ops (rcp, rsqrt, sqrt, div, exp, log, sin, cos, pow) are
+  // not correctly rounded on GPUs. +1 / -1 moves each of their results one float step up /
+  // down, so a candidate that amplifies such errors (e.g. by cancellation) shows it.
+  int ulpStep = 0;
 };
 
 inline constexpr Profile kProfileRef{"ref", false, false};
 inline constexpr Profile kProfileMix{"mix", true, false};
 inline constexpr Profile kProfileFma{"fma", false, true};
 inline constexpr Profile kProfileGpu{"gpu", false, true, true, true};
-inline constexpr std::array<Profile, 4> kAllProfiles{kProfileRef, kProfileMix, kProfileFma,
-                                                     kProfileGpu};
+inline constexpr Profile kProfileGpuUp{"gpu+", false, true, true, true, +1};
+inline constexpr Profile kProfileGpuDown{"gpu-", false, true, true, true, -1};
+inline constexpr std::array<Profile, 6> kAllProfiles{kProfileRef, kProfileMix, kProfileFma,
+                                                     kProfileGpu, kProfileGpuUp, kProfileGpuDown};
 
 }  // namespace sopt

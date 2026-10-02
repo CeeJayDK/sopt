@@ -10,6 +10,7 @@
 #include "measure/isa.hpp"
 #include "measure/sass.hpp"
 #include "search/driver.hpp"
+#include "search/library.hpp"
 
 using namespace sopt;
 
@@ -36,8 +37,49 @@ void usage() {
       "  --seed N          random seed (default 1)\n"
       "  --no-affine       enumerate outer constants instead of solving p * v + q\n"
       "  --no-inner        don't solve inner constants (p * u(v + c) + q, u = rcp/sqrt/rsqrt)\n"
+      "  --no-shared-leaves  the target's own subexpressions are not free leaves of the\n"
+      "                    search (default: they are, for rewrites that reuse a value, u * u)\n"
+      "  --no-subtrees     no subtree search (default: when the search hits a limit, also\n"
+      "                    search subexpressions of cost <= --subtree-max-cost, default 64,\n"
+      "                    --subtree-time S each, default 1, and put the cheaper forms back)\n"
+      "  --max-mem MB      memory for the search bank (default: the RAM available at start\n"
+      "                    minus a little for the system, shared by regions searched in\n"
+      "                    parallel); --max-bank N also caps entries\n"
+      "  --disk DIR        disk-backed bank for long runs on single regions: when half the\n"
+      "                    memory budget holds fingerprints, the rest go to zstd-compressed\n"
+      "                    tiles in DIR (a temporary file); --disk-max GB caps it (default:\n"
+      "                    the free space minus a reserve)\n"
+      "  --no-amd-folds    rdna3 without AMD context effects (default: x * +-2/4/0.5 is an output\n"
+      "                    modifier, min/max over min/max one instruction)\n"
+      "  --no-two-phase    one phase with the slack (default: only strictly cheaper hits first,\n"
+      "                    the deepest search, then the slack's alternatives near the best in\n"
+      "                    the last quarter of the time)\n"
+      "  --no-library      no rule library (default: rewrite with library/rewrites.txt or\n"
+      "                    $SOPT_LIBRARY before the search; the forms are candidates and seed it)\n"
+      "  --library-file F  the rule library in F\n"
+      "  --check-library   check every rule of the library (or --library-file) and exit\n"
+      "  --no-top-down     no top-down split (default: after each level, look up the missing\n"
+      "                    operand b of op(a, b) = target for each new entry a: add, sub, mul, div)\n"
+      "  --slack N         best-so-far bound: keep hits and parts of hits up to N above the\n"
+      "                    cheapest hit found so far (default 1; 0 when the bank is full, -1 when\n"
+      "                    it is also past half the time); --no-best-bound: bound = the original\n"
+      "  --no-cuts         no cut points (default: when the search hits a limit, split the\n"
+      "                    target at values the rest depends on for all inputs below them\n"
+      "                    and search both parts on their own, --cut-time S per part, default 1)\n"
+      "  --quant-oe N      quantized dedup: values equal after rounding away the low N\n"
+      "                    mantissa bits on the test points count as one (default 0 = bit-exact)\n"
+      "  --no-v3           no V3 (default: prove a formal error bound by interval subdivision\n"
+      "                    for the cheapest 3 alternatives where V2 does not apply, --v3-time S\n"
+      "                    each, default 2; sopt-fx: for the written variants)\n"
+      "  --no-overflow     stop when the bank is full (default: keep combining the stored\n"
+      "                    entries, checking new values as hits, until --time)\n"
+      "  --no-accuracy-variants  do not keep candidates that are only more accurate (not cheaper)\n"
+      "  --no-exact-rule   candidates must stay within the budget of the float32 original\n"
+      "                    (default: also accepted where at least as close to exact math)\n"
+      "  --loose F         also list less accurate candidates: within F times the budget or\n"
+      "                    the original's error vs exact math (default 100, 0 = off)\n"
       "  --helpers         also enumerate pure helper intrinsics (lerp, step)\n"
-      "  --cost-model M    objective: rdna3 | nvidia | generic (default: rdna3)\n"
+      "  --cost-model M    objective: rdna3 | nvidia | nvidia-turing | nvidia-ampere | nvidia-blackwell | intel-gen9 | generic (default: rdna3)\n"
       "  --order-model M   enumeration order (default: search for rdna3/nvidia, else the model)\n"
       "  --stats           print search statistics\n"
       "  --isa             rank the shown alternatives by real GPU ISA cost (fxstat + RGA)\n"
@@ -60,7 +102,7 @@ const char* budgetText(const Budget& b, char* buf, size_t n) {
       std::snprintf(buf, n, "color%d, max code diff %d", b.codeBits(), b.maxCodeDiff);
       return buf;
     case Budget::Kind::Texcoord:
-      std::snprintf(buf, n, "texcoord, %g px at 3840 (abs %g)", b.px, b.eps);
+      std::snprintf(buf, n, "texcoord, %g px at %g wide (abs %g)", b.px, b.width, b.eps);
       return buf;
     case Budget::Kind::Abs: std::snprintf(buf, n, "abs %g", b.eps); return buf;
     case Budget::Kind::Rel: std::snprintf(buf, n, "rel %g", b.eps); return buf;
@@ -77,8 +119,10 @@ int main(int argc, char** argv) {
   }
   std::string path;
   Options opt;
+  opt.loose = 100;
   size_t top = 20;
   bool stats = false;
+  bool checkLibrary = false;
   bool isa = false;
   IsaConfig isaCfg;
   if (const char* v = std::getenv("SOPT_FXSTAT")) isaCfg.fxstat = v;
@@ -87,6 +131,7 @@ int main(int argc, char** argv) {
   SassConfig sassCfg;
   if (const char* v = std::getenv("SOPT_PTXAS")) sassCfg.ptxas = v;
   if (const char* v = std::getenv("SOPT_NVDISASM")) sassCfg.nvdisasm = v;
+  bool noAmdFolds = false;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     auto next = [&]() -> const char* {
@@ -104,19 +149,58 @@ int main(int argc, char** argv) {
     else if (a == "--v2") opt.v2Candidates = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--max-bank") opt.search.maxBank = std::strtoull(next(), nullptr, 10);
     else if (a == "--time") opt.search.timeLimitSec = std::strtod(next(), nullptr);
-    else if (a == "--threads") opt.threads = static_cast<unsigned>(std::strtoul(next(), nullptr, 10));
+    else if (a == "--threads") opt.threads = opt.search.threads = static_cast<unsigned>(std::strtoul(next(), nullptr, 10));
     else if (a == "--seed") opt.seed = std::strtoull(next(), nullptr, 10);
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
-      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (rdna3, nvidia, generic, search)\n"); return 2; }
+      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (rdna3, nvidia, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, generic, search)\n"); return 2; }
     }
     else if (a == "--stats") stats = true;
     else if (a == "--no-affine") opt.search.affine = false;
     else if (a == "--no-inner") opt.search.inner = false;
+    else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
+    else if (a == "--no-overflow") opt.search.overflow = false;
+    else if (a == "--no-subtrees") opt.subtrees = false;
+    else if (a == "--no-cuts") opt.cuts = false;
+    else if (a == "--slack") opt.search.slack = std::atoi(next());
+    else if (a == "--no-best-bound") opt.search.bestBound = false;
+    else if (a == "--top-down") opt.search.topDown = true;
+    else if (a == "--no-top-down") opt.search.topDown = false;
+    else if (a == "--library") opt.library = true;
+    else if (a == "--no-library") opt.library = false;
+    else if (a == "--two-phase") opt.search.twoPhase = true;
+    else if (a == "--no-two-phase") opt.search.twoPhase = false;
+    else if (a == "--no-amd-folds") noAmdFolds = true;
+    else if (a == "--check-library") checkLibrary = true;
+    else if (a == "--library-file") {
+      static Library lib;  // alive for the whole run
+      const char* f = next();
+      try {
+        lib = loadLibrary(f);
+      } catch (const std::exception& e) {
+        std::fprintf(stderr, "%s\n", e.what());
+        return 2;
+      }
+      opt.library = true;
+      opt.libraryRules = &lib;
+    }
+    else if (a == "--disk") opt.search.diskDir = next();
+    else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);
+    else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
+    else if (a == "--no-v3") opt.v3 = false;
+    else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
+    else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
+    else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);
+    else if (a == "--no-shared-leaves") opt.search.sharedLeaves = false;
+    else if (a == "--subtree-time") opt.subtreeTime = std::strtod(next(), nullptr);
+    else if (a == "--subtree-max-cost") opt.subtreeMaxCost = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
+    else if (a == "--no-exact-rule") opt.exactRule = false;
+    else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
+    else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--helpers") opt.search.helpers = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
-      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (rdna3, nvidia, generic, search)\n"); return 2; }
+      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (rdna3, nvidia, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, generic, search)\n"); return 2; }
     }
     else if (a == "--isa") isa = true;
     else if (a == "--fxstat") isaCfg.fxstat = next();
@@ -131,6 +215,29 @@ int main(int argc, char** argv) {
     else if (a == "-h" || a == "--help") { usage(); return 0; }
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     else path = a;
+  }
+  if (noAmdFolds) opt.search.model = withoutAmdFolds(opt.search.model);
+  if (checkLibrary) {
+    // Every rule checked on its own (see checkRule); exit code 1 if any fails.
+    try {
+      const Library& lib = opt.libraryRules ? *opt.libraryRules : defaultLibrary();
+      std::printf("%s: %zu rules\n", lib.path.c_str(), lib.rules.size());
+      int failed = 0;
+      for (const auto& rule : lib.rules) {
+        const RuleCheck c = checkRule(rule);
+        if (c.pass) {
+          std::printf("ok    max rel %-9.3g %s\n", c.maxRel, rule.text.c_str());
+        } else {
+          ++failed;
+          std::printf("FAIL  %s: %s\n      (%s)\n", rule.source.c_str(), rule.text.c_str(), c.note.c_str());
+        }
+      }
+      std::printf("%d of %zu rules failed\n", failed, lib.rules.size());
+      return failed ? 1 : 0;
+    } catch (const std::exception& e) {
+      std::fprintf(stderr, "%s\n", e.what());
+      return 2;
+    }
   }
   if (path.empty()) {
     usage();
@@ -171,6 +278,11 @@ int main(int argc, char** argv) {
     std::printf("; all %llu domain points for the cheapest %u (ver = all)",
                 (unsigned long long)r.v2Points, opt.v2Candidates);
   std::printf("\n");
+  const bool rule = accuracyRule(prog.budget) && opt.exactRule;
+  if (rule)
+    std::printf("accuracy: original vs exact math: max abs %.3g, rel %.3g (\"as accurate\": outside the\n"
+                "          budget of the original only where at least as close to the exact value)\n",
+                r.targetExact.exactAbs, r.targetExact.exactRel);
 
   // Real machine-code cost of the target and the shown alternatives, per vendor:
   // AMD RDNA (fxstat + RGA) and NVIDIA (ptxas + nvdisasm).
@@ -226,13 +338,13 @@ int main(int argc, char** argv) {
   std::printf("\n");
 
   if (r.accepted.empty()) {
-    std::printf("no cheaper alternative found (searched up to cost %u%s)\n",
-                r.search.completedCost, r.search.limitHit ? ", limit hit" : "");
+    std::printf("no cheaper alternative found (searched up to cost %u of %u%s)\n", r.search.completedCost,
+                r.search.maxLevel, r.search.limitHit ? ", limit hit" : "");
   } else {
     std::printf("cost  ");
     for (const auto& c : cols) std::printf("%4s  ", c.name.c_str());
-    std::printf("ver  class            max |err|  max code  changed  expression   (codes: %d-bit)\n",
-                prog.budget.codeBits());
+    std::printf("ver  class            max |err|  %smax code  changed  expression   (codes: %d-bit)\n",
+                rule ? "vs exact  " : "", prog.budget.codeBits());
     std::vector<int> noGain(cols.size(), 0), failed(cols.size(), 0);
     for (size_t i : order) {
       const auto& a = r.accepted[i];
@@ -249,9 +361,16 @@ int main(int argc, char** argv) {
           std::printf("%3d%c  ", c.cost, t.ok && !gain ? '!' : ' ');
         }
       }
-      std::printf("%-3s  %-15s  %9.3g  %8d  %6.3f%%  %s\n", a.exhaustive ? "all" : "smp",
-                  klassName(a.klass, prog.budget.codeBits()), a.worst.maxAbs,
-                  a.worst.maxCodeDiff, 100.0 * a.worst.changedFraction(), a.text.c_str());
+      std::printf("%-3s  %-15s  %9.3g  ", a.exhaustive ? "all" : (a.proven ? "prf" : "smp"),
+                  klassName(a.klass, prog.budget.codeBits()), a.worst.maxAbs);
+      if (rule) std::printf("%8.3g  ", a.worst.exactAbs);
+      std::printf("%8d  %6.3f%%  %s\n", a.worst.maxCodeDiff, 100.0 * a.worst.changedFraction(), a.text.c_str());
+      if (a.proven) std::printf("      ^ proven (V3): |error vs original| <= %.3g on the whole domain\n", a.proofBound);
+      else if (a.provenFraction > 0.0)
+        std::printf("      ^ proven (V3) on %.4g%% of the domain (|error vs original| <= %.3g there)\n",
+                    100.0 * a.provenFraction, a.proofBound);
+      if (a.moreAccurate) std::printf("      ^ more accurate than the original (accuracy variant)\n");
+      if (!a.problems.empty()) std::printf("      ^ %s\n", describeProblems(prog, a.problems).c_str());
     }
     std::printf("\n%zu alternative(s) cheaper than cost %u", r.accepted.size(), r.targetCost);
     if (r.accepted.size() > top) std::printf(", showing %zu", top);
@@ -269,7 +388,8 @@ int main(int argc, char** argv) {
           }
     }
     if (r.search.limitHit)
-      std::printf("note: search limit hit, levels complete up to cost %u\n", r.search.completedCost);
+      std::printf("note: search limit hit, levels complete up to cost %u of %u\n", r.search.completedCost,
+                  r.search.maxLevel);
   }
 
   if (stats) {
@@ -287,11 +407,28 @@ int main(int argc, char** argv) {
                 (unsigned long long)s.hits, s.firstHitSec);
     if (opt.search.affine)
       std::printf("affine: %llu hits via a solved outer map, %llu via an inner constant, "
-                  "%llu chain entries pruned\n",
+                  "%llu chain entries pruned, %llu inner fits skipped (not monotonic)\n",
                   (unsigned long long)s.affineHits, (unsigned long long)s.innerHits,
-                  (unsigned long long)s.affinePruned);
+                  (unsigned long long)s.affinePruned, (unsigned long long)s.innerPrefiltered);
+    if (s.topDownChecked)
+      std::printf("top-down: %llu pairs checked, %llu hits\n", (unsigned long long)s.topDownChecked,
+                  (unsigned long long)s.topDownHits);
+    if (s.diskEntries)
+      std::printf("disk bank: %llu entries on disk, %.1f MB written (%.1f MB raw, %.0f%%), %llu tiles read\n",
+                  (unsigned long long)s.diskEntries, s.diskBytes / 1048576.0, s.diskRawBytes / 1048576.0,
+                  s.diskRawBytes ? 100.0 * s.diskBytes / s.diskRawBytes : 0.0, (unsigned long long)s.diskTilesRead);
+    if (s.quantMerged)
+      std::printf("quantized OE: %llu values merged that were not bitwise equal\n",
+                  (unsigned long long)s.quantMerged);
+    if (s.overflowChecked)
+      std::printf("overflow: %llu values checked after the bank was full, %llu kept\n",
+                  (unsigned long long)s.overflowChecked, (unsigned long long)s.overflowKept);
     if (s.objPruned)
       std::printf("objective: %llu entries pruned (cost >= target)\n", (unsigned long long)s.objPruned);
+    if (s.phase2) std::printf("two phases: phase 2 ran (alternatives near the best)\n");
+    if (opt.library)
+      std::printf("library: %u rewritten forms, cheapest verified on stage 2: %s\n", r.libraryForms,
+                  r.libraryBest ? std::to_string(r.libraryBest).c_str() : "none");
     std::printf("time: search %.3fs, verify %.3fs, total %.3fs\n", r.searchSec, r.verifySec,
                 r.totalSec);
     std::printf("level  generated      added\n");

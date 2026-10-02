@@ -1,5 +1,8 @@
 #pragma once
+#include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <vector>
 
@@ -20,17 +23,25 @@ struct BlockEvaluator {
 };
 
 // Identical8: identical after quantization to the budget's code values (8 or 10 bits).
-enum class Klass { BitExact, Identical8, Within };
+// Accurate: passes only by the accuracy rule at some points (closer to the exact value
+// than the budget allows around the float32 original, but at least as accurate).
+// LessAccurate: passes only the loose budget (Budget::loose).
+enum class Klass { BitExact, Identical8, Within, Accurate, LessAccurate };
 const char* klassName(Klass k, int codeBits = 8);
 
 struct Metrics {
   bool pass = true;
+  bool loosePass = true;  // passes the loose budget (== pass when Budget::loose is off)
+  std::vector<float> looseFailPoint;
   bool bitExact = true;
   int maxCodeDiff = 0;
   double maxAbs = 0.0;
   double maxRel = 0.0;
   uint64_t checked = 0;       // points where the target is finite
   uint64_t codeChanged = 0;   // points whose 8-bit code differs
+  uint64_t viaExact = 0;      // points accepted only by the accuracy rule
+  double exactAbs = 0.0;      // max |value - exact value| (when the rule applies)
+  double exactRel = 0.0;      // ... relative to |exact value| (relBase)
   std::vector<float> failPoint;  // first failing point, if any
   uint64_t valueHash = 0;        // order-independent hash of candidate values
 
@@ -43,8 +54,13 @@ struct Metrics {
 // Compares candidate against the program target under one profile.
 // Points where the target is not finite are don't-care.
 // targetVals: optional precomputed target values for this profile (see evalAll).
+// exactVals: optional precomputed exact target values (evalExactAll), used when the
+// accuracy rule applies (accuracyRule); computed per block otherwise. scaleVals: the
+// target's error scales (evalExactAll with scales) for Rel budgets, same.
 Metrics compare(const Program& prog, const Expr& cand, const PointSet& ps, const Profile& profile,
-                unsigned threads = 0, const std::vector<float>* targetVals = nullptr);
+                unsigned threads = 0, const std::vector<float>* targetVals = nullptr,
+                const std::vector<double>* exactVals = nullptr,
+                const std::vector<double>* scaleVals = nullptr);
 
 // All values of e over ps, component-major: [c * ps.size() + point].
 std::vector<float> evalAll(const Expr& e, const PointSet& ps, const Profile& profile);
@@ -55,7 +71,41 @@ inline int codeN(float v, int bits) {
   return static_cast<int>(c * ((1 << bits) - 1) + 0.5);
 }
 inline int code8(float v) { return codeN(v, 8); }
-bool pointWithinBudget(const Budget& b, float target, float cand);
+// Denominator of relative errors (owner, 2026-09-26): |t| itself, also below 1 (a max(1, |t|)
+// floor hid e.g. cancellation at small linear depths), but at least the original's error
+// scale s (ExactEvaluator): where the original is itself a cancellation of larger terms
+// (x + y - 2xy near 0) the budget is relative to those terms.
+inline double relBase(double t, double s = 0.0) { return std::max({std::fabs(t), s, 1e-30}); }
+
+// s: the target's error scale at this point (Rel budgets; 0 = relative to |t| only).
+inline bool pointWithinBudget(const Budget& b, float t, float c, double s = 0.0) {
+  if (!std::isfinite(c)) return false;
+  switch (b.kind) {
+    case Budget::Kind::Exact: return c == t;
+    case Budget::Kind::Color8:
+    case Budget::Kind::Color10:
+      return std::abs(codeN(c, b.codeBits()) - codeN(t, b.codeBits())) <= b.maxCodeDiff;
+    case Budget::Kind::Texcoord: return std::fabs(static_cast<double>(c) - t) <= b.eps;
+    case Budget::Kind::Abs: return std::fabs(static_cast<double>(c) - t) <= b.eps;
+    case Budget::Kind::Rel:
+      return std::fabs(static_cast<double>(c) - t) <= b.eps * relBase(t, s);
+  }
+  return false;
+}
+inline bool accuracyRule(const Budget& b) { return b.vsExact && b.kind != Budget::Kind::Exact; }
+// The accuracy rule at one point: cand is at least as close to the exact value as the
+// original target is (times `scale`), or within the budget of the exact value.
+bool pointAccurate(const Budget& b, float target, double exact, float cand, double scale = 1.0, double s = 0.0);
+// Budget::loose applied: eps times loose, color budgets one more code.
+Budget looseBudget(const Budget& b);
+inline bool pointLoose(const Budget& b, float target, const double* exact, float cand, double s = 0.0) {
+  if (!(b.loose > 1.0) || b.kind == Budget::Kind::Exact) return false;
+  const Budget lb = looseBudget(b);
+  return pointWithinBudget(lb, target, cand, s) || (exact && pointAccurate(lb, target, *exact, cand, b.loose, s));
+}
+inline bool pointAcceptable(const Budget& b, float target, const double* exact, float cand, double s = 0.0) {
+  return pointWithinBudget(b, target, cand, s) || (exact && pointAccurate(b, target, *exact, cand, 1.0, s));
+}
 
 Klass classify(const Program& prog, const Expr& cand, const Metrics& worst);
 

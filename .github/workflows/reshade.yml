@@ -1,0 +1,56 @@
+name: reshade
+# ReShade 6.8.0 (64-bit, full add-on support) built twice from the same source: unchanged and with
+# tools/reshade/internal-shaders.patch (copy_ps with Load, one bilinear fetch per texel in the OpenGL
+# mipmap shader), so the two DLLs differ only in the patch.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/reshade/**'
+      - '.github/workflows/reshade.yml'
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Clone ReShade
+        shell: bash
+        run: |
+          git clone --depth 1 --branch v6.8.0 --recurse-submodules --shallow-submodules https://github.com/crosire/reshade reshade
+          # The committed SPIR-V is up to date: keep MSBuild from rerunning glslangValidator (Vulkan SDK).
+          touch reshade/res/shaders/*.spv
+      - name: Build unchanged
+        working-directory: reshade
+        run: msbuild ReShade.sln /t:ReShade /p:Configuration=Release /p:Platform=64-bit /m /v:minimal
+      - name: Build patched
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp reshade/bin/x64/Release/ReShade64.dll dist/ReShade64-6.8.0-unchanged.dll
+          cp reshade/res/shaders/copy_ps.cso copy_ps-unchanged.cso
+          cd reshade
+          git apply ../tools/reshade/internal-shaders.patch
+          MSYS_NO_PATHCONV=1 msbuild.exe ReShade.sln /t:ReShade /p:Configuration=Release /p:Platform=64-bit /m /v:minimal
+          cp bin/x64/Release/ReShade64.dll ../dist/ReShade64-6.8.0-sopt.dll
+          git diff --stat
+      - name: Check the patched DLL
+        shell: bash
+        run: |
+          # The patched DLL embeds the new mipmap shader and its fallback warning; the unchanged one does not.
+          grep -aq "shared corner of the 2x2 source texels" dist/ReShade64-6.8.0-sopt.dll
+          grep -aq "Failed to compile bilinear mipmap generation shader" dist/ReShade64-6.8.0-sopt.dll
+          ! grep -aq "shared corner of the 2x2 source texels" dist/ReShade64-6.8.0-unchanged.dll
+          # copy_ps was recompiled (Load, no sampler), so the bytecode differs.
+          ! cmp -s copy_ps-unchanged.cso reshade/res/shaders/copy_ps.cso
+          ! cmp -s dist/ReShade64-6.8.0-unchanged.dll dist/ReShade64-6.8.0-sopt.dll
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reshade-6.8.0-sopt
+          path: |
+            dist/*.dll
+            tools/reshade/internal-shaders.patch
+            tools/reshade/TESTING.md
+            tools/reshade/sopt_MipTest.fx
+            tools/reshade/UPSTREAM.md

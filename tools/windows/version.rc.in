@@ -1,0 +1,31 @@
+// Version resource for sopt's Windows tools (configured per target by CMakeLists.txt).
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION  @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        @SOPT_RC_FILETYPE@
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName",      "CeeJay.dk"
+      VALUE "FileDescription",  "@SOPT_RC_DESCRIPTION@"
+      VALUE "FileVersion",      "@PROJECT_VERSION@"
+      VALUE "InternalName",     "@SOPT_RC_NAME@"
+      VALUE "LegalCopyright",   "GPL-3.0 (https://github.com/CeeJayDK/sopt)"
+      VALUE "OriginalFilename", "@SOPT_RC_FILENAME@"
+      VALUE "ProductName",      "sopt"
+      VALUE "ProductVersion",   "@PROJECT_VERSION@"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

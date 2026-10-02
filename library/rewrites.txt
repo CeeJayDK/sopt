@@ -1,0 +1,181 @@
+# sopt rewrite library: verified rewrites for the program, people and AI.
+#
+# One rule per line:   pattern -> replacement   where condition, condition, ...   # comment
+#
+# Names in the pattern are variables that stand for any subexpression (the same name twice
+# means the same subexpression); numbers must match exactly; functions and operators are
+# ReShade FX / HLSL. Conditions (optional):
+#   x const          x is a constant (or a preprocessor constant)
+#   x in [lo, hi]    x's values lie in [lo, hi]; ( ) for open ends
+#   x >= c           also x > c, x <= c, x < c, x != c
+#   x : float3       x's type for the rule check (default float)
+# Every rule is checked by `sopt --check-library` and the tests: over the variables'
+# domains (default [-100, 100], narrowed by the conditions) the replacement must stay
+# within rel 1e-6 of the pattern or be at least as close to exact math, under every GPU
+# semantic profile. sopt --library applies the rules before the search; every rewritten
+# form is verified again against the region's own budget.
+
+# lerp(a, b, t) = a + t * (b - a)
+lerp(a, b, t) -> mad(t, b - a, a)
+lerp(a, b, t) -> mad(t, b, mad(-t, a, a))   where t in [0, 1]   # no b - a
+1.0 - lerp(1.0, b, t) -> mad(-t, b, t)   where t in [0, 1]   # = t * (1 - b)
+lerp(a, b, step(e, x)) -> x >= e ? b : a
+
+# step(e, x) = x >= e ? 1 : 0
+step(e, x) -> x >= e ? 1.0 : 0.0
+a * step(e, x) -> x >= e ? a : 0.0
+1.0 - step(e, x) -> x < e ? 1.0 : 0.0
+
+# pow(x, y) = exp2(y * log2(x)): three instructions, two of them transcendental
+pow(x, 1.0) -> x
+pow(x, 2.0) -> x * x
+pow(abs(x), 2.0) -> x * x
+pow(x, 3.0) -> x * x * x
+pow(abs(x), 3.0) -> abs(x) * (x * x)
+pow(x, 4.0) -> (x * x) * (x * x)
+pow(abs(x), 4.0) -> (x * x) * (x * x)
+pow(x, 0.5) -> sqrt(x)
+pow(x, 1.5) -> x * sqrt(x)
+pow(x, -0.5) -> rsqrt(x)
+pow(x, -1.0) -> rcp(x)
+
+# exp, log and pow are exp2 / log2 with a multiply (DXC: exp(x) = exp2(x * log2 e), log(x) =
+# log2(x) * ln 2, pow(x, y) = exp2(y * log2 x); GPUs only have the base-2 instructions), so a
+# constant factor folds into that multiply. The ranges keep the exponent small enough for
+# rel 1e-6 against the CPU's accurate exp / pow.
+exp(x * c) -> exp2(x * (c * 1.4426950408889634))   where c const, x in [-8, 8], c in [-1, 1]
+exp(x * c) -> exp2(x * (c * 1.4426950408889634))   where c const, x in [-100, 100], c in [-0.08, 0.08]
+exp(x / c) -> exp2(x * (1.4426950408889634 / c))   where c const, x in [-8, 8], c in [1, 100]
+log(x) * c -> log2(x) * (c * 0.6931471805599453)   where c const, x > 0
+log(x) / c -> log2(x) * (0.6931471805599453 / c)   where c const, x > 0, c != 0
+exp(c * log(x)) -> exp2(c * log2(x))   where c const, x > 0, c in [-8, 8]   # pow(x, c)
+pow(2.0, x) -> exp2(x)
+pow(c, x) -> exp2(x * log2(c))   where c const, c in [0.5, 2], x in [-8, 8]
+exp2(x) * exp2(y) -> exp2(x + y)   where x in [-8, 8], y in [-8, 8]
+exp(x) * exp(y) -> exp(x + y)      where x in [-8, 8], y in [-8, 8]
+log2(x) + log2(y) -> log2(x * y)   where x in [1e-18, 1e18], y in [1e-18, 1e18]
+log(x) + log(y) -> log(x * y)      where x in [1e-18, 1e18], y in [1e-18, 1e18]
+
+# smoothstep(a, b, x) = s * (s * (3 - 2s)) with s = saturate((x - a) / (b - a)) (DXC)
+smoothstep(a, b, x) -> saturate((x - a) / (b - a)) * (saturate((x - a) / (b - a)) * mad(saturate((x - a) / (b - a)), -2.0, 3.0))
+smoothstep(0.0, 1.0, x) -> saturate(x) * (saturate(x) * mad(saturate(x), -2.0, 3.0))
+smoothstep(0.0, 1.0, x) -> x * (x * mad(x, -2.0, 3.0))   where x in [0, 1]
+
+# clamping
+saturate(saturate(x)) -> saturate(x)
+min(max(x, 0.0), 1.0) -> saturate(x)
+max(min(x, 1.0), 0.0) -> saturate(x)
+clamp(x, 0.0, 1.0) -> saturate(x)
+saturate(x) -> x   where x in [0, 1]
+max(x, 0.0) -> x   where x >= 0
+min(x, 1.0) -> x   where x <= 1
+abs(x) -> x        where x >= 0
+
+# roots and reciprocals
+abs(x) * abs(x) -> x * x
+sqrt(x * x) -> abs(x)
+1.0 / sqrt(x) -> rsqrt(x)
+1.0 / x -> rcp(x)
+x / c -> x * (1.0 / c)   where c const, c != 0
+
+# constants merged (spirv-opt's folding rules; add / sub chains of constants are left out:
+# they cancel, e.g. (x + a) + b -> x + (a + b) fails near x + a + b = 0)
+(x * a) * b -> x * (a * b)   where a const, b const
+(x / a) * b -> x * (b / a)   where a const, b const, a != 0
+(a / x) * b -> (a * b) / x   where a const, b const
+(x * a) / b -> x * (a / b)   where a const, b const, b != 0
+a / (x / b) -> (a * b) / x   where a const, b const
+a / (x * b) -> (a / b) / x   where a const, b const, b != 0
+(x / a) / b -> x * (1.0 / (a * b))   where a const, b const, a != 0, b != 0
+-(x * a) -> x * -a   where a const
+(x >= e ? a : b) * k -> x >= e ? a * k : b * k   where a const, b const, k const
+(x >= e ? a : b) + k -> x >= e ? a + k : b + k   where a const, b const, k const
+lerp(a, b, 0.0) -> a
+lerp(a, b, 1.0) -> b
+dot(v, float3(1.0, 0.0, 0.0)) -> v.x   where v : float3
+
+# factoring
+a * b + a * c -> a * (b + c)
+a * b - a * c -> a * (b - c)
+
+# vectors
+length(v) * length(v) -> dot(v, v)   where v : float3
+normalize(v) * length(v) -> v        where v : float3
+
+# from Mesa's NIR algebraic rules (src/compiler/nir/nir_opt_algebraic.py), the ones that hold under
+# sopt's check and are cheaper in rdna3; RADV and other Mesa drivers already apply most of them
+sign(a) * (a * a) -> abs(a) * a
+saturate(a) + saturate(-a) -> saturate(abs(a))
+a + frac(-a) -> ceil(a)
+a - frac(a) -> floor(a)
+a - floor(a) -> frac(a)
+a + (b - frac(a)) -> b + floor(a)
+frac(frac(a)) -> frac(a)   where a >= 0   # frac(-1e-20) rounds to 1.0, whose frac is 0
+max(max(a, b), b) -> max(a, b)
+min(min(a, b), b) -> min(a, b)
+min(max(a, b), a) -> a
+max(min(a, b), a) -> a
+-max(-a, -b) -> min(a, b)
+-min(-a, -b) -> max(a, b)
+min(a, -a) -> -abs(a)
+min(a, -abs(a)) -> -abs(a)
+max(a, abs(a)) -> abs(a)
+max(a, -a) -> abs(a)
+max(abs(a), 0.0) -> abs(a)
+min(max(a, -1.0), 0.0) -> -saturate(-a)
+max(min(a, 0.0), -1.0) -> -saturate(-a)
+min(max(min(max(a, b), c), b), c) -> min(max(a, b), c)
+max(saturate(a), saturate(b)) -> saturate(max(a, b))
+saturate(a) -> 1.0   where a >= 1
+saturate(a) -> 0.0   where a <= 0
+max(a, 0.0) -> saturate(a)   where a <= 1
+min(a, 1.0) -> saturate(a)   where a >= 0
+saturate(max(a, b)) -> saturate(a)   where b <= 0
+saturate(min(a, b)) -> saturate(a)   where b >= 1
+min(c + a, c + b) -> c + min(a, b)   where c const
+max(c + a, c + b) -> c + max(a, b)   where c const
+(a == b ? b : a) -> a   where b != 0
+(a < 0.0 ? 0.0 : sqrt(a)) -> sqrt(max(a, 0.0))
+(a >= 0.0 ? sqrt(a) : 0.0) -> sqrt(max(a, 0.0))
+sqrt(a) * sqrt(a) -> abs(a)
+rcp(sqrt(a)) -> rsqrt(a)
+rcp(rsqrt(a)) -> sqrt(a)
+exp2(log2(a) * 0.5) -> sqrt(a)
+exp2(log2(a) * 2.0) -> a * a
+exp2(log2(a) * 3.0) -> (a * a) * a
+exp2(log2(a) * 4.0) -> (a * a) * (a * a)
+exp2(log2(a) * 5.0) -> ((a * a) * (a * a)) * a
+exp2(log2(a) * 6.0) -> ((a * a) * (a * a)) * (a * a)
+exp2(log2(a) * 8.0) -> ((a * a) * (a * a)) * ((a * a) * (a * a))
+sqrt(exp2(a)) -> exp2(0.5 * a)
+rcp(exp2(a)) -> exp2(-a)
+rsqrt(exp2(a)) -> exp2(-0.5 * a)
+log2(sqrt(a)) -> 0.5 * log2(a)
+log2(rcp(a)) -> -log2(a)
+log2(rsqrt(a)) -> -0.5 * log2(a)
+lerp(0.0, a, b) -> a * b
+lerp(a, 0.0, c) -> mad(-a, c, a)
+lerp(a, a + b, c) -> mad(b, c, a)
+lerp(a * b, a * c, d) -> lerp(b, c, d) * a
+a * (1.0 - c) + b * c -> lerp(a, b, c)
+mad(-a, -b, c) -> mad(a, b, c)
+mad(a, b, c * d) + e -> mad(a, b, mad(c, d, e))
+mad(a, b, mad(c, d, e * f)) + g -> mad(a, b, mad(c, d, mad(e, f, g)))
+
+# fast forms of ops that are expensive on some GPUs (owner, 2026-10-02; docs/opbench/)
+# sign: fxc writes lt, lt, iadd, itof; the int -> float conversion is quarter rate on NVIDIA Ampere /
+# Blackwell (sign 18-28 against 4 for a mad). These have no conversion; exact with FTZ (D3D10+ flushes
+# fp32 denormals): any normal x times 1e38 is at least 1 in magnitude.
+sign(x) -> mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0)   # mad_sat + mad (found by sopt from the rule below)
+sign(x) -> saturate(x * 1e38) - saturate(x * -1e38)   # mul_sat (one DXBC instruction) + add
+sign(x) -> clamp(x * 1e38, -1.0, 1.0)                 # mul + med3 on AMD, mul + min + max elsewhere
+sign(x) -> x > 0.0 ? 1.0 : (x < 0.0 ? -1.0 : 0.0)    # lt, lt, and, movc
+# a two-way select is not sign (1 at x = 0), but is where the product is 0 at x = 0
+sign(x) * pow(abs(x), c) -> (x >= 0.0 ? 1.0 : -1.0) * pow(abs(x), c)   where c const, c in [0.01, 16]
+# round to nearest even with two adds (|x| < 2^22: x + 1.5 * 2^23 lands where the float spacing is 1);
+# fxc -O3 folds (x + c) - c back to x, so sopt-fx writes the adds as precise
+round(x) -> (x + 12582912.0) - 12582912.0   where x in [-4194304, 4194304]
+# floor / ceil / frac from that round: r - x is in [-0.5, 0.5]; saturate(d * 1e38) is 1 for any normal d > 0
+floor(x) -> ((x + 12582912.0) - 12582912.0) - saturate((((x + 12582912.0) - 12582912.0) - x) * 1e38)   where x in [-4194304, 4194304]
+ceil(x) -> ((x + 12582912.0) - 12582912.0) + saturate((x - ((x + 12582912.0) - 12582912.0)) * 1e38)   where x in [-4194304, 4194304]
+frac(x) -> (x - ((x + 12582912.0) - 12582912.0)) + saturate((x - ((x + 12582912.0) - 12582912.0)) * -1e38)   where x in [-4194304, 4194304]

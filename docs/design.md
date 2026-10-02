@@ -18,7 +18,7 @@
 ## 2. Grundprincipper
 
 1. **Forslag, ikke automatisk omskrivning.** Brugeren tester og vælger.
-2. **Liste frem for én vinder.** Alle verificerede kandidater, der er billigere end originalen, rapporteres.
+2. **Liste frem for én vinder, men kun kandidater med en fordel.** Søgningen sammenligner løbende med den bedste kandidat, der er fundet indtil videre, ikke med originalen (ejeren, 2026-09-28). En variant rapporteres kun, hvis ingen anden variant er mindst lige så hurtig på alle målinger og mindst lige så nøjagtig. Sammenligningen med originalen laves først til sidst, når alternativerne præsenteres, så brugeren kan se, hvor meget der er vundet.
 3. **Fejl måles i den enhed, der betyder noget.** Farveoutput måles i 8-bit kodeværdier. Texcoords, sammenligninger og temporal feedback behandles strengt.
 4. **CPU-evaluering i float32 er referencen.** Den er bit-eksakt for `+ − * / sqrt`, da alle PC-GPU'er bruger IEEE 754. Transcendentale funktioner sammenlignes med tolerance.
 5. **Tre spørgsmål holdes adskilt:** korrekthed, statisk cost og målt performance.
@@ -116,11 +116,13 @@ Klassen "bit-eksakt" forudsætter, at compileren ikke contracter til FMA. Om det
 - par med næsten ens værdier (near-cancellation)
 - gitterpunkter
 
-**Målcheck:** Hver ny kandidat af den rigtige type sammenlignes med originalens fingerprint og klassificeres som bit-eksakt eller inden for ε. Hits med lavere cost end originalen gemmes.
+**Målcheck:** Hver ny kandidat af den rigtige type sammenlignes med originalens fingerprint (originalens *værdier* er stadig facit) og klassificeres som bit-eksakt eller inden for ε.
+
+**Grænse efter den bedste hidtil (ejeren, 2026-09-28):** Originalens cost er kun startgrænsen. Når et hit er fundet, gemmes og kombineres kun hits og delresultater, der koster højst det bedste hit hidtil plus en slack (standard 1, så varianter, der kan være hurtigst hos én vendor, overlever). Et billigere hit bliver den nye grænse. Bliver søgningen presset, går slack ned: 0, når banken er fuld, og −1 (kun strengt billigere), når den også har brugt over halvdelen af tiden. At gemme alternativer må ikke forhindre, at søgningen når dybere. Statistik på slack kommer senere.
 
 **CEGIS:** Hits testes på et større sæt (ca. 4096 punkter). Fejlende punkter føjes til fingerprint-sættet ved næste genstart.
 
-**Stop:** når originalens cost er nået, eller når tids- eller hukommelsesbudgettet er brugt.
+**Stop:** når grænsen (den bedste hidtil) er nået, eller når tids- eller hukommelsesbudgettet er brugt.
 
 **Kendt begrænsning i v1:** Bank-cost er tree-cost. Løsninger, der kræver en delt mellemværdi, kan derfor blive overset eller få for høj cost. Løses i M7 med *shared leaves*: vælg en billig bank-værdi `s`, brug den som ekstra leaf, og søg med budget − cost(s).
 
@@ -138,6 +140,8 @@ Klassen "bit-eksakt" forudsætter, at compileren ikke contracter til FMA. Om det
 - andel punkter med ændret kodeværdi
 
 Transcendentale funktioner er ikke ens på CPU (libm) og GPU. De vurderes derfor kun med tolerance og klassificeres aldrig som bit-eksakte.
+
+**Nøjagtighedsregel (ejerens beslutning):** Float32-originalen har selv afrundingsfejl, som kan være større end budgettet. En kandidat godkendes derfor også i et punkt, hvis den er mindst lige så tæt på den eksakte (matematiske) værdi som originalen, eller inden for budgettet af den. Eksakte værdier beregnes i double og bruges kun til målingen; float32-evalueringen er stadig referencen. Sådanne kandidater klassificeres "as accurate". Kandidater, der er mindre nøjagtige (inden for 100× budgettet eller originalens fejl, `--loose`), vises med deres fejl som "less accurate", så brugeren selv vurderer dem.
 
 ### 4.5 Cost (tre adskilte lag)
 
@@ -231,7 +235,7 @@ budget r : color8
 ### M3: FX front end og første rigtige kørsel
 **Leverer:**
 - reshadefx-codegen, der bygger IR.
-- Region extraction: vinduer på ≤ k ops mellem texture-fetches og control flow.
+- Region extraction: vinduer på ≤ k ops mellem texture-fetches og control flow. Vinduer er et statement med de single-use temporaries, det læser, og med kæder af statements på samme variabel (`d = 1.0 - d; d /= ...`). Vinduer hen over `#if`-linjer gælder kun under samme betingelse (`#if SOPT_x >= 1 && (COND)`).
 - Facts:
   - BackBuffer-range afhængigt af farverum
   - `ui_min`/`ui_max`
@@ -255,6 +259,8 @@ budget r : color8
 ### M5: Vendor-facts
 **Leverer:** Probe-effect, facts-database og markering af fact-afhængige kandidater i rapporten.
 
+En variant er interessant, hvis den er hurtigere for mindst én vendor; den kan være langsommere for en anden. Sådanne varianter kan vælges pr. vendor/device med `__VENDOR__` (0x1002 AMD, 0x10DE NVIDIA, 0x8086 Intel) og `__DEVICE__`. Første skridt er lavet: med målte costs får variant-filer `SOPT_AUTO` (standard 0); sat til 1 vælger hver switch den variant, der er målt hurtigst på GPU'ens vendor (AMD, NVIDIA; andre beholder originalen).
+
 **Færdig når:**
 - Matricen er udfyldt for 3 vendors × (DX11, Vulkan, OpenGL).
 - Mindst én fact-afhængig rewrite klassificeres korrekt.
@@ -263,6 +269,10 @@ budget r : color8
 **Leverer:** Micro-benchmarks pr. op, backend og vendor, som giver vægte i JSON.
 
 **Færdig når:** Den statiske cost forudsiger rækkefølgen af de målte varianter bedre end et uvægtet op-count.
+
+Idéer til data (ejeren):
+- Intel Shader Analyzer (udgået, repo på GitHub) kan måske give Intel-tal.
+- Et måleværktøj til rigtig hardware, som andre kan køre, evt. et ReShade-addon: installeret (opt-in) måler det shaders og rapporterer tallene tilbage, så cost pr. vendor og device kan udledes af målinger.
 
 ### M7: Skalering af søgningen
 Kun de teknikker, som benchmarks viser behov for. Kandidater:
@@ -273,6 +283,7 @@ Kun de teknikker, som benchmarks viser behov for. Kandidater:
 - søgning med et begrænset op-sæt først
 - V3-verifikation
 - større vinduer
+- snitpunkter (dominatorer i dataflowet): værdier, som al senere beregning afhænger af, deler en stor funktion i stykker, der søges hver for sig. Afprøves og evalueres (ejerens idé).
 
 ### M8: Regel-mining og vertex-shader hoisting
 - **Regel-mining:** Kør enumeratoren over hele korpusset og generalisér fundene til regler med preconditions. Fjern regler, som backends allerede anvender. Reglerne kan derefter anvendes hurtigt online uden søgning.

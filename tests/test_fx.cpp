@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -30,8 +31,8 @@ Loaded load() {
     std::printf("  %s\n", err.c_str());
     return l;
   }
-  lo.width = 2560;
-  lo.height = 1440;
+  lo.width = fx::kAltWidth;
+  lo.height = fx::kAltHeight;
   auto alt = fx::loadEffect(kEffect, lo, err);
   l.skipped.keepDetails = true;
   l.regions = fx::extractRegions(*e, alt.get(), fx::RegionOptions(), l.skipped);
@@ -165,11 +166,11 @@ TEST(fx_search_and_variants) {
   ss << f.rdbuf();
   const std::string text = ss.str();
   CHECK(text.find("#ifndef SOPT_sopt_test_4\n#define SOPT_sopt_test_4 SOPT_ALL") != std::string::npos);
-  CHECK(text.find("\tfloat3 r = c; // sopt: bit-exact") != std::string::npos);
+  CHECK(text.find("#if SOPT_sopt_test_4 >= 1\n\tfloat3 r = c; // sopt: bit-exact") != std::string::npos);
   CHECK(text.find("#else\n\tfloat3 r = c * 0.5 + c * 0.5;\n#endif") != std::string::npos);
   // The effect, copied next to the changed header, parses with either switch value.
   fs::copy_file(kEffect, out / "sopt_test.fx", fs::copy_options::overwrite_existing, ec);
-  for (const char* all : {"0", "1"}) {
+  for (const char* all : {"0", "1", "3"}) {
     fx::LoadOptions lo;
     lo.macros.emplace_back("SOPT_ALL", all);
     std::string err;
@@ -200,4 +201,450 @@ TEST(fx_compiled_cost) {
   CHECK(cost("x*y+z") == cost("mad"));
   CHECK(cost("-x*y+z") == cost("mad"));
   CHECK(cost("clamp01") == cost("mul"));
+}
+
+TEST(fx_user_ranges) {
+  double lo = 0, hi = 0;
+  CHECK(fx::parseRange("[0, 0.5]", lo, hi) && lo == 0.0 && hi == 0.5);
+  CHECK(fx::parseRange("2 -1", lo, hi) && lo == -1.0 && hi == 2.0);
+  CHECK(!fx::parseRange("[0, x]", lo, hi));
+
+  const fs::path file = fs::temp_directory_path() / "sopt_test_facts.txt";
+  {
+    std::ofstream f(file);
+    f << "# comment\nsopt_test.fx global Plain = [0.25, 0.75]  # user\n\n";
+  }
+  fx::UserRanges user;
+  std::string err;
+  CHECK(fx::readUserRanges(file, user, err));
+  CHECK(user.count("sopt_test.fx global Plain") == 1);
+  fs::remove(file);
+
+  // gate = luma * Strength + Plain: Plain had no fact, now the user's range.
+  fx::LoadOptions lo2;
+  auto e = fx::loadEffect(kEffect, lo2, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  ro.userRanges = &user;
+  fx::SkipCount sk;
+  bool found = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, ro, sk))
+    if (r.line == 26 && fs::path(r.file).filename() == "sopt_test.fx")
+      for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+        if (r.prog.inputs[k].name == "Plain")
+          found = r.prog.inputs[k].lo == 0.25 && r.prog.inputs[k].hi == 0.75 && !r.facts[k].assumed &&
+                  r.facts[k].key == "sopt_test.fx global Plain";
+  CHECK(found);
+}
+
+TEST(fx_semantic_ranges) {
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_semantics.fx", lo, err);
+  CHECK(e != nullptr);
+  if (!e) {
+    std::printf("  %s\n", err.c_str());
+    return;
+  }
+  fx::SkipCount sk;
+  auto input = [&](uint32_t line, const std::string& name) -> std::pair<InputDecl, fx::Fact> {
+    for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
+      if (r.line == line)
+        for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+          if (r.prog.inputs[k].name == name) return {r.prog.inputs[k], r.facts[k]};
+    return {};
+  };
+  // Struct member with TEXCOORD0: the convention, [0, 1].
+  auto [a, fa] = input(23, "i.uv");
+  CHECK(a.lo == 0.0 && a.hi == 1.0 && !fa.assumed && fa.source == "TEXCOORD semantic (convention)");
+  // COLOR0: no fact, but [0, 1] is suggested.
+  auto [t, ft] = input(24, "i.tint.xyz");
+  CHECK(ft.assumed && ft.suggestLo == 0.0 && ft.suggestHi == 1.0);
+  CHECK(ft.suggestWhy.find("COLOR") != std::string::npos);
+  // The vertex shader adds a uniform without a range: its output is unknown, so the
+  // TEXCOORD convention applies; SV_Position is in pixels.
+  auto [b, fb] = input(36, "uv");
+  CHECK(b.lo == 0.0 && b.hi == 1.0 && fb.source == "TEXCOORD semantic (convention)");
+  auto [p, fp] = input(37, "vpos.x");
+  CHECK(p.lo == 0.0 && p.hi == 7680.0 && !fp.assumed);
+}
+
+TEST(fx_macro_inputs) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_macros.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto plain = fx::loadEffect(path, lo, err);
+  CHECK(plain != nullptr);
+  if (!plain) return;
+  // Both definitions are user-changeable (#ifndef) and numeric; FIXED is not.
+  const auto sym = fx::symbolicMacros(path, lo, *plain);
+  CHECK(sym.count("TEST_FAR") == 1 && sym.count("TEST_MODE") == 1 && sym.count("FIXED") == 0);
+  lo.symbolic = sym;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  sk.keepDetails = true;
+  bool found = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
+    if (r.line != 23) continue;
+    for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+      if (r.prog.inputs[k].name == "TEST_FAR")
+        found = r.prog.inputs[k].compileTime && r.facts[k].key == "macro global TEST_FAR" &&
+                r.facts[k].suggestHi == 2000.0;
+    // TEST_FAR - 1.0 is folded by the compiler: only the fma (mul + sub) and div cost.
+    const CostModel& m = defaultCostModel();
+    CHECK(dagCost(r.prog.target, m, r.prog.inputs) == uint32_t(m[Op::Mul] + m.fusedAdd + m[Op::Div]));
+  }
+  CHECK(found);
+  // #if still uses the value (the region exists), FIXED is still a plain macro.
+  bool fixedSkipped = false;
+  for (const auto& d : sk.details) fixedSkipped = fixedSkipped || d.find("sopt_macros.fx:25: uses a macro") != std::string::npos;
+  CHECK(fixedSkipped);
+}
+
+TEST(fx_buffer_inputs) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_buffer.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffectBufferSymbolic(path, lo, err);
+  CHECK(e != nullptr && e->bufferSymbolic);
+  if (!e) {
+    std::printf("  %s\n", err.c_str());
+    return;
+  }
+  // The texture size line needs constants: it keeps the numbers. The static consts become
+  // named expressions (each use parses the initializer again).
+  CHECK(lo.symbolicExclude.size() == 1 && lo.namedExpressions);
+  lo.width = fx::kAltWidth;
+  lo.height = fx::kAltHeight;
+  auto alt = fx::loadEffect(path, lo, err);
+  CHECK(alt != nullptr);
+  fx::SkipCount sk;
+  sk.keepDetails = true;
+  const auto regions = fx::extractRegions(*e, alt.get(), fx::RegionOptions(), sk);
+  auto region = [&](uint32_t line) -> const fx::Region* {
+    for (const auto& r : regions)
+      if (r.line == line && r.removed.empty()) return &r;
+    return nullptr;
+  };
+  auto skipped = [&](uint32_t line, const std::string& why) {
+    const std::string key = "sopt_buffer.fx:" + std::to_string(line) + ": " + why;
+    for (const auto& d : sk.details)
+      if (d.find(key) != std::string::npos) return true;
+    return false;
+  };
+  // SCREEN_SIZE and PIXEL_SIZE expand to the symbolic sizes, kPixel and kAspect are named
+  // expressions of them: compile-time inputs with a fact.
+  for (uint32_t line : {17u, 18u, 20u, 21u}) {
+    const fx::Region* r = region(line);
+    CHECK(r != nullptr);
+    if (!r) continue;
+    int sizes = 0;
+    for (size_t k = 0; k < r->prog.inputs.size(); ++k) {
+      const auto& d = r->prog.inputs[k];
+      if (d.name != "BUFFER_WIDTH" && d.name != "BUFFER_HEIGHT") continue;
+      ++sizes;
+      CHECK(d.compileTime && d.lo == 1.0 && d.hi == 7680.0 && !r->facts[k].assumed);
+      CHECK(d.value == (d.name == "BUFFER_WIDTH" ? 1920.0 : 1080.0));
+    }
+    CHECK(sizes == 2);
+  }
+  // BUFFER_WIDTH / 3 is an integer division: not float arithmetic, skipped.
+  CHECK(region(19) == nullptr && skipped(19, "non-float arithmetic"));
+  // Baked sizes: kAspect = H / W is 0.5625 at 1920x1080 and at 2560x1440; the 32:9 second
+  // parse sees that the region depends on the aspect ratio.
+  fx::LoadOptions plain;
+  auto p1 = fx::loadEffect(path, plain, err);
+  plain.width = fx::kAltWidth;
+  plain.height = fx::kAltHeight;
+  auto p2 = fx::loadEffect(path, plain, err);
+  CHECK(p1 != nullptr && p2 != nullptr);
+  if (!p1 || !p2) return;
+  fx::SkipCount sk2;
+  sk2.keepDetails = true;
+  bool aspectRegion = false;
+  for (const auto& r : fx::extractRegions(*p1, p2.get(), fx::RegionOptions(), sk2))
+    aspectRegion = aspectRegion || (r.line == 21 && r.removed.empty());
+  bool aspectSkipped = false;
+  for (const auto& d : sk2.details)
+    aspectSkipped = aspectSkipped || d.find("sopt_buffer.fx:21: depends on BUFFER_WIDTH/HEIGHT") != std::string::npos;
+  CHECK(!aspectRegion && aspectSkipped);
+}
+
+TEST(fx_chain_windows) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_chain.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  auto window = [&](uint32_t line, std::vector<uint32_t> removed) -> const fx::Region* {
+    for (const auto& r : regions) {
+      if (r.line != line || r.removed.size() != removed.size()) continue;
+      bool same = true;
+      for (size_t k = 0; k < removed.size(); ++k) same = same && r.removed[k].first == removed[k];
+      if (same) return &r;
+    }
+    return nullptr;
+  };
+  // d = d * 2.0 + 1.0 with d = 1.0 - d (inside #if TEST_REV) inlined.
+  const fx::Region* rev = window(27, {25});
+  CHECK(rev != nullptr);
+  if (rev) {
+    CHECK(rev->guard == "(TEST_REV)");
+    CHECK(toString(rev->prog.target, rev->prog.inputs) == "1.0 + (1.0 - d) * 2.0");
+  }
+  // ... and the definition from the fetch: the untaken #if TEST_LOG is in between.
+  const fx::Region* full = window(27, {20, 25});
+  CHECK(full != nullptr);
+  if (full) {
+    CHECK(full->guard == "!(TEST_LOG) && (TEST_REV)");
+    CHECK(full->lhs == "float d =");  // from the declaration: the variant declares d
+  }
+  if (rev) CHECK(rev->lhs == "d =");
+  // y reads the intermediate d: no chain into d = d * d.
+  CHECK(window(29, {27}) == nullptr);
+  // Plain chain without directives, up to 3 statements before the root.
+  const fx::Region* e3 = window(33, {30, 31, 32});
+  CHECK(e3 != nullptr);
+  if (e3) {
+    CHECK(e3->guard.empty());
+    CHECK(e3->lhs == "float e =");
+    CHECK(toString(e3->prog.target, e3->prog.inputs) == "(uv.y * 0.5 + 0.25) * (uv.y * 0.5 + 0.25)");
+  }
+  if (!rev || !e3) return;
+
+  // Variants apply only under the guard; the effect parses with either TEST_REV.
+  fx::RegionResult rr;
+  rr.region = *rev;
+  rr.targetCost = 10;
+  fx::Variant v;
+  v.text = "3.0 - 2.0 * d";
+  v.cost = 5;
+  rr.variants.push_back(v);
+  fx::RegionResult re;  // chain from a declaration
+  re.region = *e3;
+  re.targetCost = 10;
+  v.text = "uv.y * uv.y";
+  re.variants.push_back(v);
+  const fs::path out = fs::temp_directory_path() / "sopt_test_fx_chain";
+  std::error_code ec;
+  fs::remove_all(out, ec);
+  std::string errors;
+  const auto files = fx::writeVariants({rr, re}, out, errors);
+  CHECK(errors.empty() && files.size() == 1);
+  std::ifstream f(out / "sopt_chain.fx");
+  std::stringstream ss;
+  ss << f.rdbuf();
+  const std::string text = ss.str();
+  CHECK(text.find("#if SOPT_sopt_chain_25_27 < 1 || !((TEST_REV))\n\td = 1.0 - d;\n#endif") != std::string::npos);
+  CHECK(text.find("#if SOPT_sopt_chain_25_27 >= 1 && (TEST_REV)\n\td = 3.0 - 2.0 * d;") != std::string::npos);
+  CHECK(text.find("\tfloat e = uv.y * uv.y;") != std::string::npos);
+  for (const char* rev : {"0", "1"}) {
+    fx::LoadOptions o;
+    o.macros = {{"SOPT_ALL", "1"}, {"TEST_REV", rev}};
+    std::string err2;
+    CHECK(fx::loadEffect(out / "sopt_chain.fx", o, err2) != nullptr);
+  }
+  fs::remove_all(out, ec);
+}
+
+TEST(fx_vendor_auto) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_chain.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const fx::Region* reg = nullptr;
+  auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  for (const auto& r : regions)
+    if (r.line == 27 && r.removed.empty()) reg = &r;
+  CHECK(reg != nullptr);
+  if (!reg) return;
+  // Variant 1 is fastest on NVIDIA, variant 2 on AMD, variant 3 is less accurate.
+  fx::RegionResult rr;
+  rr.region = *reg;
+  rr.targetCost = 10;
+  rr.targetAmd = 3;
+  rr.targetNv = 4;
+  const char* texts[] = {"mad(d, 2.0, 1.0)", "d + d + 1.0", "d * 2.0"};
+  const int amd[] = {3, 2, 1}, nv[] = {2, 4, 1};
+  for (int k = 0; k < 3; ++k) {
+    fx::Variant v;
+    v.text = texts[k];
+    v.cost = 5;
+    v.amd = amd[k];
+    v.nv = nv[k];
+    v.klass = k == 2 ? Klass::LessAccurate : Klass::Within;
+    rr.variants.push_back(v);
+  }
+  CHECK(fx::vendorPick(rr, true) == 2 && fx::vendorPick(rr, false) == 1);
+  {
+    // A variant with problem inputs is never picked.
+    fx::RegionResult marked = rr;
+    marked.variants[1].problems = "fails at d = 0.5 (NaN/inf at some)";
+    CHECK(fx::vendorPick(marked, true) == 0 && fx::vendorPick(marked, false) == 1);
+  }
+  const fs::path out = fs::temp_directory_path() / "sopt_test_fx_vendor";
+  std::error_code ec;
+  fs::remove_all(out, ec);
+  std::string errors;
+  CHECK(fx::writeVariants({rr}, out, errors).size() == 1);
+  std::ifstream f(out / "sopt_chain.fx");
+  std::stringstream ss;
+  ss << f.rdbuf();
+  const std::string text = ss.str();
+  CHECK(text.find("#if SOPT_AUTO && __VENDOR__ == 0x1002\n#define SOPT_sopt_chain_27 2\n"
+                  "#elif SOPT_AUTO && __VENDOR__ == 0x10DE\n#define SOPT_sopt_chain_27 1\n#else\n"
+                  "#define SOPT_sopt_chain_27 SOPT_ALL") != std::string::npos);
+  for (const char* vendor : {"0x1002", "0x10DE", "0x8086"})
+    for (const char* autoOn : {"0", "1"}) {
+      fx::LoadOptions o;
+      o.macros = {{"__VENDOR__", vendor}, {"SOPT_AUTO", autoOn}};
+      std::string err2;
+      CHECK(fx::loadEffect(out / "sopt_chain.fx", o, err2) != nullptr);
+    }
+  fs::remove_all(out, ec);
+
+  // Per API: fxc already compiles variant 2 to the original's code, so on DX9-DX12 AMD
+  // gets the original, on Vulkan/OpenGL variant 2.
+  rr.targetDxbc = 5;
+  rr.variants[1].dxbc = 5;
+  rr.variants[1].dxbcSame = true;
+  CHECK(fx::vendorPick(rr, true, true) == 0 && fx::vendorPick(rr, true, false) == 2);
+  CHECK(fx::writeVariants({rr}, out, errors).size() == 1);
+  std::ifstream f2(out / "sopt_chain.fx");
+  std::stringstream ss2;
+  ss2 << f2.rdbuf();
+  CHECK(ss2.str().find("#if SOPT_AUTO && __VENDOR__ == 0x1002 && __RENDERER__ < 0x10000\n#define SOPT_sopt_chain_27 0\n"
+                       "#elif SOPT_AUTO && __VENDOR__ == 0x1002\n#define SOPT_sopt_chain_27 2\n") != std::string::npos);
+  for (const char* renderer : {"0xb000", "0x20000"}) {
+    fx::LoadOptions o;
+    o.macros = {{"__VENDOR__", "0x1002"}, {"__RENDERER__", renderer}, {"SOPT_AUTO", "1"}};
+    std::string err2;
+    CHECK(fx::loadEffect(out / "sopt_chain.fx", o, err2) != nullptr);
+  }
+  fs::remove_all(out, ec);
+}
+
+TEST(fx_constant_array_range) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_array.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  bool found = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
+    if (r.line != 12) continue;
+    for (const auto& d : r.prog.inputs)
+      if (d.name == "uv.x") {
+        found = true;
+        CHECK(d.lo <= 0.0 && d.hi >= 1.0);  // all four corners, not only corners[0]
+      }
+  }
+  CHECK(found);
+}
+
+TEST(fx_modern_fetch_syntax) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_fetch.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) {
+    std::printf("  %s\n", err.c_str());
+    return;
+  }
+  fx::SkipCount sk;
+  std::vector<std::string> names;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
+    for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+      if (r.facts[k].fetch) names.push_back(r.prog.inputs[k].name);
+  auto has = [&](const std::string& n) { return std::find(names.begin(), names.end(), n) != names.end(); };
+  CHECK(has("tex2D(BackBuffer, uv, int2(1, 0)).x"));
+  CHECK(has("tex2Dlod(BackBuffer, float4(uv, 0, 0), int2(0, 1)).x"));
+  CHECK(has("tex2DgatherG(BackBuffer, uv).xy"));
+  for (const auto& n : names) CHECK(n.find("offset") == std::string::npos && n.find("gather(") == std::string::npos);
+}
+
+TEST(fx_windows_include_names) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_backslash.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(path, lo, err);
+  CHECK(e != nullptr);
+  if (!e) std::printf("  %s\n", err.c_str());
+}
+
+// Back buffer formats (owner, 2026-09-30): an scRGB extraction gives back buffer inputs
+// [-0.5, 125] (derived values follow), and a variant with a format guard applies only
+// under it, the statements it inlines coming back where the original is used.
+TEST(fx_back_buffer_formats) {
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(kEffect, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  fx::RegionOptions hdr;
+  hdr.hdrBackBuffer = true;
+  const auto regions = fx::extractRegions(*e, nullptr, hdr, sk);
+  bool fetchHdr = false, derivedHdr = false, ret = false;
+  for (const auto& r : regions) {
+    if (fs::path(r.file).filename() != "sopt_test.fx") continue;
+    for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
+      const auto& d = r.prog.inputs[k];
+      if (r.line == 32 && r.facts[k].fetch) fetchHdr = d.lo == fx::kScRgbLo && d.hi == fx::kScRgbHi && d.grid == 0;
+      if (r.line == 23 && d.name == "color") derivedHdr = d.lo == fx::kScRgbLo && d.hi == fx::kScRgbHi;
+    }
+    if (r.kind == fx::Region::Kind::Return) ret = r.budgetReason.find("back buffer") != std::string::npos;
+  }
+  CHECK(fetchHdr);
+  CHECK(derivedHdr);
+  CHECK(ret);  // the pixel shader writes the back buffer
+
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_chain.fx";
+  auto c = fx::loadEffect(path, lo, err);
+  CHECK(c != nullptr);
+  if (!c) return;
+  const auto chain = fx::extractRegions(*c, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* e3 = nullptr;
+  for (const auto& r : chain)
+    if (r.line == 33 && r.removed.size() == 3) e3 = &r;
+  CHECK(e3 != nullptr);
+  if (!e3) return;
+  fx::RegionResult rr;
+  rr.region = *e3;
+  rr.targetCost = 10;
+  fx::Variant v;
+  v.text = "uv.y * uv.y";
+  v.cost = 5;
+  v.formatGuard = "BUFFER_COLOR_SPACE <= 1";
+  rr.variants.push_back(v);
+  const fs::path out = fs::temp_directory_path() / "sopt_test_fx_formats";
+  std::error_code ec;
+  fs::remove_all(out, ec);
+  std::string errors;
+  CHECK(fx::writeVariants({rr}, out, errors).size() == 1);
+  std::ifstream f(out / "sopt_chain.fx");
+  std::stringstream ss;
+  ss << f.rdbuf();
+  const std::string text = ss.str();
+  CHECK(text.find("#if SOPT_sopt_chain_30_33 >= 1 && (BUFFER_COLOR_SPACE <= 1)\n") != std::string::npos);
+  CHECK(text.find("#if !((SOPT_sopt_chain_30_33 >= 1 && (BUFFER_COLOR_SPACE <= 1)))\n") != std::string::npos);
+  for (const char* space : {"1", "2"}) {
+    fx::LoadOptions o;
+    o.macros = {{"SOPT_ALL", "1"}, {"BUFFER_COLOR_SPACE", space}};
+    std::string err2;
+    CHECK(fx::loadEffect(out / "sopt_chain.fx", o, err2) != nullptr);
+  }
+  fs::remove_all(out, ec);
 }

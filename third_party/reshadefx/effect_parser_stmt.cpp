@@ -1509,6 +1509,7 @@ bool reshadefx::parser::parse_function(type type, std::string name, shader_type 
 bool reshadefx::parser::parse_variable(type type, std::string name, bool global)
 {
 	const location variable_location = std::move(_token.location);
+	bool sopt_named = false; // sopt: becomes a named expression (see sopt_named_expressions)
 
 	if (type.is_void())
 	{
@@ -1629,6 +1630,9 @@ bool reshadefx::parser::parse_variable(type type, std::string name, bool global)
 			if (type.has(type::q_precise))
 				initializer.type.qualifiers |= type::q_precise;
 
+			const size_t sopt_begin = _token_next.offset;
+			const location sopt_location = _token_next.location;
+
 			if (!parse_expression_assignment(initializer))
 				return false;
 
@@ -1641,8 +1645,17 @@ bool reshadefx::parser::parse_variable(type type, std::string name, bool global)
 			// TODO: This could be resolved by initializing these at the beginning of the entry point
 			if (global && !initializer.is_constant)
 			{
-				error(initializer.location, 3011, '\'' + name + "': initial value must be a literal expression");
-				return false;
+				// sopt: a named expression instead (see sopt_named_expressions)
+				if (sopt_named_expressions && type.has(type::q_static) && type.has(type::q_const) && type.is_numeric() && !type.is_array())
+				{
+					sopt_named = true;
+					_sopt_named.emplace_back(_lexer->input_string().substr(sopt_begin, _token.offset + _token.length - sopt_begin), sopt_location);
+				}
+				else
+				{
+					error(initializer.location, 3011, '\'' + name + "': initial value must be a literal expression");
+					return false;
+				}
 			}
 
 			// Check type compatibility
@@ -1883,9 +1896,13 @@ bool reshadefx::parser::parse_variable(type type, std::string name, bool global)
 
 	symbol symbol;
 
+	if (sopt_named)
+	{
+		symbol = { symbol_type::sopt_named, static_cast<uint32_t>(_sopt_named.size() - 1), type };
+	}
 	// Variables with a constant initializer and constant type are named constants
 	// Skip this for very large arrays though, to avoid large amounts of duplicated values when that array constant is accessed with a dynamic index
-	if (type.is_numeric() && type.has(type::q_const) && initializer.is_constant && type.array_length < 100)
+	else if (type.is_numeric() && type.has(type::q_const) && initializer.is_constant && type.array_length < 100)
 	{
 		// Named constants are special symbols
 		symbol = { symbol_type::constant, 0, type, initializer.constant };

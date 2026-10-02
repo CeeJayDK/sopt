@@ -32,10 +32,26 @@ inline float fBool(bool v) { return v ? 1.0f : 0.0f; }
   }                                           \
   return;
 
+// One float step up / down (Profile::ulpStep) for inexact results; zeros and non-finite
+// values stay (GPUs return exact 0 for sqrt(0) etc.).
+inline float fStep(float v, int dir) {
+  if (v == 0.0f || !std::isfinite(v)) return v;
+  return std::nextafter(v, dir > 0 ? INFINITY : -INFINITY);
+}
+
 }  // namespace
 
 void evalArray(Op op, const float* a, const float* b, const float* c, float* out, size_t n,
                const Profile& profile) {
+  if (profile.ulpStep != 0 && !info(op).exact && op != Op::Div && op != Op::Smoothstep) {
+    Profile p = profile;
+    p.ulpStep = 0;
+    evalArray(op, a, b, c, out, n, p);
+    if (op == Op::Sqrt || op == Op::Rsqrt || op == Op::Rcp || op == Op::Exp || op == Op::Log ||
+        op == Op::Sin || op == Op::Cos || op == Op::Pow || op == Op::Exp2 || op == Op::Log2)
+      for (size_t i = 0; i < n; ++i) out[i] = fStep(out[i], profile.ulpStep);
+    return;
+  }
   switch (op) {
     case Op::Input:
     case Op::Const:
@@ -61,10 +77,19 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
     case Op::Log: SOPT_LOOP1(std::log(x))
     case Op::Sin: SOPT_LOOP1(std::sin(x))
     case Op::Cos: SOPT_LOOP1(std::cos(x))
+    case Op::Exp2: SOPT_LOOP1(std::exp2(x))
+    case Op::Log2: SOPT_LOOP1(std::log2(x))
+    case Op::Round: SOPT_LOOP1(std::nearbyint(x))  // round half to even (default rounding mode)
+    case Op::Ceil: SOPT_LOOP1(std::ceil(x))
     case Op::Add: SOPT_LOOP2(x + y)
     case Op::Sub: SOPT_LOOP2(x - y)
     case Op::Mul: SOPT_LOOP2(x * y)
     case Op::Div:
+      if (profile.ulpStep != 0) {  // GPU division: a * rcp(b) with an approximate rcp
+        const int d = profile.ulpStep;
+        if (profile.divRcp) { SOPT_LOOP2(x * fStep(1.0f / y, d)) }
+        SOPT_LOOP2(fStep(x / y, d))
+      }
       if (profile.divRcp) { SOPT_LOOP2(x * (1.0f / y)) }
       SOPT_LOOP2(x / y)
     case Op::Min: SOPT_LOOP2(fMin(x, y))
@@ -86,6 +111,22 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
       SOPT_LOOP3(x + z * (y - x))
     case Op::Clamp: SOPT_LOOP3(fMin(fMax(x, y), z))
     case Op::Select: SOPT_LOOP3(x != 0.0f ? y : z)
+    case Op::Smoothstep: {
+      // DXC's lowering: s = saturate((x - a) / (b - a)); s * (s * (3 - 2 s)), the division as
+      // the profile divides (a * rcp(b) on GPUs, one float step off under gpu+ / gpu-).
+      const int d = profile.ulpStep;
+      for (size_t i = 0; i < n; ++i) {
+        const float num = c[i] - a[i], den = b[i] - a[i];
+        float q;
+        const float r = 1.0f / den;
+        if (profile.divRcp) q = num * (d != 0 ? fStep(r, d) : r);
+        else q = d != 0 ? fStep(num / den, d) : num / den;
+        const float s = fSaturate(q);
+        const float t = profile.madFused ? std::fma(-2.0f, s, 3.0f) : 3.0f - s * 2.0f;
+        out[i] = s * (s * t);
+      }
+      return;
+    }
   }
 }
 
@@ -159,6 +200,73 @@ void evalNode(const Node& node, const Type* argTypes, const float* const (*arg)[
       return;
     }
   }
+}
+
+uint32_t foldCopyNode(const Expr& src, uint32_t i, const std::vector<uint32_t>& map, ExprBuilder& b) {
+  const Node& n = src.nodes[i];
+  const auto& ns = b.nodes();
+  bool allConst = n.op != Op::Input && n.op != Op::Const;
+  for (unsigned k = 0; k < operandCount(n); ++k) allConst = allConst && ns[map[n.args[k]]].op == Op::Const;
+  if (allConst) {
+    Node m = n;
+    Type ts[4];
+    float buf[4][4];
+    const float* ptr[4][4];
+    for (unsigned k = 0; k < operandCount(n); ++k) {
+      m.args[k] = map[n.args[k]];
+      ts[k] = ns[m.args[k]].type;
+      for (unsigned c = 0; c < 4; ++c) {
+        buf[k][c] = ns[m.args[k]].value[c];
+        ptr[k][c] = &buf[k][c];
+      }
+    }
+    float res[4] = {0, 0, 0, 0};
+    float* out[4] = {&res[0], &res[1], &res[2], &res[3]};
+    std::vector<float> tmp;
+    evalNode(m, ts, ptr, out, 1, kProfileRef, tmp);
+    return b.constant(n.type, res);
+  }
+  switch (n.op) {
+    case Op::Const: return b.constant(n.type, n.value);
+    case Op::Swizzle: return b.swizzle(map[n.args[0]], n.swz, width(n.type));
+    case Op::Construct: {
+      uint32_t a[4];
+      for (unsigned k = 0; k < n.nargs; ++k) a[k] = map[n.args[k]];
+      return b.construct(a, n.nargs);
+    }
+    default:
+      return b.op(n.op, map[n.args[0]], operandCount(n) > 1 ? map[n.args[1]] : 0,
+                  operandCount(n) > 2 ? map[n.args[2]] : 0);
+  }
+}
+
+Expr specializeCompileTime(const Expr& e, const std::vector<InputDecl>& inputs,
+                           std::vector<InputDecl>& remaining, std::vector<uint32_t>* oldIndex) {
+  remaining.clear();
+  std::vector<uint32_t> newIndex(inputs.size(), UINT32_MAX);
+  for (uint32_t i = 0; i < inputs.size(); ++i)
+    if (!inputs[i].compileTime) {
+      newIndex[i] = static_cast<uint32_t>(remaining.size());
+      if (oldIndex) oldIndex->push_back(i);
+      remaining.push_back(inputs[i]);
+    }
+  ExprBuilder b;
+  std::vector<uint32_t> map(e.nodes.size());
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op == Op::Input) {
+      const InputDecl& d = inputs[n.input];
+      if (d.compileTime) {
+        const float v[4] = {float(d.value), float(d.value), float(d.value), float(d.value)};
+        map[i] = b.constant(d.type, v);
+      } else {
+        map[i] = b.input(newIndex[n.input], d.type);
+      }
+    } else {
+      map[i] = foldCopyNode(e, i, map, b);
+    }
+  }
+  return b.finish(map[e.root]);
 }
 
 float evalScalar(Op op, float a, float b, float c, const Profile& profile) {

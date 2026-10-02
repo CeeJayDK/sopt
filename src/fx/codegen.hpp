@@ -37,6 +37,8 @@ struct Variable {
   std::vector<reshadefx::annotation> annotations; // Uniform
   reshadefx::location loc;
   uint32_t initializer = 0;                       // value id, if any
+  bool hasDefault = false;                        // Uniform: initial value
+  reshadefx::constant defaultValue{};
 };
 
 struct Statement {
@@ -80,6 +82,7 @@ class Codegen final : public reshadefx::codegen {
   std::vector<std::pair<uint32_t, uint32_t>> loops;  // [first, last] seq of each loop
 
   std::string structMemberName(uint32_t structId, uint32_t index) const;
+  std::string structMemberSemantic(uint32_t structId, uint32_t index) const;
   const Function* function(const std::string& uniqueName) const;
   const reshadefx::effect_module& mod() const { return _module; }
 

@@ -35,6 +35,12 @@ const Function* Codegen::function(const std::string& uniqueName) const {
   return nullptr;
 }
 
+std::string Codegen::structMemberSemantic(uint32_t structId, uint32_t index) const {
+  for (const auto& s : _structs)
+    if (s.id == structId && index < s.member_list.size()) return s.member_list[index].semantic;
+  return {};
+}
+
 Value& Codegen::newValue(Value::Kind kind, const reshadefx::type& type,
                          const reshadefx::location& loc, id& res) {
   res = make_id();
@@ -94,6 +100,8 @@ reshadefx::codegen::id Codegen::define_uniform(const reshadefx::location& loc,
   v.uniqueName = info.unique_name;
   v.type = info.type;
   v.annotations = info.annotations;
+  v.hasDefault = info.has_initializer_value;
+  v.defaultValue = info.initializer_value;
   v.loc = loc;
   _module.uniforms.push_back(info);
   return res;

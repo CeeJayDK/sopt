@@ -89,6 +89,21 @@ namespace reshadefx
 		/// </summary>
 		std::vector<std::pair<std::string, std::string>> used_macro_definitions() const;
 
+		/// <summary>
+		/// sopt addition: macros whose uses in code (not in #if expressions) are replaced by the
+		/// identifier "__sopt_" + name instead of their value, so that they stay symbolic.
+		/// </summary>
+		std::unordered_set<std::string> symbolic_macros;
+		/// <summary>
+		/// sopt addition: source lines ("file\nline") where symbolic macros expand to their value
+		/// anyway (e.g. texture sizes, which need a constant).
+		/// </summary>
+		std::unordered_set<std::string> symbolic_exclude;
+		/// <summary>
+		/// sopt addition: the macros defined at the end of preprocessing.
+		/// </summary>
+		const std::unordered_map<std::string, macro> &sopt_macros() const { return _macros; }
+
 	private:
 		struct if_level
 		{
@@ -149,6 +164,7 @@ namespace reshadefx
 		unsigned short _recursion_count = 0;
 		std::unordered_set<std::string> _used_macros;
 		std::unordered_map<std::string, macro> _macros;
+		int _sopt_condition = 0; // sopt: > 0 while evaluating an #if expression
 
 		std::vector<if_level> _if_stack;
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sopt LANGUAGES CXX)
+project(sopt VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,20 +37,42 @@ sopt_fp_flags(sopt-ir)
 
 add_library(sopt-verify
   src/verify/points.cpp
-  src/verify/verify.cpp)
+  src/verify/verify.cpp
+  src/verify/exact.cpp
+  src/verify/problems.cpp
+  src/verify/bound.cpp)
 target_link_libraries(sopt-verify PUBLIC sopt-ir Threads::Threads)
 sopt_fp_flags(sopt-verify)
 
+# Zstandard (third_party/zstd, BSD): compression for the disk-backed search bank.
+add_library(sopt-zstd STATIC third_party/zstd/zstd.c)
+target_include_directories(sopt-zstd PUBLIC third_party/zstd)
+target_compile_definitions(sopt-zstd PRIVATE ZSTD_DISABLE_ASM ZSTD_NO_TRACE)
+set_target_properties(sopt-zstd PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(sopt-search
+  src/search/diskstore.cpp
   src/search/enumerator.cpp
-  src/search/driver.cpp)
-target_link_libraries(sopt-search PUBLIC sopt-verify)
+  src/search/driver.cpp
+  src/search/generalize.cpp
+  src/search/subtrees.cpp
+  src/search/cuts.cpp
+  src/search/library.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/library_builtin.cpp)
+# The rewrite library is built in (used when library/rewrites.txt is not found at run time).
+add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/library_builtin.cpp
+  COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_CURRENT_SOURCE_DIR}/library/rewrites.txt
+          -DOUT=${CMAKE_CURRENT_BINARY_DIR}/library_builtin.cpp -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_library.cmake
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/library/rewrites.txt ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_library.cmake
+  VERBATIM)
+target_link_libraries(sopt-search PUBLIC sopt-verify PRIVATE sopt-zstd)
 sopt_fp_flags(sopt-search)
 
 add_library(sopt-measure
   src/measure/tools.cpp
   src/measure/isa.cpp
-  src/measure/sass.cpp)
+  src/measure/sass.cpp
+  src/measure/backends.cpp)
 target_link_libraries(sopt-measure PUBLIC sopt-ir Threads::Threads)
 sopt_fp_flags(sopt-measure)
 
@@ -91,6 +113,60 @@ if(SOPT_BUILD_BENCH)
   sopt_fp_flags(sopt-bench)
 endif()
 
+# sopt-fxc (backend normalization, DXBC after Microsoft's fxc): Windows only; for Linux
+# build it with mingw and run it under Wine (tools/fxc/README.md).
+if(WIN32)
+  enable_language(C)
+  add_executable(sopt-fxc tools/fxc/sopt_fxc.c)
+  target_link_libraries(sopt-fxc PRIVATE d3dcompiler)
+
+  # M4 benchmark harness (tools/windows/timer/README.md): sopt-timer, a ReShade add-on (needs
+  # ReShade with full add-on support), and sopt-host, a DX11 / Vulkan window showing one
+  # fixed image with vsync off.
+  add_library(sopt-timer SHARED tools/windows/timer/sopt_timer.cpp)
+  target_include_directories(sopt-timer PRIVATE third_party/reshade-addon/include third_party/reshade-addon/imgui)
+  target_compile_features(sopt-timer PRIVATE cxx_std_17)
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set_target_properties(sopt-timer PROPERTIES PREFIX "" SUFFIX ".addon64")
+  else()
+    set_target_properties(sopt-timer PROPERTIES PREFIX "" SUFFIX ".addon32")
+  endif()
+  add_executable(sopt-host tools/windows/host/sopt_host.cpp)
+  target_include_directories(sopt-host PRIVATE third_party/vulkan)
+  target_compile_features(sopt-host PRIVATE cxx_std_17)
+  target_link_libraries(sopt-host PRIVATE d3d11 dxgi ole32 windowscodecs opengl32)
+  # sopt-opbench: instruction costs on the local GPU (D3D11 compute, tools/windows/README.md).
+  add_executable(sopt-opbench tools/windows/opbench/sopt_opbench.cpp)
+  target_compile_features(sopt-opbench PRIVATE cxx_std_17)
+  target_link_libraries(sopt-opbench PRIVATE d3d11 dxgi d3dcompiler)
+  target_compile_definitions(sopt-opbench PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
+  # Version resource (name, publisher, version under Properties > Details) on every tool we
+  # distribute, and a manifest (asInvoker, supported Windows versions) on the executables:
+  # unsigned executables without them look more suspicious to Windows Defender.
+  function(sopt_version_info target filename description filetype)
+    set(SOPT_RC_NAME ${target})
+    set(SOPT_RC_FILENAME ${filename})
+    set(SOPT_RC_DESCRIPTION ${description})
+    set(SOPT_RC_FILETYPE ${filetype})
+    configure_file(tools/windows/version.rc.in ${CMAKE_CURRENT_BINARY_DIR}/${target}_version.rc @ONLY)
+    target_sources(${target} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/${target}_version.rc)
+    if(filetype STREQUAL "VFT_APP")
+      target_sources(${target} PRIVATE tools/windows/app.manifest)
+    endif()
+  endfunction()
+  sopt_version_info(sopt-opbench sopt-opbench.exe "sopt GPU instruction cost benchmark" VFT_APP)
+  sopt_version_info(sopt-host sopt-host.exe "sopt benchmark host window (DX11 / Vulkan)" VFT_APP)
+  sopt_version_info(sopt-fxc sopt-fxc.exe "sopt helper: HLSL to DXBC with Microsoft fxc" VFT_APP)
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    sopt_version_info(sopt-timer sopt-timer.addon64 "sopt GPU timer add-on for ReShade" VFT_DLL)
+  else()
+    sopt_version_info(sopt-timer sopt-timer.addon32 "sopt GPU timer add-on for ReShade" VFT_DLL)
+  endif()
+  # Dynamic C runtime (the default): Windows Defender flagged the static-CRT build as
+  # Trojan:Win32/Sabsik.FL.A!ml (ML false positive) and not this one (owner, 2026-10-02).
+  # Needs the VC++ 2015-2022 redistributable, which nearly every gaming PC has.
+endif()
+
 if(SOPT_BUILD_TESTS)
   enable_testing()
   add_executable(sopt-tests
@@ -100,11 +176,16 @@ if(SOPT_BUILD_TESTS)
     tests/test_rewrites.cpp
     tests/test_isa.cpp
     tests/test_sass.cpp
+    tests/test_backends.cpp
     tests/test_vector.cpp
+    tests/test_accuracy.cpp
+    tests/test_bound.cpp
+    tests/test_library.cpp
     tests/test_fx.cpp)
   target_link_libraries(sopt-tests PRIVATE sopt-search sopt-measure sopt-fx-lib)
   target_compile_definitions(sopt-tests PRIVATE SOPT_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples"
-    SOPT_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    SOPT_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    SOPT_LIBRARY_FILE="${CMAKE_CURRENT_SOURCE_DIR}/library/rewrites.txt")
   sopt_fp_flags(sopt-tests)
   add_test(NAME sopt-tests COMMAND sopt-tests)
 endif()

@@ -12,6 +12,7 @@
 
 #include "ir/parser.hpp"
 #include "search/driver.hpp"
+#include "search/library.hpp"
 
 using namespace sopt;
 
@@ -146,6 +147,7 @@ int main(int argc, char** argv) {
   uint64_t seed = 1;
   Options opt;
   opt.v1Points = 1u << 18;
+  bool noAmdFolds = false;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     auto next = [&]() { return i + 1 < argc ? argv[++i] : (std::exit(2), argv[0]); };
@@ -159,26 +161,65 @@ int main(int argc, char** argv) {
     else if (a == "--max-bank") opt.search.maxBank = std::strtoull(next(), nullptr, 10);
     else if (a == "--no-affine") opt.search.affine = false;
     else if (a == "--no-inner") opt.search.inner = false;
+    else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
+    else if (a == "--no-overflow") opt.search.overflow = false;
+    else if (a == "--no-subtrees") opt.subtrees = false;
+    else if (a == "--no-cuts") opt.cuts = false;
+    else if (a == "--slack") opt.search.slack = std::atoi(next());
+    else if (a == "--no-best-bound") opt.search.bestBound = false;
+    else if (a == "--top-down") opt.search.topDown = true;
+    else if (a == "--no-top-down") opt.search.topDown = false;
+    else if (a == "--library") opt.library = true;
+    else if (a == "--no-library") opt.library = false;
+    else if (a == "--two-phase") opt.search.twoPhase = true;
+    else if (a == "--no-two-phase") opt.search.twoPhase = false;
+    else if (a == "--no-amd-folds") noAmdFolds = true;
+    else if (a == "--library-file") {
+      static Library lib;  // alive for the whole run
+      const char* f = next();
+      try {
+        lib = loadLibrary(f);
+      } catch (const std::exception& e) {
+        std::fprintf(stderr, "%s\n", e.what());
+        return 2;
+      }
+      opt.library = true;
+      opt.libraryRules = &lib;
+    }
+    else if (a == "--disk") opt.search.diskDir = next();
+    else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);
+    else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
+    else if (a == "--tests") opt.numTests = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
+    else if (a == "--no-v3") opt.v3 = false;
+    else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
+    else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
+    else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);
+    else if (a == "--no-shared-leaves") opt.search.sharedLeaves = false;
+    else if (a == "--subtree-time") opt.subtreeTime = std::strtod(next(), nullptr);
+    else if (a == "--subtree-max-cost") opt.subtreeMaxCost = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
+    else if (a == "--no-exact-rule") opt.exactRule = false;
+    else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
     else if (a == "--helpers") opt.search.helpers = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
       if (!opt.search.order) {
-        std::puts("unknown cost model (rdna3, nvidia, generic, search)");
+        std::puts("unknown cost model (rdna3, nvidia, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, generic, search)");
         return 2;
       }
     }
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
       if (!opt.search.model) {
-        std::puts("unknown cost model (rdna3, nvidia, generic, search)");
+        std::puts("unknown cost model (rdna3, nvidia, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, generic, search)");
         return 2;
       }
     } else {
       std::puts("usage: sopt-bench [--examples DIR] [--planted N --size K --inputs I] [--seed S]\n"
-                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model M] [--order-model M] [--no-affine] [--no-inner] [--helpers]");
+                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model M] [--order-model M] [--no-affine] [--no-inner] [--helpers] [--no-exact-rule] [--no-accuracy-variants]");
       return 2;
     }
   }
+  if (noAmdFolds) opt.search.model = withoutAmdFolds(opt.search.model);
   if (examples.empty() && planted == 0) examples = "examples";
   const CostModel& model = *opt.search.model;
   std::printf("cost model: %s%s%s\n", std::string(model.name).c_str(),
@@ -197,8 +238,8 @@ int main(int argc, char** argv) {
     for (const auto& f : files) {
       const Program prog = loadProgram(f);
       const std::string expect = readExpect(f);
-      const uint32_t goal = expect.empty() ? dagCost(prog.target, model) - 1
-                                           : dagCost(parseExpr(expect, prog.inputs), model);
+      const uint32_t goal = expect.empty() ? dagCost(prog.target, model, prog.inputs) - 1
+                                           : dagCost(parseExpr(expect, prog.inputs), model, prog.inputs);
       const Row row = runOne(std::filesystem::path(f).stem().string(), prog, goal, opt);
       printRow(row);
       failures += !(row.found && row.bestCost <= row.goalCost);
@@ -216,8 +257,8 @@ int main(int argc, char** argv) {
     ExprBuilder b;
     const Expr plantedExpr = b.finish(randomProgram(b, rng, inputs, size));
     prog.target = obfuscate(plantedExpr, rng);
-    const uint32_t goal = dagCost(plantedExpr, model);
-    if (dagCost(prog.target, model) <= goal) continue;  // not more expensive; draw again
+    const uint32_t goal = dagCost(plantedExpr, model, prog.inputs);
+    if (dagCost(prog.target, model, prog.inputs) <= goal) continue;  // not more expensive; draw again
     Row row = runOne("planted_" + std::to_string(p++), prog, goal, opt);
     const bool needsSharing = treeCost(plantedExpr, plantedExpr.root, model) > goal;
     if (needsSharing) row.note = "needs-sharing";

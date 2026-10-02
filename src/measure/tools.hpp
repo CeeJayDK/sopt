@@ -2,8 +2,21 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <vector>
+
+#include "ir/expr.hpp"
 
 namespace sopt {
+
+// What a shader compiler sees: compile-time inputs (preprocessor definitions) replaced
+// by their values and folded. `exprs` point into `storage` when anything changed.
+struct Specialized {
+  std::vector<Expr> storage;
+  std::vector<const Expr*> exprs;
+  std::vector<InputDecl> inputs;
+};
+Specialized specializeForCompiler(const std::vector<const Expr*>& exprs,
+                                  const std::vector<InputDecl>& inputs);
 
 // Runs a shell command and returns its stdout (the caller adds 2>&1 if needed).
 std::string runCommand(const std::string& cmd, int& status);
