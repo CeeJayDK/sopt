@@ -680,5 +680,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   Each other adapter gets "Use --adapter N to test this" on its right; colors that fit. Display order is
   fixed, the same on every card: from cheapest to most expensive as expected on most cards (not sorted by
   the measured card's costs). Measuring order is free; with a fresh base per test it hardly matters.
+  (6) (owner's go) every test twice, forward then backward through the list, averaged: slow drift
+  cancels, and spikes (RTX 4070 sqrt +2.2) show as a disagreement between the two passes (flag it);
+  about double the run time.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
