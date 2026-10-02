@@ -739,6 +739,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   Warp-FX RadialSlitScan 44 (none of them in a test package). Next: narrower ranges for size-derived
   values, then static const initializers (ReShade::PixelSize etc.: the deprecated static const branch of
   ReShade.fxh is the one ReShade compiles; the function form is only under __RESHADE_FXC__).
+  Leaf ranges over 12 common back buffer sizes done (`leafRange`, kBufferSizes; ASCII gray [-1.3, 12.2],
+  baked [-1.3, 6.2]). SweetFX A/B (time 3, both with threshold points): baked 10 of 310 regions with
+  variants, --buffer-inputs 10 of 318, the same regions (the wrong ASCII variants are gone); baked equals
+  the run before the threshold points. Default still off: asked the owner.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).
