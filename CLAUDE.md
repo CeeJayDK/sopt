@@ -694,6 +694,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   (6) (owner's go) every test twice, forward then backward through the list, averaged: slow drift
   cancels, and spikes (RTX 4070 sqrt +2.2) show as a disagreement between the two passes (flag it);
   about double the run time.
+  (7) (owner's go) export `NvOptimusEnablement = 1` and `AmdPowerXpressRequestHighPerformance = 1` from
+  the exe so laptops with switchable graphics hand it the discrete GPU (owner's parents' laptop: Radeon HD
+  7400M + Intel HD 3000; --list showed only the Intel GPU, which is feature level 10_1 and cannot run it).
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such
