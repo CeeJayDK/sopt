@@ -652,5 +652,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   inside the range, not for compile-time / library `const` variables; it rejects that ceil; it also
   showed frac(frac(a)) -> frac(a) (Mesa) wrong for tiny negative a (now `where a >= 0`). Bench (examples,
   time 30): identical.
+- opbench version 2 (owner, 2026-10-02: wait a day for more reports, then release together): the new
+  fast-form tests (signmad, signsat, signclamp, signsel, signsel2, roundadd, flooradd, fracadd, already
+  in the code) plus a VERSIONINFO resource (product, version, description) and a manifest for
+  sopt-opbench.exe: Windows 11 Defender flags v1 as Trojan:Win32/Sabsik.FL.A!ml (an ML heuristic false
+  positive on an unsigned exe). Report false positives at microsoft.com/en-us/wdsi/filesubmission (per
+  build); code signing (Azure Trusted Signing, or SignPath if the repo is public) is the real fix, later.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
