@@ -304,6 +304,57 @@ TEST(fx_macro_inputs) {
   CHECK(fixedSkipped);
 }
 
+TEST(fx_buffer_inputs) {
+  const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_buffer.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffectBufferSymbolic(path, lo, err);
+  CHECK(e != nullptr && e->bufferSymbolic);
+  if (!e) {
+    std::printf("  %s\n", err.c_str());
+    return;
+  }
+  // The texture size and static const lines need constants: they keep the numbers.
+  CHECK(lo.symbolicExclude.size() == 2);
+  lo.width = 2560;
+  lo.height = 1440;
+  auto alt = fx::loadEffect(path, lo, err);
+  CHECK(alt != nullptr);
+  fx::SkipCount sk;
+  sk.keepDetails = true;
+  const auto regions = fx::extractRegions(*e, alt.get(), fx::RegionOptions(), sk);
+  auto region = [&](uint32_t line) -> const fx::Region* {
+    for (const auto& r : regions)
+      if (r.line == line && r.removed.empty()) return &r;
+    return nullptr;
+  };
+  auto skipped = [&](uint32_t line, const std::string& why) {
+    const std::string key = "sopt_buffer.fx:" + std::to_string(line) + ": " + why;
+    for (const auto& d : sk.details)
+      if (d.find(key) != std::string::npos) return true;
+    return false;
+  };
+  // SCREEN_SIZE and PIXEL_SIZE expand to the symbolic sizes: compile-time inputs with a fact.
+  for (uint32_t line : {17u, 18u}) {
+    const fx::Region* r = region(line);
+    CHECK(r != nullptr);
+    if (!r) continue;
+    int sizes = 0;
+    for (size_t k = 0; k < r->prog.inputs.size(); ++k) {
+      const auto& d = r->prog.inputs[k];
+      if (d.name != "BUFFER_WIDTH" && d.name != "BUFFER_HEIGHT") continue;
+      ++sizes;
+      CHECK(d.compileTime && d.lo == 1.0 && d.hi == 7680.0 && !r->facts[k].assumed);
+      CHECK(d.value == (d.name == "BUFFER_WIDTH" ? 1920.0 : 1080.0));
+    }
+    CHECK(sizes == 2);
+  }
+  // BUFFER_WIDTH / 3 is an integer division: not float arithmetic, skipped.
+  CHECK(region(19) == nullptr && skipped(19, "non-float arithmetic"));
+  // kPixel is a static const (numbers): still resolution dependent.
+  CHECK(region(20) == nullptr && skipped(20, "depends on BUFFER_WIDTH/HEIGHT"));
+}
+
 TEST(fx_chain_windows) {
   const fs::path path = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_chain.fx";
   fx::LoadOptions lo;

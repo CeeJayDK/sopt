@@ -1228,7 +1228,9 @@ bool reshadefx::preprocessor::evaluate_identifier_as_macro()
 	}
 
 	// sopt: keep symbolic macros as an identifier in code
-	if (_sopt_condition == 0 && symbolic_macros.find(_token.literal_as_string) != symbolic_macros.end())
+	if (_sopt_condition == 0 && symbolic_macros.find(_token.literal_as_string) != symbolic_macros.end() &&
+		(symbolic_exclude.empty() ||
+		 symbolic_exclude.find(_token.location.source + '\n' + std::to_string(_token.location.line)) == symbolic_exclude.end()))
 	{
 		push("__sopt_" + _token.literal_as_string);
 		return true;

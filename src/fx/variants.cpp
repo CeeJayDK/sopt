@@ -267,6 +267,16 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
                              : ", dxbc " + std::to_string(rr->targetDxbc) + " -> " + std::to_string(v.dxbc);
         if (!v.formatGuard.empty()) back += "; only where " + v.formatGuard;
         std::string text = v.text;
+        // BUFFER_WIDTH / BUFFER_HEIGHT are int literals: BUFFER_WIDTH / BUFFER_HEIGHT in the
+        // code would be an integer division, so the code converts them.
+        bool intInputs = false;
+        std::vector<InputDecl> codeInputs = r.prog.inputs;
+        for (auto& d : codeInputs)
+          if (d.compileTime && isBufferSizeMacro(d.name)) {
+            d.name = "float(" + d.name + ")";
+            intInputs = true;
+          }
+        if (intInputs) text = toString(v.expr, codeInputs);
         if (needsPrecise(v.expr)) {
           // fxc -O3 folds (v + c) - c to v: the add-round trick only survives as precise.
           const unsigned w = width(v.expr.nodes[v.expr.root].type);

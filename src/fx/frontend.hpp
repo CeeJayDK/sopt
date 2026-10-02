@@ -23,6 +23,10 @@ struct LoadOptions {
   unsigned width = 1920, height = 1080;                      // BUFFER_WIDTH / BUFFER_HEIGHT
   // Preprocessor definitions kept symbolic in code (see symbolicMacros()).
   std::set<std::string> symbolic;
+  // BUFFER_WIDTH / BUFFER_HEIGHT kept symbolic too (int compile-time inputs), except on
+  // the source lines in symbolicExclude ("file\nline") where a constant is needed.
+  bool bufferSymbolic = false;
+  std::set<std::string> symbolicExclude;
 };
 
 // One parse of an effect: the recorded dataflow graph plus the preprocessed text of
@@ -36,7 +40,22 @@ struct Effect {
   // the user change), name -> value.
   std::map<std::string, std::string> userMacros;
   std::set<std::string> symbolic;  // of those, the ones kept symbolic in this parse
+  unsigned width = 1920, height = 1080;  // BUFFER_WIDTH / BUFFER_HEIGHT of this parse
+  bool bufferSymbolic = false;           // they are symbolic (see LoadOptions)
+  // Object-like macros' replacement lists (for source lines that use BUFFER_SCREEN_SIZE etc.).
+  std::map<std::string, std::string> objectMacros;
 };
+
+// The back buffer size macros that bufferSymbolic keeps symbolic.
+inline bool isBufferSizeMacro(const std::string& name) {
+  return name == "BUFFER_WIDTH" || name == "BUFFER_HEIGHT";
+}
+
+// Loads an effect with BUFFER_WIDTH / BUFFER_HEIGHT symbolic: lines that fail to parse that
+// way (texture sizes, array sizes, static const initializers) go to opt.symbolicExclude
+// and the parse is retried. Returns null when it does not converge.
+std::unique_ptr<Effect> loadEffectBufferSymbolic(const std::filesystem::path& path, LoadOptions& opt,
+                                                 std::string& errors);
 
 // Prefix of a symbolic preprocessor definition's identifier in the parsed code.
 inline constexpr const char* kSymbolicPrefix = "__sopt_";

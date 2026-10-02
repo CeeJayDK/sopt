@@ -101,6 +101,14 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   pp.symbolic_macros.insert(opt.symbolic.begin(), opt.symbolic.end());
   std::string decls;
   for (const auto& m : opt.symbolic) decls += "uniform float " + std::string(kSymbolicPrefix) + m + ";\n";
+  if (opt.bufferSymbolic) {
+    // int, as the literals ReShade defines: BUFFER_WIDTH / 3 stays an integer division.
+    for (const char* m : {"BUFFER_WIDTH", "BUFFER_HEIGHT"}) {
+      pp.symbolic_macros.insert(m);
+      decls += "uniform int " + std::string(kSymbolicPrefix) + m + ";\n";
+    }
+    pp.symbolic_exclude.insert(opt.symbolicExclude.begin(), opt.symbolicExclude.end());
+  }
   if (!decls.empty()) pp.append_string(decls);
   pp.append_string(
       "#define tex2Doffset(s, coords, offset) tex2D(s, coords, offset)\n"
@@ -126,9 +134,37 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   mapLines(pp.output(), fx->ppLines);
   for (const auto& [k, v] : pp.used_macro_definitions()) fx->userMacros[k] = v;
   fx->symbolic = opt.symbolic;
+  fx->width = opt.width;
+  fx->height = opt.height;
+  fx->bufferSymbolic = opt.bufferSymbolic;
+  for (const auto& [name, m] : pp.sopt_macros())
+    if (!m.is_function_like) fx->objectMacros[name] = m.replacement_list;
   fx->sourceFiles.push_back(pathString(path));
   for (const auto& f : pp.included_files()) fx->sourceFiles.push_back(pathString(f));
   return fx;
+}
+
+std::unique_ptr<Effect> loadEffectBufferSymbolic(const fs::path& path, LoadOptions& opt,
+                                                 std::string& errors) {
+  opt.bufferSymbolic = true;
+  for (int attempt = 0; attempt < 256; ++attempt) {
+    errors.clear();
+    if (auto fx = loadEffect(path, opt, errors)) return fx;
+    // "file(line, col): error ..." lines: expand the macros there to their value.
+    bool added = false;
+    std::istringstream in(errors);
+    for (std::string l; std::getline(in, l);) {
+      const size_t e = l.find("): error");
+      const size_t p = e == std::string::npos ? e : l.rfind('(', e);
+      if (p == std::string::npos) continue;
+      const unsigned long line = std::strtoul(l.c_str() + p + 1, nullptr, 10);
+      added = opt.symbolicExclude.insert(l.substr(0, p) + '\n' + std::to_string(line)).second || added;
+    }
+    if (!added) break;
+  }
+  opt.bufferSymbolic = false;
+  opt.symbolicExclude.clear();
+  return nullptr;
 }
 
 std::set<std::string> symbolicMacros(const fs::path& path, const LoadOptions& opt,
@@ -614,6 +650,7 @@ class Extractor {
            it->second.name.rfind(kSymbolicPrefix, 0) == 0;
   }
   void suggest(const Leaf& l, Fact& f) const;
+  std::vector<std::string> sourceTokens(const std::string& src) const;
   Range outParamRange(const Function& g, size_t index);
   Range pixelInputRange(const Function& ps, const std::string& semantic);
   struct OutArg {
@@ -696,6 +733,11 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
     t = op.to;
   }
   vecStart = i;
+  // BUFFER_WIDTH / BUFFER_HEIGHT (int) converted to float: a float compile-time input.
+  if (var->kind == Variable::Kind::Uniform && isSymbolic(v.base) && t.is_integral() && t.is_scalar() &&
+      i < v.chain.size() && v.chain[i].op == reshadefx::expression::operation::op_cast &&
+      isFloatType(v.chain[i].to))
+    t.base = reshadefx::type::t_float;
   if (!isFloatType(t)) throw Unsupported("non-float variable");
   for (auto& l : leaves_)
     if (l.var == v.base && l.prefix == text) return l;
@@ -744,6 +786,10 @@ uint32_t chainMask(const std::vector<reshadefx::expression::operation>& chain, s
   if (op.op == O::op_cast && isFloatType(op.to) && op.to.rows < op.from.rows)
     return (1u << op.to.rows) - 1;
   if (op.op == O::op_cast && isFloatType(op.from) && isFloatType(op.to)) return (1u << rows) - 1;
+  // int scalar -> float(N): only symbolic BUFFER_WIDTH / HEIGHT get here (leafOf rejects
+  // other int variables, collect() int arithmetic).
+  if (op.op == O::op_cast && op.from.is_integral() && op.from.is_scalar() && isFloatType(op.to))
+    return (1u << rows) - 1;
   throw Unsupported("access chain");
 }
 
@@ -1200,6 +1246,9 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
   const auto vi = cg_.variables.find(var);
   if (vi == cg_.variables.end()) return Range::unknown();
   const Variable& v = vi->second;
+  // BUFFER_WIDTH / BUFFER_HEIGHT: integers up to the --max-width limit.
+  if (isSymbolic(var) && isBufferSizeMacro(varText(var)))
+    return Range::of(1, opt_.maxWidth, "back buffer size", static_cast<uint32_t>(opt_.maxWidth - 1));
   // A preprocessor definition: the user can set any value, no fact.
   if (isSymbolic(var)) return Range::unknown();
   switch (v.kind) {
@@ -1537,8 +1586,50 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
   const size_t prefixLen = std::strlen(kSymbolicPrefix);
   for (auto& t : ppTokens)
     if (t.rfind(kSymbolicPrefix, 0) == 0) t.erase(0, prefixLen);  // symbolic definitions
-  if (tokens(withoutFetches(src)) != ppTokens) { why = "uses a macro"; return false; }
+  if (sourceTokens(withoutFetches(src)) != ppTokens) { why = "uses a macro"; return false; }
   return true;
+}
+
+// Tokens of source text with object-like macros such as BUFFER_SCREEN_SIZE or
+// BUFFER_RCP_WIDTH expanded when they consist of symbolic definitions, numbers, float
+// types and punctuation only (so the region's IR keeps them symbolic and a variant can
+// spell them out). Other macros stay as they are (the statement is then skipped).
+std::vector<std::string> Extractor::sourceTokens(const std::string& src) const {
+  auto symbolicName = [&](const std::string& t) {
+    return fx_.symbolic.count(t) || (fx_.bufferSymbolic && isBufferSizeMacro(t));
+  };
+  auto plain = [](const std::string& t) {
+    if (t.empty()) return false;
+    if (!std::isalpha(static_cast<unsigned char>(t[0])) && t[0] != '_') return true;  // number, punctuation
+    return t == "float" || t == "float2" || t == "float3" || t == "float4" || t == "int";
+  };
+  std::function<bool(const std::string&, int, std::vector<std::string>&, bool&)> expand =
+      [&](const std::string& t, int depth, std::vector<std::string>& out, bool& sym) {
+        if (symbolicName(t)) {
+          out.push_back(t);
+          sym = true;
+          return true;
+        }
+        const auto it = fx_.objectMacros.find(t);
+        if (it == fx_.objectMacros.end()) {
+          out.push_back(t);
+          return plain(t);
+        }
+        if (depth > 16) return false;
+        for (const auto& u : tokens(it->second))
+          if (!expand(u, depth + 1, out, sym)) return false;
+        return true;
+      };
+  std::vector<std::string> out;
+  for (const auto& t : tokens(src)) {
+    std::vector<std::string> e;
+    bool sym = false;
+    if (!symbolicName(t) && fx_.objectMacros.count(t) && expand(t, 0, e, sym) && sym)
+      out.insert(out.end(), e.begin(), e.end());
+    else
+      out.push_back(t);
+  }
+  return out;
 }
 
 // IR of a statement's value (with the temporaries in inline_ replaced by their
@@ -1615,9 +1706,12 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       if (d.lo == d.hi) throw Unsupported("input is a constant");  // the compiler folds it
       if (d.compileTime) {
         // The definition's current value: the search specializes on it.
-        const auto m = fx_.userMacros.find(varText(l.var));
-        d.value = m == fx_.userMacros.end() ? 0.5 * (d.lo + d.hi)
-                                            : std::strtod(m->second.c_str(), nullptr);
+        const std::string name = varText(l.var);
+        const auto m = fx_.userMacros.find(name);
+        d.value = name == "BUFFER_WIDTH"             ? fx_.width
+                  : name == "BUFFER_HEIGHT"          ? fx_.height
+                  : m == fx_.userMacros.end()        ? 0.5 * (d.lo + d.hi)
+                                                     : std::strtod(m->second.c_str(), nullptr);
         d.value = std::clamp(d.value, d.lo, d.hi);
       }
       reg.prog.inputs.push_back(d);
