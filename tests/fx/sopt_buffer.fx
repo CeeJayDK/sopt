@@ -4,7 +4,7 @@
 
 texture2D HalfTex { Width = BUFFER_WIDTH / 2; Height = BUFFER_HEIGHT / 2; Format = RGBA8; };
 sampler2D HalfSamp { Texture = HalfTex; };
-static const float2 kPixel = float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
+static const float2 kPixel = float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT); static const float kAspect = BUFFER_HEIGHT * BUFFER_RCP_WIDTH;
 
 void VS(in uint id : SV_VertexID, out float4 pos : SV_Position, out float2 uv : TEXCOORD)
 {
@@ -18,7 +18,8 @@ float4 PS(float4 vpos : SV_Position, float2 uv : TEXCOORD) : SV_Target
 	float2 o = uv * PIXEL_SIZE + uv * uv;
 	float d = uv.x * (BUFFER_WIDTH / 3) + uv.y;
 	float k = uv.x * kPixel.x + uv.y * kPixel.y;
-	return float4(g, o, d + k) + tex2D(HalfSamp, uv);
+	float a = uv.x * kAspect + uv.y * uv.y;
+	return float4(g, o, d + k + a) + tex2D(HalfSamp, uv);
 }
 
 technique Buffer { pass { VertexShader = VS; PixelShader = PS; } }

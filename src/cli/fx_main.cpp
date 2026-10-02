@@ -331,8 +331,8 @@ int main(int argc, char** argv) {
         }
       }
       fx::LoadOptions alt = sym;
-      alt.width = 2560;
-      alt.height = 1440;
+      alt.width = fx::kAltWidth;
+      alt.height = fx::kAltHeight;
       std::string altErr;
       auto fx2 = fx::loadEffect(p, alt, altErr);
       info.effects.push_back(p.string());

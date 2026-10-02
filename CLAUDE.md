@@ -105,7 +105,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   syntax: `modernFetch` turns deprecated tex2Doffset/tex2Dlodoffset/tex2Dgather(s, c, n)
   into tex2D(s, c, o)/tex2Dlod(s, c, o)/tex2DgatherR..A (owner via crosire)), windows
   (single-use temporaries inlined), ranges (`Range`, reaching definitions, loops),
-  budget from use, and a second parse at 2560x1440 to drop resolution-dependent ones.
+  budget from use, and a second parse at 5120x1440 (32:9) to drop resolution-dependent ones.
 - `src/fx/variants`: `compiledCost` (contraction, modifiers, swizzles free), variant
   files (switch per region, `SOPT_ALL`, overlap resolution), Markdown report.
   `src/cli/fx_main.cpp`: sopt-fx (parallel search, filters, --isa/--sass, re-parse).
@@ -722,7 +722,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   points each with that input at the other operand's value and its two neighbours (grid steps on a
   grid), up to 512 points; only in makeRandomPoints(withSpecials) (stage 2, V1, library check, bound
   points), not the search's test points. The ASCII case (tests threshold_points) is rejected now; all
-  129 library rules pass. Owner: the second parse should be a super ultrawide resolution.
+  129 library rules pass. Bench (examples, time 30, before / after): identical bests, iterations and
+  first hits, verify times the same. Second parse now 5120x1440 (32:9 super ultrawide, owner;
+  fx::kAltWidth / kAltHeight) instead of 2560x1440 (same aspect as 1920x1080): 12 packages + Warp-FX,
+  aspect-ratio-only regions newly skipped: AspectRatioSuite 191 / 196, LAUNCHPAD 802 / 803, qUINT_dof 359,
+  Warp-FX RadialSlitScan 44 (none of them in a test package). Next: narrower ranges for size-derived
+  values, then static const initializers (ReShade::PixelSize etc.: the deprecated static const branch of
+  ReShade.fxh is the one ReShade compiles; the function form is only under __RESHADE_FXC__).
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

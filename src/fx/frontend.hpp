@@ -46,6 +46,10 @@ struct Effect {
   std::map<std::string, std::string> objectMacros;
 };
 
+// The second parse that finds resolution-dependent regions: a 32:9 super ultrawide
+// size, so a region that depends only on the aspect ratio differs from 1920x1080 too.
+inline constexpr unsigned kAltWidth = 5120, kAltHeight = 1440;
+
 // The back buffer size macros that bufferSymbolic keeps symbolic.
 inline bool isBufferSizeMacro(const std::string& name) {
   return name == "BUFFER_WIDTH" || name == "BUFFER_HEIGHT";

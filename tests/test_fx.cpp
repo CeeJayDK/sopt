@@ -31,8 +31,8 @@ Loaded load() {
     std::printf("  %s\n", err.c_str());
     return l;
   }
-  lo.width = 2560;
-  lo.height = 1440;
+  lo.width = fx::kAltWidth;
+  lo.height = fx::kAltHeight;
   auto alt = fx::loadEffect(kEffect, lo, err);
   l.skipped.keepDetails = true;
   l.regions = fx::extractRegions(*e, alt.get(), fx::RegionOptions(), l.skipped);
@@ -316,8 +316,8 @@ TEST(fx_buffer_inputs) {
   }
   // The texture size and static const lines need constants: they keep the numbers.
   CHECK(lo.symbolicExclude.size() == 2);
-  lo.width = 2560;
-  lo.height = 1440;
+  lo.width = fx::kAltWidth;
+  lo.height = fx::kAltHeight;
   auto alt = fx::loadEffect(path, lo, err);
   CHECK(alt != nullptr);
   fx::SkipCount sk;
@@ -353,6 +353,24 @@ TEST(fx_buffer_inputs) {
   CHECK(region(19) == nullptr && skipped(19, "non-float arithmetic"));
   // kPixel is a static const (numbers): still resolution dependent.
   CHECK(region(20) == nullptr && skipped(20, "depends on BUFFER_WIDTH/HEIGHT"));
+  // Baked sizes: kAspect = H / W is 0.5625 at 1920x1080 and at 2560x1440; the 32:9 second
+  // parse sees that the region depends on the aspect ratio.
+  fx::LoadOptions plain;
+  auto p1 = fx::loadEffect(path, plain, err);
+  plain.width = fx::kAltWidth;
+  plain.height = fx::kAltHeight;
+  auto p2 = fx::loadEffect(path, plain, err);
+  CHECK(p1 != nullptr && p2 != nullptr);
+  if (!p1 || !p2) return;
+  fx::SkipCount sk2;
+  sk2.keepDetails = true;
+  bool aspectRegion = false;
+  for (const auto& r : fx::extractRegions(*p1, p2.get(), fx::RegionOptions(), sk2))
+    aspectRegion = aspectRegion || (r.line == 21 && r.removed.empty());
+  bool aspectSkipped = false;
+  for (const auto& d : sk2.details)
+    aspectSkipped = aspectSkipped || d.find("sopt_buffer.fx:21: depends on BUFFER_WIDTH/HEIGHT") != std::string::npos;
+  CHECK(!aspectRegion && aspectSkipped);
 }
 
 TEST(fx_chain_windows) {
