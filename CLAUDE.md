@@ -663,7 +663,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   says so): (1) warm-up before measuring and a fresh mad base right before every test, so a GPU clock change
   only hits one test, with a warning when the base drifts (the RTX 4070 run); (2) the new
   fast-form tests (signmad, signsat, signclamp, signsel, signsel2, roundadd, flooradd, fracadd, already
-  in the code); (3) a VERSIONINFO resource (product, version, description) and a manifest for
+  in the code); (3) CSV: gpu / vendor / device / driver once in header lines at the top instead of on every
+  row (owner; the table script must read both formats); (4) a VERSIONINFO resource (product, version, description) and a manifest for
   sopt-opbench.exe: Windows 11 Defender flags the static-CRT build as Trojan:Win32/Sabsik.FL.A!ml (an ML
   heuristic false positive on an unsigned exe); the dynamic-CRT build is not flagged (owner, 2026-10-02:
   keep that one; CMake back to the default runtime, README names the VC++ redistributable). Report false positives at microsoft.com/en-us/wdsi/filesubmission (per
