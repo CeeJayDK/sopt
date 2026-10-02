@@ -677,5 +677,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   drifting base shown there too. Layout (owner): header banner with program name and the measured card,
   below it "Also detected in system:" with the other adapters (as --list shows them); then one row per
   test in aligned columns: test name, cost, bar, comment (free / cheap / one op / expensive, "≈6 mads").
+  Each other adapter gets "Use --adapter N to test this" on its right; colors that fit. Display order is
+  fixed, the same on every card: from cheapest to most expensive as expected on most cards (not sorted by
+  the measured card's costs). Measuring order is free; with a fresh base per test it hardly matters.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
