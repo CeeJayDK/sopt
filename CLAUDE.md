@@ -634,7 +634,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   1 op (control), step 2, select / lerp 3, sign 5, rcp / sqrt / rsqrt / exp2 / log2 4 (quarter-rate
   transcendental), exp / sin / cos 5, pow 9, clamp / max3 / minmax 1 op + the v_mov (med3 / max3 one op),
   mul before a mad folded by the driver (-1.4). GCN, not RDNA (the rdna3 model is from RGA on gfx1100).
-  GTX 1660 Ti (nvidia-gtx-1660-ti.csv): unreliable like the
+  Owner's parents' laptop (amd-radeon-hd-7400m-as-intel-hd-3000.csv): with
+  switchable graphics on "high performance" DXGI still names the Intel HD 3000 (0x8086 / 0x0116), but the
+  work ran on the Radeon HD 7400M: feature level 11_0 succeeded (HD 3000 has 10_1 only), and the numbers
+  are VLIW (TeraScale 2): add / mul / min / max / floor / abs 2.6, rcp / sqrt / exp2 10.6 tput but 2.5 dep
+  (the transcendental slot runs beside the chain), sin 16, sign 11, pow 24; omod2 / omod3 0.2 alike.
+ GTX 1660 Ti (nvidia-gtx-1660-ti.csv): unreliable like the
   first RTX 4070 run (neg -1.82, satmad +6.8: the clock changed during the run); rerun with locked clocks asked. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
   Blackwell models, targeted searches, library rules, opbench tests, precise in sopt-fx).
@@ -706,7 +711,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   are int loop counters / indices. Real bit code (shifts, asuint / asfloat, reversebits) is almost all
   iMMERSE (LAUNCHPAD, mmx_qmc / mmx_sfc / mmx_hash: hashes, QMC sequences, space-filling curves; it
   already uses asfloat((u >> 9) | 0x3F800000) - 1 for uint -> [0, 1)).
-- Back buffer size inputs (owner's go 2026-10-02; sopt-fx `--buffer-inputs`, OFF by default, see below): BUFFER_WIDTH /
+- Back buffer size inputs (owner's go 2026-10-02; sopt-fx default since 2026-10-02 by the owner's decision, `--no-buffer-inputs`): BUFFER_WIDTH /
   BUFFER_HEIGHT symbolic as `uniform int __sopt_...` (int keeps BUFFER_WIDTH / 3 an integer division;
   only int -> float conversions of them become compile-time float inputs, range [1, --max-width] as a
   fact, grid 1, value = the parse's 1920 / 1080); lines that need a constant (texture / array sizes,

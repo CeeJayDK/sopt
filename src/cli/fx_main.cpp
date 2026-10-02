@@ -125,9 +125,8 @@ void usage() {
       "  --ask             ask for the missing ranges in the terminal (Enter = suggestion)\n"
       "  --no-macro-inputs bake preprocessor definitions in instead of keeping the ones\n"
       "                    users can change as compile-time inputs\n"
-      "  --buffer-inputs   BUFFER_WIDTH / BUFFER_HEIGHT as compile-time inputs in [1, max width]\n"
-      "                    instead of baked in (regions that depend on them are skipped);\n"
-      "                    experimental: wide derived ranges, see CLAUDE.md\n"
+      "  --no-buffer-inputs bake BUFFER_WIDTH / BUFFER_HEIGHT in (and skip regions that depend\n"
+      "                    on them) instead of compile-time inputs in [1, max width]\n"
       "  --max-width N     largest render target width: SV_Position in [0, N], texture\n"
       "                    coordinates within 0.01 px at N (default 7680 = 8K; the\n"
       "                    hardware limit is 16384)\n"
@@ -169,7 +168,7 @@ int main(int argc, char** argv) {
   // Only the cheapest few variants per region are written: verifying 50 wastes time.
   opt.maxAlternatives = 20;
   bool isa = false, sass = false, backends = false, allowAssumed = false, ask = false, symbolic = true,
-       bufferInputs = false;
+       bufferInputs = true;
   fs::path factsFile;
   IsaConfig isaCfg;
   if (const char* v = std::getenv("SOPT_FXSTAT")) isaCfg.fxstat = v;
