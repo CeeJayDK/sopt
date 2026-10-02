@@ -125,8 +125,9 @@ void usage() {
       "  --ask             ask for the missing ranges in the terminal (Enter = suggestion)\n"
       "  --no-macro-inputs bake preprocessor definitions in instead of keeping the ones\n"
       "                    users can change as compile-time inputs\n"
-      "  --no-buffer-inputs bake BUFFER_WIDTH / BUFFER_HEIGHT in (and skip regions that\n"
-      "                    depend on them) instead of compile-time inputs in [1, max width]\n"
+      "  --buffer-inputs   BUFFER_WIDTH / BUFFER_HEIGHT as compile-time inputs in [1, max width]\n"
+      "                    instead of baked in (regions that depend on them are skipped);\n"
+      "                    experimental: wide derived ranges, see CLAUDE.md\n"
       "  --max-width N     largest render target width: SV_Position in [0, N], texture\n"
       "                    coordinates within 0.01 px at N (default 7680 = 8K; the\n"
       "                    hardware limit is 16384)\n"
@@ -168,7 +169,7 @@ int main(int argc, char** argv) {
   // Only the cheapest few variants per region are written: verifying 50 wastes time.
   opt.maxAlternatives = 20;
   bool isa = false, sass = false, backends = false, allowAssumed = false, ask = false, symbolic = true,
-       bufferInputs = true;
+       bufferInputs = false;
   fs::path factsFile;
   IsaConfig isaCfg;
   if (const char* v = std::getenv("SOPT_FXSTAT")) isaCfg.fxstat = v;
@@ -260,6 +261,7 @@ int main(int argc, char** argv) {
     else if (a == "--facts") factsFile = next();
     else if (a == "--ask") ask = true;
     else if (a == "--no-macro-inputs") symbolic = false;
+    else if (a == "--buffer-inputs") bufferInputs = true;
     else if (a == "--no-buffer-inputs") bufferInputs = false;
     else if (a == "--max-width") ropt.maxWidth = std::strtod(next(), nullptr);
     else if (a == "--no-format-checks") formatChecks = false;

@@ -692,7 +692,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   are int loop counters / indices. Real bit code (shifts, asuint / asfloat, reversebits) is almost all
   iMMERSE (LAUNCHPAD, mmx_qmc / mmx_sfc / mmx_hash: hashes, QMC sequences, space-filling curves; it
   already uses asfloat((u >> 9) | 0x3F800000) - 1 for uint -> [0, 1)).
-- Back buffer size inputs (owner's go 2026-10-02; sopt-fx default, `--no-buffer-inputs`): BUFFER_WIDTH /
+- Back buffer size inputs (owner's go 2026-10-02; sopt-fx `--buffer-inputs`, OFF by default, see below): BUFFER_WIDTH /
   BUFFER_HEIGHT symbolic as `uniform int __sopt_...` (int keeps BUFFER_WIDTH / 3 an integer division;
   only int -> float conversions of them become compile-time float inputs, range [1, --max-width] as a
   fact, grid 1, value = the parse's 1920 / 1080); lines that need a constant (texture / array sizes,
@@ -702,7 +702,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   "uses a macro" check (`sourceTokens`); variant code writes float(BUFFER_WIDTH). 12 packages: +86
   regions, 0 parse failures; ReShade::PixelSize etc. (static const in ReShade.fxh) still numbers (39
   "depends on BUFFER_WIDTH/HEIGHT"). The owner's dithers (Nostalgia 530, Deband 229, DisplayDepth 243) are
-  regions now: nothing cheaper than frac(dot()). A/B corpus run pending.
+  regions now: nothing cheaper than frac(dot()). A/B (time 3, new vs baked): reshade-shaders 37 -> 43
+  regions, Fubax 181 -> 210, Warp-FX 54 -> 52 (RadialSlitScan ar_raw = H / W: baked it was 0.5625 and the
+  2560x1440 second parse has the same aspect ratio, so the old check misses aspect-ratio-only
+  dependence; open: second parse at another aspect ratio?), same regions with variants; SweetFX 10 -> 26
+  regions with variants, all 16 new in ASCII.fx and WRONG ones among them: gray < 4.0 * quant ->
+  gray < 0.25 "bit-exact" (right only for quant = 1/16; line 338 is in the quant = 1/13 branch).
+  Cause: with symbolic sizes the interval analysis widens gray to [-1.3, 25600] (trunc(S / block * tex)
+  * (block / S) loses the correlation), and uniform sampling misses the 0.06-wide window where the
+  threshold differs (baked: gray ~[0, 1], caught). Hence off by default. Fix proposed to the owner:
+  threshold points (for comparisons / step / select whose operand is an input, sample that input at the
+  other operand's value and its neighbours), and maybe ranges from the specialized sizes.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).
