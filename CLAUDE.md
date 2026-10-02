@@ -624,7 +624,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   test (add 3.4, min 4.5, clamp 10, select 11, lerp 7.9, MUFU / floor 23.6, sign 27.7, pow 52), so Ada
   groups with Ampere (nvidia-ampere covers RTX 30 / 40); run to run tput within 0.2 except single spikes
   (sqrt 2.2, omod3 2.2, max3 1.1, min 0.55); dep / lat noisier (up to 3.8). Groups follow the
-  architecture names. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+  architecture names. GT 1030 (Pascal, GP108, ~1.2 TFLOPS from the mad rate): MUFU / floor / ceil / round /
+  frac ~10, add / sub 3.5, min / max / step 6.8 (no free ALU-pipe min / max as on Turing), abs and -abs
+  3.5 (not free here, neg is), saturate 0.2, clamp 14, select 12, lerp 7.6, sign 10.5, pow 24, max3 /
+  minmax +7.1: its own group, no model yet. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
   Blackwell models, targeted searches, library rules, opbench tests, precise in sopt-fx).
   sign: fxc lowers it to lt, lt, iadd, itof (the int->float conversion is quarter rate on Ampere /
