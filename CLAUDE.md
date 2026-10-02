@@ -673,7 +673,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   build); code signing (Azure Trusted Signing, or SignPath if the repo is public) is the real fix, later.
   (5) (owner) after the run, print a readable summary in the console: tput cost per op ("rcp costs 23.6 =
   ~6 mads"), grouped (free / cheap / one op / expensive), with colors (ANSI via
-  ENABLE_VIRTUAL_TERMINAL_PROCESSING, plain text fallback) and some ASCII / terminal art (header banner,
-  bar per op); warnings for a drifting base shown there too.
+  ENABLE_VIRTUAL_TERMINAL_PROCESSING, plain text fallback) and some ASCII / terminal art; warnings for a
+  drifting base shown there too. Layout (owner): header banner with program name and the measured card,
+  below it "Also detected in system:" with the other adapters (as --list shows them); then one row per
+  test in aligned columns: test name, cost, bar, comment (free / cheap / one op / expensive, "≈6 mads").
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
