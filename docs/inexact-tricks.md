@@ -1,0 +1,126 @@
+# Not-exact and conditional tricks
+
+Rewrites that look like faster versions of a shader expression but are not exact everywhere.
+They are collected here for two reasons: so sopt (and we) can recognise and avoid them when
+they turn up again, and so a programmer can still use one where the stated limitation cannot
+affect their code.
+
+"Exact" means: the same float32 result as the original for every input in the stated range (or
+within sopt's budget for the region). Costs are throughput units where one mad = 4 (sopt-opbench,
+docs/opbench/; Turing = GTX 1660 / RTX 2060 S, Ampere = RTX 3050, Blackwell = RTX 5080 / 5090,
+Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
+
+## Conditional tricks: exact under a condition
+
+### Two-way sign: `x >= 0.0 ? 1.0 : -1.0`
+- Replaces `sign(x)`. 2 instructions (ge + movc), no int -> float conversion.
+- Cost: Turing 4.3, Ampere 10.6, Blackwell 8, Intel ~7.5 (sign: 8.4, 28, 18, 14.5).
+- **What's wrong:** gives 1 at x = 0 (and at -0) where sign gives 0.
+- **Safe when** the result is multiplied by something that is 0 at x = 0, e.g. the signed power
+  `sign(x) * pow(abs(x), g)` with g > 0. That case is a library rule; sopt finds it on Turing.
+
+### The `* 1e38` saturate forms (sign, and the floor / ceil / frac forms below)
+- `sign(x) -> mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0)` (mad_sat + mad, 2 instructions; found
+  by sopt), `saturate(x * 1e38) - saturate(x * -1e38)`, `clamp(x * 1e38, -1.0, 1.0)`.
+- Cost of the 2-instruction form: ~10 on Ampere / Blackwell / Intel (sign 28 / 18 / 14.5).
+- **What's wrong:** nothing where fp32 denormals are flushed to zero (D3D10+ requires that for
+  math instructions): any normal x times 1e38 is at least 1 in magnitude. Where denormals are kept
+  (possible on some Vulkan / OpenGL drivers), a denormal x gives a value between -1 and 1 instead
+  of +-1. Checked on every float in [-2^22, 2^22] with FTZ: exact.
+
+### Add-round: `(x + 12582912.0) - 12582912.0` = `round(x)`
+- 12582912 = 1.5 * 2^23: x + 1.5 * 2^23 lands where the float spacing is 1, so the add rounds x
+  to the nearest integer (ties to even, like HLSL round). 2 adds.
+- Cost: 8 (round: Ampere 24, Blackwell 23, Turing 12; Intel and AMD 4, no gain there).
+- Built on it (5 instructions each, exact, every float in [-2^22, 2^22] checked):
+  `floor(x) = r - saturate((r - x) * 1e38)`, `ceil(x) = r + saturate((x - r) * 1e38)`,
+  `frac(x) = d + saturate(d * -1e38)` with `r` the add-round and `d = x - r`. Ampere / Blackwell
+  23-24 -> 20-21.
+- **What's wrong:** only valid for |x| <= 2^22 (4194304); beyond that the add no longer rounds to
+  integers. And **fxc -O3 folds `(x + c) - c` back to `x`** (see Pitfalls), which silently gives
+  a wrong result (`mad(uv.x, 1000, C) - C` became `uv.x * 1000`). Write it as `precise`:
+  `precise float r = (x + 12582912.0) - 12582912.0;` sopt-fx does this automatically.
+
+### `floor(SV_Position.xy)` = `SV_Position.xy - 0.5`
+- Pixel centres are at n + 0.5, so subtracting 0.5 is exact and gives the integer pixel index.
+  1 instruction instead of floor (Ampere / Blackwell 23-24).
+- **What's wrong:** only for positions at pixel centres. With per-sample shading (MSAA sample
+  frequency) the positions are not n + 0.5. Not yet a fact sopt knows (SV_Position is treated as
+  any value in [0, 7680]).
+- The general form `floor(x) -> round(x - 0.5)` is **wrong at every odd integer** (n - 0.5 is a
+  tie and rounds to the even neighbour n - 1): 1000 of the 2001 integers in [-1000, 1000].
+
+### Short ceil: `(x + C) - ((x + C) - (x + 0.5))`, C = 12582912
+- Found by sopt for Blackwell: 4 adds (cost 16 against ceil 23 and the exact form's 21).
+- **What's wrong:** gives 0 instead of 1 for 0 < x <= 2^-25 (2.98e-8): there `x + 0.5` rounds to
+  0.5 and the tie in the second subtraction goes to the even value. Exact for every other float
+  in [-2^22, 2^22] (checked exhaustively). Needs `precise` like the add-round.
+- **Safe when** x cannot be a tiny positive value (e.g. x on a grid such as a texel or pixel
+  coordinate, or x known to be >= 2^-24 or <= 0).
+- Passed sopt's sampled verification as bit-exact until the sampler got tiny magnitudes
+  (2026-10-02); now rejected.
+
+### `frac(frac(a)) -> frac(a)` (from Mesa)
+- **What's wrong:** for tiny negative a, `frac(a)` rounds to 1.0 (`frac(-1e-20) = 1.0` in float)
+  and `frac(1.0)` is 0. Exact for a >= 0 (the library rule now says so).
+
+## Not exact: avoid unless the error does not matter
+
+### Clamp by scaling: `mad(saturate(mad(x, 1/(b - a), -a/(b - a))), b - a, a)`
+- Replaces `clamp(x, a, b)` with constant a, b: 2 instructions (mad_sat + mad).
+- **What's wrong:** the scale there and back rounds twice, so values inside (a, b) move by a few
+  ulps of max(|a|, |b|); near 0 (when a < 0 < b) the relative error gets large; the end point b
+  can come out one ulp off.
+- Also not faster: ~8 against clamp 7.8 on Blackwell and ~8 on Intel; worse on Turing (clamp 4.1,
+  min / max nearly free) and on AMD (clamp is one v_med3). Only Ampere gains a little (8 vs 10).
+
+### Reassociating additions: `(a + b) + c -> a + (b + c)` and the like
+- **What's wrong:** where two terms nearly cancel, the order decides the result
+  (58.6359 + -58.9101 + 1.206 differs between the orders). fxc may reassociate anyway; `precise`
+  stops it.
+
+### `lerp` <-> `a + t * (b - a)` / `a * (1 - t) + b * t` and related forms
+- **What's wrong:** the forms round differently and cancel differently once t is outside [0, 1]
+  (failing points had t = -3.9, -39.6, -86.8, 2.002); GPUs also implement lerp in different ways
+  (sopt's `mix` profile). Interchangeable for t in [0, 1] (the library rules that pass say
+  `where t in [0, 1]`). Mesa rules rejected for this: `a + c * (b - a) -> lerp(a, b, c)`,
+  `lerp(a + b, a + c, d) -> lerp(b, c, d) + a`, `mad(b - a, a, a) -> lerp(a, b, a)`,
+  `a * (2 - a) -> lerp(a, 1, a)`, `1 - (1 - a)(1 - b) -> lerp(b, 1, a)`,
+  `1 + c * (b - 1) -> (1 - c) + b * c`.
+
+### `t * (1 - t) -> t - t * t`
+- **What's wrong:** loses relative precision near t = 1 without fma (t - t * t cancels).
+
+### pow / exp2 / log2 identities
+- `pow(a, b) -> exp2(log2(a) * b)`: this *is* how fxc lowers pow, so on the GPU it changes
+  nothing; it differs from C's pow only for a < 0 (GPU pow is undefined there).
+- `exp2(log2(a) * b + log2(c) * d) -> pow(a, b) * pow(c, d)`: each pow can overflow or underflow
+  where the combined exponent is fine.
+- `pow(abs(pow(a, 2.2)), 0.454545) -> abs(a)`: 0.454545 is not exactly 1 / 2.2, so the gamma
+  round trip is not the identity (error grows with |log a|).
+- `log2(pow(a, b)) -> b * log2(a)`: differs at a = 0, b = 0 (log2(1) = 0 vs 0 * -inf = NaN) and
+  where pow overflows.
+- `exp(x * c) -> exp2(x * (c * log2(e)))`: folding the constant changes the rounding; the
+  relative error grows with |x * c|. The library rules only allow it for |x * c| <= 8.
+
+### Cancelling rational forms (ReShade.fxh reversed depth)
+- The partial-fraction rewrite of the depth linearisation ends in a cancellation
+  (~0.00105 - 0.00100). With the GPU's approximate rcp its relative error at small depths is ~10x
+  the original's: DisplayDepth's normals got visibly noisier. sopt rejects it. The
+  cancellation-free form `(1.0 - d) * rcp(mad(d, F - 1.0, 1.0))` is *more* accurate than the
+  original (an accuracy fix, not a speedup).
+
+### Noise hashes: `frac(sin(dot(uv, k)) * 43758.5)`
+- float32 sin of large arguments is chaotic: the original is off from exact math by up to 1, so
+  "mathematically equal" rewrites give different noise. Only rewrites that keep the same float32
+  noise pass (sopt's noise guard). Swapping in a cheaper hash would need a noise mode that checks
+  distribution instead of values (planned, not done).
+
+## Pitfalls (compiler behaviour, not tricks)
+- **fxc -O3 reassociates float math.** It folds `(x + c) - c` to `x`, even with c a uniform, and
+  merges constant chains. Any trick that relies on a rounding step must be `precise` (ReShade FX
+  supports it and passes it to HLSL, GLSL and SPIR-V). `precise` also applies backwards to the
+  operations that compute the value's inputs, which then are not contracted into mads.
+- **fxc writes `clamp` as `max` + `min`.** Only AMD's driver turns that back into one v_med3.
+- **fxc writes `sign` as lt, lt, iadd, itof.** The int -> float conversion is what makes sign
+  slow on Ampere / Blackwell (see the 1e38 forms above).

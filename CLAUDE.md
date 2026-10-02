@@ -652,6 +652,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   inside the range, not for compile-time / library `const` variables; it rejects that ceil; it also
   showed frac(frac(a)) -> frac(a) (Mesa) wrong for tiny negative a (now `where a >= 0`). Bench (examples,
   time 30): identical.
+- docs/inexact-tricks.md (owner, 2026-10-02): every not-exact or conditional trick we find, with what is
+  wrong with it and when it is safe (to avoid them when found again, and for programmers who can rule
+  the limitation out). Add new ones there as they turn up.
 - opbench version 2 (owner, 2026-10-02: wait a day for more reports, then release together): the new
   fast-form tests (signmad, signsat, signclamp, signsel, signsel2, roundadd, flooradd, fracadd, already
   in the code) plus a VERSIONINFO resource (product, version, description) and a manifest for
