@@ -616,7 +616,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9` an
   RTX 5080 (DXGI reported a 4090 ID, spoofed: its fma rate 57 TFLOPS is a 5080's) and RTX 5090
   practically identical (Blackwell: MUFU and floor / ceil / round / frac ~23, add 3.4, min / max / step
   3.3, clamp / select ~8, lerp ~8, sign 18, pow 50); RTX 3050 (Ampere) close except min / max 4.5,
-  clamp / select ~10, sign 28. Groups follow the architecture names. No Ampere / Blackwell model yet:
+  clamp / select ~10, sign 28; Intel UHD 630 (Gen9.5, owner's iGPU) = Iris 540 within ~0.5 (intel-gen9 holds
+  for Gen9.5). Groups follow the architecture names. No Ampere / Blackwell model yet:
   waiting for more reports (Ada, AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
