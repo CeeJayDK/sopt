@@ -640,7 +640,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   are VLIW (TeraScale 2): add / mul / min / max / floor / abs 2.6, rcp / sqrt / exp2 10.6 tput but 2.5 dep
   (the transcendental slot runs beside the chain), sin 16, sign 11, pow 24; omod2 / omod3 0.2 alike.
  GTX 1660 Ti (nvidia-gtx-1660-ti.csv): unreliable like the
-  first RTX 4070 run (neg -1.82, satmad +6.8: the clock changed during the run); rerun with locked clocks asked. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+  first RTX 4070 run (neg -1.82, satmad +6.8: the clock changed during the run); the rerun
+  (nvidia-gtx-1660-ti-2.csv, new driver, "Prefer maximum performance") still is: neg -0.55, add 2.9, MUFU
+  14.2, satmad +2.2 (boost / temperature still move the clock; v1 cannot correct it): v2 run wanted.
+  First RDNA (amd-radeon-rx-9070-xt.csv, 0x7550, RDNA 4, clean: neg 0.03): the mad base runs at the
+  dual-issue rate (~46.7 TFLOPS from it, spec ~48.7), so ops that cannot dual-issue show as 2 mads:
+  add / mad2 / contract 4, min / max 4.7, floor / ceil / round / frac / clamp 7.9, select 11.7, step 12.2,
+  lerp 9.7, rcp / rsqrt / sqrt / exp2 / log2 / sin / cos ~26, pow 58, sign 38 (slowest sign so far; the
+  mad_sat form ~8), omod2 / omodhalf ~0 (output modifier on RDNA too), omod3 2.8, max3 / minmax +3.1,
+  satmad -0.45, mul folded (0.38). No RDNA 4 model yet (owner's go needed).
+  RTX 4090 Laptop (nvidia-rtx-4090-laptop.csv, Ada): tput / dep unreliable (neg -2.6, add / mul / min
+  negative: laptop power management), only lat plausible (rcp / floor ~18, add 4): v2 run wanted. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
   Blackwell models, targeted searches, library rules, opbench tests, precise in sopt-fx).
   sign: fxc lowers it to lt, lt, iadd, itof (the int->float conversion is quarter rate on Ampere /
