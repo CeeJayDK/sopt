@@ -619,5 +619,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9` an
   clamp / select ~10, sign 28; Intel UHD 630 (Gen9.5, owner's iGPU) = Iris 540 within ~0.5 (intel-gen9 holds
   for Gen9.5). Groups follow the architecture names. No Ampere / Blackwell model yet:
   waiting for more reports (Ada, AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+- Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; plan not yet agreed).
+  sign: fxc lowers it to lt, lt, iadd, itof (the int->float conversion is quarter rate on Ampere /
+  Blackwell: sign 18-28). Conversion-free exact forms (fxc output checked): saturate(x * 1e38) -
+  saturate(x * -1e38) (mul_sat + add), clamp(x * 1e38, -1, 1) (mul, max, min; AMD med3),
+  x > 0 ? 1 : (x < 0 ? -1 : 0) (lt, lt, and, movc); exact given FTZ (D3D10+ flushes fp32 denormals).
+  x >= 0 ? 1 : -1 (ge + movc) is NOT sign (1 at 0); owner: check it as a context-dependent
+  replacement when sopt runs (exact where the result is multiplied by something 0 at x = 0, e.g.
+  sign(x) * pow(abs(x), g)). round: (x + 12582912.0) - 12582912.0 (RNE, |x| < 2^22) but fxc -O3 folds
+  (x + c) - c to x, even with a uniform c; `precise` (supported by ReShade FX) keeps it ([precise]
+  adds in DXBC). So fxc reassociates float math: sopt variants relying on rounding need `precise`.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
