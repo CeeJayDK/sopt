@@ -668,6 +668,12 @@ class Extractor {
   std::unordered_map<uint32_t, std::vector<const Statement*>> stmtUses_;
   std::unordered_map<uint32_t, const Function*> paramOf_;
   std::unordered_map<uint32_t, Range> rangeMemo_;
+  // Ranges with BUFFER_WIDTH / BUFFER_HEIGHT fixed to one of kBufferSizes (sizeFix_ >= 0):
+  // interval arithmetic over the symbolic sizes loses correlations such as
+  // trunc(S / b * t) * (b / S), so leaf ranges are the union over these sizes.
+  int sizeFix_ = -1;
+  std::vector<std::unordered_map<uint32_t, Range>> sizeMemo_;
+  Range leafRange(uint32_t valueId);
   std::unordered_set<uint32_t> varBusy_;
   std::unordered_set<uint64_t> localBusy_;  // (variable, load seq)
 
@@ -1085,7 +1091,8 @@ Range Extractor::samplerRange(uint32_t valueId) {
 }
 
 Range Extractor::range(uint32_t id) {
-  if (auto it = rangeMemo_.find(id); it != rangeMemo_.end()) return it->second;
+  auto& memo = sizeFix_ < 0 ? rangeMemo_ : sizeMemo_[sizeFix_];
+  if (auto it = memo.find(id); it != memo.end()) return it->second;
   if (cg_.variables.count(id)) {
     // Call arguments are passed as variables (the parser copies them).
     const auto& d = defs_[id];
@@ -1213,8 +1220,30 @@ Range Extractor::range(uint32_t id) {
     case K::Call: break;
   }
   if (r.known && !(std::isfinite(r.lo) && std::isfinite(r.hi))) r = Range::unknown();
-  rangeMemo_[id] = r;
+  memo[id] = r;
   return r;
+}
+
+// Common back buffer sizes (width, height), from small to 8K, ultrawide and portrait.
+constexpr unsigned kBufferSizes[][2] = {{640, 480},   {800, 600},   {1280, 720},  {1366, 768},
+                                        {1920, 1080}, {2560, 1080}, {2560, 1440}, {3440, 1440},
+                                        {3840, 2160}, {5120, 1440}, {7680, 4320}, {1080, 1920}};
+
+Range Extractor::leafRange(uint32_t id) {
+  Range r = range(id);
+  if (!fx_.bufferSymbolic) return r;
+  constexpr size_t n = sizeof(kBufferSizes) / sizeof(kBufferSizes[0]);
+  sizeMemo_.resize(n);
+  Range u;
+  for (size_t k = 0; k < n; ++k) {
+    sizeFix_ = static_cast<int>(k);
+    const Range rk = range(id);
+    u = k == 0 ? rk : unite(u, rk);
+  }
+  sizeFix_ = -1;
+  if (!u.known || (r.known && u.lo <= r.lo && u.hi >= r.hi)) return r;
+  u.why = "derived (at common back buffer sizes)";
+  return u;
 }
 
 // "<file> <function> <name>" (uniforms: function "global").
@@ -1247,8 +1276,13 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
   if (vi == cg_.variables.end()) return Range::unknown();
   const Variable& v = vi->second;
   // BUFFER_WIDTH / BUFFER_HEIGHT: integers up to the --max-width limit.
-  if (isSymbolic(var) && isBufferSizeMacro(varText(var)))
+  if (isSymbolic(var) && isBufferSizeMacro(varText(var))) {
+    if (sizeFix_ >= 0) {
+      const double x = kBufferSizes[sizeFix_][varText(var) == "BUFFER_WIDTH" ? 0 : 1];
+      return Range::of(x, x, "back buffer size");
+    }
     return Range::of(1, opt_.maxWidth, "back buffer size", static_cast<uint32_t>(opt_.maxWidth - 1));
+  }
   // A preprocessor definition: the user can set any value, no fact.
   if (isSymbolic(var)) return Range::unknown();
   switch (v.kind) {
@@ -1673,7 +1707,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       }
       d.type = floatType(w);
       d.compileTime = !l.fetch && isSymbolic(l.var);
-      Range r = range(l.loadValue);
+      Range r = d.compileTime ? range(l.loadValue) : leafRange(l.loadValue);
       Fact fact;
       fact.input = d.name;
       const bool plainVar = !l.fetch && cg_.variables.count(l.var) && l.prefix == varText(l.var);
