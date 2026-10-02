@@ -611,6 +611,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9` an
   max ~4: FP32 min / max / compare / select run on the ALU pipe beside the FMAs (one is free next to a
   mad, two cost one op). Owner (2026-10-01): one profile per family / generation where results group,
   not one per vendor. Cost model `nvidia-turing` (ops.cpp kNvidiaTuring, search order): measured values,
-  min / max / step / compares / select 2 each (additive approximation of the dual pipe). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+  min / max / step / compares / select 2 each (additive approximation of the dual pipe). Community runs (owner's call
+  for tests, 2026-10-02; docs/opbench/): RTX 2060 Super = GTX 1660 (nvidia-turing holds for RTX 20 too);
+  RTX 5080 (DXGI reported a 4090 ID, spoofed: its fma rate 57 TFLOPS is a 5080's) and RTX 5090
+  practically identical (Blackwell: MUFU and floor / ceil / round / frac ~23, add 3.4, min / max / step
+  3.3, clamp / select ~8, lerp ~8, sign 18, pow 50); RTX 3050 (Ampere) close except min / max 4.5,
+  clamp / select ~10, sign 28. Groups follow the architecture names. No Ampere / Blackwell model yet:
+  waiting for more reports (Ada, AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
