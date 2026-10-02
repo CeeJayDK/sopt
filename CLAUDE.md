@@ -659,9 +659,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 - docs/inexact-tricks.md (owner, 2026-10-02): every not-exact or conditional trick we find, with what is
   wrong with it and when it is safe (to avoid them when found again, and for programmers who can rule
   the limitation out). Add new ones there as they turn up.
-- opbench version 2 (owner, 2026-10-02: wait a day for more reports, then release together): the new
+- opbench version 2 WISHLIST (owner, 2026-10-02: collect more reports first; build only when the owner
+  says so): (1) warm-up before measuring and a fresh mad base right before every test, so a GPU clock change
+  only hits one test, with a warning when the base drifts (the RTX 4070 run); (2) the new
   fast-form tests (signmad, signsat, signclamp, signsel, signsel2, roundadd, flooradd, fracadd, already
-  in the code) plus a VERSIONINFO resource (product, version, description) and a manifest for
+  in the code); (3) a VERSIONINFO resource (product, version, description) and a manifest for
   sopt-opbench.exe: Windows 11 Defender flags the static-CRT build as Trojan:Win32/Sabsik.FL.A!ml (an ML
   heuristic false positive on an unsigned exe); the dynamic-CRT build is not flagged (owner, 2026-10-02:
   keep that one; CMake back to the default runtime, README names the VC++ redistributable). Report false positives at microsoft.com/en-us/wdsi/filesubmission (per
