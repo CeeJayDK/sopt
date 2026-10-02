@@ -620,9 +620,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   for Gen9.5); RTX 2070 = Turing; RTX 4070 (Ada, ray_st) is unreliable: its mad base ran slow (neg / abs
   came out -1.8, mul -1.4) and exp2 / log2 / sin / exp doubled while cos did not, i.e. the GPU clock changed
   during the run; rescaled to neg it matches the RTX 3050 (min 4.5, clamp 9.9, floor / rcp 23.6, sign 31).
-  Asked for a rerun; opbench v2 idea: warm-up and a fresh mad base next to every test. Groups follow the
-  architecture names. No Ampere / Blackwell model yet:
-  waiting for more reports (Ada, AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+  Rerun with locked clocks (2 runs, nvidia-rtx-4070-locked*.csv): tput = RTX 3050 within ~0.6 on every
+  test (add 3.4, min 4.5, clamp 10, select 11, lerp 7.9, MUFU / floor 23.6, sign 27.7, pow 52), so Ada
+  groups with Ampere (nvidia-ampere covers RTX 30 / 40); run to run tput within 0.2 except single spikes
+  (sqrt 2.2, omod3 2.2, max3 1.1, min 0.55); dep / lat noisier (up to 3.8). Groups follow the
+  architecture names. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
   Blackwell models, targeted searches, library rules, opbench tests, precise in sopt-fx).
   sign: fxc lowers it to lt, lt, iadd, itof (the int->float conversion is quarter rate on Ampere /
