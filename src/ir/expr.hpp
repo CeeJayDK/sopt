@@ -117,6 +117,10 @@ bool takesOmod(Op op);
 bool isOmodScale(float v);
 bool containsInexact(const Expr& e);
 bool containsOp(const Expr& e, Op op);
+// Whether e relies on exact float rounding that fxc -O3 would reassociate away: (v + c) - c,
+// (v + c) + -c or mad(a, b, c) - c with |c| >= 2^22 (the add-round trick). Such forms must be
+// written as precise.
+bool needsPrecise(const Expr& e);
 Type nodeType(const Expr& e, uint32_t node);
 unsigned operandCount(const Node& n);
 std::string toString(const Expr& e, const std::vector<InputDecl>& inputs);

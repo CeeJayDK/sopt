@@ -161,3 +161,17 @@ a * (1.0 - c) + b * c -> lerp(a, b, c)
 mad(-a, -b, c) -> mad(a, b, c)
 mad(a, b, c * d) + e -> mad(a, b, mad(c, d, e))
 mad(a, b, mad(c, d, e * f)) + g -> mad(a, b, mad(c, d, mad(e, f, g)))
+
+# fast forms of ops that are expensive on some GPUs (owner, 2026-10-02; docs/opbench/)
+# sign: fxc writes lt, lt, iadd, itof; the int -> float conversion is quarter rate on NVIDIA Ampere /
+# Blackwell (sign 18-28 against 4 for a mad). These have no conversion; exact with FTZ (D3D10+ flushes
+# fp32 denormals): any normal x times 1e38 is at least 1 in magnitude.
+sign(x) -> mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0)   # mad_sat + mad (found by sopt from the rule below)
+sign(x) -> saturate(x * 1e38) - saturate(x * -1e38)   # mul_sat (one DXBC instruction) + add
+sign(x) -> clamp(x * 1e38, -1.0, 1.0)                 # mul + med3 on AMD, mul + min + max elsewhere
+sign(x) -> x > 0.0 ? 1.0 : (x < 0.0 ? -1.0 : 0.0)    # lt, lt, and, movc
+# a two-way select is not sign (1 at x = 0), but is where the product is 0 at x = 0
+sign(x) * pow(abs(x), c) -> (x >= 0.0 ? 1.0 : -1.0) * pow(abs(x), c)   where c const, c in [0.01, 16]
+# round to nearest even with two adds (|x| < 2^22: x + 1.5 * 2^23 lands where the float spacing is 1);
+# fxc -O3 folds (x + c) - c back to x, so sopt-fx writes the adds as precise
+round(x) -> (x + 12582912.0) - 12582912.0   where x in [-4194304, 4194304]

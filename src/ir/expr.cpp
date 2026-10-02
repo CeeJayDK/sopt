@@ -369,6 +369,32 @@ bool containsOp(const Expr& e, Op op) {
   return false;
 }
 
+bool needsPrecise(const Expr& e) {
+  auto big = [&](uint32_t i, float sign, const Node* other) {
+    const Node& c = e.nodes[i];
+    if (c.op != Op::Const) return false;
+    for (unsigned k = 0; k < width(c.type); ++k) {
+      const float v = c.value[k], o = other ? other->value[std::min<unsigned>(k, width(other->type) - 1)] : v;
+      if (!(std::fabs(v) >= 4194304.0f) || (other && v != sign * o)) return false;
+    }
+    return true;
+  };
+  for (const auto& n : e.nodes) {
+    if ((n.op != Op::Sub && n.op != Op::Add) || n.nargs < 2) continue;
+    const float sign = n.op == Op::Sub ? 1.0f : -1.0f;
+    for (int side = 0; side < (n.op == Op::Add ? 2 : 1); ++side) {
+      const Node& inner = e.nodes[n.args[side]];
+      const uint32_t outer = n.args[1 - side];
+      if (!big(outer, 1.0f, nullptr)) continue;
+      if (inner.op == Op::Add)
+        for (int j = 0; j < 2; ++j)
+          if (big(inner.args[j], sign, &e.nodes[outer])) return true;
+      if (inner.op == Op::Mad && big(inner.args[2], sign, &e.nodes[outer])) return true;  // mad(a, b, c) - c
+    }
+  }
+  return false;
+}
+
 Type nodeType(const Expr& e, uint32_t node) { return e.nodes[node].type; }
 
 std::string formatFloat(float v) {

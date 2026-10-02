@@ -6,10 +6,10 @@ Full design and milestones: `docs/design.md` (Danish). Status: M0, M1, M2 done (
 MSVC/GCC/Clang, golden hashes match); M3 done (`sopt-fx`: FX front end, regions,
 facts, budgets, variant .fx; owner's ReShade test passed on DX11 and Vulkan); plus RDNA3 cost model, `gpu` semantic profile, ISA
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
-a separate enumeration order model (`--order-model`; rdna3, nvidia, nvidia-turing and intel-gen9 default to
+a separate enumeration order model (`--order-model`; rdna3 and the nvidia / intel models default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
-cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9` and `nvidia-turing` cost models
-(sopt-opbench timings). Default cost model: rdna3.
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-turing`, `nvidia-ampere` and
+`nvidia-blackwell` cost models (sopt-opbench timings). Default cost model: rdna3.
 
 ## Working with the owner
 - Owner's principle (2026-09-26): fewer instructions at equal measured speed are still
@@ -619,7 +619,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9` an
   clamp / select ~10, sign 28; Intel UHD 630 (Gen9.5, owner's iGPU) = Iris 540 within ~0.5 (intel-gen9 holds
   for Gen9.5). Groups follow the architecture names. No Ampere / Blackwell model yet:
   waiting for more reports (Ada, AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
-- Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; plan not yet agreed).
+- Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
+  Blackwell models, targeted searches, library rules, opbench tests, precise in sopt-fx).
   sign: fxc lowers it to lt, lt, iadd, itof (the int->float conversion is quarter rate on Ampere /
   Blackwell: sign 18-28). Conversion-free exact forms (fxc output checked): saturate(x * 1e38) -
   saturate(x * -1e38) (mul_sat + add), clamp(x * 1e38, -1, 1) (mul, max, min; AMD med3),
@@ -629,5 +630,16 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9` an
   sign(x) * pow(abs(x), g)). round: (x + 12582912.0) - 12582912.0 (RNE, |x| < 2^22) but fxc -O3 folds
   (x + c) - c to x, even with a uniform c; `precise` (supported by ReShade FX) keeps it ([precise]
   adds in DXBC). So fxc reassociates float math: sopt variants relying on rounding need `precise`.
+  Done: cost models `nvidia-ampere` / `nvidia-blackwell` (provisional, kNvidiaAmpere / kNvidiaBlackwell,
+  search order); library rules (sign x5 incl. sopt's own find mad(saturate(mad(x, 1e38, 0.5)), 2, -1) =
+  mad_sat + mad, the signed-pow two-way select, the add-round with |x| < 2^22); opbench tests signmad,
+  signsat, signclamp, signsel, signsel2, roundadd (roundAdd helper with precise); `needsPrecise` (expr.cpp:
+  (v + c) - c, (v + c) + -c, mad(a, b, c) - c with |c| >= 2^22): sopt-fx writes such variants as
+  `precise floatN __sopt_p<line>_<k> = ...;` and the measurement effects (emitEffect) as precise. fxc
+  checked: without precise it folds mad(uv.x, 1000, 1.5 * 2^23) - 1.5 * 2^23 to uv.x * 1000 (wrong);
+  precise propagates backwards to the ops feeding the value (no contraction there). Targeted searches
+  (scratchpad ff/, 20 s, 5 models): round 24 / 23 / 12 -> 8 (library); sign: rdna3 16 -> 8 (clamp),
+  intel 14 -> 10 (mad_sat form); floor / frac / ceil: nothing cheaper; signed pow: Turing finds the
+  two-way select.
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).

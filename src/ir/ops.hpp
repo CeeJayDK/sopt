@@ -103,6 +103,9 @@ const CostModel& costRdna3();
 const CostModel& costNvidia();
 // nvidia-turing: NVIDIA Turing (GTX 1660) from sopt-opbench timings, quarter units, MUFU ~3x extra.
 const CostModel& costNvidiaTuring();
+// nvidia-ampere / nvidia-blackwell: provisional, from sopt-opbench (RTX 3050; RTX 5080 / 5090).
+const CostModel& costNvidiaAmpere();
+const CostModel& costNvidiaBlackwell();
 // intel-gen9: Intel Gen9 (Iris 540) from sopt-opbench timings, quarter units, math unit ~3x.
 const CostModel& costIntelGen9();
 // Default is rdna3 (searched in search order); --isa / --sass rank by real machine code.
@@ -110,7 +113,7 @@ const CostModel& defaultCostModel();
 const CostModel* costModelByName(std::string_view name);
 // --no-amd-folds: rdna3 without CostModel::amdFolds (other models unchanged).
 const CostModel* withoutAmdFolds(const CostModel* m);
-// Enumeration order used when none is given: search for rdna3, nvidia, nvidia-turing and intel-gen9, else the model.
+// Enumeration order used when none is given: search for rdna3 and the nvidia / intel models, else the model.
 const CostModel& defaultOrderFor(const CostModel& objective);
 
 // Backend semantic profiles. The same FX source can evaluate differently:

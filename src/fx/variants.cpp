@@ -266,7 +266,15 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
           back += v.dxbcSame ? ", dxbc: same code as original"
                              : ", dxbc " + std::to_string(rr->targetDxbc) + " -> " + std::to_string(v.dxbc);
         if (!v.formatGuard.empty()) back += "; only where " + v.formatGuard;
-        out += ind + variantStatement(r, v.text) + note + back + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
+        std::string text = v.text;
+        if (needsPrecise(v.expr)) {
+          // fxc -O3 folds (v + c) - c to v: the add-round trick only survives as precise.
+          const unsigned w = width(v.expr.nodes[v.expr.root].type);
+          const std::string tmp = "__sopt_p" + std::to_string(r.line) + "_" + std::to_string(k + 1);
+          out += ind + "precise float" + (w > 1 ? std::to_string(w) : std::string()) + " " + tmp + " = " + text + ";\n";
+          text = tmp;
+        }
+        out += ind + variantStatement(r, text) + note + back + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
       }
       out += "#else\n";
       for (; next <= p.last; ++next) out += (*lines)[next - 1] + "\n";

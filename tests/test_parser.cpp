@@ -54,6 +54,16 @@ TEST(parser_sugar) {
   CHECK(toString(parseExpr("cross(u, v)", in), in) == toString(parseExpr("u.yzx * v.zxy - u.zxy * v.yzx", in), in));
 }
 
+TEST(needs_precise) {
+  const std::vector<InputDecl> in = {{"a", -1e6, 1e6, 0}};
+  CHECK(needsPrecise(parseExpr("(a + 12582912.0) - 12582912.0", in)));
+  CHECK(needsPrecise(parseExpr("-12582912.0 + (12582912.0 + a)", in)));
+  CHECK(needsPrecise(parseExpr("mad(a, 1000.0, 12582912.0) - 12582912.0", in)));
+  CHECK(!needsPrecise(parseExpr("(a + 1.5) - 1.5", in)));             // too small to round to integers
+  CHECK(!needsPrecise(parseExpr("(a + 12582912.0) - 8388608.0", in)));  // different constants
+  CHECK(!needsPrecise(parseExpr("round(a)", in)));
+}
+
 TEST(parser_errors) {
   CHECK(throws("foo(a)"));
   CHECK(throws("a +"));
@@ -97,7 +107,7 @@ TEST(cost_contraction) {
   CHECK(dagCost(parseExpr("a * b + c", abcx()), costGeneric()) ==
         costGeneric()[Op::Mul] + costGeneric()[Op::Add]);
   // Every non-leaf op costs >= 1 in every model.
-  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costNvidia(), &costNvidiaTuring(), &costIntelGen9()})
+  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costNvidia(), &costNvidiaTuring(), &costNvidiaAmpere(), &costNvidiaBlackwell(), &costIntelGen9()})
     for (size_t i = 2; i < static_cast<size_t>(Op::Count); ++i) CHECK(cm->cost[i] >= 1);
 }
 

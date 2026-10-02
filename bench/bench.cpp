@@ -203,14 +203,14 @@ int main(int argc, char** argv) {
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
       if (!opt.search.order) {
-        std::puts("unknown cost model (rdna3, nvidia, nvidia-turing, intel-gen9, generic, search)");
+        std::puts("unknown cost model (rdna3, nvidia, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, generic, search)");
         return 2;
       }
     }
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
       if (!opt.search.model) {
-        std::puts("unknown cost model (rdna3, nvidia, nvidia-turing, intel-gen9, generic, search)");
+        std::puts("unknown cost model (rdna3, nvidia, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, generic, search)");
         return 2;
       }
     } else {

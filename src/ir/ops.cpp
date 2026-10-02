@@ -125,7 +125,28 @@ const CostModel kNvidiaTuring{"nvidia-turing",
    4, 16, 20, 20, 1, 1},
   1, true};
 
-// Enumeration order for the measured objectives (rdna3, nvidia, nvidia-turing, intel-gen9): rdna3's cheap ops,
+// NVIDIA Ampere (RTX 3050, docs/opbench/nvidia-rtx-3050.csv) and Blackwell (RTX 5080 / 5090,
+// nvidia-rtx-5080.csv / nvidia-rtx-5090.csv), sopt-opbench, quarter units (4 = one fma, throughput).
+// Provisional (one Ampere card; Ada not measured yet). Both: neg/abs/saturate free modifiers; the
+// quarter-rate unit (rcp, rsqrt, sqrt, exp2, log2, sin, cos) and floor/ceil/round/frac ~6x an fma
+// (the second FP32 pipe makes fmas relatively cheaper than on Turing), exp/log/div the same (the mul
+// hides), pow two of them; sign ~7x on Ampere / ~4.5x on Blackwell (fxc's sign ends in an int->float
+// conversion). min/max/step/compares ~1.25 ops on Ampere, ~0.8 on Blackwell; compare + select 10.6 /
+// 8; clamp two min/max. Contraction to fma; no omod, no max3.
+const CostModel kNvidiaAmpere{"nvidia-ampere",
+  {0, 0, 1, 1, 1, 24, 24, 28, 24,
+   24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 4, 4, 4, 24, 5, 5, 5, 52,
+   5, 5, 5, 5, 5, 5, 4, 8, 10, 5, 1,
+   4, 28, 32, 32, 1, 1},
+  1, true};
+const CostModel kNvidiaBlackwell{"nvidia-blackwell",
+  {0, 0, 1, 1, 1, 23, 23, 18, 23,
+   23, 23, 24, 23, 25, 24, 23, 23, 23, 23, 4, 4, 4, 23, 3, 3, 3, 50,
+   3, 3, 3, 3, 3, 3, 4, 8, 8, 5, 1,
+   4, 27, 31, 31, 1, 1},
+  1, true};
+
+// Enumeration order for the measured objectives (rdna3, the nvidia models, intel-gen9): rdna3's cheap ops,
 // transcendentals at half cost (rcp/sqrt/rsqrt 8, exp/log/sin/cos/div 12, pow 20, sign 8). Ordering them
 // at full cost puts one rsqrt behind every program of ~4 VALU ops; generic order
 // reaches them but misorders cheap ops (loses planted problems). Chosen on the bench
@@ -174,6 +195,8 @@ const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }
 const CostModel& costNvidia() { return kNvidia; }
 const CostModel& costNvidiaTuring() { return kNvidiaTuring; }
+const CostModel& costNvidiaAmpere() { return kNvidiaAmpere; }
+const CostModel& costNvidiaBlackwell() { return kNvidiaBlackwell; }
 const CostModel& costIntelGen9() { return kIntelGen9; }
 const CostModel& defaultCostModel() { return kRdna3; }
 // rdna3 without the context effects (--no-amd-folds).
@@ -185,7 +208,8 @@ const CostModel kRdna3NoFolds = [] {
 
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kNvidia ||
-                 &objective == &kNvidiaTuring || &objective == &kIntelGen9
+                 &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
+                 &objective == &kNvidiaBlackwell || &objective == &kIntelGen9
              ? kSearch
              : objective;
 }
@@ -198,6 +222,8 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kSearch.name || name == "rdna3-search") return &kSearch;
   if (name == kNvidia.name) return &kNvidia;
   if (name == kNvidiaTuring.name) return &kNvidiaTuring;
+  if (name == kNvidiaAmpere.name) return &kNvidiaAmpere;
+  if (name == kNvidiaBlackwell.name) return &kNvidiaBlackwell;
   if (name == kIntelGen9.name) return &kIntelGen9;
   return nullptr;
 }
