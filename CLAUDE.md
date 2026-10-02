@@ -627,7 +627,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   architecture names. GT 1030 (Pascal, GP108, ~1.2 TFLOPS from the mad rate): MUFU / floor / ceil / round /
   frac ~10, add / sub 3.5, min / max / step 6.8 (no free ALU-pipe min / max as on Turing), abs and -abs
   3.5 (not free here, neg is), saturate 0.2, clamp 14, select 12, lerp 7.6, sign 10.5, pow 24, max3 /
-  minmax +7.1: its own group, no model yet. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+  minmax +7.1: its own group, no model yet. GTX 1660 Ti (nvidia-gtx-1660-ti.csv): unreliable like the
+  first RTX 4070 run (neg -1.82, satmad +6.8: the clock changed during the run); rerun with locked clocks asked. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
   Blackwell models, targeted searches, library rules, opbench tests, precise in sopt-fx).
   sign: fxc lowers it to lt, lt, iadd, itof (the int->float conversion is quarter rate on Ampere /
@@ -716,6 +717,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   threshold differs (baked: gray ~[0, 1], caught). Hence off by default. Fix proposed to the owner:
   threshold points (for comparisons / step / select whose operand is an input, sample that input at the
   other operand's value and its neighbours), and maybe ranges from the specialized sizes.
+  Owner's go (2026-10-02) for both, threshold points first: done, `thresholdPoints` (verify/points.cpp):
+  for Lt..Ne / step / min / max / clamp nodes with an input (component) as one operand, 4 random base
+  points each with that input at the other operand's value and its two neighbours (grid steps on a
+  grid), up to 512 points; only in makeRandomPoints(withSpecials) (stage 2, V1, library check, bound
+  points), not the search's test points. The ASCII case (tests threshold_points) is rejected now; all
+  129 library rules pass. Owner: the second parse should be a super ultrawide resolution.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

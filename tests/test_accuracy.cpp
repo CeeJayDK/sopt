@@ -143,3 +143,19 @@ TEST(noise_not_replaced) {
   opt.search.timeLimitSec = 0.5;
   CHECK(!optimize(q, opt).exactOff);
 }
+
+TEST(threshold_points) {
+  // ASCII.fx with a wide derived range: moving the threshold 4 * quant to 0.25 changes the
+  // result only for gray in [0.25, 4 * quant), which uniform samples of [-1.3, 25600] miss.
+  Program p = parseProgram(
+      "input gray : float in [-1.29945, 25600.3]\ninput quant : float in [0.0625, 0.0769231]\n"
+      "output r = gray < 4.0 * quant ? 5136.0 : 5200.0\nbudget r : rel 1e-6\n");
+  CHECK(!check(p, "gray < 0.25 ? 5136.0 : 5200.0").pass);
+  CHECK(check(p, "gray < quant * 4.0 ? 5136.0 : 5200.0").pass);
+  // The same for a min bound and step.
+  Program q = parseProgram(
+      "input x : float in [-100, 100000]\ninput c : float in [0.5, 0.6]\n"
+      "output r = min(x, c * 2.0) + step(c, x)\nbudget r : rel 1e-6\n");
+  CHECK(!check(q, "min(x, 1.0) + step(c, x)").pass);
+  CHECK(!check(q, "min(x, c * 2.0) + step(0.5, x)").pass);
+}

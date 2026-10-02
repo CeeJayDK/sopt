@@ -4,6 +4,8 @@
 #include <bit>
 #include <cmath>
 
+#include "verify/verify.hpp"
+
 namespace sopt {
 namespace {
 
@@ -120,6 +122,80 @@ std::vector<std::vector<float>> specialPoints(const Program& prog, Rng& rng) {
   return pts;
 }
 
+// Thresholds that depend on other inputs (gray < 4.0 * quant, step(e, x), min / max /
+// clamp bounds): where one operand is an input component, points with that input at the
+// other operand's value and its neighbours (at random values of the rest). A candidate
+// that moves such a threshold (gray < 0.25) differs only in a window that uniform samples
+// of a wide range rarely hit.
+std::vector<std::vector<float>> thresholdPoints(const Program& prog, Rng& rng) {
+  const Expr& e = prog.target;
+  const std::vector<InputDecl> slots = slotDecls(prog.inputs);
+  const std::vector<uint32_t> first = inputSlots(prog.inputs);
+  auto inputSlot = [&](uint32_t a, unsigned c) -> int {
+    const Node& n = e.nodes[a];
+    if (n.op == Op::Input) return static_cast<int>(first[n.input] + (width(n.type) == 1 ? 0 : c));
+    if (n.op == Op::Swizzle && e.nodes[n.args[0]].op == Op::Input) {
+      const Node& in = e.nodes[n.args[0]];
+      return static_cast<int>(first[in.input] + (width(in.type) == 1 ? 0 : n.swz[width(n.type) == 1 ? 0 : c]));
+    }
+    return -1;
+  };
+  struct Pair { uint32_t node, in, other; };
+  std::vector<Pair> pairs;
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    const Op o = n.op;
+    if (o == Op::Lt || o == Op::Le || o == Op::Gt || o == Op::Ge || o == Op::Eq || o == Op::Ne ||
+        o == Op::Step || o == Op::Min || o == Op::Max) {
+      pairs.push_back({i, 0, 1});
+      pairs.push_back({i, 1, 0});
+    } else if (o == Op::Clamp) {
+      pairs.push_back({i, 0, 1});
+      pairs.push_back({i, 0, 2});
+      pairs.push_back({i, 1, 0});
+      pairs.push_back({i, 2, 0});
+    }
+  }
+  std::vector<std::vector<float>> pts;
+  if (pairs.empty()) return pts;
+  PointSet one;
+  one.cols.resize(slots.size());
+  one.slot = first;
+  BlockEvaluator ev;
+  const size_t maxPoints = 512;
+  for (const Pair& p : pairs) {
+    const Node& n = e.nodes[p.node];
+    const uint32_t a = n.args[p.in], b = n.args[p.other];
+    const unsigned w = std::max(width(e.nodes[a].type), width(e.nodes[b].type));
+    for (unsigned c = 0; c < w; ++c) {
+      const int s = inputSlot(a, c);
+      if (s < 0) continue;
+      const InputDecl& d = slots[s];
+      for (int base = 0; base < 4 && pts.size() < maxPoints; ++base) {
+        std::vector<float> pt(slots.size());
+        for (size_t k = 0; k < pt.size(); ++k) pt[k] = sampleInput(slots[k], rng);
+        for (size_t k = 0; k < pt.size(); ++k) one.cols[k].assign(1, pt[k]);
+        ev.eval(e, one, 0, 1, kProfileRef);
+        const float v = ev.ptr[b][width(e.nodes[b].type) == 1 ? 0 : c][0];
+        if (!std::isfinite(v) || v < d.lo || v > d.hi) continue;
+        float vals[3] = {v, std::nextafter(v, -INFINITY), std::nextafter(v, INFINITY)};
+        if (d.grid > 0 && d.hi > d.lo) {
+          const double step = (d.hi - d.lo) / d.grid;
+          vals[0] = snap(d, v);
+          vals[1] = snap(d, v - step);
+          vals[2] = snap(d, v + step);
+        }
+        for (float x : vals) {
+          if (x < d.lo || x > d.hi) continue;
+          pt[s] = x;
+          pts.push_back(pt);
+        }
+      }
+    }
+  }
+  return pts;
+}
+
 }  // namespace
 
 void PointSet::add(const std::vector<float>& point) {
@@ -198,6 +274,10 @@ PointSet makeRandomPoints(const Program& prog, size_t count, uint64_t seed, bool
   for (auto& c : ps.cols) c.reserve(count);
   if (withSpecials) {
     for (const auto& p : specialPoints(prog, rng)) {
+      if (ps.size() >= count) break;
+      ps.add(p);
+    }
+    for (const auto& p : thresholdPoints(prog, rng)) {
       if (ps.size() >= count) break;
       ps.add(p);
     }
