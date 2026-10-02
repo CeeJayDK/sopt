@@ -761,6 +761,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   declaration; fallback without them when the exclusion loop cannot converge). 12 packages: "depends on
   BUFFER_WIDTH/HEIGHT" 39 -> 0, +43 regions; Warp-FX (now laid out as installed: its effects include
   ../ReShade.fxh, so 8 of 10 failed to parse in the earlier A/B) 80 regions baked, 101 buffer inputs.
+  Search A/B (time 3, baked vs buffer inputs, both with threshold points and named expressions):
+  Warp-FX 6 -> 16 regions with variants (all the same correct lerp(ar_raw, 1, a * 0.01) -> mad(0.01, a -
+  a * ar_raw, ar_raw) in BulgePinch / Ripple / Swirl / SplicedRadials / ZigZag, amd 3 -> 2, nv 3 -> 2,
+  blocked before by ar_raw = H / W), OtisFX 4 -> 3 (CinematicDOF 966 had no variant row in the baked
+  run either), iMMERSE 7 / 7 (same regions), SweetFX 10 / 10; all variant files parse.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).
