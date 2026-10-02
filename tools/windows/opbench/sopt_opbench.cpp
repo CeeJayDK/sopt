@@ -98,6 +98,8 @@ const Test kTests[] = {
      "exact sign: lt, lt, and, movc"},
     {"signsel2", "mad((x - c.z) >= 0.0 ? 1.0 : -1.0, c.x, c.y)", 0.5f, 1.0f, 1.1f, 0.0f, "sub", "not sign (1 at 0): ge, movc"},
     {"roundadd", "mad(roundAdd(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "round: (x + 1.5 * 2^23) - 1.5 * 2^23, precise"},
+    {"flooradd", "mad(floorAdd(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "floor: r - saturate((r - x) * 1e38), precise"},
+    {"fracadd", "mad(fracAdd(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "frac: d + saturate(d * -1e38), d = x - r, precise"},
 };
 
 constexpr int kUnroll = 16;          // steps per loop iteration, each with its own constants
@@ -128,6 +130,8 @@ std::string shaderSource(const Test& t, int chains) {
       "RWStructuredBuffer<float> O : register(u0);\n"
       // precise keeps fxc from folding (v + c) - c to v
       "float roundAdd(float v) { precise float t = v + 12582912.0; precise float r = t - 12582912.0; return r; }\n"
+      "float floorAdd(float v) { precise float r = (v + 12582912.0) - 12582912.0; precise float f = r - saturate((r - v) * 1e38); return f; }\n"
+      "float fracAdd(float v) { precise float d = v - ((v + 12582912.0) - 12582912.0); precise float f = d + saturate(d * -1e38); return f; }\n"
       "[numthreads(64, 1, 1)]\n"
       "void main(uint3 id : SV_DispatchThreadID)\n{\n";
   for (int k = 0; k < chains; ++k)

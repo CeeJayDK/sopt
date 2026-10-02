@@ -175,3 +175,7 @@ sign(x) * pow(abs(x), c) -> (x >= 0.0 ? 1.0 : -1.0) * pow(abs(x), c)   where c c
 # round to nearest even with two adds (|x| < 2^22: x + 1.5 * 2^23 lands where the float spacing is 1);
 # fxc -O3 folds (x + c) - c back to x, so sopt-fx writes the adds as precise
 round(x) -> (x + 12582912.0) - 12582912.0   where x in [-4194304, 4194304]
+# floor / ceil / frac from that round: r - x is in [-0.5, 0.5]; saturate(d * 1e38) is 1 for any normal d > 0
+floor(x) -> ((x + 12582912.0) - 12582912.0) - saturate((((x + 12582912.0) - 12582912.0) - x) * 1e38)   where x in [-4194304, 4194304]
+ceil(x) -> ((x + 12582912.0) - 12582912.0) + saturate((x - ((x + 12582912.0) - 12582912.0)) * 1e38)   where x in [-4194304, 4194304]
+frac(x) -> (x - ((x + 12582912.0) - 12582912.0)) + saturate((x - ((x + 12582912.0) - 12582912.0)) * -1e38)   where x in [-4194304, 4194304]
