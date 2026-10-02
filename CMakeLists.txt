@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sopt VERSION 0.1.0 LANGUAGES C CXX)
+project(sopt VERSION 0.1.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -161,6 +161,13 @@ if(WIN32)
     sopt_version_info(sopt-timer sopt-timer.addon64 "sopt GPU timer add-on for ReShade" VFT_DLL)
   else()
     sopt_version_info(sopt-timer sopt-timer.addon32 "sopt GPU timer add-on for ReShade" VFT_DLL)
+  endif()
+  # UTF-8 string literals (opbench's box and bar characters): without /utf-8 MSVC converts them
+  # to the ANSI code page at compile time and writes '?' (0.1.0); C4566 as an error catches that.
+  if(MSVC)
+    foreach(t sopt-opbench sopt-host sopt-fxc sopt-timer)
+      target_compile_options(${t} PRIVATE /utf-8 /we4566)
+    endforeach()
   endif()
   # Dynamic C runtime (the default): Windows Defender flagged the static-CRT build as
   # Trojan:Win32/Sabsik.FL.A!ml (ML false positive) and not this one (owner, 2026-10-02).

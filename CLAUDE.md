@@ -719,6 +719,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   (7) (owner's go) export `NvOptimusEnablement = 1` and `AmdPowerXpressRequestHighPerformance = 1` from
   the exe so laptops with switchable graphics hand it the discrete GPU (owner's parents' laptop: Radeon HD
   7400M + Intel HD 3000; --list showed only the Intel GPU, which is feature level 10_1 and cannot run it).
+  0.1.0 released 2026-10-02 (PR #2 merged; this session cannot push tags: release.yml run manually on main
+  makes a draft, the owner publishes it, which creates the tag). Owner's first v2 run (GT 1030): every box /
+  bar character printed as '?': MSVC compiled the tools without /utf-8, so "█" went to the ANSI code
+  page (one '?' each; a console code page problem would show 3 characters each); the mingw / Wine build
+  looked right. 0.1.1: /utf-8 /we4566 on the Windows tools, "~N.N mads" with one decimal. The run itself:
+  reference drift 48% (tput) / 30% (dep), yet results = the clean v1 GT 1030 run (min 6.8, abs 3.5, MUFU
+  ~10, pow 24): the fresh reference per test works.
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such

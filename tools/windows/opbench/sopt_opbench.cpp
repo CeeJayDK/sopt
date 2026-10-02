@@ -308,7 +308,7 @@ const char* costComment(double v, char* buf, size_t n, const Style& st, const ch
   if (v < 5.5) { *color = st.c("\x1b[97m"); return "one op"; }
   if (v < 9.0) { *color = st.c("\x1b[93m"); return "two ops"; }
   *color = st.c("\x1b[91m");
-  std::snprintf(buf, n, "expensive (~%.0f mads)", v / 4.0);
+  std::snprintf(buf, n, "expensive (~%.1f mads)", v / 4.0);
   return buf;
 }
 
