@@ -627,7 +627,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   architecture names. GT 1030 (Pascal, GP108, ~1.2 TFLOPS from the mad rate): MUFU / floor / ceil / round /
   frac ~10, add / sub 3.5, min / max / step 6.8 (no free ALU-pipe min / max as on Turing), abs and -abs
   3.5 (not free here, neg is), saturate 0.2, clamp 14, select 12, lerp 7.6, sign 10.5, pow 24, max3 /
-  minmax +7.1: its own group, no model yet. First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
+  minmax +7.1: its own group, no model yet. GTX 1060 6GB (nvidia-gtx-1060-6gb.csv, GP106, v1, clean: neg 0.00) =
+  the GT 1030 within ~0.3 (add 3.5, min / max 6.7, abs 3.5, saturate 0.2, clamp 13.7, select 12, lerp 7.4, MUFU /
+  floor 10, sign 10.3, pow 24, max3 +7.05): Pascal group confirmed (2 cards). Second RTX 4070 (nvidia-rtx-4070-b.csv,
+  0x2786, v1, clean without locked clocks: neg 0.00) = the locked 4070 runs / Ampere (add 3.4, min 4.5, clamp 9.9,
+  select 11, MUFU / floor 23.7, sign 27.6, pow 52). First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
   the base step mad(x, c.x, c.y) is 2 instructions there (GCN's constant bus takes one SGPR per VALU op, so
   one constant needs a v_mov), so 1 instruction = ~2.1 units: add / sub / min / max / floor / ceil / round /
   frac 1 op, neg / abs / saturate / satmad free, omod2 / omodhalf 0.0 (output modifier confirmed), omod3
