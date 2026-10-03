@@ -8,8 +8,8 @@ facts, budgets, variant .fx; owner's ReShade test passed on DX11 and Vulkan); pl
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 and the nvidia / intel models default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
-cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere` and
-`nvidia-blackwell` cost models (sopt-opbench timings). Default cost model: rdna3.
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
+`nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3.
 
 ## Working with the owner
 - Owner's principle (2026-09-26): fewer instructions at equal measured speed are still
@@ -26,7 +26,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 
 - Cost models (owner, 2026-10-03): make a new cost model as OpBench reports come in and update existing
   ones when new data shows they are off; cards with identical costs share a model, cards that differ get
-  their own.
+  their own. AMD models (2026-10-03, ops.cpp): scaled so one plain VALU instruction (the card's measured
+  add) = 4, since OpBench's mad base carries extra issue cost on AMD (two scalar constants: 8-byte VOP3 fma
+  on RDNA, an extra v_mov on GCN); amd-rdna2 (680M + RX 6950 XT, agree within ~0.8), amd-rdna4 (RX 9070 XT,
+  units as measured: its fma base dual-issues and add also measures 4), amd-gcn5 (Renoir), amd-terascale2
+  (HD 7400M, VLIW: abs not free, no folds). CostModel::sameMinMaxOnly (rdna2, gcn5): only max(max) /
+  min(min) fold (v_max3 / v_min3), min(max) is an instruction (measured: max3 ~1, minmax ~3 units).
 
 ## Commands
 - Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`

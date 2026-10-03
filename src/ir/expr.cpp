@@ -268,7 +268,8 @@ std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& use
       for (int k = 0; k < 2 && !folded[i]; ++k) {
         const uint32_t v = n.args[k];
         const Node& p = e.nodes[v];
-        folded[i] = isMinMax(p.op) && uses[v] == 1 && p.type == n.type && !folded[v];
+        folded[i] = isMinMax(p.op) && (!m.sameMinMaxOnly || p.op == n.op) && uses[v] == 1 && p.type == n.type &&
+                    !folded[v];
       }
     }
   }
