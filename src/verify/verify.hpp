@@ -100,10 +100,13 @@ inline bool accuracyRule(const Budget& b) { return b.vsExact && b.kind != Budget
 bool pointAccurate(const Budget& b, float target, double exact, float cand, double scale = 1.0, double s = 0.0);
 // Budget::loose applied: eps times loose, color budgets one more code.
 Budget looseBudget(const Budget& b);
-inline bool pointLoose(const Budget& b, float target, const double* exact, float cand, double s = 0.0) {
+// Less accurate: within loose times the plain budget, or loose times the original's own error vs
+// exact math. Without the error-scale floor (owner, 2026-10-03): loose times a budget scaled by the
+// original's rounding bound accepted nonsense, e.g. r = Amount for (uv.x * Amount + C) - C.
+inline bool pointLoose(const Budget& b, float target, const double* exact, float cand, double /*s*/ = 0.0) {
   if (!(b.loose > 1.0) || b.kind == Budget::Kind::Exact) return false;
   const Budget lb = looseBudget(b);
-  return pointWithinBudget(lb, target, cand, s) || (exact && pointAccurate(lb, target, *exact, cand, b.loose, s));
+  return pointWithinBudget(lb, target, cand) || (exact && pointAccurate(lb, target, *exact, cand, b.loose));
 }
 inline bool pointAcceptable(const Budget& b, float target, const double* exact, float cand, double s = 0.0) {
   return pointWithinBudget(b, target, cand, s) || (exact && pointAccurate(b, target, *exact, cand, 1.0, s));

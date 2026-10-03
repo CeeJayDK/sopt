@@ -835,8 +835,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   false (budget reason "precise: float math only"). Found while testing: sopt turned the add-round (x + C) - C
   into x as "too exact", and with the exact rule off still as "within budget" via the error-scale floor (rel
   budget scaled by the original's rounding bound ~|x + C|); precise regions now keep it. Without precise, fxc
-  folds (x + C) - C to x anyway. Open (asked): loose x error-scale floor accepted r = Amount for
-  (uv.x * Amount + C) - C as "less accurate" (100 x the scaled budget = 1260 absolute).
+  folds (x + C) - C to x anyway. Loose x error-scale floor accepted r = Amount for (uv.x * Amount + C) - C
+  as "less accurate" (100 x the scaled budget = 1260 absolute); owner: cap less accurate at 100x the
+  original's error: pointLoose ignores the error scale (loose x plain budget, or loose x the original's
+  error vs exact).
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such

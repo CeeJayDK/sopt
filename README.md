@@ -187,7 +187,8 @@ F in [100, 10000] has error 4.2e-4 vs exact math; its cheaper rewrite (cost 29 -
 
 **Less accurate candidates** (`--loose F`, default 100, 0 = off): candidates within F
 times the budget or F times the original's error vs exact math (color budgets: one
-more code) are listed as "less accurate", with their errors, so the user decides.
+more code) are listed as "less accurate", with their errors, so the user decides. The
+relative budget's error-scale floor does not apply here.
 sopt-fx writes them after the accurate variants, and only if cheaper than all of them.
 
 `dot`, `length`, `normalize` and `distance` are pure helpers (no GPU has an FP32 dot
