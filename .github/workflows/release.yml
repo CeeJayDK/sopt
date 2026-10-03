@@ -1,7 +1,8 @@
 name: release
-# Windows tools as a GitHub Release: a tag v* (or a manual run, which makes a draft) builds them,
-# signs them through SignPath once the project is approved there (docs/signing.md; skipped while
-# the SIGNPATH_API_TOKEN secret does not exist) and attaches two zips and SHA256SUMS.txt.
+# A GitHub Release: a tag v* (or a manual run, which makes a draft) builds sopt / sopt-fx for
+# Windows and Linux and the Windows tools, signs the Windows files through SignPath once the
+# project is approved there (docs/signing.md; skipped while the SIGNPATH_API_TOKEN secret does not
+# exist) and attaches the zips, the Linux tarball and SHA256SUMS.txt.
 on:
   push:
     tags: ['v*']
@@ -12,6 +13,9 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      signed: ${{ steps.files.outputs.signed }}
     env:
       SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
     steps:
@@ -53,7 +57,7 @@ jobs:
       - name: Version info check
         shell: pwsh
         run: |
-          foreach ($f in 'build/Release/OpBench.exe', 'build/Release/sopt-host.exe', 'build/Release/sopt-fxc.exe', 'build/Release/sopt-timer.addon64', 'build32/Release/sopt-timer.addon32') {
+          foreach ($f in 'build/Release/sopt.exe', 'build/Release/sopt-fx.exe', 'build/Release/OpBench.exe', 'build/Release/sopt-host.exe', 'build/Release/sopt-fxc.exe', 'build/Release/sopt-timer.addon64', 'build32/Release/sopt-timer.addon32') {
             $v = (Get-Item $f).VersionInfo
             "{0}: {1} {2} ({3})" -f $f, $v.ProductName, $v.FileVersion, $v.CompanyName
             if ($v.CompanyName -ne 'CeeJay.dk') { throw "$f has no version resource" }
@@ -62,7 +66,10 @@ jobs:
         shell: pwsh
         run: |
           $v = '${{ steps.version.outputs.version }}'
-          New-Item -ItemType Directory -Force -Path opbench, tools, unsigned | Out-Null
+          New-Item -ItemType Directory -Force -Path sopt, opbench, tools, unsigned | Out-Null
+          Copy-Item build/Release/sopt.exe, build/Release/sopt-fx.exe, LICENSE sopt/
+          Copy-Item docs/QUICKSTART.txt sopt/QUICKSTART.txt
+          Compress-Archive -Path sopt/* -DestinationPath "unsigned/sopt-$v-windows-x64.zip"
           Copy-Item build/Release/OpBench.exe, tools/windows/measure-gpu.bat, tools/windows/opbench/README.txt, tools/windows/opbench/TESTS.txt opbench/
           Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, build/Release/OpBench.exe, tools/windows/measure-gpu.bat, tools/windows/opbench/TESTS.txt, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md tools/
           Compress-Archive -Path opbench/* -DestinationPath "unsigned/OpBench-$v.zip"
@@ -92,19 +99,61 @@ jobs:
           if [ -n "$SIGNPATH_API_TOKEN" ]; then src=signed; echo "signed=yes" >> "$GITHUB_OUTPUT"; else src=unsigned; echo "signed=no" >> "$GITHUB_OUTPUT"; fi
           mkdir -p release
           cp "$src"/*.zip release/
-          cd release && sha256sum *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: release/
+  linux:
+    # sopt and sopt-fx for Linux x64; Ubuntu 22.04's glibc so the binaries run on older systems
+    # too, libstdc++ / libgcc linked statically.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSOPT_BUILD_TESTS=OFF \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+          cmake --build build --parallel --target sopt sopt-fx
+      - name: Package
+        run: |
+          v=$(sed -n 's/^project(sopt VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; fi
+          d=sopt-$v-linux-x64
+          mkdir -p $d release
+          cp build/sopt build/sopt-fx LICENSE $d/
+          cp docs/QUICKSTART.txt $d/QUICKSTART.txt
+          ./$d/sopt --version && ./$d/sopt-fx --version
+          tar czf release/$d.tar.gz $d
+      - name: Upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: release/
+  release:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release
+      - name: Checksums
+        run: cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           draft: ${{ github.event_name == 'workflow_dispatch' }}
           prerelease: ${{ contains(github.ref_name, '-') }}
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
-          name: sopt ${{ steps.version.outputs.version }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', needs.windows.outputs.version) }}
+          name: sopt ${{ needs.windows.outputs.version }}
           files: release/*
           body: |
-            Windows tools of sopt ${{ steps.version.outputs.version }}.
+            sopt ${{ needs.windows.outputs.version }}.
 
-            - `OpBench-${{ steps.version.outputs.version }}.zip`: measures what GPU instructions cost on your graphics card. Unzip, double-click `measure-gpu.bat`, send the CSV it writes (see README.txt inside).
-            - `sopt-windows-tools-${{ steps.version.outputs.version }}.zip`: the benchmark harness (sopt-host, sopt-timer add-on, run-bench.bat, ReShade64.dll 6.8.0) and OpBench.
+            - `sopt-${{ needs.windows.outputs.version }}-windows-x64.zip` / `sopt-${{ needs.windows.outputs.version }}-linux-x64.tar.gz`: sopt-fx (finds cheaper, verified rewrites of the arithmetic in ReShade FX and HLSL pixel shaders, written next to the originals behind preprocessor switches) and sopt (single expressions). Early release: start with QUICKSTART.txt inside, and send feedback at https://github.com/CeeJayDK/sopt/issues. Windows needs the VC++ 2015-2022 redistributable (most gaming PCs have it).
+            - `OpBench-${{ needs.windows.outputs.version }}.zip`: measures what GPU instructions cost on your graphics card. Unzip, double-click `measure-gpu.bat`, send the CSV it writes (see README.txt inside).
+            - `sopt-windows-tools-${{ needs.windows.outputs.version }}.zip`: the benchmark harness (sopt-host, sopt-timer add-on, run-bench.bat, ReShade64.dll 6.8.0) and OpBench.
 
-            Code signing: ${{ steps.files.outputs.signed == 'yes' && 'signed through SignPath Foundation.' || 'not signed yet (SignPath application pending); Windows Defender may warn. Check the files against SHA256SUMS.txt.' }}
+            Code signing: ${{ needs.windows.outputs.signed == 'yes' && 'signed through SignPath Foundation.' || 'not signed yet (SignPath application pending); Windows Defender may warn. Check the files against SHA256SUMS.txt.' }}

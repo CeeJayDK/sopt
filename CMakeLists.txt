@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sopt VERSION 0.3.0 LANGUAGES C CXX)
+project(sopt VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -101,10 +101,12 @@ sopt_fp_flags(sopt-fx-lib)
 
 add_executable(sopt-fx src/cli/fx_main.cpp)
 target_link_libraries(sopt-fx PRIVATE sopt-fx-lib sopt-measure)
+target_compile_definitions(sopt-fx PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
 sopt_fp_flags(sopt-fx)
 
 add_executable(sopt src/cli/main.cpp)
 target_link_libraries(sopt PRIVATE sopt-search sopt-measure)
+target_compile_definitions(sopt PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
 sopt_fp_flags(sopt)
 
 if(SOPT_BUILD_BENCH)
@@ -159,6 +161,8 @@ if(WIN32)
   sopt_version_info(opbench OpBench.exe "OpBench: GPU instruction cost benchmark (sopt)" VFT_APP)
   sopt_version_info(sopt-host sopt-host.exe "sopt benchmark host window (DX11 / Vulkan)" VFT_APP)
   sopt_version_info(sopt-fxc sopt-fxc.exe "sopt helper: HLSL to DXBC with Microsoft fxc" VFT_APP)
+  sopt_version_info(sopt sopt.exe "sopt: shader superoptimizer (single expressions)" VFT_APP)
+  sopt_version_info(sopt-fx sopt-fx.exe "sopt-fx: shader superoptimizer for ReShade FX and HLSL" VFT_APP)
   if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     sopt_version_info(sopt-timer sopt-timer.addon64 "sopt GPU timer add-on for ReShade" VFT_DLL)
   else()

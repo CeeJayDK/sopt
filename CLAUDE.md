@@ -698,7 +698,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   second operand: countbits + add is one instruction), fbh 11.8; half: mad16 -2.5 (packed fp16, 2x rate), add16 /
   mul16 1.5, rcp16 10.3. = the 680M (RDNA 2 iGPU, ~1.2x scale): two RDNA 2 devices agree.
   RTX 4090 Laptop (nvidia-rtx-4090-laptop.csv, Ada): tput / dep unreliable (neg -2.6, add / mul / min
-  negative: laptop power management), only lat plausible (rcp / floor ~18, add 4): v2 run wanted. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+  negative: laptop power management), only lat plausible (rcp / floor ~18, add 4): v2 run wanted. Two more v1 runs (same driver
+  32.0.16.1714): nvidia-rtx-4090-laptop-hybrid.csv ("iGPU + dGPU" mode) is clean (neg -0.03, saturate -0.02) and
+  groups with Ampere / Ada (= RTX 4070 b: add 3.45, min 4.49, clamp 9.1, select 10.1, floor 21.9, sign 25.5), except the
+  MUFU ops ~7% lower (21.9 vs 23.7, pow 48.5 vs 51.8; v1 has one reference per run, so a clock rise mid-run makes later
+  tests look cheaper); nvidia-ampere unchanged. nvidia-rtx-4090-laptop-dgpu.csv ("only dGPU, maybe") is unreliable
+  like the first (neg -2.4, max3 16). An OpBench 0.3.0 run (fresh reference per test) would settle the MUFU gap. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
   Blackwell models, targeted searches, library rules, opbench tests, precise in sopt-fx).
   sign: fxc lowers it to lt, lt, iadd, itof (the int->float conversion is quarter rate on Ampere /
@@ -807,7 +812,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   atan2 78. omod tests sit under the rcp's issue rate on both (NVIDIA 0, Intel 0.8 for omod2 / half / 3 alike).
 - OpBench output modifier scales (owner, 2026-10-03: "test whether x8 and x0.25 are free ... I expect them NOT
   to be free on modern hardware, but we want to know"): tests omod4 (AMD's third scale), omod8, omod0.25, omod0.125
-  (DX9-era _x8 / _d4 / _d8), base rcpmax like omod2. Next release.
+  (DX9-era _x8 / _d4 / _d8), base rcpmax like omod2; with the trunc test released as OpBench 0.4.0 (2026-10-03).
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
@@ -842,6 +847,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   as "less accurate" (100 x the scaled budget = 1260 absolute); owner: cap less accurate at 100x the
   original's error: pointLoose ignores the error scale (loose x plain budget, or loose x the original's
   error vs exact).
+- First sopt release (owner, 2026-10-03: "release sopt itself, so users can play with it and give input"; Windows
+  + Linux, with 0.4.0, a quick-start guide): release.yml jobs windows (+ sopt-<v>-windows-x64.zip: sopt.exe,
+  sopt-fx.exe, QUICKSTART.txt = docs/QUICKSTART.txt, LICENSE; version resources on both exes), linux (ubuntu-22.04,
+  -static-libstdc++ -static-libgcc, sopt-<v>-linux-x64.tar.gz) and release (collects both, SHA256SUMS.txt, draft on
+  manual runs). `--version` on sopt / sopt-fx. Feedback: GitHub issues. docs/signing.md artifact config has the
+  sopt zip.
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such
