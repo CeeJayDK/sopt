@@ -698,7 +698,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   second operand: countbits + add is one instruction), fbh 11.8; half: mad16 -2.5 (packed fp16, 2x rate), add16 /
   mul16 1.5, rcp16 10.3. = the 680M (RDNA 2 iGPU, ~1.2x scale): two RDNA 2 devices agree.
   RTX 4090 Laptop (nvidia-rtx-4090-laptop.csv, Ada): tput / dep unreliable (neg -2.6, add / mul / min
-  negative: laptop power management), only lat plausible (rcp / floor ~18, add 4): v2 run wanted. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+  negative: laptop power management), only lat plausible (rcp / floor ~18, add 4): v2 run wanted. Two more v1 runs (same driver
+  32.0.16.1714): nvidia-rtx-4090-laptop-hybrid.csv ("iGPU + dGPU" mode) is clean (neg -0.03, saturate -0.02) and
+  groups with Ampere / Ada (= RTX 4070 b: add 3.45, min 4.49, clamp 9.1, select 10.1, floor 21.9, sign 25.5), except the
+  MUFU ops ~7% lower (21.9 vs 23.7, pow 48.5 vs 51.8; v1 has one reference per run, so a clock rise mid-run makes later
+  tests look cheaper); nvidia-ampere unchanged. nvidia-rtx-4090-laptop-dgpu.csv ("only dGPU, maybe") is unreliable
+  like the first (neg -2.4, max3 16). An OpBench 0.3.0 run (fresh reference per test) would settle the MUFU gap. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
   Blackwell models, targeted searches, library rules, opbench tests, precise in sopt-fx).
   sign: fxc lowers it to lt, lt, iadd, itof (the int->float conversion is quarter rate on Ampere /
