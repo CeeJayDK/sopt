@@ -1,7 +1,7 @@
-// sopt-opbench: measures what single GPU instructions and instruction patterns cost on the
+// OpBench (sopt-opbench until 0.2.0): measures what single GPU instructions and instruction patterns cost on the
 // GPU in this machine (owner's idea, 2026-10-01), to calibrate sopt's cost models.
 //
-//   sopt-opbench [--adapter N] [--list] [--filter text] [--reps N] [--out file.csv] [--groups N]
+//   OpBench [--adapter N] [--list] [--filter text] [--reps N] [--out file.csv] [--groups N]
 //
 // Every test is one HLSL step x = f(x, c) repeated in long dependent chains in a D3D11 compute
 // shader (compiled at run time with Microsoft's D3DCompile -O3, as ReShade does on D3D9-12; the
@@ -27,6 +27,11 @@
 // (atan, asin, tan, fmod, smoothstep, sincos), integer / bit operations and int <-> float
 // conversions on uint chains, half precision (min16float); summary in sections. TESTS.txt
 // describes every test.
+//
+// Version 4 (0.3.0, owner 2026-10-03): renamed OpBench; block graphics only from full and half
+// blocks (4 levels per cell from bright / dark color pairs), a logo, a gradient progress bar, an
+// Ops column; tests whose passes disagree are measured again (up to kMaxPasses) until most
+// readings agree.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -202,7 +207,7 @@ Config kConfigs[] = {
     {"lat", 1, 1, "Latency", "how long one step takes until its result is ready (one group of threads, nothing to hide it)"}};
 
 [[noreturn]] void fail(const std::string& what) {
-  std::fprintf(stderr, "sopt-opbench: %s\n", what.c_str());
+  std::fprintf(stderr, "OpBench: %s\n", what.c_str());
   std::exit(1);
 }
 
@@ -363,12 +368,43 @@ Result measureAt(Gpu& g, ID3D11ComputeShader* cs, const Test& t, const Config& c
 }
 
 // One test in one configuration: both passes, each relative to the mad measured just before it.
+// Version 4: tests whose passes disagree are measured again until most readings agree (like
+// redundant sensors: two show that one is wrong, three or more which one).
+constexpr int kMaxPasses = 6;
+
+// Two readings agree within 0.75 units or 15%.
+bool agree(double a, double b) { return std::fabs(a - b) <= std::max(0.75, 0.15 * std::max(std::fabs(a), std::fabs(b))); }
+
+struct Consensus {
+  bool ok = false;     // more than half of the readings agree
+  double value = 0.0;  // their mean (without a majority: the median of all)
+};
+Consensus consensus(std::vector<double> v) {
+  Consensus c;
+  if (v.empty()) return c;
+  std::sort(v.begin(), v.end());
+  size_t best = 0, bestLo = 0;
+  for (size_t lo = 0; lo < v.size(); ++lo)
+    for (size_t hi = lo; hi < v.size() && agree(v[lo], v[hi]); ++hi)
+      if (hi - lo + 1 > best) {
+        best = hi - lo + 1;
+        bestLo = lo;
+      }
+  c.ok = 2 * best > v.size();
+  if (c.ok) {
+    for (size_t k = bestLo; k < bestLo + best; ++k) c.value += v[k] / double(best);
+  } else {
+    c.value = v[v.size() / 2];
+  }
+  return c;
+}
+
 struct Measured {
-  Result r;                    // averaged over the passes
-  double units[2] = {0, 0};    // 4 * time / reference mad's time, forward and backward pass
-  double vsBase[2] = {0, 0};   // units minus the base test's units, per pass
-  double unitsAvg() const { return 0.5 * (units[0] + units[1]); }
-  double vsBaseAvg() const { return 0.5 * (vsBase[0] + vsBase[1]); }
+  Result r;                      // averaged over all readings
+  std::vector<double> readings;  // 4 * time / the reference mad's time, one per pass
+  Consensus units;               // of the readings
+  double vsBase = 0.0;           // units minus the base test's units (the reported cost)
+  double vsBasePass[2] = {0, 0}; // the same from the forward and the backward pass alone
 };
 
 // Console output: ANSI colors and UTF-8 box / bar characters where the console supports virtual
@@ -415,32 +451,109 @@ std::string withCommas(unsigned long long v) {
   return s;
 }
 
+
+// Block graphics use only the full block and the half blocks (code page 437, in every console font;
+// the 1/8 blocks of version 3 showed as boxes). A color is a bright / dark pair of the 16 console
+// colors, and the dark one as a background gives 4 levels per cell (owner's design, 2026-10-03):
+// space, left half dark, left half bright, left half bright on dark, full bright.
+constexpr const char* kFull = "\u2588";
+constexpr const char* kLeft = "\u258C";
+constexpr const char* kRight = "\u2590";
+struct Shade {
+  int bright, dark;  // foreground codes; the dark background is dark + 10
+};
+constexpr Shade kRed = {91, 31}, kYellow = {93, 33}, kWhite = {97, 90}, kCyan = {96, 36}, kGreen = {92, 32};
+
 // A comment and a color for a throughput cost (extra over the base, 4 = one fma).
-const char* costComment(double v, char* buf, size_t n, const Style& st, const char** color) {
-  if (v < 0.75) { *color = st.c("\x1b[92m"); return "free"; }
-  if (v < 3.0) { *color = st.c("\x1b[96m"); return "cheap"; }
-  if (v < 5.5) { *color = st.c("\x1b[97m"); return "one op"; }
-  if (v < 9.0) { *color = st.c("\x1b[93m"); return "two ops"; }
-  *color = st.c("\x1b[91m");
-  std::snprintf(buf, n, "expensive (~%.1f mads)", v / 4.0);
+const char* costComment(double v, Shade* shade) {
+  if (v < 0.75) { *shade = kGreen; return "free"; }
+  if (v < 3.0) { *shade = kCyan; return "cheap"; }
+  if (v < 5.5) { *shade = kWhite; return "one op"; }
+  if (v < 9.0) { *shade = kYellow; return "two ops"; }
+  *shade = kRed;
+  return "expensive";
+}
+
+// One cell of a bar at level 0..4.
+std::string barCell(int level, Shade c) {
+  char buf[48];
+  switch (level) {
+    case 0: return " ";
+    case 1: std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", c.dark, kLeft); break;
+    case 2: std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", c.bright, kLeft); break;
+    case 3: std::snprintf(buf, sizeof(buf), "\x1b[%d;%dm%s\x1b[0m", c.bright, (c.dark == 90 ? 100 : c.dark + 10), kLeft); break;
+    default: std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", c.bright, kFull); break;
+  }
   return buf;
 }
 
-std::string bar(double v, double maxV, int width, const Style& st) {
-  if (maxV <= 0.0) return std::string();
-  const double cells = std::max(0.0, v) / maxV * width;
-  const int full = int(cells);
+// A bar of width cells for v out of maxV (at least one level when v > 0); returns its text, the
+// display width is always `width`.
+std::string bar(double v, double maxV, int width, const Style& st, Shade c) {
+  const int levels = maxV <= 0.0 ? 0 : int(std::lround(std::max(0.0, v) / maxV * width * 4));
+  const int n = std::min(width * 4, v > 0.0 ? std::max(1, levels) : 0);
   std::string s;
-  if (!st.vt) {
-    s.assign(size_t(full), '#');
-    return s;
+  for (int k = 0; k < width; ++k) {
+    const int lv = std::min(4, std::max(0, n - 4 * k));
+    s += st.vt ? barCell(lv, c) : std::string(lv >= 2 ? "#" : " ");
   }
-  static const char* const kPart[] = {"", "\u258F", "\u258E", "\u258D", "\u258C", "\u258B", "\u258A", "\u2589"};
-  for (int k = 0; k < full; ++k) s += "\u2588";
-  const int part = int((cells - full) * 8.0);
-  if (part > 0 && full < width) s += kPart[part];
-  if (s.empty()) s = kPart[1];
   return s;
+}
+
+// The progress bar while measuring: one level per measured test, 6 levels per cell (with light grey).
+struct Progress {
+  const Style* st;
+  int steps = 0;
+  void step() {
+    ++steps;
+    if (!st->vt) {
+      std::printf(".");
+      return;
+    }
+    static const char* const kCell[6] = {"\x1b[90m\u258C", "\x1b[37m\u258C", "\x1b[97m\u258C",
+                                         "\x1b[97;100m\u258C", "\x1b[97;47m\u258C", "\x1b[97m\u2588"};
+    const int sub = (steps - 1) % 6;
+    std::printf("%s%s\x1b[0m", sub == 0 ? "" : "\b", kCell[sub]);
+  }
+};
+
+// "OpBench" in block graphics: each cell holds two pixels (left, right) of 4 grey levels, coded
+// 'a' + 4 * left + right (Liberation Sans Bold, letter by letter, condensed to 80%; scratch
+// script logo/gen2.py).
+const char* const kLogo[] = {
+    "aabgkkkkjeaaaaaaaaaaaaaabkkkkkkjeaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaacpo",
+    "acppkffkppjaaaaaaafeaaaacppfffgppiaaaaabfaaaaaaaaabfaaaaaaaafeaaaacpoaaf",
+    "bppiaaaabppeaalpkolppeaacppaaaalpiaaagpokpoeaadpnlpppjaaacppkppiaacpolpppn",
+    "cppaaaaaalpmaalpnaadpoaacpppppppjaaacpoaacpnaadppeacppaabppeabkkaacppeabppe",
+    "bppeaaaaappiaalpiaacppaacppaaaagpoaadppkkkkkaadpoaabppaacpoaaaaaaacpoaaappe",
+    "ahpofaablpoaaalpnaahpoaacppaaaagppaacppaabfeaadpnaabppaabppeabkkaacpoaaappe",
+    "aaglppppojaaaalpopppoeaacpppppppoeaaagppppoeaadpnaabppaaaclpppoeaacpoaaappe",
+    "aaaaaaaaaaaaaalpi",
+    "aaaaaaaaaaaaaalpi",
+};
+
+void printLogo(const Style& st) {
+  if (!st.vt) {
+    std::printf("OpBench %s - part of sopt (https://github.com/CeeJayDK/sopt)\n\n", SOPT_VERSION);
+    return;
+  }
+  static const int kFg[4] = {30, 90, 37, 97}, kBg[4] = {40, 100, 47, 107};
+  for (const char* row : kLogo) {
+    std::string line = "  ";
+    for (const char* p = row; *p; ++p) {
+      const int l = (*p - 'a') / 4, r = (*p - 'a') % 4;
+      char buf[48];
+      if (l == 0 && r == 0) std::snprintf(buf, sizeof(buf), " ");
+      else if (l == r) std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", kFg[l], kFull);
+      else if (r == 0) std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", kFg[l], kLeft);
+      else if (l == 0) std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", kFg[r], kRight);
+      else std::snprintf(buf, sizeof(buf), "\x1b[%d;%dm%s\x1b[0m", kFg[l], kBg[r], kLeft);
+      line += buf;
+    }
+    std::printf("%s\n", line.c_str());
+  }
+  std::printf("  %sversion %s, part of sopt: https://github.com/CeeJayDK/sopt%s\n\n", st.c("\x1b[90m"), SOPT_VERSION,
+              st.reset());
 }
 
 // Display width of a UTF-8 string (one column per code point).
@@ -474,12 +587,13 @@ int main(int argc, char** argv) {
       const UINT n = UINT(std::max(1, std::min(int(kGroupsFull), std::atoi(next()))));
       kConfigs[0].groups = kConfigs[1].groups = n;
     } else {
-      std::printf("sopt-opbench %s\nusage: sopt-opbench [--adapter N] [--list] [--filter text] [--reps N] [--out file.csv] [--groups N]\n",
+      std::printf("OpBench %s\nusage: OpBench [--adapter N] [--list] [--filter text] [--reps N] [--out file.csv] [--groups N]\n",
                   SOPT_VERSION);
       return a == "-h" || a == "--help" ? 0 : 1;
     }
   }
 
+  if (!list) printLogo(st);
   IDXGIFactory1* factory = nullptr;
   if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) fail("CreateDXGIFactory1 failed");
   std::vector<IDXGIAdapter1*> adapters;
@@ -627,7 +741,8 @@ int main(int argc, char** argv) {
   for (const Test* t : tests)
     if (std::strcmp(t->name, "mad") == 0) madTest = t;
   // Warm up (clocks ramp up): two seconds of the reference test.
-  std::printf("\n%zu tests, each measured twice (forward, then backward through the list) in three ways.\n"
+  std::printf("\n%zu tests in three ways, each measured twice (forward, then backward through the list) and more\n"
+              "often when its two readings disagree.\n"
               "Warming up the GPU for 2 seconds so its clock settles ...", tests.size());
   {
     g.ctx->CSSetShader(shaders["tput"]["mad"], nullptr, 0);
@@ -648,28 +763,42 @@ int main(int argc, char** argv) {
     for (const Test* t : tests) iters[t->name] = calibrate(g, shaders[c.name][t->name], *t, c);
     std::vector<double> mads;
     std::map<std::string, Result> sum;
-    for (int pass = 0; pass < 2; ++pass) {
-      std::vector<const Test*> order = tests;
-      if (pass == 1) std::reverse(order.begin(), order.end());
+    Progress progress{&st};
+    // Passes 1 and 2 measure every test (forward, then backward); later passes only the tests whose
+    // readings have no majority yet, alternating the direction.
+    for (int pass = 0; pass < kMaxPasses; ++pass) {
+      std::vector<const Test*> order;
+      for (const Test* t : tests)
+        if (pass < 2 || !consensus(results[c.name][t->name].readings).ok) order.push_back(t);
+      if (order.empty()) break;
+      if (pass % 2 == 1) std::reverse(order.begin(), order.end());
       for (const Test* t : order) {
         // A fresh reference right before the test: a clock change moves both.
         const Result m = measureAt(g, shaders[c.name]["mad"], *madTest, c, iters["mad"], reps);
         const Result r = t == madTest ? m : measureAt(g, shaders[c.name][t->name], *t, c, iters[t->name], reps);
         mads.push_back(m.nsPerStep);
-        Measured& x = results[c.name][t->name];
-        x.units[pass] = 4.0 * r.nsPerStep / m.nsPerStep;
+        results[c.name][t->name].readings.push_back(4.0 * r.nsPerStep / m.nsPerStep);
         Result& acc = sum[t->name];
         acc.iters = r.iters;
-        acc.ms += 0.5 * r.ms;
-        acc.nsPerStep += 0.5 * r.nsPerStep;
-        std::printf(".");
+        acc.ms += r.ms;
+        acc.nsPerStep += r.nsPerStep;
+        progress.step();
       }
     }
     for (const Test* t : tests) {
       Measured& x = results[c.name][t->name];
+      const double n = double(x.readings.size());
       x.r = sum[t->name];
+      x.r.ms /= n;
+      x.r.nsPerStep /= n;
+      x.units = consensus(x.readings);
+    }
+    for (const Test* t : tests) {
+      Measured& x = results[c.name][t->name];
+      const Measured* b = t->base ? &results[c.name][t->base] : nullptr;
+      x.vsBase = b ? x.units.value - b->units.value : x.units.value;
       for (int pass = 0; pass < 2; ++pass)
-        x.vsBase[pass] = t->base ? x.units[pass] - results[c.name][t->base].units[pass] : x.units[pass];
+        x.vsBasePass[pass] = b ? x.readings[size_t(pass)] - b->readings[size_t(pass)] : x.readings[size_t(pass)];
     }
     const auto [lo, hi] = std::minmax_element(mads.begin(), mads.end());
     madDrift[c.name] = 100.0 * (*hi - *lo) / median(mads);
@@ -682,23 +811,32 @@ int main(int argc, char** argv) {
   // CSV: the GPU once in header lines, then one row per configuration and test.
   FILE* csv = std::fopen(outPath.c_str(), "wb");
   if (!csv) fail("cannot write " + outPath);
-  std::fprintf(csv, "# sopt-opbench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", SOPT_VERSION,
+  std::fprintf(csv, "# OpBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", SOPT_VERSION,
                gpuName.c_str(), desc.VendorId, desc.DeviceId, driver.c_str());
   std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
   for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, madDrift[c.name]);
-  std::fprintf(csv, "config,test,base,iters,ms,ns_per_step,units,units_vs_base,vs_base_fwd,vs_base_bwd,step,note\n");
+  std::fprintf(csv,
+               "config,test,base,iters,ms,ns_per_step,units,units_vs_base,vs_base_fwd,vs_base_bwd,passes,consensus,readings,"
+               "step,note\n");
   for (const Config& c : kConfigs)
     for (const Test* t : tests) {
       const Measured& x = results[c.name][t->name];
-      std::fprintf(csv, "%s,%s,%s,%u,%.4f,%.6f,%.3f,%.3f,%.3f,%.3f,\"%s\",\"%s\"\n", c.name, t->name, t->base ? t->base : "",
-                   x.r.iters, x.r.ms, x.r.nsPerStep, x.unitsAvg(), x.vsBaseAvg(), x.vsBase[0], x.vsBase[1], t->step,
+      std::string readings;
+      for (double v : x.readings) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%s%.3f", readings.empty() ? "" : ";", v);
+        readings += buf;
+      }
+      std::fprintf(csv, "%s,%s,%s,%u,%.4f,%.6f,%.3f,%.3f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\"\n", c.name, t->name,
+                   t->base ? t->base : "", x.r.iters, x.r.ms, x.r.nsPerStep, x.units.value, x.vsBase, x.vsBasePass[0],
+                   x.vsBasePass[1], x.readings.size(), x.units.ok ? "yes" : "no", readings.c_str(), t->step,
                    t->note ? t->note : "");
     }
   std::fclose(csv);
 
   // Summary: banner, other adapters, throughput costs in the fixed order.
   const double fmaRate = 1.0 / madNs["tput"];  // per ns
-  const std::string title = std::string("sopt-opbench ") + SOPT_VERSION + "  -  " + gpuName;
+  const std::string title = std::string("OpBench ") + SOPT_VERSION + "  -  " + gpuName;
   const int w = columns(title) + 4;
   const std::string hz = st.vt ? "\u2550" : "=";
   std::string line;
@@ -714,8 +852,9 @@ int main(int argc, char** argv) {
   constexpr int kBarWidth = 28;
   double maxV = 0.0;
   for (const char* name : kDisplayOrder)
-    if (results["tput"].count(name)) maxV = std::max(maxV, results["tput"][name].vsBaseAvg());
-  std::printf("\n  %s%-10s %6s  %-*s  %s%s\n", st.c("\x1b[1m"), "Test", "Cost", kBarWidth, "Graph", "Comment", st.reset());
+    if (results["tput"].count(name)) maxV = std::max(maxV, results["tput"][name].vsBase);
+  std::printf("\n  %s%-10s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1m"), "Test", "Cost", kBarWidth, "Graph", "Ops", "Comment",
+              st.reset());
   std::vector<std::string> unstable;
   const char* section = nullptr;
   for (const char* name : kDisplayOrder) {
@@ -729,20 +868,28 @@ int main(int argc, char** argv) {
       section = nullptr;
     }
     const Measured& x = results["tput"][name];
-    const double v = x.vsBaseAvg();
-    char buf[64];
-    const char* color = "";
-    const char* comment = costComment(v, buf, sizeof(buf), st, &color);
-    const std::string b = bar(v, maxV, kBarWidth, st);
-    const double diff = std::fabs(x.vsBase[0] - x.vsBase[1]);
-    const bool shaky = diff > std::max(0.75, 0.15 * std::fabs(v));
+    const double v = x.vsBase;
+    Shade shade;
+    const char* comment = costComment(v, &shade);
+    const std::string color = st.vt ? "\x1b[" + std::to_string(shade.bright) + "m" : "";
+    const std::string b = bar(v, maxV, kBarWidth, st, shade);
+    // A test (or its base) without a majority among its readings, or settled by extra passes.
+    const Measured* base = nullptr;
+    for (const Test* t : tests)
+      if (std::strcmp(t->name, name) == 0 && t->base) base = &results["tput"][t->base];
+    const bool shaky = !x.units.ok || (base && !base->units.ok);
     if (shaky) unstable.push_back(name);
-    std::printf("  %-10s %6.1f  %s%s%s%*s  %s%s%s%s\n", name, v, color, b.c_str(), st.reset(),
-                std::max(0, kBarWidth - columns(b)), "", color, comment, st.reset(),
-                shaky ? (st.vt ? "  \x1b[93m! passes disagree\x1b[0m" : "  ! passes disagree") : "");
+    std::string note;
+    if (shaky) note = st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus";
+    else if (x.readings.size() > 2)
+      note = std::string("  ") + st.c("\x1b[90m") + std::to_string(x.readings.size()) + " passes" + st.reset();
+    const double shown = std::fabs(v) < 0.05 ? 0.0 : v;  // no "-0.0"
+    const double ops = std::fabs(v / 4.0) < 0.05 ? 0.0 : v / 4.0;
+    std::printf("  %-10s %6.1f  %s  %5.1f  %s%s%s%s\n", name, shown, b.c_str(), ops, color.c_str(), comment, st.reset(),
+                note.c_str());
   }
-  std::printf("\n  Cost = extra over the test's base, in sopt units (4 = one fma); throughput, %d chains.\n"
-              "  What each test measures: TESTS.txt next to this program.\n",
+  std::printf("\n  Cost = extra over the test's base, in sopt units (4 = one fma); Ops = Cost / 4 (fma equivalents);\n"
+              "  throughput, %d chains. What each test measures: TESTS.txt next to this program.\n",
               kConfigs[0].chains);
 
   bool warned = false;
@@ -754,8 +901,8 @@ int main(int argc, char** argv) {
                   st.c("\x1b[1;93m"), st.reset(), madDrift[c.name], c.name);
     }
   if (!unstable.empty()) {
-    std::printf("%s  %sWarning:%s %zu test(s) differ between the forward and backward pass:", warned ? "" : "\n",
-                st.c("\x1b[1;93m"), st.reset(), unstable.size());
+    std::printf("%s  %sWarning:%s %zu test(s) without agreeing readings after %d passes:", warned ? "" : "\n",
+                st.c("\x1b[1;93m"), st.reset(), unstable.size(), kMaxPasses);
     for (const std::string& n : unstable) std::printf(" %s", n.c_str());
     std::printf("\n");
     warned = true;

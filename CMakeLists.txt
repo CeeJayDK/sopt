@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sopt VERSION 0.2.0 LANGUAGES C CXX)
+project(sopt VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -135,11 +135,13 @@ if(WIN32)
   target_include_directories(sopt-host PRIVATE third_party/vulkan)
   target_compile_features(sopt-host PRIVATE cxx_std_17)
   target_link_libraries(sopt-host PRIVATE d3d11 dxgi ole32 windowscodecs opengl32)
-  # sopt-opbench: instruction costs on the local GPU (D3D11 compute, tools/windows/README.md).
-  add_executable(sopt-opbench tools/windows/opbench/sopt_opbench.cpp)
-  target_compile_features(sopt-opbench PRIVATE cxx_std_17)
-  target_link_libraries(sopt-opbench PRIVATE d3d11 dxgi d3dcompiler)
-  target_compile_definitions(sopt-opbench PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
+  # OpBench (sopt-opbench until 0.2.0): instruction costs on the local GPU (D3D11 compute,
+  # tools/windows/README.md); target opbench, file OpBench.exe.
+  add_executable(opbench tools/windows/opbench/sopt_opbench.cpp)
+  set_target_properties(opbench PROPERTIES OUTPUT_NAME OpBench)
+  target_compile_features(opbench PRIVATE cxx_std_17)
+  target_link_libraries(opbench PRIVATE d3d11 dxgi d3dcompiler)
+  target_compile_definitions(opbench PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
   # Version resource (name, publisher, version under Properties > Details) on every tool we
   # distribute, and a manifest (asInvoker, supported Windows versions) on the executables:
   # unsigned executables without them look more suspicious to Windows Defender.
@@ -154,7 +156,7 @@ if(WIN32)
       target_sources(${target} PRIVATE tools/windows/app.manifest)
     endif()
   endfunction()
-  sopt_version_info(sopt-opbench sopt-opbench.exe "sopt GPU instruction cost benchmark" VFT_APP)
+  sopt_version_info(opbench OpBench.exe "OpBench: GPU instruction cost benchmark (sopt)" VFT_APP)
   sopt_version_info(sopt-host sopt-host.exe "sopt benchmark host window (DX11 / Vulkan)" VFT_APP)
   sopt_version_info(sopt-fxc sopt-fxc.exe "sopt helper: HLSL to DXBC with Microsoft fxc" VFT_APP)
   if(CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -162,10 +164,10 @@ if(WIN32)
   else()
     sopt_version_info(sopt-timer sopt-timer.addon32 "sopt GPU timer add-on for ReShade" VFT_DLL)
   endif()
-  # UTF-8 string literals (opbench's box and bar characters): without /utf-8 MSVC converts them
+  # UTF-8 string literals (OpBench's block graphics): without /utf-8 MSVC converts them
   # to the ANSI code page at compile time and writes '?' (0.1.0); C4566 as an error catches that.
   if(MSVC)
-    foreach(t sopt-opbench sopt-host sopt-fxc sopt-timer)
+    foreach(t opbench sopt-host sopt-fxc sopt-timer)
       target_compile_options(${t} PRIVATE /utf-8 /we4566)
     endforeach()
   endif()

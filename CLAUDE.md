@@ -737,6 +737,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   bitor, signbits (fxc: and + iadd), half precision (mad16 ... exp2_16; CSV header says whether the driver
   reports 16-bit min precision). Layout (owner): other adapters right after the GPU line, verbose mode
   headings, capitalized table headings, summary in sections; TESTS.txt (zip) explains every test.
+  0.3.0 (owner, 2026-10-03, after his 0.2.0 run: the 1/8 blocks showed as boxes in the Windows console
+  font): renamed OpBench (target opbench, OpBench.exe, OpBench-<v>.zip); only full / half blocks (CP437):
+  bars with 4 levels per cell from bright / dark color pairs (owner's design), a 9-row logo (Liberation Sans
+  Bold, 2 grey pixels per cell, scratch logo/gen2.py; preview renderer logo/render.py), a 6-level progress
+  bar, Ops column (Cost / 4, one decimal: owner ok); extra passes (owner's redundant-sensor idea): tests
+  whose readings disagree are measured again (alternating direction) until > half agree, max 6 passes
+  (`consensus`, kMaxPasses), CSV columns passes / consensus / readings.
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such
