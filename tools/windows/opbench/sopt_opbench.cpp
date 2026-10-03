@@ -22,6 +22,11 @@
 // reference mad right before it, so a GPU clock change only affects the tests around it and shows
 // as drift or as a disagreement between the two passes; the summary lists the throughput costs in
 // a fixed order with a bar per test; the CSV has the GPU / driver once in '#' header lines.
+//
+// Version 3 (0.2.0): vector chains (dot, cross, length, normalize), intrinsics fxc writes out
+// (atan, asin, tan, fmod, smoothstep, sincos), integer / bit operations and int <-> float
+// conversions on uint chains, half precision (min16float); summary in sections. TESTS.txt
+// describes every test.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -60,6 +65,9 @@ struct Test {
   float cx, cy, cz, cw;
   const char* base;  // the test whose time is subtracted
   const char* note;
+  // Type of the chain value x: float, float2..4, uint (constants are then random odd 32-bit
+  // patterns, read with asuint) or min16float.
+  const char* type = "float";
 };
 
 // Constants keep every chain finite and away from denormals (x stays roughly in [0.3, 3]).
@@ -117,6 +125,62 @@ const Test kTests[] = {
     {"roundadd", "mad(roundAdd(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "round: (x + 1.5 * 2^23) - 1.5 * 2^23, precise"},
     {"flooradd", "mad(floorAdd(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "floor: r - saturate((r - x) * 1e38), precise"},
     {"fracadd", "mad(fracAdd(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "frac: d + saturate(d * -1e38), d = x - r, precise"},
+    // Vector chains (version 3): dot / cross / length / normalize are no hardware instructions on
+    // scalar GPUs; these show whether they cost their expansions. Bases: 2-4 fmas.
+    {"mad2v", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "2 fmas (float2)", "float2"},
+    {"mad3v", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "3 fmas (float3)", "float3"},
+    {"mad4v", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "4 fmas (float4)", "float4"},
+    {"dot2", "mad(x.yx, dot(x, c.zw), c.y)", 0.5f, 0.5f, 0.2f, 0.2f, "mad2v", "dot2: mul + fma", "float2"},
+    {"dot3", "mad(x.yzx, dot(x, c.zwz), c.y)", 0.5f, 0.5f, 0.13f, 0.13f, "mad3v", "dot3: mul + 2 fma", "float3"},
+    {"dot4", "mad(x.yzwx, dot(x, c.zwzw), c.y)", 0.5f, 0.5f, 0.1f, 0.1f, "mad4v", "dot4: mul + 3 fma", "float4"},
+    {"cross", "mad(cross(x, c.zwy), c.x, c.y)", 0.5f, 1.0f, 0.8f, 0.6f, "mad3v", "cross: 3 mul + 3 fma", "float3"},
+    {"normalize", "mad(normalize(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad3v", "dot3, rsqrt, 3 mul", "float3"},
+    {"length", "mad(x.yzx, c.x, c.y) - length(x) * c.z", 0.5f, 1.0f, 0.3f, 0.0f, "mad3v", "dot3, sqrt, plus one fma",
+     "float3"},
+    {"distance", "mad(x.yzx, c.x, c.y) - distance(x, c.zwz) * c.z", 0.5f, 1.0f, 0.3f, 0.2f, "mad3v",
+     "3 sub, dot3, sqrt, plus one fma", "float3"},
+    {"reflect", "mad(reflect(x, c.zwz), c.x, c.y)", 0.5f, 1.0f, 0.6f, 0.8f, "mad3v", "i - 2 * dot(i, n) * n", "float3"},
+    // Intrinsics fxc writes out as instruction sequences (sopt has no op for most of them yet).
+    {"fmod", "mad(fmod(x, c.z), c.x, c.y)", 0.5f, 1.0f, 0.7f, 0.0f, "mad", "fxc: div, frac, mul, select"},
+    {"smoothstep", "mad(smoothstep(c.z, c.w, x), c.x, c.y)", 0.5f, 1.0f, 0.5f, 2.5f, "mad", "fxc: add, mul_sat, mad, 2 mul"},
+    {"atan", "mad(atan(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "fxc: polynomial"},
+    {"atan2", "mad(atan2(x, c.z), c.x, c.y)", 0.5f, 1.0f, 1.1f, 0.0f, "mad", "fxc: polynomial + quadrant fixes"},
+    {"asin", "mad(asin(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul", "fxc: polynomial + sqrt"},
+    {"acos", "mad(acos(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul", "fxc: polynomial + sqrt"},
+    {"tan", "mad(tan(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.4f, 0.0f, "mul", "fxc: sincos + div"},
+    {"sincos", "mad(sin(x) + cos(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "add", "sin and cos of one value"},
+    // Integer and bit operations (uint chains: x = (x ^ c.y) * c.x mixes, nothing reassociates)
+    // and conversions between int and float.
+    {"ixmul", "(x ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "mad", "base: xor + imul", "uint"},
+    {"iadd", "((x + asuint(c.z)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "", "uint"},
+    {"imul", "((x * asuint(c.z)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "", "uint"},
+    {"iand", "((x & asuint(c.z)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "NVIDIA: LOP3 can merge it with the xor",
+     "uint"},
+    {"imin", "(min(x, asuint(c.z)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "umin", "uint"},
+    {"ishr", "((x ^ (x >> 13)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "ushr + xor", "uint"},
+    {"irot", "(((x << 7) | (x >> 25)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul",
+     "rotate: shl, shr, or (or one funnel shift / alignbit)", "uint"},
+    {"popc", "((x + countbits(x)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "iadd", "countbits", "uint"},
+    {"fbh", "((x + firstbithigh(x)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "iadd", "firstbithigh", "uint"},
+    {"bitrev", "(reversebits(x) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "reversebits", "uint"},
+    {"utof", "(asuint(float(x)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "uint -> float conversion", "uint"},
+    {"unitf", "(asuint(asfloat((x >> 9) | 0x3f800000u) * 1.5) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul",
+     "uint -> [1, 2) by bits: ushr, or, plus a mul", "uint"},
+    {"ftou", "(uint(asfloat((x >> 9) | 0x3f800000u) * 4194304.0) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "unitf",
+     "float -> uint conversion", "uint"},
+    // The | 1 keeps the int: fxc writes float(int(v)) alone as one round_z (truncation).
+    {"ftoitof", "mad(float(int(x * c.z) | 1), c.x, c.y)", 0.0005f, 0.5f, 1000.0f, 0.0f, "mul", "ftoi, or, itof"},
+    {"bitor", "mad(asfloat(asuint(x) | 1u), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "one int op on a float value"},
+    {"signbits", "mad(asfloat((asuint(x - c.z) & 0x80000000u) | 0x3f800000u), c.x, c.y)", 0.5f, 1.0f, 1.1f, 0.0f, "sub",
+     "+-1 from the sign bit (1 at +0, like signsel2): and, iadd"},
+    // Half precision: min16float (drivers may run it at 32 bits; see the CSV header).
+    {"mad16", "mad(x, (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "fp16 fma", "min16float"},
+    {"add16", "mad(x + (min16float)c.z, (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.1f, 0.0f, "mad16", "", "min16float"},
+    {"mul16", "mad(x * (min16float)c.z, (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.9f, 0.0f, "mad16", "",
+     "min16float"},
+    {"rcp16", "mad(rcp(x), (min16float)c.x, (min16float)c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad16", "", "min16float"},
+    {"sqrt16", "mad(sqrt(x), (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad16", "", "min16float"},
+    {"exp2_16", "mad(exp2(x), (min16float)c.x, (min16float)c.y)", 0.25f, 0.0f, 0.0f, 0.0f, "mad16", "", "min16float"},
 };
 
 constexpr int kUnroll = 16;          // steps per loop iteration, each with its own constants
@@ -127,8 +191,15 @@ struct Config {
   const char* name;
   int chains;
   UINT groups;
+  const char* title;  // console heading
+  const char* what;   // what it shows
 };
-Config kConfigs[] = {{"tput", 8, kGroupsFull}, {"dep", 1, kGroupsFull}, {"lat", 1, 1}};
+Config kConfigs[] = {
+    {"tput", 8, kGroupsFull, "Throughput",
+     "how many of each instruction the GPU finishes per second (the number sopt's cost models use)"},
+    {"dep", 1, kGroupsFull, "Dependent chains",
+     "every step waits for the one before it; the GPU hides the wait by switching between threads"},
+    {"lat", 1, 1, "Latency", "how long one step takes until its result is ready (one group of threads, nothing to hide it)"}};
 
 [[noreturn]] void fail(const std::string& what) {
   std::fprintf(stderr, "sopt-opbench: %s\n", what.c_str());
@@ -151,8 +222,19 @@ std::string shaderSource(const Test& t, int chains) {
       "float fracAdd(float v) { precise float d = v - ((v + 12582912.0) - 12582912.0); precise float f = d + saturate(d * -1e38); return f; }\n"
       "[numthreads(64, 1, 1)]\n"
       "void main(uint3 id : SV_DispatchThreadID)\n{\n";
-  for (int k = 0; k < chains; ++k)
-    s += "  float x" + std::to_string(k) + " = 1.0 + frac(id.x * 0.000123 + " + std::to_string(k) + " * 0.137) * seed;\n";
+  const std::string type = t.type;
+  for (int k = 0; k < chains; ++k) {
+    const std::string ks = std::to_string(k);
+    std::string init;
+    if (type == "uint") init = "id.x * 2654435761u + " + ks + "u * 40503u + 1u";
+    else if (type == "float") init = "1.0 + frac(id.x * 0.000123 + " + ks + " * 0.137) * seed";
+    else if (type == "min16float") init = "(min16float)(1.0 + frac(id.x * 0.000123 + " + ks + " * 0.137) * seed)";
+    else {  // float2..4: different start values per component
+      const std::string sw = std::string("xyzw").substr(0, size_t(type.back() - '0'));
+      init = "1.0 + frac(id.x * 0.000123 + " + ks + " * 0.137 + float4(0.0, 0.31, 0.53, 0.71)." + sw + ") * seed";
+    }
+    s += "  " + type + " x" + ks + " = " + init + ";\n";
+  }
   s += "  [loop] for (uint i = 0; i < iters; ++i)\n  {\n";
   for (int r = 0; r < kUnroll; ++r) {
     s += "    {\n      const float4 c = U[" + std::to_string(r) + "];\n";
@@ -171,7 +253,13 @@ std::string shaderSource(const Test& t, int chains) {
     s += "    }\n";
   }
   s += "  }\n  O[id.x] = 0.0";
-  for (int k = 0; k < chains; ++k) s += " + x" + std::to_string(k);
+  for (int k = 0; k < chains; ++k) {
+    const std::string x = "x" + std::to_string(k);
+    if (type == "float") s += " + " + x;
+    else if (type == "uint") s += " + float(" + x + " & 1023u)";
+    else if (type == "min16float") s += " + (float)" + x;
+    else s += " + dot(" + x + ", 1.0)";
+  }
   s += ";\n}\n";
   return s;
 }
@@ -196,7 +284,19 @@ struct CbData {
 
 void setConstants(Gpu& g, const Test& t, UINT iters) {
   CbData d = {};
+  const bool bits = std::strcmp(t.type, "uint") == 0;
   for (int r = 0; r < 16; ++r) {
+    if (bits) {  // random 32-bit patterns, read with asuint; c.x odd (a multiplier that loses no bits)
+      for (int i = 0; i < 4; ++i) {
+        uint32_t h = uint32_t(r * 4 + i + 1) * 2654435761u;
+        h ^= h >> 15;
+        h *= 2246822519u;
+        h ^= h >> 13;
+        if (i == 0) h |= 1u;
+        std::memcpy(&d.U[r][i], &h, 4);
+      }
+      continue;
+    }
     // Distinct constants per step (within 0.1%), so no two steps can be merged.
     const float e = 1.0f + 0.0001f * float(r);
     d.U[r][0] = t.cx * e;
@@ -291,15 +391,29 @@ Style initConsole() {
   return st;
 }
 
-// The summary's fixed order: cheapest to most expensive as most GPUs measure it, the same on every
-// GPU so results can be compared line by line.
+// The summary's fixed order: sections ("#" entries), within each cheapest to most expensive as
+// most GPUs measure it, the same on every GPU so results can be compared line by line.
 const char* const kDisplayOrder[] = {
-    "neg",      "abs",       "negabs",  "saturate", "satmad",  "mul",      "omod2",   "omodhalf", "omod3",
-    "min",      "max",       "step",    "add",      "sub",     "mad2",     "contract", "max3",    "minmax",
-    "floor",    "ceil",      "round",   "frac",     "clamp",   "select",   "lerp",     "signsel2", "signsat",
-    "signmad",  "signclamp", "signsel", "sign",     "roundadd", "flooradd", "fracadd", "divxy",   "rcp",
-    "rsqrt",    "sqrt",      "div",     "exp2",     "log2",    "log",      "exp",      "cos",      "sin",
-    "rcpmax",   "pow"};
+    "#Modifiers and folds", "neg", "abs", "negabs", "saturate", "satmad", "mul", "omod2", "omodhalf", "omod3",
+    "#Basic arithmetic", "min", "max", "step", "add", "sub", "mad2", "contract", "max3", "minmax", "clamp", "select",
+    "lerp",
+    "#Rounding and sign", "floor", "ceil", "round", "frac", "roundadd", "flooradd", "fracadd", "signsel2", "signbits",
+    "signsat", "signmad", "signclamp", "signsel", "sign",
+    "#Division and transcendentals", "divxy", "rcp", "rsqrt", "sqrt", "div", "exp2", "log2", "log", "exp", "cos", "sin",
+    "rcpmax", "pow",
+    "#Vector (float2 / float3 / float4)", "mad2v", "mad3v", "mad4v", "dot2", "dot3", "dot4", "cross", "length",
+    "distance", "normalize", "reflect",
+    "#Written out by fxc", "smoothstep", "fmod", "sincos", "tan", "atan", "atan2", "asin", "acos",
+    "#Integer and conversions", "bitor", "ixmul", "iadd", "iand", "imin", "ishr", "irot", "imul", "popc", "fbh",
+    "bitrev", "unitf", "utof", "ftou", "ftoitof",
+    "#Half precision (min16float)", "mad16", "add16", "mul16", "rcp16", "sqrt16", "exp2_16"};
+
+// 1048576 -> "1,048,576".
+std::string withCommas(unsigned long long v) {
+  std::string s = std::to_string(v);
+  for (int k = int(s.size()) - 3; k > 0; k -= 3) s.insert(size_t(k), ",");
+  return s;
+}
 
 // A comment and a color for a throughput cost (extra over the base, 4 = one fma).
 const char* costComment(double v, char* buf, size_t n, const Style& st, const char** color) {
@@ -405,14 +519,32 @@ int main(int argc, char** argv) {
                   unsigned(HIWORD(umd.LowPart)), unsigned(LOWORD(umd.LowPart)));
     driver = buf;
   }
-  std::printf("GPU: %s (vendor 0x%04X, device 0x%04X), driver %s\n", gpuName.c_str(), desc.VendorId, desc.DeviceId,
-              driver.c_str());
+  std::printf("%sGPU: %s%s (vendor 0x%04X, device 0x%04X), driver %s\n", st.c("\x1b[1m"), gpuName.c_str(), st.reset(),
+              desc.VendorId, desc.DeviceId, driver.c_str());
+  if (adapters.size() > 1) {
+    std::printf("Also detected in system:\n");
+    size_t nameW = 0;
+    for (size_t k = 0; k < adapters.size(); ++k)
+      if (int(k) != pick) nameW = std::max(nameW, adapterNames[k].size());
+    for (size_t k = 0; k < adapters.size(); ++k)
+      if (int(k) != pick)
+        std::printf("  %zu: %-*s   %sUse --adapter %zu to test this%s\n", k, int(nameW), adapterNames[k].c_str(),
+                    st.c("\x1b[90m"), k, st.reset());
+  }
 
   Gpu g;
   const D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;
   if (FAILED(D3D11CreateDevice(adapters[pick], D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, &level, 1, D3D11_SDK_VERSION, &g.dev,
                                nullptr, &g.ctx)))
     fail("D3D11CreateDevice failed");
+  // Whether the driver runs min16float at 16 bits in compute shaders (else at 32: the half tests
+  // then measure fp32).
+  bool half16 = false;
+  {
+    D3D11_FEATURE_DATA_SHADER_MIN_PRECISION_SUPPORT mp = {};
+    if (SUCCEEDED(g.dev->CheckFeatureSupport(D3D11_FEATURE_SHADER_MIN_PRECISION_SUPPORT, &mp, sizeof(mp))))
+      half16 = (mp.AllOtherShaderStagesMinPrecision & D3D11_SHADER_MIN_PRECISION_16_BIT) != 0;
+  }
   {
     D3D11_BUFFER_DESC bd = {};
     bd.ByteWidth = sizeof(CbData);
@@ -495,19 +627,23 @@ int main(int argc, char** argv) {
   for (const Test* t : tests)
     if (std::strcmp(t->name, "mad") == 0) madTest = t;
   // Warm up (clocks ramp up): two seconds of the reference test.
+  std::printf("\n%zu tests, each measured twice (forward, then backward through the list) in three ways.\n"
+              "Warming up the GPU for 2 seconds so its clock settles ...", tests.size());
   {
     g.ctx->CSSetShader(shaders["tput"]["mad"], nullptr, 0);
     setConstants(g, *madTest, 256);
     const ULONGLONG start = GetTickCount64();
     while (GetTickCount64() - start < 2000) timeDispatch(g, kConfigs[0].groups);
   }
+  std::printf(" done\n");
 
   std::map<std::string, std::map<std::string, Measured>> results;  // config -> test -> result
   std::map<std::string, double> madDrift;                          // config -> spread of the reference
   std::map<std::string, double> madNs;                             // config -> mean reference time
   for (const Config& c : kConfigs) {
-    std::printf("%s== %s%s (%d chain%s, %u threads): ", st.c("\x1b[1m"), c.name, st.reset(), c.chains,
-                c.chains > 1 ? "s" : "", c.groups * kGroupSize);
+    std::printf("\n%s== %s%s: %d %schain%s per thread, %s threads\n   %s%s%s\n   ", st.c("\x1b[1;96m"), c.title,
+                st.reset(), c.chains, c.chains > 1 ? "independent " : "", c.chains > 1 ? "s" : "",
+                withCommas(c.groups * kGroupSize).c_str(), st.c("\x1b[90m"), c.what, st.reset());
     std::map<std::string, UINT> iters;
     for (const Test* t : tests) iters[t->name] = calibrate(g, shaders[c.name][t->name], *t, c);
     std::vector<double> mads;
@@ -540,7 +676,7 @@ int main(int argc, char** argv) {
     double mean = 0.0;
     for (double v : mads) mean += v / double(mads.size());
     madNs[c.name] = mean;
-    std::printf(" reference drift %.1f%%\n", madDrift[c.name]);
+    std::printf("\n   reference drift %.1f%%%s\n", madDrift[c.name], madDrift[c.name] > 5.0 ? " (the GPU clock moved)" : "");
   }
 
   // CSV: the GPU once in header lines, then one row per configuration and test.
@@ -548,6 +684,7 @@ int main(int argc, char** argv) {
   if (!csv) fail("cannot write " + outPath);
   std::fprintf(csv, "# sopt-opbench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", SOPT_VERSION,
                gpuName.c_str(), desc.VendorId, desc.DeviceId, driver.c_str());
+  std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
   for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, madDrift[c.name]);
   std::fprintf(csv, "config,test,base,iters,ms,ns_per_step,units,units_vs_base,vs_base_fwd,vs_base_bwd,step,note\n");
   for (const Config& c : kConfigs)
@@ -572,25 +709,25 @@ int main(int argc, char** argv) {
   std::printf("  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "\u255A" : "+", line.c_str(), st.vt ? "\u255D" : "+", st.reset());
   std::printf("  driver %s, vendor 0x%04X, device 0x%04X, %.1f TFLOPS fp32 (measured)\n", driver.c_str(), desc.VendorId,
               desc.DeviceId, fmaRate * 2.0 / 1000.0);
-  if (adapters.size() > 1) {
-    std::printf("  Also detected in system:\n");
-    size_t nameW = 0;
-    for (size_t k = 0; k < adapters.size(); ++k)
-      if (int(k) != pick) nameW = std::max(nameW, adapterNames[k].size());
-    for (size_t k = 0; k < adapters.size(); ++k)
-      if (int(k) != pick)
-        std::printf("    %zu: %-*s   %sUse --adapter %zu to test this%s\n", k, int(nameW), adapterNames[k].c_str(),
-                    st.c("\x1b[90m"), k, st.reset());
-  }
+  std::printf("  min16float runs at %s\n", half16 ? "16 bits" : "32 bits on this driver (the half precision tests measure fp32)");
 
   constexpr int kBarWidth = 28;
   double maxV = 0.0;
   for (const char* name : kDisplayOrder)
     if (results["tput"].count(name)) maxV = std::max(maxV, results["tput"][name].vsBaseAvg());
-  std::printf("\n  %s%-10s %6s  %-*s  %s%s\n", st.c("\x1b[1m"), "test", "cost", kBarWidth, "graph", "comment", st.reset());
+  std::printf("\n  %s%-10s %6s  %-*s  %s%s\n", st.c("\x1b[1m"), "Test", "Cost", kBarWidth, "Graph", "Comment", st.reset());
   std::vector<std::string> unstable;
+  const char* section = nullptr;
   for (const char* name : kDisplayOrder) {
+    if (name[0] == '#') {
+      section = name + 1;
+      continue;
+    }
     if (!results["tput"].count(name)) continue;
+    if (section) {
+      std::printf("\n  %s%s%s\n", st.c("\x1b[1;96m"), section, st.reset());
+      section = nullptr;
+    }
     const Measured& x = results["tput"][name];
     const double v = x.vsBaseAvg();
     char buf[64];
@@ -604,7 +741,8 @@ int main(int argc, char** argv) {
                 std::max(0, kBarWidth - columns(b)), "", color, comment, st.reset(),
                 shaky ? (st.vt ? "  \x1b[93m! passes disagree\x1b[0m" : "  ! passes disagree") : "");
   }
-  std::printf("\n  cost = extra over the test's base, in sopt units (4 = one fma); throughput, %d chains.\n",
+  std::printf("\n  Cost = extra over the test's base, in sopt units (4 = one fma); throughput, %d chains.\n"
+              "  What each test measures: TESTS.txt next to this program.\n",
               kConfigs[0].chains);
 
   bool warned = false;

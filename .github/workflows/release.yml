@@ -63,8 +63,8 @@ jobs:
         run: |
           $v = '${{ steps.version.outputs.version }}'
           New-Item -ItemType Directory -Force -Path opbench, tools, unsigned | Out-Null
-          Copy-Item build/Release/sopt-opbench.exe, tools/windows/measure-gpu.bat, tools/windows/opbench/README.txt opbench/
-          Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, build/Release/sopt-opbench.exe, tools/windows/measure-gpu.bat, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md tools/
+          Copy-Item build/Release/sopt-opbench.exe, tools/windows/measure-gpu.bat, tools/windows/opbench/README.txt, tools/windows/opbench/TESTS.txt opbench/
+          Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, build/Release/sopt-opbench.exe, tools/windows/measure-gpu.bat, tools/windows/opbench/TESTS.txt, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md tools/
           Compress-Archive -Path opbench/* -DestinationPath "unsigned/sopt-opbench-$v.zip"
           Compress-Archive -Path tools/* -DestinationPath "unsigned/sopt-windows-tools-$v.zip"
       - name: Upload unsigned

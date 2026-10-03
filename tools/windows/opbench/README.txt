@@ -30,5 +30,7 @@ instruction pattern in long chains; its cost is reported relative to one multipl
 fma). Every test runs twice, forward and backward through the list, with a fresh reference right
 before it, so a GPU clock change shows up as a warning instead of wrong numbers.
 
+TESTS.txt explains what each test measures and why.
+
 It writes only opbench-<GPU>.csv and the folder opbench-dxbc (the shader code of each test) next
 to itself. It does not use the network.

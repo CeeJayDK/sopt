@@ -167,6 +167,15 @@ same on every GPU) with a bar and a comment per test, the other GPUs Windows rep
 `--adapter N`), and warnings when the reference drifted more than 5% or the two passes disagree.
 The CSV has the GPU, vendor, device, driver and the drift once in `#` header lines, then one row
 per configuration and test (`units_vs_base` is the average of `vs_base_fwd` and `vs_base_bwd`).
+
+Version 3 (0.2.0, owner 2026-10-03: "the test itself does not take long, so we might as well include
+a lot"): chains can be `float2..4` (dot2..4, cross, length, distance, normalize, reflect against 2-4
+fmas), `uint` (integer / bit ops and int <-> float conversions; random odd 32-bit constants, step
+`(x ^ a) * b`) or `min16float` (half precision; the CSV header and the summary say whether the driver
+runs it at 16 bits); scalar tests of intrinsics fxc writes out (smoothstep, fmod, sincos, tan, atan,
+atan2, asin, acos). The other GPUs are listed right after the `GPU:` line, the three modes are
+explained as they start, and the summary has sections. `opbench/TESTS.txt` (in the zip) describes
+every test.
 The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics
 (`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases: the
 `sopt-opbench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases (exe, measure-gpu.bat,
