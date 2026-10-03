@@ -662,6 +662,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   lerp 9.7, rcp / rsqrt / sqrt / exp2 / log2 / sin / cos ~26, pow 58, sign 38 (slowest sign so far; the
   mad_sat form ~8), omod2 / omodhalf ~0 (output modifier on RDNA too), omod3 2.8, max3 / minmax +3.1,
   satmad -0.45, mul folded (0.38). No RDNA 4 model yet (owner's go needed).
+  First RDNA 2 (amd-radeon-680m-rembrandt.csv, 0x1681 = probably Radeon 680M / 660M, Rembrandt iGPU, v1): neg / abs /
+  saturate -0.5 (the reference ran ~0.5 slow: small drift), so +0.5: add / sub / min / max / floor / ceil / round / frac
+  ~2.4 (as on Renoir, the base mad is ~2 instructions: 1 instruction ~2.2 units), mad2 / contract 3.4, step / select
+  4.3, clamp 5, lerp 5.9, MUFU (rcp / sqrt / exp2 / sin ...) ~6.5 (~3 instructions), sign 12.5, pow 16.5, max3 1.3
+  (v_max3), minmax 2.9, omod2 / omodhalf ~0.3 (output modifier), omod3 1.2, mul folded (-0.9). v2 run wanted.
   RTX 4090 Laptop (nvidia-rtx-4090-laptop.csv, Ada): tput / dep unreliable (neg -2.6, add / mul / min
   negative: laptop power management), only lat plausible (rcp / floor ~18, add 4): v2 run wanted. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
