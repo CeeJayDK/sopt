@@ -42,12 +42,15 @@ struct Variable {
 };
 
 struct Statement {
-  enum class Kind { Init, Store, Return };
+  // Write: a compute shader's store into a resource (tex2Dstore(s, coord, value)).
+  enum class Kind { Init, Store, Return, Write };
   Kind kind = Kind::Store;
   uint32_t var = 0;  // Init / Store
+  uint32_t storage = 0;  // Write: the storage object's id
   std::vector<reshadefx::expression::operation> chain;  // Store: lvalue access chain
   uint32_t value = 0;
-  reshadefx::location loc;  // Init: variable name; Store: lvalue start; Return: value start
+  reshadefx::location loc;  // Init: variable name; Store: lvalue start; Return: value start;
+                            // Write: the call
   uint32_t block = 0;
   uint32_t seq = 0;         // emission order within the effect
 };
@@ -59,6 +62,7 @@ struct Function {
   reshadefx::type returnType{};
   std::string returnSemantic;
   reshadefx::shader_type type = reshadefx::shader_type::unknown;  // set for entry points
+  int numThreads[3] = {0, 0, 0};  // compute: thread group size (max over the passes using it)
   std::vector<uint32_t> params;  // variable ids
   std::vector<Statement> stmts;
   std::vector<std::string> calls;  // unique names of called functions

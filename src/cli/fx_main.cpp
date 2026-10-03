@@ -49,15 +49,16 @@ bool regionMatches(const fx::Region& r, const std::string& spec) {
 void usage() {
   std::puts(
       "usage: sopt-fx [options] <file.fx | file.hlsl | directory>...   (sopt " SOPT_VERSION ")\n"
-      "Finds cheaper verified alternatives to arithmetic statements of pixel shaders and\n"
-      "writes variant .fx files with a preprocessor switch per statement plus a report.\n"
-      "ReShade FX by default; .hlsl / .hlsli files are plain HLSL (SM5 pixel shaders).\n"
+      "Finds cheaper verified alternatives to arithmetic statements of pixel and compute\n"
+      "shaders and writes variant .fx files with a preprocessor switch per statement plus a\n"
+      "report. ReShade FX by default; .hlsl / .hlsli files are plain HLSL (SM5 pixel shaders,\n"
+      "or compute shaders when the entry point has [numthreads]).\n"
       "  --version         print the version\n"
       "  -I DIR            include directory (ReShade.fxh etc.), repeatable\n"
       "  -D NAME[=VALUE]   preprocessor definition, repeatable\n"
       "  -o DIR            output directory (default sopt-out)\n"
       "  --hlsl            read every input as plain HLSL (default: by extension)\n"
-      "  --entry NAME      HLSL pixel shader entry point (default main)\n"
+      "  --entry NAME      HLSL entry point (default main)\n"
       "  --list            only list the regions and their facts, no search\n"
       "  --region F[:L]    only regions of file F (name, any folder) ending at or spanning\n"
       "                    line L, repeatable; for long runs of single regions (--time)\n"
@@ -312,7 +313,9 @@ int main(int argc, char** argv) {
     o.entry = entry;
     return o;
   };
-  std::set<std::string> hlslTextures;  // texture fact keys (plain HLSL: no format, no range)
+  // Fact keys that apply to every read: HLSL textures (no format, no range) and groupshared
+  // variables, with what kind of read they are.
+  std::map<std::string, std::string> resourceKeys;
   auto extractAll = [&]() {
     info.effects.clear();
     info.failed.clear();
@@ -320,7 +323,7 @@ int main(int argc, char** argv) {
     info.skipped.keepDetails = skips;
     results.clear();
     effectFiles.clear();
-    hlslTextures.clear();
+    resourceKeys.clear();
     std::set<std::tuple<std::string, uint32_t, size_t>> seen;
     for (const auto& p : inputs) {
       std::string err;
@@ -359,7 +362,10 @@ int main(int argc, char** argv) {
       info.effects.push_back(p.string());
       effectFiles.emplace_back(p, fx->sourceFiles);
       if (fx->hlsl)
-        for (const auto& t : fx::unrangedTextures(*fx)) hlslTextures.insert(fx::textureFactKey(*fx, t));
+        for (const auto& t : fx::unrangedTextures(*fx))
+          resourceKeys[fx::textureFactKey(*fx, t)] = fx->hlslBuffers.count(t) ? "buffer read" : "texture read";
+      for (const auto& g : fx::groupsharedVariables(*fx))
+        resourceKeys[fx::groupsharedFactKey(*fx, g)] = "groupshared read";
       // The regions once more with the back buffer as scRGB: inputs whose range changes
       // depend on the back buffer (checked for HDR below).
       std::map<std::tuple<std::string, uint32_t, size_t>, fx::Region> hdr;
@@ -426,7 +432,7 @@ int main(int argc, char** argv) {
             x.fact = &f;
             x.example = fs::path(rr.region.file).filename().string() + ":" +
                         std::to_string(rr.region.line) + ": " + rr.region.lhs + " " +
-                        toString(rr.region.prog.target, rr.region.prog.inputs);
+                        toString(rr.region.prog.target, rr.region.prog.inputs) + rr.region.rhs;
           }
           ++x.regions;
         }
@@ -509,11 +515,11 @@ int main(int argc, char** argv) {
         << " region" << (x.regions == 1 ? "" : "s") << "\n";
     }
     bool header = false;
-    for (const auto& key : hlslTextures) {
+    for (const auto& [key, what] : resourceKeys) {
       if (userRanges.count(key) || missing.count(key)) continue;
-      if (!header) f << "\n# HLSL textures (no format, so no range; applies to every read):\n";
+      if (!header) f << "\n# HLSL textures and buffers, groupshared memory (no known range; applies to every read):\n";
       header = true;
-      f << "# " << key << " = [0, 1]   # texture read\n";
+      f << "# " << key << " = [0, 1]   # " << what << "\n";
     }
   }
   std::printf("%zu inputs without a known range (listed in %s)\n", missing.size(),
@@ -526,10 +532,9 @@ int main(int argc, char** argv) {
   if (list) {
     for (const auto& rr : results) {
       const fx::Region& r = rr.region;
-      std::printf("%s:%s%u  %s %s  (cost %u)\n", r.file.c_str(),
+      std::printf("%s:%s%u  %s %s%s  (cost %u)\n", r.file.c_str(),
                   r.removed.empty() ? "" : (std::to_string(r.removed.front().first) + "-").c_str(), r.line,
-                  r.lhs.c_str(),
-                  toString(r.prog.target, r.prog.inputs).c_str(), rr.targetCost);
+                  r.lhs.c_str(), toString(r.prog.target, r.prog.inputs).c_str(), r.rhs.c_str(), rr.targetCost);
       std::printf("    budget %s (%s)\n", fx::budgetString(r.prog.budget).c_str(), r.budgetReason.c_str());
       if (!r.guard.empty()) std::printf("    only while %s\n", r.guard.c_str());
       for (size_t k = 0; k < r.prog.inputs.size(); ++k) {

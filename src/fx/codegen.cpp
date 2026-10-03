@@ -1,5 +1,6 @@
 #include "fx/codegen.hpp"
 
+#include <algorithm>
 #include <array>
 
 namespace sopt::fx {
@@ -140,6 +141,7 @@ reshadefx::codegen::id Codegen::define_function(const reshadefx::location& loc,
   f->returnType = info.return_type;
   f->returnSemantic = info.return_semantic;
   f->type = info.type;  // [shader("pixel")] functions and the HLSL entry point
+  for (int k = 0; k < 3; ++k) f->numThreads[k] = info.num_threads[k];  // [numthreads(x, y, z)]
   for (auto& param : info.parameter_list) {
     param.id = make_id();
     Variable& v = variables[param.id];
@@ -160,7 +162,11 @@ reshadefx::codegen::id Codegen::define_function(const reshadefx::location& loc,
 void Codegen::define_entry_point(reshadefx::function& function) {
   entryPoints[function.unique_name] = function.type;
   for (auto& f : functions)
-    if (f->uniqueName == function.unique_name) f->type = function.type;
+    if (f->uniqueName == function.unique_name) {
+      f->type = function.type;
+      // A compute shader's group size comes from each pass (CSMain<8, 8>): keep the largest.
+      for (int k = 0; k < 3; ++k) f->numThreads[k] = std::max(f->numThreads[k], function.num_threads[k]);
+    }
   bool known = false;
   for (const auto& e : _module.entry_points) known = known || e.first == function.unique_name;
   if (!known) _module.entry_points.emplace_back(function.unique_name, function.type);
@@ -244,6 +250,41 @@ reshadefx::codegen::id Codegen::emit_call_intrinsic(const reshadefx::location& l
   Value& v = newValue(Value::Kind::Intrinsic, res_type, loc, res);
   v.name = intrinsicName(function);
   for (const auto& a : args) v.args.push_back(a.base);
+  // texNDstore(storage, coord, value): the stored value is a statement like a return value.
+  if ((v.name == "tex1Dstore" || v.name == "tex2Dstore" || v.name == "tex3Dstore") && args.size() == 3) {
+    Statement s;
+    s.kind = Statement::Kind::Write;
+    s.storage = args[0].base;
+    s.value = args[2].base;
+    // HLSL RWTexture2D<float2 / float3>: the parser widens the value to the float4 storage
+    // (__sopt_rwtex2_ / __sopt_rwtex3_ textures); the stored value is the original one.
+    uint32_t storage = s.storage;
+    if (const auto lv = values.find(storage); lv != values.end() && lv->second.kind == Value::Kind::Load)
+      storage = lv->second.base;
+    bool widened = false;
+    for (const auto& st : _module.storages)
+      if (st.id == storage)
+        for (const char* prefix : {"__sopt_rwtex2_", "__sopt_rwtex3_"})
+          widened = widened || st.texture_name.find(prefix) != std::string::npos;
+    const auto wv = values.find(s.value);
+    if (widened && wv != values.end() && (wv->second.kind == Value::Kind::Chain || wv->second.kind == Value::Kind::Load) &&
+        !wv->second.chain.empty() && wv->second.chain.back().op == reshadefx::expression::operation::op_swizzle) {
+      if (wv->second.kind == Value::Kind::Chain && wv->second.chain.size() == 1) {
+        s.value = wv->second.base;
+      } else {
+        // The same access without the widening swizzle.
+        Value copy = wv->second;
+        copy.type = copy.chain.back().from;
+        copy.chain.pop_back();
+        id cid;
+        newValue(copy.kind, copy.type, copy.loc, cid) = copy;
+        values[cid].seq = seq_ - 1;
+        s.value = cid;
+      }
+    }
+    s.loc = loc;
+    addStatement(std::move(s));
+  }
   return res;
 }
 

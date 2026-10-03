@@ -43,6 +43,11 @@ namespace reshadefx
 		/// </summary>
 		bool sopt_hlsl = false;
 		std::string sopt_hlsl_entry = "main";
+		/// sopt (HLSL mode): the entry point is a compute shader when it has a [numthreads] attribute. Resources whose
+		/// elements are read as Name[index] (textures, buffers, RW textures and typed RW buffers), and of those the
+		/// buffers (filled while parsing).
+		std::vector<std::string> sopt_hlsl_fetch_names;
+		std::vector<std::string> sopt_hlsl_buffer_names;
 
 		/// <summary>
 		/// Gets the list of error messages.
@@ -105,8 +110,22 @@ namespace reshadefx
 		bool sopt_parse_text(const std::string &text, const location &loc, expression *exp);
 		bool sopt_skip_parens();
 		bool sopt_hlsl_declaration(bool &handled, bool &parse_success);
-		bool sopt_hlsl_texture_call(const std::string &texture, const location &loc, expression &exp);
-		std::vector<std::pair<std::string, unsigned int>> _sopt_textures; // HLSL texture name, dimension
+		struct sopt_resource
+		{
+			std::string name;
+			unsigned int dimension = 2;
+			unsigned int rows = 4;   // element components
+			char kind = 't';         // 't' texture / buffer, 'u' RW texture / buffer, 'g' struct buffer, 'b' byte address buffer
+			char base = 'f';         // element base type: 'f', 'i', 'u' (0 for a struct)
+			bool buffer = false;
+		};
+		bool sopt_argument_texts(char close, std::vector<std::string> &args);
+		std::string sopt_expression_text();
+		bool sopt_hlsl_resource_access(const sopt_resource &res, const location &loc, expression &exp);
+		bool sopt_hlsl_interlocked(const std::string &name, const std::vector<std::string> &args, const location &loc, expression &exp);
+		static bool sopt_hlsl_intrinsic_name(const std::string &name);
+		bool sopt_hlsl_intrinsic(const std::string &name, const location &loc, expression &exp);
+		std::vector<sopt_resource> _sopt_resources; // HLSL resource objects
 
 		std::vector<uint32_t> _loop_break_target_stack;
 		std::vector<uint32_t> _loop_continue_target_stack;

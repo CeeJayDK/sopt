@@ -20,11 +20,11 @@ effects, with -I for the folder that holds ReShade.fxh:
   Linux:
     ./sopt-fx -I ~/reshade-shaders/Shaders -o out ~/reshade-shaders/Shaders/SweetFX
 
-It searches every arithmetic statement of the pixel shaders, 5 seconds each by default (more
-time can find more: --time 20). All CPU cores are used.
+It searches every arithmetic statement of the pixel and compute shaders, 5 seconds each by
+default (more time can find more: --time 20). All CPU cores are used.
 
-Plain HLSL works too: .hlsl / .hlsli files are read as SM5 pixel shaders (--entry NAME for the
-entry point, default main).
+Plain HLSL works too: .hlsl / .hlsli files are read as SM5 pixel shaders, or compute shaders
+when the entry point has [numthreads] (--entry NAME for the entry point, default main).
 
 
 2. Read the results (folder "out")

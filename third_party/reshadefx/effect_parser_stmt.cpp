@@ -9,6 +9,7 @@
 #include <limits>
 #include <cctype> // std::toupper
 #include <cassert>
+#include <cstring> // sopt
 #include <iterator> // std::back_inserter
 #include <algorithm> // std::max, std::replace, std::transform
 #include <string_view>
@@ -209,9 +210,9 @@ bool reshadefx::parser::parse_top(bool &parse_success)
 			{
 				const std::string name = std::move(_token.literal_as_string);
 
-				// sopt: the HLSL pixel shader entry point
+				// sopt: the HLSL entry point (a compute shader when it has [numthreads])
 				if (sopt_hlsl && stype == shader_type::unknown && name == sopt_hlsl_entry)
-					stype = shader_type::pixel;
+					stype = num_threads[0] != 0 ? shader_type::compute : shader_type::pixel;
 
 				// This is definitely a function declaration, so parse it
 				if (!parse_function(type, name, stype, num_threads))
@@ -2913,22 +2914,42 @@ bool reshadefx::parser::sopt_hlsl_declaration(bool &handled, bool &parse_success
 		return true;
 	}
 
-	// Texture1D/2D/3D/Cube/2DArray[<T>] Name [: register(tN)];: a texture with an unknown (float) format and
-	// an implicit sampler __sopt_smp_Name for its method calls (cube and array textures as 2D: their fetches
-	// are only region inputs)
-	if (peek(tokenid::reserved) && (word == "Texture1D" || word == "Texture2D" || word == "Texture3D" ||
-		word == "TextureCube" || word == "Texture2DArray"))
+	// Resource objects [: register(xN)];:
+	//   Texture1D/2D/3D/Cube/2DArray[<T>], Buffer<T>, StructuredBuffer<T> of a scalar or vector T: a texture
+	//     with an unknown format (float formats) and an implicit sampler __sopt_smp_Name (cube and array textures
+	//     as 2D: their fetches are only region inputs);
+	//   RWTexture1D/2D/3D/2DArray<T>, RWBuffer<T>, RWStructuredBuffer<T> of a scalar or vector T: a storage object
+	//     Name on a texture __sopt_rwtex<rows>_Name (element float / float4 as ReShade FX storages have them);
+	//   structured buffers of a struct, Append / Consume buffers: a static global __sopt_buf_Name of the element
+	//     type; ByteAddressBuffer / RWByteAddressBuffer: a static uint4 __sopt_buf_Name (enough to parse; their
+	//     reads and writes end regions).
+	static const char *const resource_words[] = {
+		"Texture1D", "Texture2D", "Texture3D", "TextureCube", "Texture2DArray", "Buffer", "StructuredBuffer",
+		"RWTexture1D", "RWTexture2D", "RWTexture3D", "RWTexture2DArray", "RWBuffer", "RWStructuredBuffer",
+		"AppendStructuredBuffer", "ConsumeStructuredBuffer", "ByteAddressBuffer", "RWByteAddressBuffer" };
+	bool resource_word = false;
+	for (const char *const w : resource_words)
+		resource_word = resource_word || word == w;
+	if ((peek(tokenid::reserved) || peek(tokenid::identifier)) && resource_word)
 	{
 		handled = true;
 		consume();
-		const unsigned int dimension = word == "Texture1D" ? 1 : word == "Texture3D" ? 3 : 2;
-		std::string element = "float4";
+		const bool rw = word.rfind("RW", 0) == 0;
+		const bool byte_address = word.find("ByteAddress") != std::string::npos;
+		const bool buffer = word.find("Buffer") != std::string::npos;
+		const unsigned int dimension = (word.find("1D") != std::string::npos || buffer) ? 1 :
+			(word.find("3D") != std::string::npos || word == "RWTexture2DArray") ? 3 : 2;
+		std::string element = byte_address ? "uint4" : "float4";
 		if (accept('<'))
 		{
 			const size_t begin = _token_next.offset;
 			size_t end = begin;
-			while (!peek('>') && !peek(tokenid::end_of_file))
+			for (int depth = 1; !peek(tokenid::end_of_file);)
 			{
+				if (peek('<'))
+					++depth;
+				if (peek('>') && --depth == 0)
+					break;
 				consume();
 				end = _token.offset + _token.length;
 			}
@@ -2942,44 +2963,86 @@ bool reshadefx::parser::sopt_hlsl_declaration(bool &handled, bool &parse_success
 		const location name_location = _token.location;
 		if (peek('['))
 		{
-			error(_token_next.location, 3000, "sopt: arrays of textures are not supported");
+			error(_token_next.location, 3000, "sopt: arrays of resources are not supported");
 			return parse_success = false, true;
 		}
 		if (accept(':') && !((accept(tokenid::identifier) || expect(tokenid::reserved)) && sopt_skip_parens()))
 			return parse_success = false, true;
 		if (!expect(';'))
 			return parse_success = false, true;
+
+		// The element type: base 'f' / 'i' / 'u' and rows, or a struct (base 0).
+		std::string e = element;
+		for (const char *const q : { "unorm ", "snorm " })
+			if (e.rfind(q, 0) == 0)
+				e.erase(0, std::strlen(q));
+		while (!e.empty() && e.back() == ' ')
+			e.pop_back();
+		unsigned int rows = 1;
+		if (!e.empty() && e.back() >= '1' && e.back() <= '4')
+			rows = e.back() - '0', e.pop_back();
+		char base = 0;
+		if (e == "float" || e == "half" || e == "double" || e == "min16float" || e == "min10float")
+			base = 'f';
+		else if (e == "int" || e == "min16int" || e == "min12int")
+			base = 'i';
+		else if (e == "uint" || e == "min16uint" || e == "dword" || e == "bool")
+			base = 'u';
+
+		sopt_resource res;
+		res.name = name;
+		res.dimension = dimension;
+		res.rows = rows;
+		res.buffer = buffer;
+		res.base = base;
 		const std::string d = std::to_string(dimension);
-		_sopt_textures.emplace_back(name, dimension);
-		parse_success = sopt_parse_text(
-			"texture" + d + "D " + name + " { Format = RGBA32F; }; sampler" + d + "D<" + element + "> __sopt_smp_" + name +
-			" { Texture = " + name + "; };", name_location, nullptr);
+		std::string text;
+		if (byte_address || base == 0 || word == "AppendStructuredBuffer" || word == "ConsumeStructuredBuffer")
+		{
+			res.kind = byte_address ? 'b' : 'g';
+			text = "static " + element + " __sopt_buf_" + name + "; static uint __sopt_cnt_" + name + ";";
+		}
+		else
+		{
+			const std::string scalar = base == 'f' ? "float" : base == 'i' ? "int" : "uint";
+			const std::string type = rows == 1 ? scalar : scalar + '4';
+			const std::string format = base == 'f' ? (rows == 1 ? "R32F" : "RGBA32F") :
+				base == 'i' ? (rows == 1 ? "R32I" : "RGBA32I") : (rows == 1 ? "R32U" : "RGBA32U");
+			if (rw)
+			{
+				res.kind = 'u';
+				text = "texture" + d + "D __sopt_rwtex" + std::to_string(rows) + '_' + name + " { Format = " + format +
+					"; }; storage" + d + "D<" + type + "> " + name + " { Texture = __sopt_rwtex" + std::to_string(rows) + '_' +
+					name + "; };";
+			}
+			else
+			{
+				res.kind = 't';
+				text = "texture" + d + "D " + name + " { Format = " + format + "; }; sampler" + d + "D<" + type +
+					"> __sopt_smp_" + name + " { Texture = " + name + "; };";
+			}
+		}
+		_sopt_resources.push_back(res);
+		if (res.kind == 't' || res.kind == 'u')
+			sopt_hlsl_fetch_names.push_back(name);
+		if (buffer && (res.kind == 't' || res.kind == 'u'))
+			sopt_hlsl_buffer_names.push_back(name);
+		parse_success = sopt_parse_text(text, name_location, nullptr);
 		return true;
 	}
 	return true;
 }
 
-// sopt: an HLSL texture method call texture.Method(args) (see sopt_hlsl), the '.' being the next token.
-bool reshadefx::parser::sopt_hlsl_texture_call(const std::string &texture, const location &loc, expression &exp)
+// sopt: the text of a parenthesized / bracketed argument list (the opening token is next), split at depth-0
+// commas.
+bool reshadefx::parser::sopt_argument_texts(char close, std::vector<std::string> &args)
 {
-	unsigned int dimension = 2;
-	for (const auto &t : _sopt_textures)
-		if (t.first == texture)
-			dimension = t.second;
-	consume(); // '.'
-	if (!expect(tokenid::identifier))
-		return false;
-	const std::string method = _token.literal_as_string;
-	if (!expect('('))
-		return false;
-
-	// The arguments as source text
-	std::vector<std::string> args;
-	while (!peek(')') && !peek(tokenid::end_of_file))
+	consume(); // '(' or '['
+	while (!peek(close) && !peek(tokenid::end_of_file))
 	{
 		const size_t begin = _token_next.offset;
 		size_t end = begin;
-		for (int depth = 0; !peek(tokenid::end_of_file) && !(depth == 0 && (peek(',') || peek(')')));)
+		for (int depth = 0; !peek(tokenid::end_of_file) && !(depth == 0 && (peek(',') || peek(close)));)
 		{
 			if (peek('(') || peek('[') || peek('{'))
 				++depth;
@@ -2992,27 +3055,225 @@ bool reshadefx::parser::sopt_hlsl_texture_call(const std::string &texture, const
 		if (!accept(','))
 			break;
 	}
-	if (!expect(')'))
-		return false;
+	return expect(close);
+}
 
-	const std::string d = std::to_string(dimension);
-	const std::string sampler = "__sopt_smp_" + texture;
-	const std::string coord = dimension == 1 ? ".x" : dimension == 2 ? ".xy" : ".xyz";
-	const auto arg = [&](size_t i) { return i < args.size() ? '(' + args[i] + ')' : std::string("0"); };
-	std::string call;
-	if (method == "Sample" || method == "SampleLevel" || method == "SampleBias" || method == "SampleGrad")
-		call = "tex" + d + "D(" + sampler + ", " + arg(1) + coord + ')';
-	else if (method == "SampleCmp" || method == "SampleCmpLevelZero")
-		call = "tex" + d + "D(" + sampler + ", " + arg(1) + coord + ").x";
-	else if (method == "Load")
-		call = "tex" + d + "Dfetch(" + sampler + ", int" + (dimension == 1 ? std::string() : d) + '(' + arg(0) + coord + "))";
-	else if (dimension == 2 && (method == "Gather" || method == "GatherRed" || method == "GatherGreen" ||
-		method == "GatherBlue" || method == "GatherAlpha"))
-		call = std::string("tex2Dgather") + (method == "Gather" ? 'R' : method[6]) + '(' + sampler + ", " + arg(1) + ".xy)";
-	else
+// sopt: the source text of an expression up to the next depth-0 ';', ',', ')', ']' or '}' (the right side of an
+// assignment).
+std::string reshadefx::parser::sopt_expression_text()
+{
+	const size_t begin = _token_next.offset;
+	size_t end = begin;
+	for (int depth = 0; !peek(tokenid::end_of_file);)
 	{
-		error(loc, 3000, "sopt: texture method '" + method + "' is not supported");
+		if (depth == 0 && (peek(';') || peek(',') || peek(')') || peek(']') || peek('}')))
+			break;
+		if (peek('(') || peek('[') || peek('{'))
+			++depth;
+		if (peek(')') || peek(']') || peek('}'))
+			--depth;
+		consume();
+		end = _token.offset + _token.length;
+	}
+	return _lexer->input_string().substr(begin, end - begin);
+}
+
+// sopt: GetDimensions(out a, out b, ...) as assignments of 1 to the arguments that are names (enough to parse).
+static std::string sopt_dimensions_text(const std::vector<std::string> &args)
+{
+	std::string text;
+	for (const std::string &a : args)
+	{
+		size_t i = a.find_first_not_of(" \t\r\n");
+		const size_t j = a.find_last_not_of(" \t\r\n");
+		if (i == std::string::npos || !(std::isalpha(static_cast<unsigned char>(a[i])) || a[i] == '_'))
+			continue;
+		bool name = true;
+		for (; i <= j; ++i)
+			name = name && (std::isalnum(static_cast<unsigned char>(a[i])) || a[i] == '_' || a[i] == '.');
+		if (name)
+			text += '(' + a + ") = ";
+	}
+	return text.empty() ? std::string("0") : text + '1';
+}
+
+// sopt: an HLSL resource access (see sopt_hlsl and sopt_hlsl_declaration): Name.Method(args) or Name[index]
+// (also as the target of an assignment), the '.' or '[' being the next token.
+bool reshadefx::parser::sopt_hlsl_resource_access(const sopt_resource &res, const location &loc, expression &exp)
+{
+	const std::string d = std::to_string(res.dimension);
+	const std::string coord = res.dimension == 1 ? ".x" : res.dimension == 2 ? ".xy" : ".xyz";
+	const std::string icoord = res.dimension == 1 ? "int" : "int" + d;
+	const std::string widened = res.rows == 2 ? ".xy" : res.rows == 3 ? ".xyz" : "";
+	const std::string sampler = "__sopt_smp_" + res.name;
+	const std::string global = "__sopt_buf_" + res.name;
+	const auto arg = [](const std::vector<std::string> &args, size_t i) {
+		return i < args.size() ? '(' + args[i] + ')' : std::string("0");
+	};
+	// A read of element `index` of a texture, buffer or storage.
+	const auto read = [&](const std::string &index) {
+		return "tex" + d + "Dfetch(" + (res.kind == 't' ? sampler : res.name) + ", " + icoord + "((" + index + ')' +
+			coord + "))" + widened;
+	};
+
+	std::string text;
+	if (peek('['))
+	{
+		std::vector<std::string> index;
+		if (!sopt_argument_texts(']', index) || index.size() != 1)
+			return false;
+		if (res.kind == 'g' || res.kind == 'b')
+		{
+			text = global;
+		}
+		else if (res.kind == 'u' && (peek('=') || peek(tokenid::plus_equal) || peek(tokenid::minus_equal) ||
+			peek(tokenid::star_equal) || peek(tokenid::slash_equal) || peek(tokenid::percent_equal) ||
+			peek(tokenid::ampersand_equal) || peek(tokenid::pipe_equal) || peek(tokenid::caret_equal) ||
+			peek(tokenid::less_less_equal) || peek(tokenid::greater_greater_equal)))
+		{
+			// Name[index] = value (or op=): texNDstore(Name, index, value), the value widened to the storage's float4
+			consume();
+			std::string op = _token.id == static_cast<tokenid>('=') ? std::string() : token::id_to_name(_token.id);
+			if (!op.empty())
+				op.pop_back(); // "+=" -> "+"
+			std::string value = '(' + sopt_expression_text() + ')';
+			if (!op.empty())
+				value = '(' + read(index[0]) + ") " + op + ' ' + value;
+			if (res.rows == 2 || res.rows == 3)
+				// float2 / float3 elements: the storage is 4-wide, the value widened by a swizzle (sopt's codegen
+				// records the value without it as the stored one)
+				value = '(' + value + (res.rows == 2 ? ").xyyy" : ").xyzz");
+			text = "tex" + d + "Dstore(" + res.name + ", " + icoord + "((" + index[0] + ')' + coord + "), " + value + ')';
+		}
+		else
+		{
+			text = read(index[0]);
+		}
+		return sopt_parse_text(text, loc, &exp);
+	}
+
+	consume(); // '.'
+	if (!expect(tokenid::identifier))
+		return false;
+	const std::string method = _token.literal_as_string;
+	if (!peek('('))
+	{
+		error(_token_next.location, 3000, "sopt: expected '(' after resource method '" + method + '\'');
 		return false;
 	}
-	return sopt_parse_text(call, loc, &exp);
+	std::vector<std::string> args;
+	if (!sopt_argument_texts(')', args))
+		return false;
+
+	if (method == "GetDimensions")
+		text = sopt_dimensions_text(args);
+	else if (res.kind == 'g')
+	{
+		if (method == "Append")
+			text = global + " = " + arg(args, 0);
+		else if (method == "Consume")
+			text = global;
+		else if (method == "IncrementCounter" || method == "DecrementCounter")
+			text = "__sopt_cnt_" + res.name;
+	}
+	else if (res.kind == 'b')
+	{
+		static const char *const parts[] = { ".x", ".xy", ".xyz", "" };
+		const size_t n = method.size() > 4 && std::isdigit(static_cast<unsigned char>(method.back())) ? method.back() - '1' : 0;
+		if (method.rfind("Load", 0) == 0 && n < 4)
+			text = global + parts[n];
+		else if (method.rfind("Store", 0) == 0 && n < 4)
+			text = global + parts[n] + " = " + arg(args, 1);
+		else if (method.rfind("Interlocked", 0) == 0)
+		{
+			std::vector<std::string> rest(args.begin() + (args.empty() ? 0 : 1), args.end());
+			rest.insert(rest.begin(), global + ".x");
+			return sopt_hlsl_interlocked(method, rest, loc, exp);
+		}
+	}
+	else if (res.kind == 'u')
+	{
+		if (method == "Load")
+			text = read(args.empty() ? "0" : args[0]);
+	}
+	else if (method == "Sample" || method == "SampleLevel" || method == "SampleBias" || method == "SampleGrad")
+		text = "tex" + d + "D(" + sampler + ", " + arg(args, 1) + coord + ')' + widened;
+	else if (method == "SampleCmp" || method == "SampleCmpLevelZero")
+		text = "tex" + d + "D(" + sampler + ", " + arg(args, 1) + coord + ").x";
+	else if (method == "Load")
+		text = read(args.empty() ? "0" : args[0]);
+	else if (res.dimension == 2 && (method == "Gather" || method == "GatherRed" || method == "GatherGreen" ||
+		method == "GatherBlue" || method == "GatherAlpha"))
+		text = std::string("tex2Dgather") + (method == "Gather" ? 'R' : method[6]) + '(' + sampler + ", " + arg(args, 1) + ".xy)";
+
+	if (text.empty())
+	{
+		error(loc, 3000, "sopt: resource method '" + method + "' is not supported");
+		return false;
+	}
+	return sopt_parse_text(text, loc, &exp);
+}
+
+// sopt: InterlockedOp(dest, value[, original]) and InterlockedCompareExchange(dest, compare, value, original) /
+// InterlockedCompareStore(dest, compare, value) as ReShade FX atomics (on a storage element when dest is one).
+bool reshadefx::parser::sopt_hlsl_interlocked(const std::string &name, const std::vector<std::string> &args, const location &loc, expression &exp)
+{
+	const bool compare = name == "InterlockedCompareExchange" || name == "InterlockedCompareStore";
+	const std::string fx = compare ? "atomicCompareExchange" : "atomic" + name.substr(11);
+	const size_t inputs = compare ? 3 : 2;
+	if (args.size() < inputs)
+	{
+		error(loc, 3000, "sopt: too few arguments to '" + name + '\'');
+		return false;
+	}
+	// dest = Name[index] of a storage: the storage overload atomicOp(storage, coord, ...)
+	std::string dest = '(' + args[0] + ')';
+	const std::string &a0 = args[0];
+	const size_t open = a0.find('['), first = a0.find_first_not_of(" \t\r\n");
+	if (open != std::string::npos && first != std::string::npos && a0.find_last_not_of(" \t\r\n") == a0.rfind(']'))
+	{
+		std::string base = a0.substr(first, open - first);
+		while (!base.empty() && (base.back() == ' ' || base.back() == '\t'))
+			base.pop_back();
+		for (const auto &r : _sopt_resources)
+			if (r.kind == 'u' && r.name == base)
+			{
+				const std::string coord = r.dimension == 1 ? ".x" : r.dimension == 2 ? ".xy" : ".xyz";
+				const std::string icoord = r.dimension == 1 ? "int" : "int" + std::to_string(r.dimension);
+				dest = r.name + ", " + icoord + "((" + a0.substr(open + 1, a0.rfind(']') - open - 1) + ')' + coord + ')';
+			}
+	}
+	std::string text = fx + '(' + dest;
+	for (size_t i = 1; i < inputs; ++i)
+		text += ", (" + args[i] + ')';
+	text += ')';
+	if (args.size() > inputs && name != "InterlockedCompareStore")
+		text = '(' + args[inputs] + ") = " + text;
+	return sopt_parse_text(text, loc, &exp);
+}
+
+// sopt: HLSL intrinsics with another name in ReShade FX (barriers, Interlocked*).
+static const std::pair<const char *, const char *> sopt_barriers[] = {
+	{ "GroupMemoryBarrierWithGroupSync", "barrier()" }, { "DeviceMemoryBarrierWithGroupSync", "barrier()" },
+	{ "AllMemoryBarrierWithGroupSync", "barrier()" }, { "GroupMemoryBarrier", "groupMemoryBarrier()" },
+	{ "DeviceMemoryBarrier", "memoryBarrier()" }, { "AllMemoryBarrier", "memoryBarrier()" } };
+
+bool reshadefx::parser::sopt_hlsl_intrinsic_name(const std::string &name)
+{
+	for (const auto &b : sopt_barriers)
+		if (name == b.first)
+			return true;
+	return name.rfind("Interlocked", 0) == 0;
+}
+
+// The '(' is next.
+bool reshadefx::parser::sopt_hlsl_intrinsic(const std::string &name, const location &loc, expression &exp)
+{
+	std::vector<std::string> args;
+	if (!sopt_argument_texts(')', args))
+		return false;
+	for (const auto &b : sopt_barriers)
+		if (name == b.first)
+			return sopt_parse_text(b.second, loc, &exp);
+	return sopt_hlsl_interlocked(name, args, loc, exp);
 }

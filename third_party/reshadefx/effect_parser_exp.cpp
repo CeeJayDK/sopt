@@ -990,14 +990,21 @@ bool reshadefx::parser::parse_expression_unary(expression &exp)
 		if (!accept_symbol(identifier, symbol))
 			return false;
 
-		// sopt: an HLSL texture object's method call (texture.Sample(sampler, uv), ...)
-		bool sopt_texture = false;
-		if (sopt_hlsl && peek('.'))
-			for (const auto &t : _sopt_textures)
-				sopt_texture = sopt_texture || t.first == identifier;
-		if (sopt_texture)
+		// sopt: an HLSL resource access (texture.Sample(sampler, uv), buffer[i], rwtexture[id] = value, ...) and HLSL
+		// intrinsics named differently in ReShade FX (barriers, Interlocked*)
+		const sopt_resource *sopt_res = nullptr;
+		if (sopt_hlsl && (peek('.') || peek('[')))
+			for (const auto &r : _sopt_resources)
+				if (r.name == identifier)
+					sopt_res = &r;
+		if (sopt_res != nullptr)
 		{
-			if (!sopt_hlsl_texture_call(identifier, location, exp))
+			if (!sopt_hlsl_resource_access(*sopt_res, location, exp))
+				return false;
+		}
+		else if (sopt_hlsl && !symbol.id && peek('(') && sopt_hlsl_intrinsic_name(identifier))
+		{
+			if (!sopt_hlsl_intrinsic(identifier, location, exp))
 				return false;
 		}
 		// Check if this is a function call or variable reference

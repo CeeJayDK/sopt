@@ -9,7 +9,7 @@ ranking via fxstat + RGA, solved outer and inner constants (affine + inner, defa
 a separate enumeration order model (`--order-model`; rdna3 and the nvidia / intel models default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
 cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
-`nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3.
+`nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3; plain HLSL SM5 pixel and compute shaders, ReShade FX compute shaders.
 
 ## Working with the owner
 - Owner's principle (2026-09-26): fewer instructions at equal measured speed are still
@@ -596,7 +596,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   RGBA16F 0.109-0.117 (level 3 / level 1), just under one fp16 ulp near 1 (0.125): the old shader
   averages in fp32 and imageStore converts to fp16 by truncation on this driver, while the
   bilinear fetch already returns a correctly rounded fp16 value. So the patch is equal or more
-  accurate. Both parts tested: next, report to crosire. Copy test also identical on the Intel Iris 540
+  accurate. Both parts tested; reported to crosire by the owner (2026-10-03). Copy test also identical on the Intel Iris 540
   (owner, 2026-10-01). Write-up for crosire: tools/reshade/UPSTREAM.md. Owner: removed the info log line
   and the copy sampler (pipeline layout with only the SRV; sampler state, push and destroy gone);
   re-tested by the owner (D3D11 --msaa 4, GTX 1660): SHA256-identical again.
@@ -651,7 +651,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   floor, clamp, lerp nothing cheaper.
 - Other shader languages (owner, 2026-10-03: "at some point sopt should also work with HLSL and GLSL; I doubt we
   have to change that much"; "start with HLSL", "pixel shaders first ... and the planned for later": compute /
-  SM6 later, GLSL later). HLSL SM5 pixel shaders done: sopt-fx reads `.hlsl` / `.hlsli` (or `--hlsl`), entry
+  SM6 later, GLSL later). HLSL SM5 pixel shaders done (compute since 2026-10-03, below): sopt-fx reads `.hlsl` / `.hlsli` (or `--hlsl`), entry
   point `--entry NAME` (default main). The vendored parser's `sopt_hlsl` mode rewrites HLSL constructs to FX
   text and re-lexes it in place (`sopt_parse_text`): cbuffer / tbuffer members become uniforms, register /
   packoffset skipped, SamplerState (+ Comparison) declarations dropped, Texture1D/2D/3D/Cube/2DArray[<T>]
@@ -661,6 +661,27 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   parse, no `__VENDOR__` auto picks (vendorPick 0). Textures have no range from a format: fact key
   `<file> texture <name> = [lo, hi]` (`textureFactKey`, applied in samplerRange to every read, also values
   stored from one; HLSL fetch leaves use it; sopt-facts.txt lists such textures). Test tests/fx/sopt_hlsl.hlsl.
+  Compute shaders (owner's go 2026-10-03: "HLSL + FX", resource stores as regions, ranges as proposed): extraction
+  reaches pixel and compute entry points. Thread IDs (uint params with SV_DispatchThreadID / SV_GroupThreadID /
+  SV_GroupID / SV_GroupIndex, read through a cast to float, possibly after a component pick) are float inputs named
+  `float2(id.xy)` (Leaf::intSource; unsigned arithmetic would wrap): dispatch / group ID [0, --max-width], group
+  thread ID [0, max(numthreads) - 1], group index [0, x*y*z - 1], grid 1 (`computeInputRange`; Function::numThreads,
+  max over the passes). Statement::Kind::Write / Region::Kind::Write: the value of tex1D/2D/3Dstore(s, c, value)
+  (Codegen records it; lhs "tex2Dstore(s, c," rhs ")"), budget color8 for an RGBA8 / R8 / RG8 storage texture, else
+  rel ("stored to a resource"); isTexFetch / fetchOpen exclude *store. Groupshared memory: user range by
+  `<file> groupshared <name>` (globalSourceName), listed in sopt-facts.txt. Windows: a storage read is not moved
+  past a Write or an atomic (leavesUnchanged). HLSL (parser sopt_hlsl): `[numthreads]` entry = compute;
+  RWTexture1D/2D/3D/2DArray, RWBuffer, RWStructuredBuffer of scalar / vector T = storage Name on texture
+  __sopt_rwtex<rows>_Name (element scalar or 4-wide, float2 / float3 widened by .xyyy / .xyzz, which Codegen strips
+  from the stored value); `Name[i] = v` / `op=` -> texNDstore, `Name[i]` reads -> texNDfetch (fetch leaves in the HLSL
+  text: fetchOpen knows Name[ via Effect::hlslFetchNames, thread-local while extracting); Buffer / StructuredBuffer of
+  scalar / vector T = 1D texture + sampler (key `<file> buffer <name>`, Effect::hlslBuffers); struct structured buffers,
+  Append / Consume, ByteAddressBuffer = static globals (parse only); GetDimensions = assignments (parse only);
+  GroupMemoryBarrier* / DeviceMemoryBarrier* / AllMemoryBarrier* -> barrier / groupMemoryBarrier / memoryBarrier,
+  Interlocked* -> atomic* (storage overload for Name[i] destinations). Texture2D<float2 / float3> now use a float4
+  sampler + swizzle (FX fetch overloads are scalar / 4-wide). Tests fx_compute (tests/fx/sopt_compute.fx),
+  fx_hlsl_compute (tests/fx/sopt_compute.hlsl); the HLSL test's original and SOPT_ALL = 1 variant compile with
+  Microsoft's fxc cs_5_0 (Wine). Not yet: SM6 / DXC syntax, GLSL, groupshared stores as regions (store to a global).
   First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
   the base step mad(x, c.x, c.y) is 2 instructions there (GCN's constant bus takes one SGPR per VALU op, so
   one constant needs a v_mov), so 1 instruction = ~2.1 units: add / sub / min / max / floor / ceil / round /

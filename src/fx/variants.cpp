@@ -122,7 +122,7 @@ int vendorPick(const RegionResult& rr, bool amd, bool dx) {
 }
 
 std::string variantStatement(const Region& r, const std::string& expr) {
-  return r.lhs + " " + expr + ";";
+  return r.lhs + " " + expr + r.rhs + ";";
 }
 
 std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
