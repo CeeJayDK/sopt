@@ -8,7 +8,7 @@ facts, budgets, variant .fx; owner's ReShade test passed on DX11 and Vulkan); pl
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 and the nvidia / intel models default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
-cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-turing`, `nvidia-ampere` and
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere` and
 `nvidia-blackwell` cost models (sopt-opbench timings). Default cost model: rdna3.
 
 ## Working with the owner
@@ -627,7 +627,20 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   architecture names. GT 1030 (Pascal, GP108, ~1.2 TFLOPS from the mad rate): MUFU / floor / ceil / round /
   frac ~10, add / sub 3.5, min / max / step 6.8 (no free ALU-pipe min / max as on Turing), abs and -abs
   3.5 (not free here, neg is), saturate 0.2, clamp 14, select 12, lerp 7.6, sign 10.5, pow 24, max3 /
-  minmax +7.1: its own group, no model yet. First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
+  minmax +7.1: its own group, no model yet. GTX 1060 6GB (nvidia-gtx-1060-6gb.csv, GP106, v1, clean: neg 0.00) =
+  the GT 1030 within ~0.3 (add 3.5, min / max 6.7, abs 3.5, saturate 0.2, clamp 13.7, select 12, lerp 7.4, MUFU /
+  floor 10, sign 10.3, pow 24, max3 +7.05): Pascal group confirmed (2 cards). Second RTX 4070 (nvidia-rtx-4070-b.csv,
+  0x2786, v1, clean without locked clocks: neg 0.00) = the locked 4070 runs / Ampere (add 3.4, min 4.5, clamp 9.9,
+  select 11, MUFU / floor 23.7, sign 27.6, pow 52). Owner's go (2026-10-03): cost model `nvidia-pascal`
+  (ops.cpp kNvidiaPascal, search order): MUFU / floor / ceil / round / frac / exp / log / div 10, add / mul / mad 4,
+  abs 4 (not free on Pascal; compiledCost still treats abs as a free source modifier for every model), neg /
+  saturate 1, min / max / step / compares 7, clamp 14, select 5 (compare + select 12), lerp 8, sign 10, pow 24.
+  Targeted searches (ff/, 15 s): sign 10 -> 9 (mad_sat form), round 10 -> 8 (add form), signed pow 42 -> 41;
+  floor, clamp, lerp nothing cheaper.
+- Other shader languages (owner, 2026-10-03: "at some point sopt should also work with HLSL and GLSL; I doubt we
+  have to change that much"): not started. The search, verification and cost models work on sopt's IR and
+  do not care about the language; per language it needs a front end (parse, pixel-reachable regions, facts /
+  ranges) and a variant writer (source edits). Plan to be agreed with the owner. First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
   the base step mad(x, c.x, c.y) is 2 instructions there (GCN's constant bus takes one SGPR per VALU op, so
   one constant needs a v_mov), so 1 instruction = ~2.1 units: add / sub / min / max / floor / ceil / round /
   frac 1 op, neg / abs / saturate / satmad free, omod2 / omodhalf 0.0 (output modifier confirmed), omod3

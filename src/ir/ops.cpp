@@ -125,6 +125,21 @@ const CostModel kNvidiaTuring{"nvidia-turing",
    4, 16, 20, 20, 1, 1},
   1, true};
 
+// NVIDIA Pascal (GT 1030 = GP108 and GTX 1060 6GB = GP106, docs/opbench/nvidia-gt-1030.csv /
+// nvidia-gtx-1060-6gb.csv, the two agree within ~0.3), sopt-opbench, quarter units (4 = one fma,
+// throughput). add/sub/mul/mad one op (measured 3.5); neg and saturate free modifiers, but abs is not
+// (3.5, one op; compiledCost still counts abs as a free source modifier for every model); the quarter-rate
+// unit (rcp, rsqrt, sqrt, exp2, log2, sin, cos) and floor/ceil/round/frac 10, exp/log/div the same (the
+// mul hides), pow two of them (24); min/max/step/compares ~1.75 ops (6.8: no free min / max on a second
+// pipe as on Turing), so clamp 14 (two of them, no med3) and compare + select 12 (select 5 after the
+// 7-unit compare); lerp two ops, sign 10 (~2.5 ops). Contraction to fma; no omod, no max3.
+const CostModel kNvidiaPascal{"nvidia-pascal",
+  {0, 0, 1, 4, 1, 10, 10, 10, 10,
+   10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 4, 4, 10, 7, 7, 7, 24,
+   7, 7, 7, 7, 7, 7, 4, 8, 14, 5, 1,
+   4, 14, 18, 18, 1, 1},
+  1, true};
+
 // NVIDIA Ampere (RTX 3050, docs/opbench/nvidia-rtx-3050.csv) and Blackwell (RTX 5080 / 5090,
 // nvidia-rtx-5080.csv / nvidia-rtx-5090.csv), sopt-opbench, quarter units (4 = one fma, throughput).
 // Provisional (one Ampere card; Ada not measured yet). Both: neg/abs/saturate free modifiers; the
@@ -194,6 +209,7 @@ uint32_t CostModel::opCost(Op op, unsigned w) const {
 const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }
 const CostModel& costNvidia() { return kNvidia; }
+const CostModel& costNvidiaPascal() { return kNvidiaPascal; }
 const CostModel& costNvidiaTuring() { return kNvidiaTuring; }
 const CostModel& costNvidiaAmpere() { return kNvidiaAmpere; }
 const CostModel& costNvidiaBlackwell() { return kNvidiaBlackwell; }
@@ -208,7 +224,7 @@ const CostModel kRdna3NoFolds = [] {
 
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kNvidia ||
-                 &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
+                 &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
                  &objective == &kNvidiaBlackwell || &objective == &kIntelGen9
              ? kSearch
              : objective;
@@ -221,6 +237,7 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kRdna3.name) return &kRdna3;
   if (name == kSearch.name || name == "rdna3-search") return &kSearch;
   if (name == kNvidia.name) return &kNvidia;
+  if (name == kNvidiaPascal.name) return &kNvidiaPascal;
   if (name == kNvidiaTuring.name) return &kNvidiaTuring;
   if (name == kNvidiaAmpere.name) return &kNvidiaAmpere;
   if (name == kNvidiaBlackwell.name) return &kNvidiaBlackwell;
