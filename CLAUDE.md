@@ -676,6 +676,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   ~2.4 (as on Renoir, the base mad is ~2 instructions: 1 instruction ~2.2 units), mad2 / contract 3.4, step / select
   4.3, clamp 5, lerp 5.9, MUFU (rcp / sqrt / exp2 / sin ...) ~6.5 (~3 instructions), sign 12.5, pow 16.5, max3 1.3
   (v_max3), minmax 2.9, omod2 / omodhalf ~0.3 (output modifier), omod3 1.2, mul folded (-0.9). v2 run wanted.
+  RX 6950 XT (amd-radeon-rx-6950-xt.csv, 0x73A5, Navi 21, RDNA 2 discrete, OpBench 0.3.0, clean: drift 0.45%, all
+  consensus in 2 passes): one VALU instruction ~3 units (add / sub / min / max / floor / ceil / round / frac 2.97, mad2
+  4.0, mul before a mad folded -0.98, as on the 680M), saturate 0.2, satmad 0, omod2 / omodhalf 0.0 (output modifier),
+  omod3 1.4, max3 1.06 (v_max3), minmax 2.94, clamp 5.9 (max + min, no med3 for uniforms), step / select 5, lerp 7,
+  MUFU (rcp / sqrt / rsqrt / exp2 / log2) 7.8, exp / log / sin / cos ~8, pow 19.5, sign 14.1 vs signmad 5.8 /
+  signclamp 5.9 / signbits 5.9 / signsel2 4.9, roundadd 7.7 vs round 3 (worse), flooradd 16.6; int: iadd / iand /
+  imin / ishr / irot / bitrev / utof / ftou ~2.95 (one op), imul 11.7 (quarter rate), popc 0 (v_bcnt_u32 adds its
+  second operand: countbits + add is one instruction), fbh 11.8; half: mad16 -2.5 (packed fp16, 2x rate), add16 /
+  mul16 1.5, rcp16 10.3. = the 680M (RDNA 2 iGPU, ~1.2x scale): two RDNA 2 devices agree.
   RTX 4090 Laptop (nvidia-rtx-4090-laptop.csv, Ada): tput / dep unreliable (neg -2.6, add / mul / min
   negative: laptop power management), only lat plausible (rcp / floor ~18, add 4): v2 run wanted. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
