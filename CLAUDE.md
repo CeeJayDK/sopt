@@ -779,7 +779,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
   and ptxas -v (`parsePtxasRegs`); informative only, not used to keep / drop). Polynomial approximations
-  (`--poly`, planned): owner: a special mode for development, not a default; its approximations go into
+  (`--poly`, planned; owner 2026-10-03: after the full corpus run): a special mode for development, not a default; its approximations go into
   docs/inexact-tricks.md. Later (owner): the compiler's output as a seed or comparison variant; instead /
   first (owner): do what the compilers do by reading their source (done for Mesa nir_opt_algebraic, ACO,
   DXC lowerings: library pre-pass seeds the search; more sources possible: spirv-opt folding rules, LLVM
