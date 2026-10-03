@@ -794,8 +794,16 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   (`--poly`, planned; owner 2026-10-03: after the full corpus run): a special mode for development, not a default; its approximations go into
   docs/inexact-tricks.md. Later (owner): the compiler's output as a seed or comparison variant; instead /
   first (owner): do what the compilers do by reading their source (done for Mesa nir_opt_algebraic, ACO,
-  DXC lowerings: library pre-pass seeds the search; more sources possible: spirv-opt folding rules, LLVM
-  InstCombine float rules; fxc is closed). Order model (owner): test whether preferring cheap ops really
+  DXC lowerings: library pre-pass seeds the search; fxc is closed). Owner's go 2026-10-03 for more sources:
+  spirv-opt (SPIRV-Tools source/opt/folding_rules.cpp) was already mined earlier (constant merges); its
+  remaining float folds are negation shuffles (no gain) and cancellations ((a - b) + b -> a, (y / x) * x -> y,
+  (x * y) / x -> y), left out on purpose (they break rounding tricks; docs/inexact-tricks.md). DXC's LLVM
+  (lib/Transforms/InstCombine, lib/Analysis/InstructionSimplify.cpp, lib/Transforms/Utils/SimplifyLibCalls.cpp;
+  DXC's own lib/Analysis/DxilSimplify.cpp only folds mad(0, a, b)): 31 rules added (library 129 -> 160, all pass
+  --check-library): constant mul pushed into add ((x * a + b) * c -> mad(x, a * c, b * c); (x + b) * c only
+  without cancellation, x and b of one sign), divide chains ((x / y) / z -> x / (y * z) etc. with |y|, |z| in
+  [1e-15, 1e15]), a / (b / x), x * log2(y * 0.5) -> mad(x, log2(y), -x), pow(2, x) -> exp2(x), sqrt(x * x * y),
+  log / exp / pow / sqrt compositions (log(exp(x)) -> x, pow(exp2(x), y) -> exp2(x * y), sqrt(pow(x, y)) ...). Order model (owner): test whether preferring cheap ops really
   finds cheaper candidates sooner (bench 2026-09: search order 38 found, rdna3 order 37, generic 36) and count
   which ops the found variants use (sopt-found.txt), once the library / found list is bigger.
   OpBench trunc test (Pascal's suggestion, 2026-10-03: "trunc drops something rather than deciding by sign,

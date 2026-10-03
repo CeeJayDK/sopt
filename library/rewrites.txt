@@ -179,3 +179,39 @@ round(x) -> (x + 12582912.0) - 12582912.0   where x in [-4194304, 4194304]
 floor(x) -> ((x + 12582912.0) - 12582912.0) - saturate((((x + 12582912.0) - 12582912.0) - x) * 1e38)   where x in [-4194304, 4194304]
 ceil(x) -> ((x + 12582912.0) - 12582912.0) + saturate((x - ((x + 12582912.0) - 12582912.0)) * 1e38)   where x in [-4194304, 4194304]
 frac(x) -> (x - ((x + 12582912.0) - 12582912.0)) + saturate((x - ((x + 12582912.0) - 12582912.0)) * -1e38)   where x in [-4194304, 4194304]
+
+# from LLVM as built into DXC (lib/Transforms/InstCombine, lib/Transforms/Utils/SimplifyLibCalls.cpp):
+# constant multiplies pushed into adds, divide chains, and pow / exp / log / sqrt identities. The
+# pow / exp / log ones are exact in real math; under sopt's check they pass as at least as close
+# to exact math as the original.
+(x * a + b) * c -> mad(x, a * c, b * c)   where a const, b const, c const
+(x + b) * c -> mad(x, c, b * c)   where b const, c const, x >= 0, b >= 0   # no cancellation in x + b
+(x + b) * c -> mad(x, c, b * c)   where b const, c const, x <= 0, b <= 0
+(x / a + b) * c -> mad(x, c / a, b * c)   where a const, b const, c const, a != 0
+(a / x + b) * c -> (a * c) / x + b * c   where a const, b const, c const
+x * log2(y * 0.5) -> mad(x, log2(y), -x)   where y > 0
+x * log2(y * 2.0) -> mad(x, log2(y), x)   where y > 0
+log2(y * c) -> log2(y) + log2(c)   where c const, c > 0, y > 0
+a / (b / x) -> x * (a / b)   where a const, b const, b != 0
+(x / y) / z -> x / (y * z)   where y in [1e-15, 1e15], z in [1e-15, 1e15]   # one divide fewer
+z / (x / y) -> (z * y) / x   where x in [1e-15, 1e15], y in [1e-15, 1e15]
+pow(2.0, x) -> exp2(x)   where x in [-8, 8]
+abs(x * x) -> x * x
+sqrt(x * x * y) -> abs(x) * sqrt(y)   where y >= 0
+log(exp(x)) -> x   where x in [-8, 8]
+exp(log(x)) -> x   where x > 0
+log2(exp2(x)) -> x   where x in [-8, 8]
+exp2(log2(x)) -> x   where x > 0
+log(exp2(y)) -> y * 0.6931471805599453   where y in [-8, 8]
+log2(exp(y)) -> y * 1.4426950408889634   where y in [-8, 8]
+log(sqrt(x)) -> 0.5 * log(x)   where x > 0
+log2(sqrt(x)) -> 0.5 * log2(x)   where x > 0
+log(pow(x, y)) -> y * log(x)   where x in [1e-30, 1e30], y in [-4, 4]
+log2(pow(x, y)) -> y * log2(x)   where x in [1e-30, 1e30], y in [-4, 4]
+pow(exp(x), y) -> exp(x * y)   where x in [-4, 4], y in [-2, 2]
+pow(exp2(x), y) -> exp2(x * y)   where x in [-4, 4], y in [-2, 2]
+pow(sqrt(x), y) -> pow(x, y * 0.5)   where x >= 0, y in [-4, 4]
+pow(pow(x, y), z) -> pow(x, y * z)   where x in [1e-6, 1e6], y in [-2, 2], z in [-2, 2]
+sqrt(exp(x)) -> exp(x * 0.5)   where x in [-8, 8]
+sqrt(exp2(x)) -> exp2(x * 0.5)   where x in [-8, 8]
+sqrt(pow(x, y)) -> pow(abs(x), y * 0.5)   where x > 0, y in [-4, 4]

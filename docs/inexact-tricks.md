@@ -116,6 +116,28 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
   noise pass (sopt's noise guard). Swapping in a cheaper hash would need a noise mode that checks
   distribution instead of values (planned, not done).
 
+### Compiler cancellations: `(a - b) + b -> a`, `(y / x) * x -> y`, `(x * y) / x -> y` (spirv-opt)
+- spirv-opt's folding rules apply these (MergeGenericAddSubArithmetic, MergeMulDivArithmetic,
+  MergeDivMulArithmetic); they save one or two instructions.
+- **What's wrong:** they equal real math, not float math: `(a - b) + b` rounds `a - b` first, which is
+  exactly what rounding tricks rely on (e.g. the add-round above, `(x + C) - C`). The compiler only
+  keeps such code as written when it is marked `precise`.
+- **Safe when** the code is ordinary arithmetic, not a deliberate rounding step. sopt's check passes
+  them (as close to exact math as the original), so they are left out of the library on purpose.
+
+### Constant multiply pushed into an add: `(x + b) * c -> mad(x, c, b * c)` (LLVM InstCombine)
+- One instruction instead of two (add + mul -> mad).
+- **What's wrong:** where x is close to -b, x + b cancels exactly in the original, but the mad adds
+  two rounded products and keeps their rounding error (relative error up to 1 near the zero).
+- **Safe when** x and b have the same sign (no cancellation): library rules with `x >= 0, b >= 0`
+  and `x <= 0, b <= 0`. `(x * a + b) * c -> mad(x, a * c, b * c)` passes sopt's check without a condition.
+
+### Divide chains: `(x / y) / z -> x / (y * z)`, `z / (x / y) -> (z * y) / x` (LLVM InstCombine)
+- One divide fewer (a divide is rcp + mul, the rcp at quarter rate on most GPUs).
+- **What's wrong:** `y * z` can overflow or flush to zero where the two divides would not (e.g. y = z =
+  1e-20: y * z = 1e-40 is a denormal and flushes to 0).
+- **Safe when** |y| and |z| stay in [1e-15, 1e15] (library rules use positive ranges).
+
 ## Pitfalls (compiler behaviour, not tricks)
 - **fxc -O3 reassociates float math.** It folds `(x + c) - c` to `x`, even with c a uniform, and
   merges constant chains. Any trick that relies on a rounding step must be `precise` (ReShade FX
