@@ -33,10 +33,10 @@ DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host
 | `sopt-fxc.exe` | Microsoft's fxc -O3 on one HLSL entry point (for `sopt-fx --backends`, see tools/fxc) |
 | `timings.py` | merges several CSVs into one Markdown table |
 | `ReShade64.dll`, `ReShade-LICENSE.md` | ReShade 6.8.0, full add-on support, unchanged (CI build) |
-| `sopt-opbench.exe`, `measure-gpu.bat` | instruction costs on this GPU, for sopt's cost models (below) |
+| `OpBench.exe`, `measure-gpu.bat` | instruction costs on this GPU, for sopt's cost models (below) |
 
 Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host),
-`tools/windows/opbench` (sopt-opbench), this folder (scripts).
+`tools/windows/opbench` (OpBench), this folder (scripts).
 
 # sopt-timer and sopt-host (details)
 
@@ -139,9 +139,9 @@ vertex buffer.
 
 **Closing:** `--bench` closes the window when the CSV is written. Shift+Esc closes it by hand.
 
-## sopt-opbench (instruction costs)
+## OpBench (instruction costs; sopt-opbench until 0.2.0)
 
-`measure-gpu.bat` (or `sopt-opbench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
+`measure-gpu.bat` (or `OpBench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
 measures what single instructions and instruction patterns cost on this PC's GPU, to calibrate
 sopt's cost models (rdna3, nvidia). No ReShade or game needed; close GPU-heavy programs first.
 It takes a few minutes and writes `opbench-<gpu>.csv` (send that) and `opbench-dxbc\` (the HLSL
@@ -176,9 +176,17 @@ runs it at 16 bits); scalar tests of intrinsics fxc writes out (smoothstep, fmod
 atan2, asin, acos). The other GPUs are listed right after the `GPU:` line, the three modes are
 explained as they start, and the summary has sections. `opbench/TESTS.txt` (in the zip) describes
 every test.
+
+Version 4 (0.3.0, owner 2026-10-03): renamed OpBench (`OpBench.exe`, zip `OpBench-<version>.zip`).
+Block graphics use only the full block and the half blocks (the 1/8 blocks of 0.2.0 are missing in
+the Windows console fonts): a title box ("OpBench <version> - by CeeJay.dk"), bars with 4 levels per cell (bright / dark color pairs) and a
+progress bar with 6 levels per cell. The summary has an Ops column (Cost / 4). A test whose two
+readings disagree (more than 0.75 units or 15%) is measured again, up to 6 passes, until more than
+half of its readings agree (their mean is the result; "no consensus" otherwise); the CSV adds
+`passes`, `consensus` and `readings`.
 The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics
 (`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases: the
-`sopt-opbench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases (exe, measure-gpu.bat,
+`OpBench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases (exe, measure-gpu.bat,
 README.txt).
 
 ## ReShade's own statistics (6.8.0 source, `runtime.cpp` / `runtime_gui.cpp`)

@@ -1,13 +1,13 @@
 # Code signing (SignPath Foundation) and releases
 
-Windows Defender flags the unsigned sopt-opbench.exe as Trojan:Win32/Sabsik.FL.A!ml (a machine
+Windows Defender flags the unsigned sopt-opbench.exe (OpBench.exe since 0.3.0) as Trojan:Win32/Sabsik.FL.A!ml (a machine
 learning false positive on unsigned programs). The repository is public and GPL-3.0, so SignPath
 Foundation signs it for free. Their review is done by people and can take days.
 
 ## Already in the repository
 - `.github/workflows/release.yml`: a tag `v*` (or a manual run, which makes a draft release)
   builds the Windows tools, signs them when the SignPath secret exists, and attaches
-  `sopt-opbench-<v>.zip`, `sopt-windows-tools-<v>.zip` and `SHA256SUMS.txt` to a GitHub Release.
+  `OpBench-<v>.zip`, `sopt-windows-tools-<v>.zip` and `SHA256SUMS.txt` to a GitHub Release.
 - Version info (name, publisher CeeJay.dk, version) and a manifest on the executables
   (`tools/windows/version.rc.in`, `tools/windows/app.manifest`).
 - README.md: the code signing policy and privacy sections SignPath asks for.
@@ -37,12 +37,12 @@ Foundation signs it for free. Their review is done by people and can take days.
 <?xml version="1.0" encoding="utf-8"?>
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
   <zip-file>
-    <zip-file path="sopt-opbench-*.zip">
-      <pe-file path="sopt-opbench.exe"><authenticode-sign/></pe-file>
+    <zip-file path="OpBench-*.zip">
+      <pe-file path="OpBench.exe"><authenticode-sign/></pe-file>
     </zip-file>
     <zip-file path="sopt-windows-tools-*.zip">
       <pe-file-set>
-        <include path="sopt-opbench.exe"/>
+        <include path="OpBench.exe"/>
         <include path="sopt-host.exe"/>
         <include path="sopt-fxc.exe"/>
         <include path="sopt-timer.addon64"/>

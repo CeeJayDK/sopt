@@ -1,11 +1,11 @@
-sopt-opbench - what the tests measure
-=====================================
+OpBench - what the tests measure
+================================
 
 Why
 ---
 sopt rewrites small pieces of shader math into cheaper forms that give the same result. Which
 form is cheaper depends on the GPU. A sign() costs one instruction on one card and seven on
-another, and some cards apply saturate() or "* 2" for free. sopt-opbench measures these costs on
+another, and some cards apply saturate() or "* 2" for free. OpBench measures these costs on
 real cards. The results become sopt's cost models, one per GPU family (for example NVIDIA Turing,
 NVIDIA Blackwell, AMD RDNA, Intel Gen9).
 
@@ -29,7 +29,10 @@ as one more fma, and "Cost 0" means it is free (the GPU folds it into a neighbou
 Before every test the reference is measured again. A GPU clock change (boost, temperature,
 power saving) then affects the reference and the test alike, instead of making the test look
 cheaper or dearer. Every test runs twice: forward through the list, then backward. Slow drift
-cancels out, and a test whose two passes disagree is flagged.
+cancels out. When the two readings of a test disagree (by more than 0.75 units or 15%), it is
+measured again, like a third sensor: two readings show that one is wrong, three or more show which
+one. This repeats until more than half of the readings agree (at most 6 passes); the result is the
+mean of the agreeing readings. A test without such a majority is marked "no consensus".
 
 Three ways of running
 ---------------------
@@ -118,9 +121,11 @@ Half precision (min16float)
 
 Reading the CSV
 ---------------
-Lines starting with '#' describe the card, driver, opbench version and how much the reference
+Lines starting with '#' describe the card, driver, OpBench version and how much the reference
 moved (drift) in each mode. Then one row per mode and test:
-  units          the test's time in units (4 = one fma)
+  units          the test's time in units (4 = one fma): the mean of its agreeing readings
   units_vs_base  minus its base test: the cost shown in the summary
-  vs_base_fwd, vs_base_bwd   the same for the forward and the backward pass
+  vs_base_fwd, vs_base_bwd   the same for the forward and the backward pass alone
+  passes, consensus, readings   how many passes the test needed, whether most readings agreed,
+                 and every reading (units, ';'-separated)
   step           the HLSL step, note: what it is about
