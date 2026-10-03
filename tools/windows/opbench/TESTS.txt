@@ -69,7 +69,9 @@ Basic arithmetic
   lerp              lerp(a, x, t): fxc writes it as add + mad.
 
 Rounding and sign
-  floor, ceil, round, frac   the rounding instructions (quarter rate on some NVIDIA cards).
+  floor, ceil, round, trunc, frac
+                    the rounding instructions (quarter rate on some NVIDIA cards). trunc drops
+                    the fraction (round toward zero) instead of rounding by sign.
   roundadd, flooradd,        round / floor / frac built from adds with a magic constant
   fracadd                    (1.5 * 2^23), for cards where the rounding instructions are slow.
   sign              HLSL sign(): fxc writes compare, compare, int subtract, int -> float.

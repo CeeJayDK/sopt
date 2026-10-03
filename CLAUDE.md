@@ -775,6 +775,19 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 - OpBench output modifier scales (owner, 2026-10-03: "test whether x8 and x0.25 are free ... I expect them NOT
   to be free on modern hardware, but we want to know"): tests omod4 (AMD's third scale), omod8, omod0.25, omod0.125
   (DX9-era _x8 / _d4 / _d8), base rcpmax like omod2. Next release.
+- Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
+  nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
+  changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
+  and ptxas -v (`parsePtxasRegs`); informative only, not used to keep / drop). Polynomial approximations
+  (`--poly`, planned): owner: a special mode for development, not a default; its approximations go into
+  docs/inexact-tricks.md. Later (owner): the compiler's output as a seed or comparison variant; instead /
+  first (owner): do what the compilers do by reading their source (done for Mesa nir_opt_algebraic, ACO,
+  DXC lowerings: library pre-pass seeds the search; more sources possible: spirv-opt folding rules, LLVM
+  InstCombine float rules; fxc is closed). Order model (owner): test whether preferring cheap ops really
+  finds cheaper candidates sooner (bench 2026-09: search order 38 found, rdna3 order 37, generic 36) and count
+  which ops the found variants use (sopt-found.txt), once the library / found list is bigger.
+  OpBench trunc test (Pascal's suggestion, 2026-10-03: "trunc drops something rather than deciding by sign,
+  could be faster"): added; fxc writes it as round_z, the same rounding family as floor / ceil / round.
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such

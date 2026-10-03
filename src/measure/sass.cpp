@@ -277,6 +277,11 @@ SassCost parseSass(const std::string& disasm, int sm) {
   return c;
 }
 
+int parsePtxasRegs(const std::string& log) {
+  const size_t used = log.find("Used ");
+  return used == std::string::npos ? 0 : std::atoi(log.c_str() + used + 5);
+}
+
 std::vector<SassCost> measureSass(const std::vector<const Expr*>& exprsIn,
                                   const std::vector<InputDecl>& inputsIn, const SassConfig& cfg) {
   const Specialized sp = specializeForCompiler(exprsIn, inputsIn);
@@ -314,8 +319,7 @@ std::vector<SassCost> measureSass(const std::vector<const Expr*>& exprsIn,
         runCommand(quote(cfg.nvdisasm) + " -c " + quote(cubin.string()) + " 2>&1", status);
     out[i] = parseSass(sass, cfg.sm);
     if (!out[i].ok && status != 0) out[i].error = "nvdisasm: " + firstLines(sass, 2);
-    const size_t used = log.find("Used ");
-    if (used != std::string::npos) out[i].regs = std::atoi(log.c_str() + used + 5);
+    out[i].regs = parsePtxasRegs(log);
   });
   std::error_code ec;
   if (cfg.keepDir.empty()) fs::remove_all(dir, ec);

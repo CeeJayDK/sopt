@@ -91,6 +91,7 @@ IsaCost parseFxstatJson(const std::string& json) {
   c.salu = get("salu");
   c.vmem = get("vmem");
   c.vgprs = get("vgprs");
+  c.sgprs = get("sgprs");
   c.cost = get("cost");
   c.ok = c.valu >= 0 && c.cost >= 0;
   if (!c.ok) c.error = "malformed fxstat isa object";

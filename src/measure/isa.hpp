@@ -25,6 +25,7 @@ struct IsaCost {
   int salu = 0;
   int vmem = 0;
   int vgprs = 0;
+  int sgprs = 0;
   int cost = 0;   // fxstat COST = VALU + 3 * TRANS
 };
 

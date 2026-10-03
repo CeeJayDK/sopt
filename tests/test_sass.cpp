@@ -40,6 +40,14 @@ TEST(sass_parse) {
   CHECK(c.ok);
   CHECK(c.alu == 3 && c.mov == 1 && c.mufu == 1);
   CHECK(c.cost == 3 + 1 + mufuWeight(89));
+  const std::string log =
+      "ptxas info    : 0 bytes gmem\n"
+      "ptxas info    : Compiling entry function 'sopt_kernel' for 'sm_86'\n"
+      "ptxas info    : Function properties for sopt_kernel\n"
+      "    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\n"
+      "ptxas info    : Used 10 registers, 368 bytes cmem[0]\n";
+  CHECK(parsePtxasRegs(log) == 10);
+  CHECK(parsePtxasRegs("ptxas info    : 0 bytes gmem\n") == 0);
 }
 
 // Runs only when the tools are available (SOPT_PTXAS and SOPT_NVDISASM).
