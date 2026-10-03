@@ -30,6 +30,10 @@ struct LoadOptions {
   // With bufferSymbolic: global static consts computed from the sizes (ReShade::PixelSize)
   // stay expressions of them (the parser's sopt_named_expressions).
   bool namedExpressions = false;
+  // Plain HLSL (SM5 pixel shader) instead of ReShade FX: the parser's sopt_hlsl mode, no
+  // ReShade macros, `entry` is the pixel shader entry point.
+  bool hlsl = false;
+  std::string entry = "main";
 };
 
 // One parse of an effect: the recorded dataflow graph plus the preprocessed text of
@@ -45,6 +49,7 @@ struct Effect {
   std::set<std::string> symbolic;  // of those, the ones kept symbolic in this parse
   unsigned width = 1920, height = 1080;  // BUFFER_WIDTH / BUFFER_HEIGHT of this parse
   bool bufferSymbolic = false;           // they are symbolic (see LoadOptions)
+  bool hlsl = false;                     // plain HLSL (see LoadOptions)
   // Object-like macros' replacement lists (for source lines that use BUFFER_SCREEN_SIZE etc.).
   std::map<std::string, std::string> objectMacros;
 };
@@ -122,6 +127,7 @@ struct Region {
   // statements compile as in this parse (variants apply only then). Empty otherwise.
   std::string guard;
   Program prog;
+  bool hlsl = false;         // from a plain HLSL file (no __VENDOR__ / __RENDERER__ auto picks)
   std::vector<Fact> facts;   // one per input
   std::string budgetReason;  // how the budget was derived
 };
@@ -158,6 +164,11 @@ struct SkipCount {
 // Regions of all functions reachable from pixel shader entry points. `alt` is the same
 // effect parsed at another resolution: statements whose value differs between the two
 // depend on BUFFER_WIDTH/HEIGHT (through a static const) and are skipped.
+// User range key for every read of a texture: "<effect file name> texture <name>".
+std::string textureFactKey(const Effect& fx, const std::string& texture);
+// Textures whose format gives no range (float or unknown formats, every texture in plain HLSL).
+std::vector<std::string> unrangedTextures(const Effect& fx);
+
 std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const RegionOptions& opt,
                                    SkipCount& skipped);
 

@@ -114,6 +114,10 @@ const Test kTests[] = {
     {"omod2", "mad(max(rcp(x) * 2.0, c.z), c.x, c.y)", 0.5f, 0.5f, 0.1f, 0.0f, "rcpmax", "AMD: output modifier, ~0"},
     {"omodhalf", "mad(max(rcp(x) * 0.5, c.z), c.x, c.y)", 0.5f, 1.0f, 0.1f, 0.0f, "rcpmax", "AMD: output modifier, ~0"},
     {"omod3", "mad(max(rcp(x) * 3.0, c.z), c.x, c.y)", 0.5f, 0.5f, 0.1f, 0.0f, "rcpmax", "control: not an omod scale"},
+    {"omod4", "mad(max(rcp(x) * 4.0, c.z), c.x, c.y)", 0.125f, 0.5f, 0.1f, 0.0f, "rcpmax", "AMD: output modifier, ~0"},
+    {"omod8", "mad(max(rcp(x) * 8.0, c.z), c.x, c.y)", 0.0625f, 0.5f, 0.1f, 0.0f, "rcpmax", "old GPUs only (DX9 _x8)?"},
+    {"omod0.25", "mad(max(rcp(x) * 0.25, c.z), c.x, c.y)", 2.0f, 0.5f, 0.1f, 0.0f, "rcpmax", "old GPUs only (DX9 _d4)?"},
+    {"omod0.125", "mad(max(rcp(x) * 0.125, c.z), c.x, c.y)", 4.0f, 0.5f, 0.01f, 0.0f, "rcpmax", "old GPUs only (DX9 _d8)?"},
     {"max3", "mad(max(max(x, c.z), c.w), c.x, c.y)", 0.5f, 0.5f, 0.8f, 0.9f, "max", "AMD: v_max3, ~0"},
     {"minmax", "mad(min(max(x, c.z), c.w), c.x, c.y)", 0.5f, 0.5f, 0.8f, 1.2f, "max", "AMD: v_minmax / v_med3, ~0"},
     {"contract", "mad(x * c.z + c.w, c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.1f, "mad", "mul + add: one fma like mad2?"},
@@ -430,7 +434,8 @@ Style initConsole() {
 // The summary's fixed order: sections ("#" entries), within each cheapest to most expensive as
 // most GPUs measure it, the same on every GPU so results can be compared line by line.
 const char* const kDisplayOrder[] = {
-    "#Modifiers and folds", "neg", "abs", "negabs", "saturate", "satmad", "mul", "omod2", "omodhalf", "omod3",
+    "#Modifiers and folds", "neg", "abs", "negabs", "saturate", "satmad", "mul", "omod2", "omodhalf", "omod4",
+    "omod8", "omod0.25", "omod0.125", "omod3",
     "#Basic arithmetic", "min", "max", "step", "add", "sub", "mad2", "contract", "max3", "minmax", "clamp", "select",
     "lerp",
     "#Rounding and sign", "floor", "ceil", "round", "frac", "roundadd", "flooradd", "fracadd", "signsel2", "signbits",

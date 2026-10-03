@@ -638,9 +638,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   Targeted searches (ff/, 15 s): sign 10 -> 9 (mad_sat form), round 10 -> 8 (add form), signed pow 42 -> 41;
   floor, clamp, lerp nothing cheaper.
 - Other shader languages (owner, 2026-10-03: "at some point sopt should also work with HLSL and GLSL; I doubt we
-  have to change that much"): not started. The search, verification and cost models work on sopt's IR and
-  do not care about the language; per language it needs a front end (parse, pixel-reachable regions, facts /
-  ranges) and a variant writer (source edits). Plan to be agreed with the owner. First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
+  have to change that much"; "start with HLSL", "pixel shaders first ... and the planned for later": compute /
+  SM6 later, GLSL later). HLSL SM5 pixel shaders done: sopt-fx reads `.hlsl` / `.hlsli` (or `--hlsl`), entry
+  point `--entry NAME` (default main). The vendored parser's `sopt_hlsl` mode rewrites HLSL constructs to FX
+  text and re-lexes it in place (`sopt_parse_text`): cbuffer / tbuffer members become uniforms, register /
+  packoffset skipped, SamplerState (+ Comparison) declarations dropped, Texture1D/2D/3D/Cube/2DArray[<T>]
+  become textures (Format = RGBA32F: unknown) with an implicit sampler `__sopt_smp_<tex>`, methods
+  (Sample, SampleLevel, SampleGrad, SampleBias, SampleCmp[LevelZero], Load, Gather[Red..Alpha]) map to texND*
+  calls (only for the dataflow: fetches are leaves); fetch leaves keep the HLSL call text (`fetchOpen`). No ReShade macros, no BUFFER_* inputs or second
+  parse, no `__VENDOR__` auto picks (vendorPick 0). Textures have no range from a format: fact key
+  `<file> texture <name> = [lo, hi]` (`textureFactKey`, applied in samplerRange to every read, also values
+  stored from one; HLSL fetch leaves use it; sopt-facts.txt lists such textures). Test tests/fx/sopt_hlsl.hlsl.
+  First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
   the base step mad(x, c.x, c.y) is 2 instructions there (GCN's constant bus takes one SGPR per VALU op, so
   one constant needs a v_mov), so 1 instruction = ~2.1 units: add / sub / min / max / floor / ceil / round /
   frac 1 op, neg / abs / saturate / satmad free, omod2 / omodhalf 0.0 (output modifier confirmed), omod3
@@ -662,6 +671,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   lerp 9.7, rcp / rsqrt / sqrt / exp2 / log2 / sin / cos ~26, pow 58, sign 38 (slowest sign so far; the
   mad_sat form ~8), omod2 / omodhalf ~0 (output modifier on RDNA too), omod3 2.8, max3 / minmax +3.1,
   satmad -0.45, mul folded (0.38). No RDNA 4 model yet (owner's go needed).
+  First RDNA 2 (amd-radeon-680m-rembrandt.csv, 0x1681 = probably Radeon 680M / 660M, Rembrandt iGPU, v1): neg / abs /
+  saturate -0.5 (the reference ran ~0.5 slow: small drift), so +0.5: add / sub / min / max / floor / ceil / round / frac
+  ~2.4 (as on Renoir, the base mad is ~2 instructions: 1 instruction ~2.2 units), mad2 / contract 3.4, step / select
+  4.3, clamp 5, lerp 5.9, MUFU (rcp / sqrt / exp2 / sin ...) ~6.5 (~3 instructions), sign 12.5, pow 16.5, max3 1.3
+  (v_max3), minmax 2.9, omod2 / omodhalf ~0.3 (output modifier), omod3 1.2, mul folded (-0.9). v2 run wanted.
   RTX 4090 Laptop (nvidia-rtx-4090-laptop.csv, Ada): tput / dep unreliable (neg -2.6, add / mul / min
   negative: laptop power management), only lat plausible (rcp / floor ~18, add 4): v2 run wanted. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
@@ -758,6 +772,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   bar, Ops column (Cost / 4, one decimal: owner ok); extra passes (owner's redundant-sensor idea): tests
   whose readings disagree are measured again (alternating direction) until > half agree, max 6 passes
   (`consensus`, kMaxPasses), CSV columns passes / consensus / readings.
+- OpBench output modifier scales (owner, 2026-10-03: "test whether x8 and x0.25 are free ... I expect them NOT
+  to be free on modern hardware, but we want to know"): tests omod4 (AMD's third scale), omod8, omod0.25, omod0.125
+  (DX9-era _x8 / _d4 / _d8), base rcpmax like omod2. Next release.
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such

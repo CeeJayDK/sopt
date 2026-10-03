@@ -82,21 +82,24 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   reshadefx::preprocessor pp;
   pp.add_include_path(path.parent_path());
   for (const auto& p : opt.includePaths) pp.add_include_path(p);
-  // As ReShade 6 defines them (runtime.cpp), D3D11 renderer, SDR 8-bit back buffer.
-  pp.add_macro_definition("__RESHADE__", "60800");
-  pp.add_macro_definition("__RESHADE_PERMUTATION__", "0");
-  pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", "0");
-  pp.add_macro_definition("__VENDOR__", "0");
-  pp.add_macro_definition("__DEVICE__", "0");
-  pp.add_macro_definition("__RENDERER__", "0xb000");
-  pp.add_macro_definition("__APPLICATION__", "0");
-  pp.add_macro_definition("BUFFER_WIDTH", std::to_string(opt.width));
-  pp.add_macro_definition("BUFFER_HEIGHT", std::to_string(opt.height));
-  pp.add_macro_definition("BUFFER_RCP_WIDTH", "(1.0 / BUFFER_WIDTH)");
-  pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
-  pp.add_macro_definition("BUFFER_COLOR_SPACE", "1");
-  pp.add_macro_definition("BUFFER_COLOR_FORMAT", "28");
-  pp.add_macro_definition("BUFFER_COLOR_BIT_DEPTH", "8");
+  // As ReShade 6 defines them (runtime.cpp), D3D11 renderer, SDR 8-bit back buffer (not
+  // for plain HLSL).
+  if (!opt.hlsl) {
+    pp.add_macro_definition("__RESHADE__", "60800");
+    pp.add_macro_definition("__RESHADE_PERMUTATION__", "0");
+    pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", "0");
+    pp.add_macro_definition("__VENDOR__", "0");
+    pp.add_macro_definition("__DEVICE__", "0");
+    pp.add_macro_definition("__RENDERER__", "0xb000");
+    pp.add_macro_definition("__APPLICATION__", "0");
+    pp.add_macro_definition("BUFFER_WIDTH", std::to_string(opt.width));
+    pp.add_macro_definition("BUFFER_HEIGHT", std::to_string(opt.height));
+    pp.add_macro_definition("BUFFER_RCP_WIDTH", "(1.0 / BUFFER_WIDTH)");
+    pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
+    pp.add_macro_definition("BUFFER_COLOR_SPACE", "1");
+    pp.add_macro_definition("BUFFER_COLOR_FORMAT", "28");
+    pp.add_macro_definition("BUFFER_COLOR_BIT_DEPTH", "8");
+  }
   for (const auto& [k, v] : opt.macros) pp.add_macro_definition(k, v);
   pp.symbolic_macros.insert(opt.symbolic.begin(), opt.symbolic.end());
   std::string decls;
@@ -110,15 +113,16 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
     pp.symbolic_exclude.insert(opt.symbolicExclude.begin(), opt.symbolicExclude.end());
   }
   if (!decls.empty()) pp.append_string(decls);
-  pp.append_string(
-      "#define tex2Doffset(s, coords, offset) tex2D(s, coords, offset)\n"
-      "#define tex2Dlodoffset(s, coords, offset) tex2Dlod(s, coords, offset)\n"
-      "#define tex2Dgather(s, t, c) tex2Dgather##c(s, t)\n"
-      "#define tex2Dgatheroffset(s, t, o, c) tex2Dgather##c(s, t, o)\n"
-      "#define tex2Dgather0 tex2DgatherR\n"
-      "#define tex2Dgather1 tex2DgatherG\n"
-      "#define tex2Dgather2 tex2DgatherB\n"
-      "#define tex2Dgather3 tex2DgatherA\n");
+  if (!opt.hlsl)
+    pp.append_string(
+        "#define tex2Doffset(s, coords, offset) tex2D(s, coords, offset)\n"
+        "#define tex2Dlodoffset(s, coords, offset) tex2Dlod(s, coords, offset)\n"
+        "#define tex2Dgather(s, t, c) tex2Dgather##c(s, t)\n"
+        "#define tex2Dgatheroffset(s, t, o, c) tex2Dgather##c(s, t, o)\n"
+        "#define tex2Dgather0 tex2DgatherR\n"
+        "#define tex2Dgather1 tex2DgatherG\n"
+        "#define tex2Dgather2 tex2DgatherB\n"
+        "#define tex2Dgather3 tex2DgatherA\n");
   if (!pp.append_file(path)) {
     errors = pp.errors();
     return nullptr;
@@ -128,6 +132,8 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   fx->cg = std::make_unique<Codegen>();
   reshadefx::parser parser;
   parser.sopt_named_expressions = opt.bufferSymbolic && opt.namedExpressions;
+  parser.sopt_hlsl = opt.hlsl;
+  parser.sopt_hlsl_entry = opt.entry;
   if (!parser.parse(pp.output(), fx->cg.get())) {
     errors = pp.errors() + parser.errors();
     return nullptr;
@@ -138,6 +144,7 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   fx->width = opt.width;
   fx->height = opt.height;
   fx->bufferSymbolic = opt.bufferSymbolic;
+  fx->hlsl = opt.hlsl;
   for (const auto& [name, m] : pp.sopt_macros())
     if (!m.is_function_like) fx->objectMacros[name] = m.replacement_list;
   fx->sourceFiles.push_back(pathString(path));
@@ -198,6 +205,26 @@ std::set<std::string> symbolicMacros(const fs::path& path, const LoadOptions& op
   return ok;
 }
 
+std::string textureFactKey(const Effect& fx, const std::string& texture) {
+  return fx.path.filename().string() + " texture " + texture;
+}
+
+std::vector<std::string> unrangedTextures(const Effect& fx) {
+  using F = reshadefx::texture_format;
+  std::set<std::string> out;
+  for (const auto& [id, s] : fx.cg->samplers) {
+    std::string sem = s.textureSemantic;
+    for (char& c : sem) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    if (sem == "COLOR" || sem == "SV_TARGET" || sem == "DEPTH") continue;
+    switch (s.format) {
+      case F::r8: case F::rg8: case F::rgba8: case F::rgb10a2:
+      case F::r16: case F::rg16: case F::rgba16: continue;
+      default: out.insert(s.textureName);
+    }
+  }
+  return {out.begin(), out.end()};
+}
+
 namespace {
 
 // ---------------------------------------------------------------------------
@@ -231,15 +258,30 @@ std::vector<std::string> tokens(const std::string& s) {
 
 bool isIdent(char c);
 
-// Position of a texture fetch call ("tex2D(", "tex2Dlod (", ...) at i.
-bool fetchAt(const std::string& t, size_t i) {
-  if (i + 5 >= t.size() || t.compare(i, 3, "tex") != 0 || (i && isIdent(t[i - 1]))) return false;
-  if (!std::isdigit(static_cast<unsigned char>(t[i + 3])) || t[i + 4] != 'D') return false;
-  size_t j = i + 5;
+// The '(' of a texture fetch call at i: ReShade FX "tex2D(", "tex2Dlod (", ... or an HLSL
+// texture method call "tex.Sample(", "gColor.SampleLevel (", ...; npos if there is none.
+size_t fetchOpen(const std::string& t, size_t i) {
+  if (i >= t.size() || (i && isIdent(t[i - 1])) || !isIdent(t[i]) || std::isdigit(static_cast<unsigned char>(t[i])))
+    return std::string::npos;
+  size_t j = i;
   while (j < t.size() && isIdent(t[j])) ++j;
+  const bool fx = j - i >= 5 && t.compare(i, 3, "tex") == 0 && std::isdigit(static_cast<unsigned char>(t[i + 3])) &&
+                  t[i + 4] == 'D';
+  if (!fx) {
+    if (j >= t.size() || t[j] != '.') return std::string::npos;
+    size_t m = ++j;
+    while (m < t.size() && isIdent(t[m])) ++m;
+    static const std::set<std::string> kMethods = {
+        "Sample", "SampleLevel", "SampleBias", "SampleGrad", "SampleCmp", "SampleCmpLevelZero",
+        "Load", "Gather", "GatherRed", "GatherGreen", "GatherBlue", "GatherAlpha"};
+    if (!kMethods.count(t.substr(j, m - j))) return std::string::npos;
+    j = m;
+  }
   while (j < t.size() && (t[j] == ' ' || t[j] == '\t')) ++j;
-  return j < t.size() && t[j] == '(';
+  return j < t.size() && t[j] == '(' ? j : std::string::npos;
 }
+
+bool fetchAt(const std::string& t, size_t i) { return fetchOpen(t, i) != std::string::npos; }
 
 // The text with every outermost texture fetch call replaced by "tex_fetch": fetches
 // are region inputs copied verbatim, so macros inside them do not matter.
@@ -250,7 +292,7 @@ std::string withoutFetches(const std::string& t) {
       out += t[i];
       continue;
     }
-    size_t k = t.find('(', i);
+    size_t k = fetchOpen(t, i);
     int depth = 0;
     for (; k < t.size(); ++k) {
       if (t[k] == '(') ++depth;
@@ -1094,8 +1136,14 @@ Range Extractor::samplerRange(uint32_t valueId) {
       return s.srgb ? Range::of(0, 1, "8-bit texture (sRGB)") : Range::of(0, 1, "8-bit texture", 255);
     case F::rgb10a2: return Range::of(0, 1, "10-bit texture", 1023);
     case F::r16: case F::rg16: case F::rgba16: return Range::of(0, 1, "16-bit unorm texture");
-    default: return Range::unknown();
+    default: break;
   }
+  // A float or unknown format (every HLSL texture): the user's range for the texture.
+  if (opt_.userRanges) {
+    const auto u = opt_.userRanges->find(textureFactKey(fx_, s.textureName));
+    if (u != opt_.userRanges->end()) return Range::of(u->second.first, u->second.second, "user (facts file)");
+  }
+  return Range::unknown();
 }
 
 Range Extractor::range(uint32_t id) {
@@ -1720,6 +1768,14 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       fact.input = d.name;
       const bool plainVar = !l.fetch && cg_.variables.count(l.var) && l.prefix == varText(l.var);
       fact.key = plainVar ? varKey(l.var) : std::string();
+      // Plain HLSL: a read of a texture is keyed by the texture (its range applies to every read).
+      if (fx_.hlsl && l.fetch) {
+        const auto fv = cg_.values.find(l.loadValue);
+        const auto sv = fv == cg_.values.end() || fv->second.args.empty() ? cg_.values.end()
+                                                                           : cg_.values.find(fv->second.args[0]);
+        const auto si = sv == cg_.values.end() ? cg_.samplers.end() : cg_.samplers.find(sv->second.base);
+        if (si != cg_.samplers.end()) fact.key = textureFactKey(fx_, si->second.textureName);
+      }
       if (fact.key.empty())
         fact.key = pathFrom(reg.file).filename().string() + " " + reg.function + " " + l.prefix;
       // Ask for uniforms and parameters first: other values are often computed from them.
@@ -1796,12 +1852,9 @@ void Extractor::mapFetches(const Statement& s, const std::string& text) {
   if (fetches.empty()) return;
   std::sort(fetches.begin(), fetches.end());
   std::vector<std::string> calls;
-  for (size_t i = 0; i + 5 < text.size(); ++i) {
-    if (!fetchAt(text, i)) continue;
-    size_t j = i + 5;
-    while (j < text.size() && isIdent(text[j])) ++j;
-    while (j < text.size() && text[j] == ' ') ++j;
-    if (j >= text.size() || text[j] != '(') continue;
+  for (size_t i = 0; i < text.size(); ++i) {
+    const size_t j = fetchOpen(text, i);
+    if (j == std::string::npos) continue;
     int depth = 0;
     size_t k = j;
     for (; k < text.size(); ++k) {
@@ -2037,6 +2090,7 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
       }
       Region reg;
       reg.function = f.name;
+      reg.hlsl = fx_.hlsl;
       std::string why;
       if (!shapeOf(s, reg, why)) { SKIPADD(why); continue; }
       Region single = reg;

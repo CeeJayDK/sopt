@@ -122,6 +122,13 @@ parameters first; after each answer the effects are read again, so values comput
 from it get a range too. A range is a fact for the variable wherever the analysis
 has none (key: file, function or `global` for uniforms, variable).
 
+**Plain HLSL.** `.hlsl` / `.hlsli` files (or any file with `--hlsl`) are read as SM5
+pixel shaders, entry point `--entry NAME` (default `main`): cbuffers, typed textures,
+sampler states and texture methods (`Sample`, `SampleLevel`, `Load`, `GatherRed`, ...)
+are understood, variant files are written in the same HLSL. An HLSL texture has no
+format, so its reads have no range: give one per texture (`t.hlsl texture gColor =
+[0, 1]`), it applies to every read. No per-vendor picks (`SOPT_AUTO`) for HLSL.
+
 **Budget from use.** Pixel shader output to an 8-bit target without blending: 8-bit
 identical (color8, max code diff 0). Used in a comparison: exact. Only used as texture
 coordinates: 0.01 px at the largest width (`--max-width`, default 7680 = 8K). Otherwise rel 1e-6.
