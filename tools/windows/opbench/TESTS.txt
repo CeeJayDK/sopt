@@ -53,6 +53,10 @@ Modifiers and folds (often free: the GPU applies them inside another instruction
   satmad            saturate(mad(...)): the same, measured against two mads.
   mul               x * c before the mad: some drivers merge it into the mad.
   omod2, omodhalf   rcp(x) * 2 and * 0.5: AMD can scale a result by 2, 4 or 0.5 for free.
+  omod4             rcp(x) * 4: AMD's third output modifier scale.
+  omod8, omod0.25, omod0.125
+                    rcp(x) * 8, * 0.25, * 0.125: scales that DX9-era GPUs applied for free
+                    (_x8, _d4, _d8). Expected to cost a multiply on current GPUs: measured to know.
   omod3             rcp(x) * 3: the control (3 is no output modifier scale).
 
 Basic arithmetic

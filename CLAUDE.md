@@ -772,6 +772,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   bar, Ops column (Cost / 4, one decimal: owner ok); extra passes (owner's redundant-sensor idea): tests
   whose readings disagree are measured again (alternating direction) until > half agree, max 6 passes
   (`consensus`, kMaxPasses), CSV columns passes / consensus / readings.
+- OpBench output modifier scales (owner, 2026-10-03: "test whether x8 and x0.25 are free ... I expect them NOT
+  to be free on modern hardware, but we want to know"): tests omod4 (AMD's third scale), omod8, omod0.25, omod0.125
+  (DX9-era _x8 / _d4 / _d8), base rcpmax like omod2. Next release.
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such

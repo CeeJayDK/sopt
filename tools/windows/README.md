@@ -157,7 +157,8 @@ time per step minus its base test's, in sopt's units (4 = one fma). Configuratio
 (8 independent chains per thread, 1M threads: throughput), `dep` (1 chain per thread, 1M
 threads), `lat` (1 chain, one thread group: latency relative to mad's). Besides single ops it
 tests the context effects the rdna3 model assumes: `omod2` / `omodhalf` (x * 2, x * 0.5 after
-rcp: AMD output modifier, expected ~0; `omod3` is the control), `max3`, `minmax`, `satmad`,
+rcp: AMD output modifier, expected ~0; `omod4` likewise; `omod8`, `omod0.25`, `omod0.125` are
+DX9-era scales, expected to cost a multiply now; `omod3` is the control), `max3`, `minmax`, `satmad`,
 `contract`. The GPU's clock is not known, so latency is relative too.
 
 Version 2 (0.1.0): a 2-second warm-up, then every test is measured twice, forward and backward
