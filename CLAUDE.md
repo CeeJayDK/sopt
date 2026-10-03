@@ -32,6 +32,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   units as measured: its fma base dual-issues and add also measures 4), amd-gcn5 (Renoir), amd-terascale2
   (HD 7400M, VLIW: abs not free, no folds). CostModel::sameMinMaxOnly (rdna2, gcn5): only max(max) /
   min(min) fold (v_max3 / v_min3), min(max) is an instruction (measured: max3 ~1, minmax ~3 units).
+  Targeted searches (ff/amd, 20 s, the four AMD models): sign -> the mad_sat form (cost 9) on all four (rdna2 19,
+  rdna4 38, gcn5 20, terascale2 17), lerp -> mad(t, b - a, a) (rdna2 9 -> 8, gcn5 12 -> 8, rdna4 10 -> 9); round /
+  floor / ceil / frac / clamp / select / pow / exp: nothing cheaper.
 
 ## Commands
 - Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`
