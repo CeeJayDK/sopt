@@ -337,7 +337,7 @@ class Enumerator {
   float constValue(uint32_t idx) const { return consts_[entry(idx).aux()][0]; }
   // CostModel::amdFolds for op over bank entries a, b (bank entries are trees: every operand is
   // used once): the node folds into another instruction (amdFoldedNodes in expr.hpp).
-  bool amdFolds(Op op, Type type, uint32_t a, uint32_t b) const;
+  bool amdFolds(const CostModel& m, Op op, Type type, uint32_t a, uint32_t b) const;
   const std::vector<Type>& floatTypes() const { return types_; }
   Expr extract(const Entry& e) const;
   void addSharedLeaves(SearchStats& stats);

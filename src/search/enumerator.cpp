@@ -519,7 +519,7 @@ uint32_t Enumerator::addConst(Type t, const float* v, SearchStats& stats) {
   return static_cast<uint32_t>(bank_.size() - 1);
 }
 
-bool Enumerator::amdFolds(Op op, Type type, uint32_t a, uint32_t b) const {
+bool Enumerator::amdFolds(const CostModel& m, Op op, Type type, uint32_t a, uint32_t b) const {
   auto minMax = [](Op o) { return o == Op::Min || o == Op::Max; };
   if (op == Op::Mul) {
     for (int k = 0; k < 2; ++k) {
@@ -527,13 +527,14 @@ bool Enumerator::amdFolds(Op op, Type type, uint32_t a, uint32_t b) const {
       const Entry& ec = entry(c);
       const Entry& ev = entry(v);
       if (ec.isConst && ec.type == Type::Float && isOmodScale(constValue(c)) && !ev.isConst && !ev.ctime &&
-          ev.type == type && takesOmod(ev.op) && !amdFolds(ev.op, ev.type, ev.args[0], ev.args[1]))
+          ev.type == type && takesOmod(ev.op) && !amdFolds(m, ev.op, ev.type, ev.args[0], ev.args[1]))
         return true;
     }
   } else if (minMax(op)) {
     for (const uint32_t v : {a, b}) {
       const Entry& ev = entry(v);
-      if (minMax(ev.op) && !ev.ctime && ev.type == type && !amdFolds(ev.op, ev.type, ev.args[0], ev.args[1]))
+      if (minMax(ev.op) && (!m.sameMinMaxOnly || ev.op == op) && !ev.ctime && ev.type == type &&
+          !amdFolds(m, ev.op, ev.type, ev.args[0], ev.args[1]))
         return true;
     }
   }
@@ -1077,11 +1078,11 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   auto fuses = [&](uint32_t x) {
     const Entry& ex = entry(x);
     return !ex.ctime && model.fusesIntoAdd(ex.op) && ex.type == type &&
-           !(model.amdFolds && amdFolds(ex.op, ex.type, ex.args[0], ex.args[1]));
+           !(model.amdFolds && amdFolds(model, ex.op, ex.type, ex.args[0], ex.args[1]));
   };
   if (ctime)
     obj = 0;
-  else if (model.amdFolds && amdFolds(op, type, a, b))
+  else if (model.amdFolds && amdFolds(model, op, type, a, b))
     obj += w;
   else if (model.fusedAdd && (op == Op::Add || op == Op::Sub) && (fuses(a) || fuses(b)))
     obj += w * model.fusedAdd;

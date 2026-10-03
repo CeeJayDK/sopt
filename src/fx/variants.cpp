@@ -97,7 +97,7 @@ std::string switchName(const Region& r) {
   return name + std::to_string(r.line);
 }
 
-// Class text of a variant: "within budget", "as accurate, more accurate (not faster)", ...
+// Class text of a variant: "within budget", "too exact, more accurate (not faster)", ...
 std::string variantClass(const Variant& v, int codeBits) {
   std::string s = klassName(v.klass, codeBits);
   if (v.moreAccurate) s += ", more accurate";
@@ -113,7 +113,7 @@ int vendorPick(const RegionResult& rr, bool amd, bool dx) {
   for (size_t k = 0; k < rr.variants.size(); ++k) {
     const Variant& v = rr.variants[k];
     const int c = amd ? v.amd : v.nv;
-    if (v.klass == Klass::LessAccurate || !v.problems.empty() || v.accuracyOnly || c < 0 || c >= bestCost) continue;
+    if (v.klass == Klass::LessAccurate || v.klass == Klass::Accurate || !v.problems.empty() || v.accuracyOnly || c < 0 || c >= bestCost) continue;
     if (dx && (v.dxbcSame || (v.dxbc >= 0 && rr.targetDxbc >= 0 && v.dxbc > rr.targetDxbc))) continue;
     best = static_cast<int>(k + 1);
     bestCost = c;
@@ -180,6 +180,14 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         "#ifndef SOPT_ALL\n#define SOPT_ALL 0\n#endif\n";
     bool anyPick = false;
     for (const Piece& p : pieces) anyPick = anyPick || vendorPick(*p.rr, true) || vendorPick(*p.rr, false);
+    bool anyTooExact = false;
+    for (const Piece& p : pieces)
+      for (const Variant& v : p.rr->variants) anyTooExact = anyTooExact || v.klass == Klass::Accurate;
+    if (anyTooExact)
+      out += "// SOPT_TOO_EXACT = 0 turns off the \"too exact\" variants: closer to exact math than the\n"
+             "// float32 original, so they differ from it where it rounds (fine or better for most\n"
+             "// effects; wrong where the effect relies on the rounding).\n"
+             "#ifndef SOPT_TOO_EXACT\n#define SOPT_TOO_EXACT 1\n#endif\n";
     if (anyPick)
       out += "// SOPT_AUTO = 1: switches not set otherwise take the variant measured fastest on\n"
              "// the GPU's vendor (__VENDOR__: AMD 0x1002, NVIDIA 0x10DE; others: original) and\n"
@@ -223,12 +231,15 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       // Its terms are parenthesized: "(A) && !defined(B)".
       const std::string guard = r.guard.empty() ? std::string() : " && " + r.guard;
       // Condition under which variant k is used (a back buffer format guard included).
+      // A too-exact variant applies only while SOPT_TOO_EXACT is set.
       bool anyFormat = false;
-      for (const Variant& v : rr->variants) anyFormat = anyFormat || !v.formatGuard.empty();
+      for (const Variant& v : rr->variants)
+        anyFormat = anyFormat || !v.formatGuard.empty() || v.klass == Klass::Accurate;
       auto cond = [&](size_t k) {
         const bool last = k + 1 == rr->variants.size();
         const std::string& fg = rr->variants[k].formatGuard;
-        return sw + (last ? " >= " : " == ") + std::to_string(k + 1) + guard + (fg.empty() ? "" : " && (" + fg + ")");
+        return sw + (last ? " >= " : " == ") + std::to_string(k + 1) + guard + (fg.empty() ? "" : " && (" + fg + ")") +
+               (rr->variants[k].klass == Klass::Accurate ? " && SOPT_TOO_EXACT" : "");
       };
       if (!p.root) {
         // A statement inlined into the variants: only the original needs it.
@@ -329,7 +340,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
        "measured instructions (fxstat + RGA, ptxas + nvdisasm), with the change against the "
        "original (row 0); amd vgpr / nv regs: registers of the measured shader (whole-shader "
        "counts with the test scaffolding, so only the change against row 0 matters: more "
-       "registers can mean fewer waves in flight). Classes: bit-exact; 8-bit identical; within budget; as accurate "
+       "registers can mean fewer waves in flight). Classes: bit-exact; 8-bit identical; within budget; too exact "
        "(outside the budget only where at least as close to exact math as the original); "
        "less accurate (listed for you to judge by its error); \"more accurate\": at most a "
        "quarter of the original's error against exact math, \"(not faster)\": kept for its "

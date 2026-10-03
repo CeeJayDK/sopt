@@ -81,6 +81,9 @@ struct CostModel {
   // a min / max is one instruction (v_max3 / v_min3 / v_minmax / v_maxmin / v_med3). The folded
   // node costs 1 per component, like the other modifiers. See amdFoldedNodes (expr.hpp).
   bool amdFolds = false;
+  // With amdFolds: only min over min and max over max fold (v_min3 / v_max3); min over max is an
+  // instruction of its own (RDNA 2 and older have no v_minmax / v_maxmin; v_med3 needs lo <= hi).
+  bool sameMinMaxOnly = false;
 
   uint16_t operator[](Op op) const { return cost[static_cast<size_t>(op)]; }
   // Cost of one node of this op producing / reducing floatN (w = operand width for
@@ -110,6 +113,12 @@ const CostModel& costNvidiaAmpere();
 const CostModel& costNvidiaBlackwell();
 // intel-gen9: Intel Gen9 (Iris 540) from sopt-opbench timings, quarter units, math unit ~3x.
 const CostModel& costIntelGen9();
+// amd-rdna2 / amd-rdna4 / amd-gcn5 / amd-terascale2: AMD from sopt-opbench timings (680M + RX 6950 XT;
+// RX 9070 XT; Renoir Vega; HD 7400M), quarter units with one plain VALU instruction = 4.
+const CostModel& costAmdRdna2();
+const CostModel& costAmdRdna4();
+const CostModel& costAmdGcn5();
+const CostModel& costAmdTerascale2();
 // Default is rdna3 (searched in search order); --isa / --sass rank by real machine code.
 const CostModel& defaultCostModel();
 const CostModel* costModelByName(std::string_view name);

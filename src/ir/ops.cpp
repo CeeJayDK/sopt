@@ -206,6 +206,55 @@ uint32_t CostModel::opCost(Op op, unsigned w) const {
   }
 }
 
+
+// AMD models from sopt-opbench (throughput), scaled so that one plain VALU instruction (each
+// card's measured add) is 4: OpBench's mad base carries extra issue cost on AMD (two scalar
+// constants: an 8-byte VOP3 fma on RDNA, an extra v_mov on GCN), so its "4 = one fma" overstates
+// a plain instruction there.
+// RDNA 2 (Radeon 680M iGPU, RX 6950 XT; docs/opbench/amd-radeon-680m-rembrandt-v3.csv /
+// amd-radeon-rx-6950-xt.csv, OpBench 0.3.0, the two agree within ~0.2): plain ops 4, neg / abs /
+// saturate free, the transcendental unit (rcp, rsqrt, sqrt, exp2, log2) ~10.5, exp / log / sin /
+// cos / div ~11, pow 26, sign 19, compare + cndmask 7, lerp 9, clamp 8 (max + min with uniform
+// bounds). Output modifier (x * 2 / 4 / 0.5) and v_max3 / v_min3 fold; min over max does not (no
+// v_minmax before RDNA 3).
+const CostModel kAmdRdna2{"amd-rdna2",
+  {0, 0, 1, 1, 1, 4, 4, 19, 10,
+   10, 10, 11, 11, 11, 11, 10, 10, 4, 4, 4, 4, 4, 11, 4, 4, 7, 26,
+   4, 4, 4, 4, 4, 4, 4, 9, 8, 3, 1,
+   4, 14, 18, 18, 1, 1},
+  1, true, true, true};
+// RDNA 4 (RX 9070 XT, amd-radeon-rx-9070-xt.csv; one card): OpBench's fma base dual-issues, and
+// one plain add also measures 4, so units are used as measured: ops that cannot dual-issue cost
+// more (floor / ceil / round / frac / clamp 8, min / max 5), the transcendental unit 26 (exp /
+// log / sin / cos / div alike), pow 58, sign 38, compare + cndmask 12, lerp 10. Output modifier
+// free; max3 / minmax measure 3 extra (folded here like rdna3: v_max3 / v_minmax exist).
+const CostModel kAmdRdna4{"amd-rdna4",
+  {0, 0, 1, 1, 1, 8, 8, 38, 26,
+   26, 26, 26, 26, 26, 26, 26, 26, 8, 8, 4, 5, 4, 26, 5, 5, 12, 58,
+   5, 5, 5, 5, 5, 5, 4, 10, 8, 7, 1,
+   4, 30, 34, 34, 1, 1},
+  1, true, true};
+// GCN 5 (Vega iGPU in Renoir, amd-radeon-vega-renoir.csv; one card): plain ops 4, neg / abs /
+// saturate free, the transcendental unit 16 (quarter rate), exp / sin / cos 20, pow 35, sign 20,
+// compare + cndmask 8, lerp 12, clamp 8. Output modifier and v_max3 / v_min3 fold; min over max is
+// an instruction (v_med3 only for constant bounds).
+const CostModel kAmdGcn5{"amd-gcn5",
+  {0, 0, 1, 1, 1, 4, 4, 20, 16,
+   16, 16, 20, 16, 20, 20, 16, 16, 4, 4, 4, 4, 4, 16, 4, 4, 8, 35,
+   4, 4, 4, 4, 4, 4, 4, 12, 8, 4, 1,
+   4, 20, 24, 24, 1, 1},
+  1, true, true, true};
+// TeraScale 2 (VLIW5: Radeon HD 7400M, amd-radeon-hd-7400m-as-intel-hd-3000.csv; one card): every
+// ALU op one slot (4), abs included (not a free modifier here; compiledCost still treats it as one),
+// the transcendental (t) slot 16, sin 25, cos 21, pow 37, sign 17, compare + select 8, lerp 8,
+// clamp 8. No output modifier or 3-operand min / max gain (omod2 = omod3).
+const CostModel kAmdTerascale2{"amd-terascale2",
+  {0, 0, 1, 4, 1, 4, 4, 17, 16,
+   16, 16, 16, 16, 25, 21, 16, 16, 4, 4, 4, 4, 4, 16, 4, 4, 4, 37,
+   4, 4, 4, 4, 4, 4, 4, 8, 8, 4, 1,
+   4, 20, 24, 24, 1, 1},
+  1, true};
+
 const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }
 const CostModel& costNvidia() { return kNvidia; }
@@ -214,6 +263,10 @@ const CostModel& costNvidiaTuring() { return kNvidiaTuring; }
 const CostModel& costNvidiaAmpere() { return kNvidiaAmpere; }
 const CostModel& costNvidiaBlackwell() { return kNvidiaBlackwell; }
 const CostModel& costIntelGen9() { return kIntelGen9; }
+const CostModel& costAmdRdna2() { return kAmdRdna2; }
+const CostModel& costAmdRdna4() { return kAmdRdna4; }
+const CostModel& costAmdGcn5() { return kAmdGcn5; }
+const CostModel& costAmdTerascale2() { return kAmdTerascale2; }
 const CostModel& defaultCostModel() { return kRdna3; }
 // rdna3 without the context effects (--no-amd-folds).
 const CostModel kRdna3NoFolds = [] {
@@ -225,7 +278,8 @@ const CostModel kRdna3NoFolds = [] {
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kNvidia ||
                  &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
-                 &objective == &kNvidiaBlackwell || &objective == &kIntelGen9
+                 &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kAmdRdna2 ||
+                 &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
              ? kSearch
              : objective;
 }
@@ -242,6 +296,10 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kNvidiaAmpere.name) return &kNvidiaAmpere;
   if (name == kNvidiaBlackwell.name) return &kNvidiaBlackwell;
   if (name == kIntelGen9.name) return &kIntelGen9;
+  if (name == kAmdRdna2.name) return &kAmdRdna2;
+  if (name == kAmdRdna4.name) return &kAmdRdna4;
+  if (name == kAmdGcn5.name) return &kAmdGcn5;
+  if (name == kAmdTerascale2.name) return &kAmdTerascale2;
   return nullptr;
 }
 

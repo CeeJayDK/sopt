@@ -80,7 +80,7 @@ void usage() {
       "  --loose F         also list less accurate candidates: within F times the budget or\n"
       "                    the original's error vs exact math (default 100, 0 = off)\n"
       "  --helpers         also enumerate pure helper intrinsics (lerp, step)\n"
-      "  --cost-model M    objective: rdna3 | nvidia | nvidia-pascal | nvidia-turing | nvidia-ampere | nvidia-blackwell | intel-gen9 | generic (default: rdna3)\n"
+      "  --cost-model M    objective: rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-terascale2 | nvidia | nvidia-pascal | nvidia-turing | nvidia-ampere | nvidia-blackwell | intel-gen9 | generic (default: rdna3)\n"
       "  --order-model M   enumeration order (default: search for rdna3/nvidia, else the model)\n"
       "  --stats           print search statistics\n"
       "  --isa             rank the shown alternatives by real GPU ISA cost (fxstat + RGA)\n"
@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
     else if (a == "--seed") opt.seed = std::strtoull(next(), nullptr, 10);
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
-      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (rdna3, nvidia, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, generic, search)\n"); return 2; }
+      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, generic, search)\n"); return 2; }
     }
     else if (a == "--stats") stats = true;
     else if (a == "--no-affine") opt.search.affine = false;
@@ -201,7 +201,7 @@ int main(int argc, char** argv) {
     else if (a == "--helpers") opt.search.helpers = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
-      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (rdna3, nvidia, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, generic, search)\n"); return 2; }
+      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, generic, search)\n"); return 2; }
     }
     else if (a == "--isa") isa = true;
     else if (a == "--fxstat") isaCfg.fxstat = next();
@@ -281,8 +281,8 @@ int main(int argc, char** argv) {
   std::printf("\n");
   const bool rule = accuracyRule(prog.budget) && opt.exactRule;
   if (rule)
-    std::printf("accuracy: original vs exact math: max abs %.3g, rel %.3g (\"as accurate\": outside the\n"
-                "          budget of the original only where at least as close to the exact value)\n",
+    std::printf("accuracy: original vs exact math: max abs %.3g, rel %.3g (\"too exact\": outside the\n"
+                "          budget of the original only where closer to exact math than it, e.g. where it rounds)\n",
                 r.targetExact.exactAbs, r.targetExact.exactRel);
 
   // Real machine-code cost of the target and the shown alternatives, per vendor:

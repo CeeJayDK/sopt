@@ -785,3 +785,62 @@ TEST(fx_register_counts) {
   CHECK(ss.str().find("nv regs") == std::string::npos);  // unchanged: not mentioned
   fs::remove_all(out, ec);
 }
+
+TEST(fx_precise_and_too_exact) {
+  // A region that writes or feeds a precise variable is judged against float math only (no
+  // exact rule): the add-round (x + C) - C must not become x there.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_precise.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  auto at = [&](uint32_t line) -> const fx::Region* {
+    for (const auto& r : regions)
+      if (r.line == line && r.removed.empty()) return &r;
+    return nullptr;
+  };
+  const fx::Region* r = at(12);  // precise float r = ...
+  const fx::Region* t = at(13);  // float t = ..., feeds precise s
+  const fx::Region* q = at(15);  // not precise
+  CHECK(r && t && q);
+  if (!r || !t || !q) return;
+  CHECK(!r->prog.budget.vsExact && r->budgetReason.find("precise") != std::string::npos);
+  CHECK(!t->prog.budget.vsExact && !r->prog.budget.errorScale && !t->prog.budget.errorScale);
+  CHECK(q->prog.budget.vsExact && q->prog.budget.errorScale);
+
+  // A too-exact variant is switched by SOPT_TOO_EXACT and never picked by SOPT_AUTO.
+  fx::RegionResult rr;
+  rr.region = *q;
+  rr.targetCost = 20;
+  rr.targetAmd = 5;
+  fx::Variant v;
+  v.expr = q->prog.target;
+  v.text = "uv.x * Amount";
+  v.cost = 4;
+  v.klass = Klass::Accurate;
+  v.amd = 1;
+  rr.variants.push_back(v);
+  CHECK(fx::vendorPick(rr, true) == 0);
+  const fs::path out = fs::temp_directory_path() / "sopt_test_tooexact_out";
+  std::error_code ec;
+  fs::remove_all(out, ec);
+  std::string errors;
+  fx::writeVariants({rr}, out, errors);
+  std::ifstream f(out / "sopt_precise.fx");
+  std::stringstream ss;
+  ss << f.rdbuf();
+  const std::string text = ss.str();
+  CHECK(text.find("#define SOPT_TOO_EXACT 1") != std::string::npos);
+  CHECK(text.find(">= 1 && SOPT_TOO_EXACT") != std::string::npos);
+  CHECK(text.find("// sopt: too exact") != std::string::npos);
+  for (const char* te : {"0", "1"}) {
+    fx::LoadOptions lv;
+    lv.macros.emplace_back("SOPT_ALL", "1");
+    lv.macros.emplace_back("SOPT_TOO_EXACT", te);
+    CHECK(fx::loadEffect(out / "sopt_precise.fx", lv, err) != nullptr);
+  }
+  fs::remove_all(out, ec);
+}

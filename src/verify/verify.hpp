@@ -23,8 +23,10 @@ struct BlockEvaluator {
 };
 
 // Identical8: identical after quantization to the budget's code values (8 or 10 bits).
-// Accurate: passes only by the accuracy rule at some points (closer to the exact value
-// than the budget allows around the float32 original, but at least as accurate).
+// Accurate ("too exact", owner 2026-10-03): passes only by the accuracy rule at some points
+// (closer to the exact value than the budget allows around the float32 original): exact in
+// real math but not the float result; fine or better for most effects, wrong where an effect
+// relies on the rounding (sopt-fx: switch SOPT_TOO_EXACT, never SOPT_AUTO).
 // LessAccurate: passes only the loose budget (Budget::loose).
 enum class Klass { BitExact, Identical8, Within, Accurate, LessAccurate };
 const char* klassName(Klass k, int codeBits = 8);
@@ -98,10 +100,13 @@ inline bool accuracyRule(const Budget& b) { return b.vsExact && b.kind != Budget
 bool pointAccurate(const Budget& b, float target, double exact, float cand, double scale = 1.0, double s = 0.0);
 // Budget::loose applied: eps times loose, color budgets one more code.
 Budget looseBudget(const Budget& b);
-inline bool pointLoose(const Budget& b, float target, const double* exact, float cand, double s = 0.0) {
+// Less accurate: within loose times the plain budget, or loose times the original's own error vs
+// exact math. Without the error-scale floor (owner, 2026-10-03): loose times a budget scaled by the
+// original's rounding bound accepted nonsense, e.g. r = Amount for (uv.x * Amount + C) - C.
+inline bool pointLoose(const Budget& b, float target, const double* exact, float cand, double /*s*/ = 0.0) {
   if (!(b.loose > 1.0) || b.kind == Budget::Kind::Exact) return false;
   const Budget lb = looseBudget(b);
-  return pointWithinBudget(lb, target, cand, s) || (exact && pointAccurate(lb, target, *exact, cand, b.loose, s));
+  return pointWithinBudget(lb, target, cand) || (exact && pointAccurate(lb, target, *exact, cand, b.loose));
 }
 inline bool pointAcceptable(const Budget& b, float target, const double* exact, float cand, double s = 0.0) {
   return pointWithinBudget(b, target, cand, s) || (exact && pointAccurate(b, target, *exact, cand, 1.0, s));

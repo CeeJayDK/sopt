@@ -95,6 +95,13 @@ TEST(cost_amd_folds) {
   CHECK(cost("min(max(a, b), c)", m) == 5u);       // v_minmax / v_med3
   CHECK(cost("max(max(max(a, b), c), x)", m) == 9u);  // max3 + max
   CHECK(cost("max(max(a, b), c)", off) == 8u);
+  // RDNA 2 / GCN 5: v_max3 / v_min3, but no v_minmax (CostModel::sameMinMaxOnly); omod as on rdna3.
+  const CostModel& r2 = costAmdRdna2();
+  CHECK(cost("max(max(a, b), c)", r2) == 5u);
+  CHECK(cost("min(min(a, b), c)", r2) == 5u);
+  CHECK(cost("min(max(a, b), c)", r2) == 8u);
+  CHECK(cost("rcp(a) * 2.0", r2) == 11u);
+  CHECK(cost("min(max(a, b), c)", costAmdTerascale2()) == 8u);  // no folds
 }
 
 TEST(cost_contraction) {
@@ -107,7 +114,7 @@ TEST(cost_contraction) {
   CHECK(dagCost(parseExpr("a * b + c", abcx()), costGeneric()) ==
         costGeneric()[Op::Mul] + costGeneric()[Op::Add]);
   // Every non-leaf op costs >= 1 in every model.
-  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costNvidia(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaAmpere(), &costNvidiaBlackwell(), &costIntelGen9()})
+  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costNvidia(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaAmpere(), &costNvidiaBlackwell(), &costIntelGen9(), &costAmdRdna2(), &costAmdRdna4(), &costAmdGcn5(), &costAmdTerascale2()})
     for (size_t i = 2; i < static_cast<size_t>(Op::Count); ++i) CHECK(cm->cost[i] >= 1);
 }
 

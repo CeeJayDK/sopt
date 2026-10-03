@@ -8,8 +8,8 @@ facts, budgets, variant .fx; owner's ReShade test passed on DX11 and Vulkan); pl
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 and the nvidia / intel models default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
-cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere` and
-`nvidia-blackwell` cost models (sopt-opbench timings). Default cost model: rdna3.
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
+`nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3.
 
 ## Working with the owner
 - Owner's principle (2026-09-26): fewer instructions at equal measured speed are still
@@ -23,6 +23,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   (resend packages, give the CI run link) so nothing has to be searched for in the thread.
 - Do not implement your own improvisations or design changes without asking first.
   Implementing the agreed milestone plan is fine; flag anything beyond it.
+
+- Cost models (owner, 2026-10-03): make a new cost model as OpBench reports come in and update existing
+  ones when new data shows they are off; cards with identical costs share a model, cards that differ get
+  their own. AMD models (2026-10-03, ops.cpp): scaled so one plain VALU instruction (the card's measured
+  add) = 4, since OpBench's mad base carries extra issue cost on AMD (two scalar constants: 8-byte VOP3 fma
+  on RDNA, an extra v_mov on GCN); amd-rdna2 (680M + RX 6950 XT; the 680M rerun with OpBench 0.3.0, amd-radeon-680m-rembrandt-v3.csv, equals the 6950 XT within ~0.2 on every tput test despite 45% reference drift: the v1 680M run was clock-distorted), amd-rdna4 (RX 9070 XT,
+  units as measured: its fma base dual-issues and add also measures 4), amd-gcn5 (Renoir), amd-terascale2
+  (HD 7400M, VLIW: abs not free, no folds). CostModel::sameMinMaxOnly (rdna2, gcn5): only max(max) /
+  min(min) fold (v_max3 / v_min3), min(max) is an instruction (measured: max3 ~1, minmax ~3 units).
+  Targeted searches (ff/amd, 20 s, the four AMD models): sign -> the mad_sat form (cost 9) on all four (rdna2 19,
+  rdna4 38, gcn5 20, terascale2 17), lerp -> mad(t, b - a, a) (rdna2 9 -> 8, gcn5 12 -> 8, rdna4 10 -> 9); round /
+  floor / ceil / frac / clamp / select / pow / exp: nothing cheaper.
 
 ## Commands
 - Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`
@@ -676,6 +688,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   ~2.4 (as on Renoir, the base mad is ~2 instructions: 1 instruction ~2.2 units), mad2 / contract 3.4, step / select
   4.3, clamp 5, lerp 5.9, MUFU (rcp / sqrt / exp2 / sin ...) ~6.5 (~3 instructions), sign 12.5, pow 16.5, max3 1.3
   (v_max3), minmax 2.9, omod2 / omodhalf ~0.3 (output modifier), omod3 1.2, mul folded (-0.9). v2 run wanted.
+  RX 6950 XT (amd-radeon-rx-6950-xt.csv, 0x73A5, Navi 21, RDNA 2 discrete, OpBench 0.3.0, clean: drift 0.45%, all
+  consensus in 2 passes): one VALU instruction ~3 units (add / sub / min / max / floor / ceil / round / frac 2.97, mad2
+  4.0, mul before a mad folded -0.98, as on the 680M), saturate 0.2, satmad 0, omod2 / omodhalf 0.0 (output modifier),
+  omod3 1.4, max3 1.06 (v_max3), minmax 2.94, clamp 5.9 (max + min, no med3 for uniforms), step / select 5, lerp 7,
+  MUFU (rcp / sqrt / rsqrt / exp2 / log2) 7.8, exp / log / sin / cos ~8, pow 19.5, sign 14.1 vs signmad 5.8 /
+  signclamp 5.9 / signbits 5.9 / signsel2 4.9, roundadd 7.7 vs round 3 (worse), flooradd 16.6; int: iadd / iand /
+  imin / ishr / irot / bitrev / utof / ftou ~2.95 (one op), imul 11.7 (quarter rate), popc 0 (v_bcnt_u32 adds its
+  second operand: countbits + add is one instruction), fbh 11.8; half: mad16 -2.5 (packed fp16, 2x rate), add16 /
+  mul16 1.5, rcp16 10.3. = the 680M (RDNA 2 iGPU, ~1.2x scale): two RDNA 2 devices agree.
   RTX 4090 Laptop (nvidia-rtx-4090-laptop.csv, Ada): tput / dep unreliable (neg -2.6, add / mul / min
   negative: laptop power management), only lat plausible (rcp / floor ~18, add 4): v2 run wanted. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
 - Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
@@ -772,6 +793,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   bar, Ops column (Cost / 4, one decimal: owner ok); extra passes (owner's redundant-sensor idea): tests
   whose readings disagree are measured again (alternating direction) until > half agree, max 6 passes
   (`consensus`, kMaxPasses), CSV columns passes / consensus / readings.
+- OpBench 0.3.0 on the owner's cards (2026-10-03; docs/opbench/intel-uhd-630-v3.csv, nvidia-gtx-1660-v3.csv): both
+  = their v1 runs within 0.1-0.3 on every old test (the 1660 despite 60% reference drift in tput: the fresh
+  reference per test works), all tests consensus in 2-3 passes. New tests, tput: GTX 1660 (Turing): signsel2 -0.2
+  (free), signbits 0.6, signclamp 3.8, signmad 7.7 vs sign 8.2; roundadd 8.0 vs round 12, flooradd / fracadd 20 (worse
+  than floor 12); dot2 / dot3 / dot4 7.6 / 12.5 / 15.9 (= 2 / 3 / 4 fma: no hardware dot), cross 24, normalize /
+  length 24, distance 37; int: ixmul 0.1 over the mad base, iadd 0.6, imul 0.8, iand / imin / ishr 4, irot 8, popc /
+  fbh / bitrev / utof ~12 (quarter rate), ftou 8, ftoitof 27, bitor / signbits 0.6; half: mad16 0, add16 / mul16 2,
+  rcp16 / sqrt16 / exp2_16 16 (vs 12 in fp32); atan 50, atan2 59, asin 36, acos 32, tan 44. UHD 630 (Gen9.5): signmad
+  7.2 / signsel2 3.6 / signbits 7.2 vs sign 14.4; roundadd 7.7 vs round 3.9 (worse), flooradd / fracadd 18.5; dot3 14.4,
+  dot4 18.3, cross 22, length 32; int: ixmul 7.5, imul 7.3 (32-bit mul = 2 ops), ishr 7.3, irot 18, popc / bitrev 4.7,
+  utof / ftou 3.6, ftoitof 15; half: mad16 -1.9 (fp16 faster than fp32), add16 2.6, mul16 0.6, rcp16 12.8; atan 64,
+  atan2 78. omod tests sit under the rcp's issue rate on both (NVIDIA 0, Intel 0.8 for omod2 / half / 3 alike).
 - OpBench output modifier scales (owner, 2026-10-03: "test whether x8 and x0.25 are free ... I expect them NOT
   to be free on modern hardware, but we want to know"): tests omod4 (AMD's third scale), omod8, omod0.25, omod0.125
   (DX9-era _x8 / _d4 / _d8), base rcpmax like omod2. Next release.
@@ -779,15 +812,36 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
   and ptxas -v (`parsePtxasRegs`); informative only, not used to keep / drop). Polynomial approximations
-  (`--poly`, planned): owner: a special mode for development, not a default; its approximations go into
+  (`--poly`, planned; owner 2026-10-03: after the full corpus run): a special mode for development, not a default; its approximations go into
   docs/inexact-tricks.md. Later (owner): the compiler's output as a seed or comparison variant; instead /
   first (owner): do what the compilers do by reading their source (done for Mesa nir_opt_algebraic, ACO,
-  DXC lowerings: library pre-pass seeds the search; more sources possible: spirv-opt folding rules, LLVM
-  InstCombine float rules; fxc is closed). Order model (owner): test whether preferring cheap ops really
+  DXC lowerings: library pre-pass seeds the search; fxc is closed). Owner's go 2026-10-03 for more sources:
+  spirv-opt (SPIRV-Tools source/opt/folding_rules.cpp) was already mined earlier (constant merges); its
+  remaining float folds are negation shuffles (no gain) and cancellations ((a - b) + b -> a, (y / x) * x -> y,
+  (x * y) / x -> y), left out on purpose (they break rounding tricks; docs/inexact-tricks.md). DXC's LLVM
+  (lib/Transforms/InstCombine, lib/Analysis/InstructionSimplify.cpp, lib/Transforms/Utils/SimplifyLibCalls.cpp;
+  DXC's own lib/Analysis/DxilSimplify.cpp only folds mad(0, a, b)): 31 rules added (library 129 -> 160, all pass
+  --check-library): constant mul pushed into add ((x * a + b) * c -> mad(x, a * c, b * c); (x + b) * c only
+  without cancellation, x and b of one sign), divide chains ((x / y) / z -> x / (y * z) etc. with |y|, |z| in
+  [1e-15, 1e15]), a / (b / x), x * log2(y * 0.5) -> mad(x, log2(y), -x), pow(2, x) -> exp2(x), sqrt(x * x * y),
+  log / exp / pow / sqrt compositions (log(exp(x)) -> x, pow(exp2(x), y) -> exp2(x * y), sqrt(pow(x, y)) ...). Order model (owner): test whether preferring cheap ops really
   finds cheaper candidates sooner (bench 2026-09: search order 38 found, rdna3 order 37, generic 36) and count
   which ops the found variants use (sopt-found.txt), once the library / found list is bigger.
   OpBench trunc test (Pascal's suggestion, 2026-10-03: "trunc drops something rather than deciding by sign,
   could be faster"): added; fxc writes it as round_z, the same rounding family as floor / ceil / round.
+- Too exact (owner, 2026-10-03: rules that are exact in real math but differ from float math "could be fine
+  or in fact better for the effect - something for the user to decide"): Klass::Accurate is labeled "too
+  exact" (was "as accurate"); sopt-fx variant files define SOPT_TOO_EXACT (default 1, owner) and too-exact
+  variants apply only while it is set (`&& SOPT_TOO_EXACT` in their #if; removed statements come back under
+  the negation like format guards); never SOPT_AUTO. `precise` (owner: yes): a region that writes, reads or
+  directly feeds a precise variable (`touchesPrecise`, frontend.cpp) gets vsExact = false and errorScale =
+  false (budget reason "precise: float math only"). Found while testing: sopt turned the add-round (x + C) - C
+  into x as "too exact", and with the exact rule off still as "within budget" via the error-scale floor (rel
+  budget scaled by the original's rounding bound ~|x + C|); precise regions now keep it. Without precise, fxc
+  folds (x + C) - C to x anyway. Loose x error-scale floor accepted r = Amount for (uv.x * Amount + C) - C
+  as "less accurate" (100 x the scaled budget = 1260 absolute); owner: cap less accurate at 100x the
+  original's error: pointLoose ignores the error scale (loose x plain budget, or loose x the original's
+  error vs exact).
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such

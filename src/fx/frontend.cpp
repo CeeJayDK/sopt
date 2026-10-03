@@ -662,6 +662,7 @@ class Extractor {
   bool shapeOf(const Statement& s, Region& reg, std::string& why);
   bool buildRegion(const Statement& s, Region& reg, std::string& why);
   void treeValues(uint32_t id, std::unordered_set<uint32_t>& out) const;
+  bool touchesPrecise(const Function& f, const Statement& s, const std::vector<const Statement*>& defs) const;
   void findTemps(const Statement& use, std::vector<const Statement*>& defs, int depth);
   struct Leaf {
     uint32_t var = 0;
@@ -1914,6 +1915,46 @@ void Extractor::suggest(const Leaf& l, Fact& f) const {
   set(opt_.defaultLo, opt_.defaultHi, "no guess (the default)");
 }
 
+// The region writes, reads or feeds (one assignment on) a `precise` variable: the author wants
+// float rounding there (fxc keeps reassociations away from precise values), so the region is
+// judged against the float32 original only, not exact math (owner, 2026-10-03).
+bool Extractor::touchesPrecise(const Function& f, const Statement& s,
+                               const std::vector<const Statement*>& defs) const {
+  auto precise = [&](uint32_t var) {
+    const auto it = cg_.variables.find(var);
+    return it != cg_.variables.end() && it->second.type.has(reshadefx::type::q_precise);
+  };
+  std::vector<const Statement*> all = defs;
+  all.push_back(&s);
+  std::unordered_set<uint32_t> tree, written;
+  for (const Statement* t : all) {
+    if (t->kind != Statement::Kind::Return) {
+      if (precise(t->var)) return true;
+      written.insert(t->var);
+    }
+    treeValues(t->value, tree);
+  }
+  for (const auto& [var, value] : inline_) {
+    if (precise(var)) return true;
+    treeValues(value, tree);
+  }
+  for (uint32_t id : tree) {
+    const auto it = cg_.values.find(id);
+    if (it != cg_.values.end() && it->second.kind == Value::Kind::Load && precise(it->second.base)) return true;
+  }
+  // Feeds a precise variable directly.
+  for (const Statement& t : f.stmts) {
+    if (t.kind == Statement::Kind::Return || !precise(t.var)) continue;
+    std::unordered_set<uint32_t> used;
+    treeValues(t.value, used);
+    for (uint32_t id : used) {
+      const auto it = cg_.values.find(id);
+      if (it != cg_.values.end() && it->second.kind == Value::Kind::Load && written.count(it->second.base)) return true;
+    }
+  }
+  return false;
+}
+
 // Values of a statement's tree (through Chain bases and operands).
 void Extractor::treeValues(uint32_t id, std::unordered_set<uint32_t>& out) const {
   if (!out.insert(id).second) return;
@@ -2097,6 +2138,11 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
       inline_.clear();
       if (buildRegion(s, single, why)) {
         single.prog.budget = budgetFor(f, s, single.budgetReason);
+        if (touchesPrecise(f, s, {})) {
+          single.prog.budget.vsExact = false;
+        single.prog.budget.errorScale = false;  // the rounding is wanted, not noise
+          single.budgetReason += "; precise: float math only";
+        }
         out.push_back(single);
       } else {
         SKIPADD(why);
@@ -2140,6 +2186,11 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
         window_ = defs;
         if (buildRegion(s, win, why)) {
           win.prog.budget = budgetFor(f, s, win.budgetReason);
+          if (touchesPrecise(f, s, defs)) {
+            win.prog.budget.vsExact = false;
+          win.prog.budget.errorScale = false;  // the rounding is wanted, not noise
+            win.budgetReason += "; precise: float math only";
+          }
           out.push_back(std::move(win));
         } else {
           SKIPADD("window: " + why);
