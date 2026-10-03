@@ -211,8 +211,8 @@ uint32_t CostModel::opCost(Op op, unsigned w) const {
 // card's measured add) is 4: OpBench's mad base carries extra issue cost on AMD (two scalar
 // constants: an 8-byte VOP3 fma on RDNA, an extra v_mov on GCN), so its "4 = one fma" overstates
 // a plain instruction there.
-// RDNA 2 (Radeon 680M iGPU, RX 6950 XT; docs/opbench/amd-radeon-680m-rembrandt.csv /
-// amd-radeon-rx-6950-xt.csv, the two agree within ~0.8 after scaling): plain ops 4, neg / abs /
+// RDNA 2 (Radeon 680M iGPU, RX 6950 XT; docs/opbench/amd-radeon-680m-rembrandt-v3.csv /
+// amd-radeon-rx-6950-xt.csv, OpBench 0.3.0, the two agree within ~0.2): plain ops 4, neg / abs /
 // saturate free, the transcendental unit (rcp, rsqrt, sqrt, exp2, log2) ~10.5, exp / log / sin /
 // cos / div ~11, pow 26, sign 19, compare + cndmask 7, lerp 9, clamp 8 (max + min with uniform
 // bounds). Output modifier (x * 2 / 4 / 0.5) and v_max3 / v_min3 fold; min over max does not (no
