@@ -726,6 +726,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   looked right. 0.1.1: /utf-8 /we4566 on the Windows tools, "~N.N mads" with one decimal. The run itself:
   reference drift 48% (tput) / 30% (dep), yet results = the clean v1 GT 1030 run (min 6.8, abs 3.5, MUFU
   ~10, pow 24): the fresh reference per test works.
+  Second RTX 5080 (nvidia-rtx-5080-b.csv, v1, real device ID 0x2C02, clean: neg -0.1) = the first 5080 and the
+  5090s (add / min / max 3.2, clamp 8, floor / MUFU 22.4, sign 18.3, pow 52): Blackwell group confirmed.
+  opbench version 3 = 0.2.0 (owner, 2026-10-03: testers are the hard part, a test takes seconds, "include a
+  lot"; all four groups): Test::type (float, float2..4, uint, min16float; uint constants are random 32-bit
+  patterns with c.x odd), vector tests vs mad2v..mad4v (dot2..4, cross, length, distance, normalize,
+  reflect: fxc writes dp3, the driver splits it), fxc-expanded intrinsics (smoothstep, fmod, sincos, tan,
+  atan, atan2, asin, acos), integer chains (x ^ a) * b (iadd, iand, imin, ishr, irot (fxc: bfi), imul,
+  popc, fbh, bitrev, unitf, utof, ftou), ftoitof (with | 1: fxc writes float(int(v)) as one round_z),
+  bitor, signbits (fxc: and + iadd), half precision (mad16 ... exp2_16; CSV header says whether the driver
+  reports 16-bit min precision). Layout (owner): other adapters right after the GPU line, verbose mode
+  headings, capitalized table headings, summary in sections; TESTS.txt (zip) explains every test.
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such
