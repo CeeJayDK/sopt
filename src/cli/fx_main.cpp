@@ -48,12 +48,15 @@ bool regionMatches(const fx::Region& r, const std::string& spec) {
 
 void usage() {
   std::puts(
-      "usage: sopt-fx [options] <file.fx | directory>...\n"
+      "usage: sopt-fx [options] <file.fx | file.hlsl | directory>...\n"
       "Finds cheaper verified alternatives to arithmetic statements of pixel shaders and\n"
       "writes variant .fx files with a preprocessor switch per statement plus a report.\n"
+      "ReShade FX by default; .hlsl / .hlsli files are plain HLSL (SM5 pixel shaders).\n"
       "  -I DIR            include directory (ReShade.fxh etc.), repeatable\n"
       "  -D NAME[=VALUE]   preprocessor definition, repeatable\n"
       "  -o DIR            output directory (default sopt-out)\n"
+      "  --hlsl            read every input as plain HLSL (default: by extension)\n"
+      "  --entry NAME      HLSL pixel shader entry point (default main)\n"
       "  --list            only list the regions and their facts, no search\n"
       "  --region F[:L]    only regions of file F (name, any folder) ending at or spanning\n"
       "                    line L, repeatable; for long runs of single regions (--time)\n"
@@ -140,7 +143,8 @@ void collect(const fs::path& p, std::vector<fs::path>& out) {
   if (fs::is_directory(p, ec)) {
     std::vector<fs::path> sub;
     for (auto it = fs::recursive_directory_iterator(p, ec); it != fs::recursive_directory_iterator(); ++it)
-      if (it->is_regular_file() && it->path().extension() == ".fx") sub.push_back(it->path());
+      if (it->is_regular_file() && (it->path().extension() == ".fx" || it->path().extension() == ".hlsl"))
+        sub.push_back(it->path());
     std::sort(sub.begin(), sub.end());
     out.insert(out.end(), sub.begin(), sub.end());
   } else {
@@ -153,6 +157,8 @@ void collect(const fs::path& p, std::vector<fs::path>& out) {
 int main(int argc, char** argv) {
   std::vector<fs::path> inputs;
   fx::LoadOptions load;
+  bool forceHlsl = false;     // --hlsl
+  std::string entry = "main";  // --entry
   fx::RegionOptions ropt;
   bool formatChecks = true;  // back buffer formats: 10-bit and scRGB checks, see below
   fs::path outDir = "sopt-out";
@@ -202,6 +208,8 @@ int main(int argc, char** argv) {
       const size_t eq = d.find('=');
       load.macros.emplace_back(d.substr(0, eq), eq == std::string::npos ? "1" : d.substr(eq + 1));
     } else if (a == "-o") outDir = next();
+    else if (a == "--hlsl") forceHlsl = true;
+    else if (a == "--entry") entry = next();
     else if (a == "--list") list = true;
     else if (a == "--region") regionFilter.push_back(next());
     else if (a == "--skips") skips = true;
@@ -294,6 +302,15 @@ int main(int argc, char** argv) {
   info.costModel = std::string(opt.search.model->name);
   std::vector<fx::RegionResult> results;
   std::vector<std::pair<fs::path, std::vector<std::string>>> effectFiles;  // effect, its sources
+  // Plain HLSL by extension (or --hlsl), with the entry point.
+  auto loadFor = [&](const fs::path& p) {
+    fx::LoadOptions o = load;
+    const std::string ext = p.extension().string();
+    o.hlsl = forceHlsl || ext == ".hlsl" || ext == ".hlsli";
+    o.entry = entry;
+    return o;
+  };
+  std::set<std::string> hlslTextures;  // texture fact keys (plain HLSL: no format, no range)
   auto extractAll = [&]() {
     info.effects.clear();
     info.failed.clear();
@@ -301,9 +318,11 @@ int main(int argc, char** argv) {
     info.skipped.keepDetails = skips;
     results.clear();
     effectFiles.clear();
+    hlslTextures.clear();
     std::set<std::tuple<std::string, uint32_t, size_t>> seen;
     for (const auto& p : inputs) {
       std::string err;
+      const fx::LoadOptions load = loadFor(p);
       auto fx = fx::loadEffect(p, load, err);
       if (!fx) {
         info.failed.emplace_back(p.string(), err);
@@ -321,7 +340,7 @@ int main(int argc, char** argv) {
       }
       // BUFFER_WIDTH / BUFFER_HEIGHT too (int compile-time inputs), except where a
       // constant is needed.
-      if (symbolic && bufferInputs) {
+      if (symbolic && bufferInputs && !load.hlsl) {
         fx::LoadOptions bs = sym;
         std::string bsErr;
         if (auto s = fx::loadEffectBufferSymbolic(p, bs, bsErr)) {
@@ -333,9 +352,12 @@ int main(int argc, char** argv) {
       alt.width = fx::kAltWidth;
       alt.height = fx::kAltHeight;
       std::string altErr;
-      auto fx2 = fx::loadEffect(p, alt, altErr);
+      // Plain HLSL has no BUFFER_WIDTH / BUFFER_HEIGHT: no second parse.
+      auto fx2 = load.hlsl ? nullptr : fx::loadEffect(p, alt, altErr);
       info.effects.push_back(p.string());
       effectFiles.emplace_back(p, fx->sourceFiles);
+      if (fx->hlsl)
+        for (const auto& t : fx::unrangedTextures(*fx)) hlslTextures.insert(fx::textureFactKey(*fx, t));
       // The regions once more with the back buffer as scRGB: inputs whose range changes
       // depend on the back buffer (checked for HDR below).
       std::map<std::tuple<std::string, uint32_t, size_t>, fx::Region> hdr;
@@ -483,6 +505,13 @@ int main(int argc, char** argv) {
       std::snprintf(buf, sizeof(buf), "[%.9g, %.9g]", x.fact->suggestLo, x.fact->suggestHi);
       f << "# " << key << " = " << buf << "   # " << x.fact->suggestWhy << "; " << x.regions
         << " region" << (x.regions == 1 ? "" : "s") << "\n";
+    }
+    bool header = false;
+    for (const auto& key : hlslTextures) {
+      if (userRanges.count(key) || missing.count(key)) continue;
+      if (!header) f << "\n# HLSL textures (no format, so no range; applies to every read):\n";
+      header = true;
+      f << "# " << key << " = [0, 1]   # texture read\n";
     }
   }
   std::printf("%zu inputs without a known range (listed in %s)\n", missing.size(),
@@ -878,7 +907,7 @@ int main(int argc, char** argv) {
   size_t checks = 0, checkFailures = 0;
   for (const auto& e : effectsOut) {
     for (size_t k = 0; k <= 2 * numVariants; ++k) {
-      fx::LoadOptions lo = load;
+      fx::LoadOptions lo = loadFor(e);
       lo.macros.emplace_back("SOPT_ALL", std::to_string(k));
       std::string err;
       ++checks;

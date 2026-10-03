@@ -121,6 +121,16 @@ bool reshadefx::parser::parse_top(bool &parse_success)
 	}
 	else
 	{
+		// sopt: HLSL resource declarations (cbuffer, textures, sampler states)
+		if (sopt_hlsl)
+		{
+			bool handled = false;
+			if (!sopt_hlsl_declaration(handled, parse_success))
+				return false;
+			if (handled)
+				return true;
+		}
+
 		location attribute_location;
 		shader_type stype = shader_type::unknown;
 		int num_threads[3] = { 0, 0, 0 };
@@ -198,6 +208,10 @@ bool reshadefx::parser::parse_top(bool &parse_success)
 			if (peek('('))
 			{
 				const std::string name = std::move(_token.literal_as_string);
+
+				// sopt: the HLSL pixel shader entry point
+				if (sopt_hlsl && stype == shader_type::unknown && name == sopt_hlsl_entry)
+					stype = shader_type::pixel;
 
 				// This is definitely a function declaration, so parse it
 				if (!parse_function(type, name, stype, num_threads))
@@ -1597,7 +1611,27 @@ bool reshadefx::parser::parse_variable(type type, std::string name, bool global)
 	sampler sampler_info;
 	storage storage_info;
 
-	if (accept(':'))
+	// sopt: HLSL register(...) / packoffset(...) annotations are skipped
+	bool sopt_annotation = false;
+	if (sopt_hlsl && peek(':'))
+	{
+		backup();
+		consume();
+		if ((peek(tokenid::identifier) || peek(tokenid::reserved)) &&
+			(_token_next.literal_as_string == "register" || _token_next.literal_as_string == "packoffset"))
+		{
+			consume();
+			if (!sopt_skip_parens())
+				return false;
+			sopt_annotation = true;
+		}
+		else
+		{
+			restore();
+		}
+	}
+
+	if (!sopt_annotation && accept(':'))
 	{
 		if (!expect(tokenid::identifier))
 			return false;
@@ -2780,4 +2814,205 @@ void reshadefx::codegen::optimize_bindings()
 			}
 		}
 	}
+}
+
+// sopt: parses text as top-level declarations (exp == nullptr) or as one expression, with its own lexer
+// starting at loc, so errors point at the construct the text was made from.
+bool reshadefx::parser::sopt_parse_text(const std::string &text, const location &loc, expression *exp)
+{
+	lexer *const outer = _lexer;
+	const token saved_token = _token, saved_next = _token_next, saved_backup = _token_backup;
+	_lexer = new lexer(text, true, true, true, false, false, true, loc);
+	consume();
+	bool success = true;
+	if (exp != nullptr)
+	{
+		success = parse_expression_assignment(*exp) && peek(tokenid::end_of_file);
+	}
+	else
+	{
+		while (success && !peek(tokenid::end_of_file))
+		{
+			bool current_success = true;
+			success = parse_top(current_success) && current_success;
+		}
+	}
+	delete _lexer;
+	_lexer = outer;
+	_token = saved_token;
+	_token_next = saved_next;
+	_token_backup = saved_backup;
+	return success;
+}
+
+// sopt: consumes a parenthesized token sequence, e.g. register(t0) or packoffset(c1.y).
+bool reshadefx::parser::sopt_skip_parens()
+{
+	if (!expect('('))
+		return false;
+	for (int depth = 1; depth > 0;)
+	{
+		if (peek(tokenid::end_of_file))
+			return expect(')');
+		if (peek('('))
+			++depth;
+		if (peek(')'))
+			--depth;
+		consume();
+	}
+	return true;
+}
+
+// sopt: HLSL resource declarations (see sopt_hlsl). Returns false on a fatal error; 'handled' says whether
+// the next tokens were such a declaration.
+bool reshadefx::parser::sopt_hlsl_declaration(bool &handled, bool &parse_success)
+{
+	handled = false;
+	const std::string word = _token_next.literal_as_string;
+	if (!peek(tokenid::identifier) && !peek(tokenid::reserved))
+		return true;
+
+	// cbuffer / tbuffer Name [: register(bN)] { members } [;]: the members are uniforms
+	if (peek(tokenid::identifier) && (word == "cbuffer" || word == "tbuffer"))
+	{
+		handled = true;
+		consume();
+		if (!expect(tokenid::identifier))
+			return parse_success = false, true;
+		if (accept(':') && !((accept(tokenid::identifier) || expect(tokenid::reserved)) && sopt_skip_parens()))
+			return parse_success = false, true;
+		if (!expect('{'))
+			return parse_success = false, true;
+		bool members_success = true;
+		while (!peek('}') && !peek(tokenid::end_of_file))
+		{
+			bool current_success = true;
+			if (!parse_top(current_success))
+				return false;
+			members_success = members_success && current_success;
+		}
+		parse_success = expect('}') && members_success;
+		accept(';');
+		return true;
+	}
+
+	// SamplerState / SamplerComparisonState Name [: register(sN)] [{ ... }];: not needed (the implicit
+	// sampler of each texture is used), skipped
+	if (peek(tokenid::reserved) && (word == "SamplerState" || word == "SamplerComparisonState"))
+	{
+		handled = true;
+		consume();
+		if (!expect(tokenid::identifier))
+			return parse_success = false, true;
+		if (accept(':') && !((accept(tokenid::identifier) || expect(tokenid::reserved)) && sopt_skip_parens()))
+			return parse_success = false, true;
+		if (accept('{'))
+			for (int depth = 1; depth > 0 && !peek(tokenid::end_of_file); consume())
+				depth += peek('{') ? 1 : peek('}') ? -1 : 0;
+		parse_success = expect(';');
+		return true;
+	}
+
+	// Texture1D/2D/3D/Cube/2DArray[<T>] Name [: register(tN)];: a texture with an unknown (float) format and
+	// an implicit sampler __sopt_smp_Name for its method calls (cube and array textures as 2D: their fetches
+	// are only region inputs)
+	if (peek(tokenid::reserved) && (word == "Texture1D" || word == "Texture2D" || word == "Texture3D" ||
+		word == "TextureCube" || word == "Texture2DArray"))
+	{
+		handled = true;
+		consume();
+		const unsigned int dimension = word == "Texture1D" ? 1 : word == "Texture3D" ? 3 : 2;
+		std::string element = "float4";
+		if (accept('<'))
+		{
+			const size_t begin = _token_next.offset;
+			size_t end = begin;
+			while (!peek('>') && !peek(tokenid::end_of_file))
+			{
+				consume();
+				end = _token.offset + _token.length;
+			}
+			element = _lexer->input_string().substr(begin, end - begin);
+			if (!expect('>'))
+				return parse_success = false, true;
+		}
+		if (!expect(tokenid::identifier))
+			return parse_success = false, true;
+		const std::string name = _token.literal_as_string;
+		const location name_location = _token.location;
+		if (peek('['))
+		{
+			error(_token_next.location, 3000, "sopt: arrays of textures are not supported");
+			return parse_success = false, true;
+		}
+		if (accept(':') && !((accept(tokenid::identifier) || expect(tokenid::reserved)) && sopt_skip_parens()))
+			return parse_success = false, true;
+		if (!expect(';'))
+			return parse_success = false, true;
+		const std::string d = std::to_string(dimension);
+		_sopt_textures.emplace_back(name, dimension);
+		parse_success = sopt_parse_text(
+			"texture" + d + "D " + name + " { Format = RGBA32F; }; sampler" + d + "D<" + element + "> __sopt_smp_" + name +
+			" { Texture = " + name + "; };", name_location, nullptr);
+		return true;
+	}
+	return true;
+}
+
+// sopt: an HLSL texture method call texture.Method(args) (see sopt_hlsl), the '.' being the next token.
+bool reshadefx::parser::sopt_hlsl_texture_call(const std::string &texture, const location &loc, expression &exp)
+{
+	unsigned int dimension = 2;
+	for (const auto &t : _sopt_textures)
+		if (t.first == texture)
+			dimension = t.second;
+	consume(); // '.'
+	if (!expect(tokenid::identifier))
+		return false;
+	const std::string method = _token.literal_as_string;
+	if (!expect('('))
+		return false;
+
+	// The arguments as source text
+	std::vector<std::string> args;
+	while (!peek(')') && !peek(tokenid::end_of_file))
+	{
+		const size_t begin = _token_next.offset;
+		size_t end = begin;
+		for (int depth = 0; !peek(tokenid::end_of_file) && !(depth == 0 && (peek(',') || peek(')')));)
+		{
+			if (peek('(') || peek('[') || peek('{'))
+				++depth;
+			if (peek(')') || peek(']') || peek('}'))
+				--depth;
+			consume();
+			end = _token.offset + _token.length;
+		}
+		args.push_back(_lexer->input_string().substr(begin, end - begin));
+		if (!accept(','))
+			break;
+	}
+	if (!expect(')'))
+		return false;
+
+	const std::string d = std::to_string(dimension);
+	const std::string sampler = "__sopt_smp_" + texture;
+	const std::string coord = dimension == 1 ? ".x" : dimension == 2 ? ".xy" : ".xyz";
+	const auto arg = [&](size_t i) { return i < args.size() ? '(' + args[i] + ')' : std::string("0"); };
+	std::string call;
+	if (method == "Sample" || method == "SampleLevel" || method == "SampleBias" || method == "SampleGrad")
+		call = "tex" + d + "D(" + sampler + ", " + arg(1) + coord + ')';
+	else if (method == "SampleCmp" || method == "SampleCmpLevelZero")
+		call = "tex" + d + "D(" + sampler + ", " + arg(1) + coord + ").x";
+	else if (method == "Load")
+		call = "tex" + d + "Dfetch(" + sampler + ", int" + (dimension == 1 ? std::string() : d) + '(' + arg(0) + coord + "))";
+	else if (dimension == 2 && (method == "Gather" || method == "GatherRed" || method == "GatherGreen" ||
+		method == "GatherBlue" || method == "GatherAlpha"))
+		call = std::string("tex2Dgather") + (method == "Gather" ? 'R' : method[6]) + '(' + sampler + ", " + arg(1) + ".xy)";
+	else
+	{
+		error(loc, 3000, "sopt: texture method '" + method + "' is not supported");
+		return false;
+	}
+	return sopt_parse_text(call, loc, &exp);
 }

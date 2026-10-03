@@ -35,6 +35,16 @@ namespace reshadefx
 		bool sopt_named_expressions = false;
 
 		/// <summary>
+		/// sopt addition: plain HLSL (SM5 pixel shaders) instead of ReShade FX. cbuffer / tbuffer blocks declare
+		/// their members as uniforms, Texture1D/2D/3D/Cube/2DArray objects become a texture plus an implicit
+		/// sampler, SamplerState declarations are skipped, texture method calls (Sample, SampleLevel, Load,
+		/// Gather, ...) become texture fetch intrinsics, register / packoffset annotations are skipped, and the
+		/// function named sopt_hlsl_entry is the pixel shader entry point.
+		/// </summary>
+		bool sopt_hlsl = false;
+		std::string sopt_hlsl_entry = "main";
+
+		/// <summary>
 		/// Gets the list of error messages.
 		/// </summary>
 		const std::string &errors() const { return _errors; }
@@ -90,6 +100,13 @@ namespace reshadefx
 		token _token_backup;
 
 		std::vector<std::pair<std::string, location>> _sopt_named; // sopt: initializer text and location
+
+		// sopt: HLSL mode helpers (see sopt_hlsl)
+		bool sopt_parse_text(const std::string &text, const location &loc, expression *exp);
+		bool sopt_skip_parens();
+		bool sopt_hlsl_declaration(bool &handled, bool &parse_success);
+		bool sopt_hlsl_texture_call(const std::string &texture, const location &loc, expression &exp);
+		std::vector<std::pair<std::string, unsigned int>> _sopt_textures; // HLSL texture name, dimension
 
 		std::vector<uint32_t> _loop_break_target_stack;
 		std::vector<uint32_t> _loop_continue_target_stack;

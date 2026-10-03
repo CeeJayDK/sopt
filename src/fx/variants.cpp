@@ -106,6 +106,7 @@ std::string variantClass(const Variant& v, int codeBits) {
 }
 
 int vendorPick(const RegionResult& rr, bool amd, bool dx) {
+  if (rr.region.hlsl) return 0;  // plain HLSL has no __VENDOR__ / __RENDERER__
   const int target = amd ? rr.targetAmd : rr.targetNv;
   if (target < 0) return 0;
   int best = 0, bestCost = target;

@@ -638,9 +638,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   Targeted searches (ff/, 15 s): sign 10 -> 9 (mad_sat form), round 10 -> 8 (add form), signed pow 42 -> 41;
   floor, clamp, lerp nothing cheaper.
 - Other shader languages (owner, 2026-10-03: "at some point sopt should also work with HLSL and GLSL; I doubt we
-  have to change that much"): not started. The search, verification and cost models work on sopt's IR and
-  do not care about the language; per language it needs a front end (parse, pixel-reachable regions, facts /
-  ranges) and a variant writer (source edits). Plan to be agreed with the owner. First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
+  have to change that much"; "start with HLSL", "pixel shaders first ... and the planned for later": compute /
+  SM6 later, GLSL later). HLSL SM5 pixel shaders done: sopt-fx reads `.hlsl` / `.hlsli` (or `--hlsl`), entry
+  point `--entry NAME` (default main). The vendored parser's `sopt_hlsl` mode rewrites HLSL constructs to FX
+  text and re-lexes it in place (`sopt_parse_text`): cbuffer / tbuffer members become uniforms, register /
+  packoffset skipped, SamplerState (+ Comparison) declarations dropped, Texture1D/2D/3D/Cube/2DArray[<T>]
+  become textures (Format = RGBA32F: unknown) with an implicit sampler `__sopt_smp_<tex>`, methods
+  (Sample, SampleLevel, SampleGrad, SampleBias, SampleCmp[LevelZero], Load, Gather[Red..Alpha]) map to texND*
+  calls (only for the dataflow: fetches are leaves); fetch leaves keep the HLSL call text (`fetchOpen`). No ReShade macros, no BUFFER_* inputs or second
+  parse, no `__VENDOR__` auto picks (vendorPick 0). Textures have no range from a format: fact key
+  `<file> texture <name> = [lo, hi]` (`textureFactKey`, applied in samplerRange to every read, also values
+  stored from one; HLSL fetch leaves use it; sopt-facts.txt lists such textures). Test tests/fx/sopt_hlsl.hlsl.
+  First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
   the base step mad(x, c.x, c.y) is 2 instructions there (GCN's constant bus takes one SGPR per VALU op, so
   one constant needs a v_mov), so 1 instruction = ~2.1 units: add / sub / min / max / floor / ceil / round /
   frac 1 op, neg / abs / saturate / satmad free, omod2 / omodhalf 0.0 (output modifier confirmed), omod3

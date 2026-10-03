@@ -139,6 +139,7 @@ reshadefx::codegen::id Codegen::define_function(const reshadefx::location& loc,
   f->loc = loc;
   f->returnType = info.return_type;
   f->returnSemantic = info.return_semantic;
+  f->type = info.type;  // [shader("pixel")] functions and the HLSL entry point
   for (auto& param : info.parameter_list) {
     param.id = make_id();
     Variable& v = variables[param.id];

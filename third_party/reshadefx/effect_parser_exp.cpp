@@ -990,8 +990,18 @@ bool reshadefx::parser::parse_expression_unary(expression &exp)
 		if (!accept_symbol(identifier, symbol))
 			return false;
 
+		// sopt: an HLSL texture object's method call (texture.Sample(sampler, uv), ...)
+		bool sopt_texture = false;
+		if (sopt_hlsl && peek('.'))
+			for (const auto &t : _sopt_textures)
+				sopt_texture = sopt_texture || t.first == identifier;
+		if (sopt_texture)
+		{
+			if (!sopt_hlsl_texture_call(identifier, location, exp))
+				return false;
+		}
 		// Check if this is a function call or variable reference
-		if (accept('('))
+		else if (accept('('))
 		{
 			// Can only call symbols that are functions, but do not abort yet if no symbol was found since the identifier may reference an intrinsic
 			if (symbol.id && symbol.op != symbol_type::function)

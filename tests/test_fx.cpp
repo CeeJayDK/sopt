@@ -648,3 +648,94 @@ TEST(fx_back_buffer_formats) {
   }
   fs::remove_all(out, ec);
 }
+
+TEST(fx_hlsl) {
+  // Plain HLSL: cbuffer members are uniforms, texture methods are fetches (leaves in
+  // their own syntax), facts for a texture apply to every read of it.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_hlsl.hlsl";
+  fx::LoadOptions lo;
+  lo.hlsl = true;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) {
+    std::printf("  %s\n", err.c_str());
+    return;
+  }
+  CHECK(e->hlsl);
+  CHECK((fx::unrangedTextures(*e) == std::vector<std::string>{"gColor", "gDepth"}));
+  auto regionAt = [](const std::vector<fx::Region>& rs, uint32_t line) -> const fx::Region* {
+    for (const auto& r : rs)
+      if (r.line == line && r.removed.empty()) return &r;
+    return nullptr;
+  };
+  auto inputIndex = [](const fx::Region& r, const std::string& name) {
+    for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+      if (r.prog.inputs[k].name == name) return int(k);
+    return -1;
+  };
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* c = regionAt(regions, 15);
+  CHECK(c != nullptr);
+  if (c) {
+    CHECK(c->hlsl);
+    const int k = inputIndex(*c, "gColor.Sample(gLinear, uv).xyz");
+    CHECK(k >= 0);
+    if (k >= 0) {
+      CHECK(c->facts[k].fetch && c->facts[k].assumed);
+      CHECK(c->facts[k].key == "sopt_hlsl.hlsl texture gColor");
+    }
+  }
+  const fx::Region* w = regionAt(regions, 19);
+  CHECK(w != nullptr);
+  if (w) {
+    const int k = inputIndex(*w, "gContrast");
+    CHECK(k >= 0 && w->facts[k].key == "sopt_hlsl.hlsl global gContrast");
+  }
+
+  // The texture's range reaches s = gColor.Sample(...).rgb.
+  fx::UserRanges user;
+  user["sopt_hlsl.hlsl texture gColor"] = {0.0, 1.0};
+  fx::RegionOptions ro;
+  ro.userRanges = &user;
+  fx::SkipCount sk2;
+  const auto ranged = fx::extractRegions(*e, nullptr, ro, sk2);
+  const fx::Region* w2 = regionAt(ranged, 19);
+  CHECK(w2 != nullptr);
+  if (w2) {
+    const int k = inputIndex(*w2, "s");
+    CHECK(k >= 0 && w2->prog.inputs[k].lo == 0.0 && w2->prog.inputs[k].hi == 1.0 && !w2->facts[k].assumed);
+  }
+
+  // A variant file of the HLSL source parses as HLSL with either switch value.
+  const fx::Region* r = regionAt(ranged, 20);
+  CHECK(r != nullptr);
+  if (!r) return;
+  fx::RegionResult rr;
+  rr.region = *r;
+  ExprBuilder b;
+  fx::Variant v;
+  v.expr = b.finish(b.input(0));
+  v.text = "n";
+  v.cost = 0;
+  v.klass = Klass::BitExact;
+  rr.variants.push_back(v);
+  const fs::path out = fs::temp_directory_path() / "sopt_test_hlsl_out";
+  std::error_code ec;
+  fs::remove_all(out, ec);
+  std::string errors;
+  const auto files = fx::writeVariants({rr}, out, errors);
+  CHECK(errors.empty() && files.size() == 1);
+  std::ifstream f(out / "sopt_hlsl.hlsl");
+  std::stringstream ss;
+  ss << f.rdbuf();
+  CHECK(ss.str().find("float3 r = n; // sopt: bit-exact") != std::string::npos);
+  CHECK(ss.str().find("__VENDOR__") == std::string::npos);
+  for (const char* all : {"0", "1"}) {
+    fx::LoadOptions lv = lo;
+    lv.macros.emplace_back("SOPT_ALL", all);
+    CHECK(fx::loadEffect(out / "sopt_hlsl.hlsl", lv, err) != nullptr);
+  }
+  fs::remove_all(out, ec);
+}
