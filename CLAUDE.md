@@ -24,6 +24,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 - Do not implement your own improvisations or design changes without asking first.
   Implementing the agreed milestone plan is fine; flag anything beyond it.
 
+- Cost models (owner, 2026-10-03): make a new cost model as OpBench reports come in and update existing
+  ones when new data shows they are off; cards with identical costs share a model, cards that differ get
+  their own.
+
 ## Commands
 - Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`
 - Tests: `ctest --test-dir build --output-on-failure` (or `build/sopt-tests [filter]`)
@@ -817,6 +821,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   which ops the found variants use (sopt-found.txt), once the library / found list is bigger.
   OpBench trunc test (Pascal's suggestion, 2026-10-03: "trunc drops something rather than deciding by sign,
   could be faster"): added; fxc writes it as round_z, the same rounding family as floor / ceil / round.
+- Too exact (owner, 2026-10-03: rules that are exact in real math but differ from float math "could be fine
+  or in fact better for the effect - something for the user to decide"): Klass::Accurate is labeled "too
+  exact" (was "as accurate"); sopt-fx variant files define SOPT_TOO_EXACT (default 1, owner) and too-exact
+  variants apply only while it is set (`&& SOPT_TOO_EXACT` in their #if; removed statements come back under
+  the negation like format guards); never SOPT_AUTO. `precise` (owner: yes): a region that writes, reads or
+  directly feeds a precise variable (`touchesPrecise`, frontend.cpp) gets vsExact = false and errorScale =
+  false (budget reason "precise: float math only"). Found while testing: sopt turned the add-round (x + C) - C
+  into x as "too exact", and with the exact rule off still as "within budget" via the error-scale floor (rel
+  budget scaled by the original's rounding bound ~|x + C|); precise regions now keep it. Without precise, fxc
+  folds (x + C) - C to x anyway. Open (asked): loose x error-scale floor accepted r = Amount for
+  (uv.x * Amount + C) - C as "less accurate" (100 x the scaled budget = 1260 absolute).
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such

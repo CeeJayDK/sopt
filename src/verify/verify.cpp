@@ -67,7 +67,7 @@ const char* klassName(Klass k, int codeBits) {
     case Klass::BitExact: return "bit-exact";
     case Klass::Identical8: return codeBits == 10 ? "10-bit identical" : "8-bit identical";
     case Klass::Within: return "within budget";
-    case Klass::Accurate: return "as accurate";
+    case Klass::Accurate: return "too exact";
     case Klass::LessAccurate: return "less accurate";
   }
   return "?";

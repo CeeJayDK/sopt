@@ -176,9 +176,14 @@ original, whose own rounding error can exceed the budget. So a candidate also pa
 at a point where it is at least as close to the exact (real-number) value as the
 original is, or within the budget of the exact value. Exact values are computed in
 double precision; the float32 evaluation stays the reference semantics. Candidates
-that pass only this way are classed "as accurate". Not for exact budgets. Example:
-ReShade's depth linearization with far plane F in [100, 10000] has error 4.2e-4 vs
-exact math; its cheaper rewrite (cost 29 -> 24) has 1.5e-7.
+that pass only this way are classed "too exact": exact in real math, but not the float
+result, so they differ from the original where it rounds. That is fine or better for most
+effects and wrong where an effect relies on the rounding: sopt-fx guards them with
+`SOPT_TOO_EXACT` in the variant files (default 1, set 0 to turn them off; never picked by
+`SOPT_AUTO`). Regions that write, read or feed a `precise` variable are judged against
+float math only (no accuracy rule, no error-scale floor): `precise` says the author wants
+the rounding. Not for exact budgets. Example: ReShade's depth linearization with far plane
+F in [100, 10000] has error 4.2e-4 vs exact math; its cheaper rewrite (cost 29 -> 24) has 1.5e-7.
 
 **Less accurate candidates** (`--loose F`, default 100, 0 = off): candidates within F
 times the budget or F times the original's error vs exact math (color budgets: one
@@ -192,7 +197,7 @@ the expansions (components of vector inputs are free leaves), not the helpers.
 ## Output
 
 Every verified alternative cheaper than the target, sorted by cost, with class
-(bit-exact / 8-bit identical / within budget / as accurate / less accurate), max error,
+(bit-exact / 8-bit identical / within budget / too exact / less accurate), max error,
 max error vs exact math (and the original's), max 8-bit code difference
 and the fraction of sample points whose 8-bit code changed. Verification is dense
 sampling (1M points) under six semantic profiles: `ref` (HLSL lerp, unfused mad),

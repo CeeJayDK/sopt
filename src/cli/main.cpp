@@ -281,8 +281,8 @@ int main(int argc, char** argv) {
   std::printf("\n");
   const bool rule = accuracyRule(prog.budget) && opt.exactRule;
   if (rule)
-    std::printf("accuracy: original vs exact math: max abs %.3g, rel %.3g (\"as accurate\": outside the\n"
-                "          budget of the original only where at least as close to the exact value)\n",
+    std::printf("accuracy: original vs exact math: max abs %.3g, rel %.3g (\"too exact\": outside the\n"
+                "          budget of the original only where closer to exact math than it, e.g. where it rounds)\n",
                 r.targetExact.exactAbs, r.targetExact.exactRel);
 
   // Real machine-code cost of the target and the shown alternatives, per vendor:

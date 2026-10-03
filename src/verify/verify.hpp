@@ -23,8 +23,10 @@ struct BlockEvaluator {
 };
 
 // Identical8: identical after quantization to the budget's code values (8 or 10 bits).
-// Accurate: passes only by the accuracy rule at some points (closer to the exact value
-// than the budget allows around the float32 original, but at least as accurate).
+// Accurate ("too exact", owner 2026-10-03): passes only by the accuracy rule at some points
+// (closer to the exact value than the budget allows around the float32 original): exact in
+// real math but not the float result; fine or better for most effects, wrong where an effect
+// relies on the rounding (sopt-fx: switch SOPT_TOO_EXACT, never SOPT_AUTO).
 // LessAccurate: passes only the loose budget (Budget::loose).
 enum class Klass { BitExact, Identical8, Within, Accurate, LessAccurate };
 const char* klassName(Klass k, int codeBits = 8);
