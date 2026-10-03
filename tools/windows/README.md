@@ -185,6 +185,10 @@ progress bar with 6 levels per cell. The summary has an Ops column (Cost / 4). A
 readings disagree (more than 0.75 units or 15%) is measured again, up to 6 passes, until more than
 half of its readings agree (their mean is the result; "no consensus" otherwise); the CSV adds
 `passes`, `consensus` and `readings`.
+
+Version 5 (0.4.0, owner 2026-10-03): more output modifier scales after `rcp` (`omod4`; `omod8`,
+`omod0.25`, `omod0.125`: free on DX9-era GPUs, measured to know whether they still are) and `trunc`
+(round toward zero, suggested by a tester).
 The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics
 (`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases: the
 `OpBench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases (exe, measure-gpu.bat,
