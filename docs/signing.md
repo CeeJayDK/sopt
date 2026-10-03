@@ -6,7 +6,8 @@ Foundation signs it for free. Their review is done by people and can take days.
 
 ## Already in the repository
 - `.github/workflows/release.yml`: a tag `v*` (or a manual run, which makes a draft release)
-  builds the Windows tools, signs them when the SignPath secret exists, and attaches
+  builds sopt / sopt-fx (Windows and Linux) and the Windows tools, signs the Windows files when
+  the SignPath secret exists, and attaches `sopt-<v>-windows-x64.zip`, `sopt-<v>-linux-x64.tar.gz`,
   `OpBench-<v>.zip`, `sopt-windows-tools-<v>.zip` and `SHA256SUMS.txt` to a GitHub Release.
 - Version info (name, publisher CeeJay.dk, version) and a manifest on the executables
   (`tools/windows/version.rc.in`, `tools/windows/app.manifest`).
@@ -24,19 +25,27 @@ Foundation signs it for free. Their review is done by people and can take days.
    - Privacy policy: https://github.com/CeeJayDK/sopt#privacy
    - Code signing policy: https://github.com/CeeJayDK/sopt#code-signing-policy
    - Build system: GitHub Actions (`.github/workflows/release.yml`)
-   - Description: "Shader superoptimizer for ReShade FX effects; the signed files are small
-     Windows tools (a GPU instruction benchmark and a benchmark harness)."
+   - Description: "Shader superoptimizer for ReShade FX effects; the signed files are its
+     command-line tools (sopt, sopt-fx) and small Windows tools (a GPU instruction benchmark and a
+     benchmark harness)."
 4. After approval, in GitHub (repository Settings > Secrets and variables > Actions):
    - secret `SIGNPATH_API_TOKEN` (the CI user's API token from SignPath)
    - variables `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_POLICY_SLUG`
      (`release-signing`, or `test-signing` first)
 5. In SignPath, the project's artifact configuration (the uploaded artifact is a zip that holds
-   the two release zips):
+   the Windows release zips):
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
   <zip-file>
+    <zip-file path="sopt-*-windows-x64.zip">
+      <pe-file-set>
+        <include path="sopt.exe"/>
+        <include path="sopt-fx.exe"/>
+        <for-each><authenticode-sign/></for-each>
+      </pe-file-set>
+    </zip-file>
     <zip-file path="OpBench-*.zip">
       <pe-file path="OpBench.exe"><authenticode-sign/></pe-file>
     </zip-file>

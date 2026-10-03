@@ -847,6 +847,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   as "less accurate" (100 x the scaled budget = 1260 absolute); owner: cap less accurate at 100x the
   original's error: pointLoose ignores the error scale (loose x plain budget, or loose x the original's
   error vs exact).
+- First sopt release (owner, 2026-10-03: "release sopt itself, so users can play with it and give input"; Windows
+  + Linux, with 0.4.0, a quick-start guide): release.yml jobs windows (+ sopt-<v>-windows-x64.zip: sopt.exe,
+  sopt-fx.exe, QUICKSTART.txt = docs/QUICKSTART.txt, LICENSE; version resources on both exes), linux (ubuntu-22.04,
+  -static-libstdc++ -static-libgcc, sopt-<v>-linux-x64.tar.gz) and release (collects both, SHA256SUMS.txt, draft on
+  manual runs). `--version` on sopt / sopt-fx. Feedback: GitHub issues. docs/signing.md artifact config has the
+  sopt zip.
 - Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
   conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
   0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such

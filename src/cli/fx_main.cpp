@@ -48,10 +48,11 @@ bool regionMatches(const fx::Region& r, const std::string& spec) {
 
 void usage() {
   std::puts(
-      "usage: sopt-fx [options] <file.fx | file.hlsl | directory>...\n"
+      "usage: sopt-fx [options] <file.fx | file.hlsl | directory>...   (sopt " SOPT_VERSION ")\n"
       "Finds cheaper verified alternatives to arithmetic statements of pixel shaders and\n"
       "writes variant .fx files with a preprocessor switch per statement plus a report.\n"
       "ReShade FX by default; .hlsl / .hlsli files are plain HLSL (SM5 pixel shaders).\n"
+      "  --version         print the version\n"
       "  -I DIR            include directory (ReShade.fxh etc.), repeatable\n"
       "  -D NAME[=VALUE]   preprocessor definition, repeatable\n"
       "  -o DIR            output directory (default sopt-out)\n"
@@ -276,6 +277,7 @@ int main(int argc, char** argv) {
     else if (a == "--backends") backends = true;
     else if (a == "--sm") sassCfg.sm = std::atoi(next());
     else if (a == "-h" || a == "--help") { usage(); return 0; }
+    else if (a == "--version") { std::puts("sopt-fx " SOPT_VERSION); return 0; }
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     else collect(a, inputs);
   }

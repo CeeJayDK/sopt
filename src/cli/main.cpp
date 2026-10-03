@@ -25,7 +25,8 @@ struct IsaCostRow {
 
 void usage() {
   std::puts(
-      "usage: sopt <file.sopt> [options]\n"
+      "usage: sopt <file.sopt> [options]   (sopt " SOPT_VERSION ")\n"
+      "  --version         print the version\n"
       "  --top N           show at most N alternatives (default 20)\n"
       "  --max-cost C      search up to cost C (default: target cost - 1)\n"
       "  --tests N         fingerprint test points (default 32)\n"
@@ -114,6 +115,10 @@ const char* budgetText(const Budget& b, char* buf, size_t n) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  if (argc == 2 && std::string(argv[1]) == "--version") {
+    std::puts("sopt " SOPT_VERSION);
+    return 0;
+  }
   if (argc < 2) {
     usage();
     return 2;
@@ -214,6 +219,7 @@ int main(int argc, char** argv) {
     else if (a == "--sm") sassCfg.sm = static_cast<int>(std::strtol(next(), nullptr, 10));
     else if (a == "--sass-keep") sassCfg.keepDir = next();
     else if (a == "-h" || a == "--help") { usage(); return 0; }
+    else if (a == "--version") { std::puts("sopt " SOPT_VERSION); return 0; }
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     else path = a;
   }
