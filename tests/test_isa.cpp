@@ -37,10 +37,11 @@ TEST(isa_parse_fxstat_json) {
       "      \"isa\": { \"valu\": 14, \"trans\": 0, \"vgprs\": 9, \"cost\": 14 }\n    },\n"
       "    {\n      \"name\": \"E__SoptPS\",\n      \"stage\": \"pixel\",\n"
       "      \"isa\": { \"valu\": 4, \"trans\": 1, \"salu\": 8, \"vmem\": 1, \"vgprs\": 5, "
-      "\"cost\": 7 }\n    }\n  ]\n}\n";
+      "\"sgprs\": 12, \"cost\": 7 }\n    }\n  ]\n}\n";
   const IsaCost c = parseFxstatJson(json);
   CHECK(c.ok);
   CHECK(c.valu == 4 && c.trans == 1 && c.salu == 8 && c.vmem == 1 && c.vgprs == 5 && c.cost == 7);
+  CHECK(c.sgprs == 12);
   const IsaCost bad = parseFxstatJson("t.fx(3, 1): error: syntax error\n");
   CHECK(!bad.ok && has(bad.error, "syntax error"));
 }

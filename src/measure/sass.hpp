@@ -41,6 +41,8 @@ std::string emitPtx(const Expr& e, const std::vector<InputDecl>& inputs, int sm)
 // Counts the arithmetic instructions in nvdisasm output (loads, stores, parameter
 // moves and control flow are skipped).
 SassCost parseSass(const std::string& disasm, int sm);
+// Registers per thread from ptxas -v's "Used N registers" line (0 if absent).
+int parsePtxasRegs(const std::string& log);
 
 std::vector<SassCost> measureSass(const std::vector<const Expr*>& exprs,
                                   const std::vector<InputDecl>& inputs, const SassConfig& cfg);

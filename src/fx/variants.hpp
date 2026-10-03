@@ -19,6 +19,9 @@ struct Variant {
   bool proven = false;          // V3 on the whole domain
   double provenFraction = 0.0;  // V3: share of the domain proven
   int amd = -1, nv = -1;  // measured ISA cost (fxstat + RGA, ptxas + nvdisasm), -1 = not measured
+  // Registers of the measured shader (AMD VGPRs / SGPRs, NVIDIA registers per thread), -1 =
+  // not measured. Whole-shader counts (test scaffolding included): only differences matter.
+  int amdVgprs = -1, amdSgprs = -1, nvRegs = -1;
   // Input values where it fails (describeProblems), e.g. "fails at F = 200 (NaN/inf at
   // some), fine on ..."; owner: kept and marked, the user decides; never picked by SOPT_AUTO.
   std::string problems;
@@ -49,6 +52,7 @@ struct RegionResult {
   bool limitHit = false;
   uint32_t onlyContraction = 0;  // cheaper only by explicit fma or free swizzles (dropped)
   int targetAmd = -1, targetNv = -1;
+  int targetAmdVgprs = -1, targetAmdSgprs = -1, targetNvRegs = -1;  // see Variant
   int targetSpirv = -1, targetDxbc = -1;  // backend normalization of the original
   // The region's inputs with the back buffer as scRGB (FP16, [-0.5, 125]); empty when no
   // input range depends on the back buffer.

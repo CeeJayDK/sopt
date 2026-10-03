@@ -692,12 +692,22 @@ int main(int argc, char** argv) {
         rr.targetAmd = m[0].ok ? m[0].cost : -1;
         if (!m[0].ok) std::fprintf(stderr, "%s:%u: amd: %s\n", rr.region.file.c_str(), rr.region.line, m[0].error.c_str());
         for (size_t k = 0; k < rr.variants.size(); ++k) rr.variants[k].amd = m[k + 1].ok ? m[k + 1].cost : -1;
+        auto regs = [](const IsaCost& c, int v) { return c.ok && v >= 0 ? v : -1; };
+        rr.targetAmdVgprs = regs(m[0], m[0].vgprs);
+        rr.targetAmdSgprs = regs(m[0], m[0].sgprs);
+        for (size_t k = 0; k < rr.variants.size(); ++k) {
+          rr.variants[k].amdVgprs = regs(m[k + 1], m[k + 1].vgprs);
+          rr.variants[k].amdSgprs = regs(m[k + 1], m[k + 1].sgprs);
+        }
       }
       if (sass) {
         const auto m = measureSass(exprs, ins, sassCfg);
         rr.targetNv = m[0].ok ? m[0].cost : -1;
         if (!m[0].ok) std::fprintf(stderr, "%s:%u: nv: %s\n", rr.region.file.c_str(), rr.region.line, m[0].error.c_str());
         for (size_t k = 0; k < rr.variants.size(); ++k) rr.variants[k].nv = m[k + 1].ok ? m[k + 1].cost : -1;
+        rr.targetNvRegs = m[0].ok && m[0].regs > 0 ? m[0].regs : -1;
+        for (size_t k = 0; k < rr.variants.size(); ++k)
+          rr.variants[k].nvRegs = m[k + 1].ok && m[k + 1].regs > 0 ? m[k + 1].regs : -1;
       }
       std::vector<fx::Variant> kept;
       for (auto& v : rr.variants) {

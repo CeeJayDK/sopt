@@ -739,3 +739,49 @@ TEST(fx_hlsl) {
   }
   fs::remove_all(out, ec);
 }
+
+TEST(fx_register_counts) {
+  // Register counts go into the report (columns with the change) and, where they change,
+  // the variant comment.
+  const Loaded l = load();
+  const fx::Region* r = at(l, 23);
+  CHECK(r != nullptr);
+  if (!r) return;
+  fx::RegionResult rr;
+  rr.region = *r;
+  rr.targetCost = 20;
+  rr.targetAmd = 7;
+  rr.targetAmdVgprs = 10;
+  rr.targetAmdSgprs = 6;
+  rr.targetNv = 9;
+  rr.targetNvRegs = 12;
+  fx::Variant v;
+  v.expr = r->prog.target;
+  v.text = "color.r";
+  v.cost = 10;
+  v.klass = Klass::Within;
+  v.amd = 5;
+  v.amdVgprs = 12;
+  v.amdSgprs = 6;
+  v.nv = 8;
+  v.nvRegs = 12;
+  rr.variants.push_back(v);
+  fx::ReportInfo info;
+  info.amd = info.nv = true;
+  const std::string md = fx::markdownReport({rr}, info);
+  CHECK(md.find("amd 7 (10 vgpr, 6 sgpr), nv 9 (12 regs)") != std::string::npos);
+  CHECK(md.find("| amd | amd vgpr | nv | nv regs |") != std::string::npos);
+  CHECK(md.find("| 5 (-29%) | 12 (+2) | 8 (-11%) | 12 |") != std::string::npos);
+
+  const fs::path out = fs::temp_directory_path() / "sopt_test_regs_out";
+  std::error_code ec;
+  fs::remove_all(out, ec);
+  std::string errors;
+  fx::writeVariants({rr}, out, errors);
+  std::ifstream f(out / "sopt_test.fx");
+  std::stringstream ss;
+  ss << f.rdbuf();
+  CHECK(ss.str().find("amd 7 -> 5, nv 9 -> 8, vgpr 10 -> 12") != std::string::npos);
+  CHECK(ss.str().find("nv regs") == std::string::npos);  // unchanged: not mentioned
+  fs::remove_all(out, ec);
+}

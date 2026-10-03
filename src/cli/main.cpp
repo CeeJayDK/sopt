@@ -20,6 +20,7 @@ struct IsaCostRow {
   bool ok = false;
   int cost = 0;
   std::string error;
+  int regs = -1;  // AMD VGPRs / NVIDIA registers per thread, -1 = unknown
 };
 
 void usage() {
@@ -288,6 +289,7 @@ int main(int argc, char** argv) {
   // AMD RDNA (fxstat + RGA) and NVIDIA (ptxas + nvdisasm).
   struct Column {
     std::string name;
+    std::string regsName;  // "vgpr" / "regs"
     IsaCostRow target;
     std::vector<IsaCostRow> rows;
   };
@@ -297,8 +299,8 @@ int main(int argc, char** argv) {
   std::vector<Column> cols;
   if (isa) {
     const auto m = measureIsa(exprs, prog.inputs, isaCfg);
-    Column c{"amd", {}, {}};
-    for (const auto& x : m) c.rows.push_back({x.ok, x.cost, x.error});
+    Column c{"amd", "vgpr", {}, {}};
+    for (const auto& x : m) c.rows.push_back({x.ok, x.cost, x.error, x.ok && x.vgprs >= 0 ? x.vgprs : -1});
     c.target = c.rows[0];
     c.rows.erase(c.rows.begin());
     cols.push_back(std::move(c));
@@ -311,8 +313,8 @@ int main(int argc, char** argv) {
   }
   if (sass) {
     const auto m = measureSass(exprs, prog.inputs, sassCfg);
-    Column c{"nv", {}, {}};
-    for (const auto& x : m) c.rows.push_back({x.ok, x.cost, x.error});
+    Column c{"nv", "regs", {}, {}};
+    for (const auto& x : m) c.rows.push_back({x.ok, x.cost, x.error, x.ok && x.regs > 0 ? x.regs : -1});
     c.target = c.rows[0];
     c.rows.erase(c.rows.begin());
     cols.push_back(std::move(c));
@@ -342,7 +344,7 @@ int main(int argc, char** argv) {
                 r.search.maxLevel, r.search.limitHit ? ", limit hit" : "");
   } else {
     std::printf("cost  ");
-    for (const auto& c : cols) std::printf("%4s  ", c.name.c_str());
+    for (const auto& c : cols) std::printf("%4s  %4s  ", c.name.c_str(), c.regsName.c_str());
     std::printf("ver  class            max |err|  %smax code  changed  expression   (codes: %d-bit)\n",
                 rule ? "vs exact  " : "", prog.budget.codeBits());
     std::vector<int> noGain(cols.size(), 0), failed(cols.size(), 0);
@@ -353,12 +355,15 @@ int main(int argc, char** argv) {
         const auto& c = cols[k].rows[i];
         const auto& t = cols[k].target;
         if (!c.ok) {
-          std::printf("%4s  ", "?");
+          std::printf("%4s  %4s  ", "?", "?");
           ++failed[k];
         } else {
           const bool gain = t.ok && c.cost < t.cost;
           noGain[k] += t.ok && !gain;
           std::printf("%3d%c  ", c.cost, t.ok && !gain ? '!' : ' ');
+          // Registers, '+' where the variant needs more than the original (register pressure).
+          if (c.regs < 0) std::printf("%4s  ", "?");
+          else std::printf("%3d%c  ", c.regs, t.regs >= 0 && c.regs > t.regs ? '+' : ' ');
         }
       }
       std::printf("%-3s  %-15s  %9.3g  ", a.exhaustive ? "all" : (a.proven ? "prf" : "smp"),
@@ -375,6 +380,8 @@ int main(int argc, char** argv) {
     std::printf("\n%zu alternative(s) cheaper than cost %u", r.accepted.size(), r.targetCost);
     if (r.accepted.size() > top) std::printf(", showing %zu", top);
     std::printf("\n");
+    if (!cols.empty())
+      std::printf("vgpr / regs: registers of the measured shader; + = more than the original's\n");
     for (size_t k = 0; k < cols.size(); ++k) {
       if (noGain[k])
         std::printf("%s: %d shown alternative(s) marked ! are not cheaper than the target\n",

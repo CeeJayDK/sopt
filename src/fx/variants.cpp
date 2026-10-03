@@ -258,8 +258,13 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         if (v.amd >= 0 && rr->targetAmd >= 0 && len > 0 && len < 200)
           len += std::snprintf(note + len, sizeof(note) - len, ", amd %d -> %d", rr->targetAmd, v.amd);
         if (v.nv >= 0 && rr->targetNv >= 0 && len > 0 && len < 200)
-          std::snprintf(note + len, sizeof(note) - len, ", nv %d -> %d", rr->targetNv, v.nv);
+          len += std::snprintf(note + len, sizeof(note) - len, ", nv %d -> %d", rr->targetNv, v.nv);
         std::string back;
+        // Register counts only where they change (register pressure).
+        if (v.amdVgprs >= 0 && rr->targetAmdVgprs >= 0 && v.amdVgprs != rr->targetAmdVgprs)
+          back += ", vgpr " + std::to_string(rr->targetAmdVgprs) + " -> " + std::to_string(v.amdVgprs);
+        if (v.nvRegs >= 0 && rr->targetNvRegs >= 0 && v.nvRegs != rr->targetNvRegs)
+          back += ", nv regs " + std::to_string(rr->targetNvRegs) + " -> " + std::to_string(v.nvRegs);
         if (v.spirv >= 0 && rr->targetSpirv >= 0)
           back += v.spirvSame ? ", spirv: same code as original"
                               : ", spirv " + std::to_string(rr->targetSpirv) + " -> " + std::to_string(v.spirv);
@@ -322,7 +327,9 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
   s += buf;
   s += "Costs are the static cost model's (quarter-VALU units for rdna3); amd / nv are "
        "measured instructions (fxstat + RGA, ptxas + nvdisasm), with the change against the "
-       "original (row 0). Classes: bit-exact; 8-bit identical; within budget; as accurate "
+       "original (row 0); amd vgpr / nv regs: registers of the measured shader (whole-shader "
+       "counts with the test scaffolding, so only the change against row 0 matters: more "
+       "registers can mean fewer waves in flight). Classes: bit-exact; 8-bit identical; within budget; as accurate "
        "(outside the budget only where at least as close to exact math as the original); "
        "less accurate (listed for you to judge by its error); \"more accurate\": at most a "
        "quarter of the original's error against exact math, \"(not faster)\": kept for its "
@@ -356,8 +363,15 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     }
     s += std::string("\nBudget: ") + budgetText(r.prog.budget, buf, sizeof(buf)) + " (" +
          r.budgetReason + "). Original cost " + std::to_string(rr.targetCost);
-    if (info.amd) s += ", amd " + std::to_string(rr.targetAmd);
-    if (info.nv) s += ", nv " + std::to_string(rr.targetNv);
+    if (info.amd) {
+      s += ", amd " + std::to_string(rr.targetAmd);
+      if (rr.targetAmdVgprs >= 0)
+        s += " (" + std::to_string(rr.targetAmdVgprs) + " vgpr, " + std::to_string(rr.targetAmdSgprs) + " sgpr)";
+    }
+    if (info.nv) {
+      s += ", nv " + std::to_string(rr.targetNv);
+      if (rr.targetNvRegs >= 0) s += " (" + std::to_string(rr.targetNvRegs) + " regs)";
+    }
     s += ".";
     const bool exact = rr.targetExactAbs >= 0;
     if (exact) {
@@ -378,21 +392,30 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       }
       return cell;
     };
+    auto regsCell = [&](int c, int t) {
+      if (c < 0) return std::string("?");
+      std::string cell = std::to_string(c);
+      if (t >= 0 && c != t) {
+        std::snprintf(buf, sizeof(buf), " (%+d)", c - t);
+        cell += buf;
+      }
+      return cell;
+    };
     s += "\n\n| # | code | cost |";
-    if (info.amd) s += " amd |";
-    if (info.nv) s += " nv |";
+    if (info.amd) s += " amd | amd vgpr |";
+    if (info.nv) s += " nv | nv regs |";
     if (info.spirv) s += " spirv |";
     if (info.dxbc) s += " dxbc |";
     s += std::string(" class | max abs err |") + (exact ? " vs exact |" : "") + " verified |" +
          (autoCol ? " auto |" : "") + "\n|---|---|---|";
-    if (info.amd) s += "---|";
-    if (info.nv) s += "---|";
+    if (info.amd) s += "---|---|";
+    if (info.nv) s += "---|---|";
     if (info.spirv) s += "---|";
     if (info.dxbc) s += "---|";
     s += std::string(exact ? "---|---|---|---|" : "---|---|---|") + (autoCol ? "---|" : "") + "\n";
     s += "| 0 | `" + escapeCell(toString(r.prog.target, r.prog.inputs)) + "` | " + std::to_string(rr.targetCost) + " |";
-    if (info.amd) s += " " + withGain(rr.targetAmd, -1) + " |";
-    if (info.nv) s += " " + withGain(rr.targetNv, -1) + " |";
+    if (info.amd) s += " " + withGain(rr.targetAmd, -1) + " | " + regsCell(rr.targetAmdVgprs, -1) + " |";
+    if (info.nv) s += " " + withGain(rr.targetNv, -1) + " | " + regsCell(rr.targetNvRegs, -1) + " |";
     if (info.spirv) s += " " + withGain(rr.targetSpirv, -1) + " |";
     if (info.dxbc) s += " " + withGain(rr.targetDxbc, -1) + " |";
     s += " original | 0 |";
@@ -405,8 +428,8 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       const Variant& v = rr.variants[k];
       s += "| " + std::to_string(k + 1) + " | `" + escapeCell(v.text) + "` | " +
            withGain(static_cast<int>(v.cost), static_cast<int>(rr.targetCost)) + " |";
-      if (info.amd) s += " " + withGain(v.amd, rr.targetAmd) + " |";
-      if (info.nv) s += " " + withGain(v.nv, rr.targetNv) + " |";
+      if (info.amd) s += " " + withGain(v.amd, rr.targetAmd) + " | " + regsCell(v.amdVgprs, rr.targetAmdVgprs) + " |";
+      if (info.nv) s += " " + withGain(v.nv, rr.targetNv) + " | " + regsCell(v.nvRegs, rr.targetNvRegs) + " |";
       if (info.spirv) s += " " + (v.spirvSame ? std::string("same") : withGain(v.spirv, rr.targetSpirv)) + " |";
       if (info.dxbc) s += " " + (v.dxbcSame ? std::string("same") : withGain(v.dxbc, rr.targetDxbc)) + " |";
       std::string cls = variantClass(v, r.prog.budget.codeBits());
