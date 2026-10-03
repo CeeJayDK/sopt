@@ -813,6 +813,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 - OpBench output modifier scales (owner, 2026-10-03: "test whether x8 and x0.25 are free ... I expect them NOT
   to be free on modern hardware, but we want to know"): tests omod4 (AMD's third scale), omod8, omod0.25, omod0.125
   (DX9-era _x8 / _d4 / _d8), base rcpmax like omod2; with the trunc test released as OpBench 0.4.0 (2026-10-03).
+  Owner's 0.4.0 runs (docs/opbench/intel-uhd-630-v4.csv, nvidia-gtx-1660-v4.csv; old tests = 0.3.0 within 0.6): trunc =
+  round = floor (UHD 630 3.96, one op; GTX 1660 12.0, quarter rate; lat identical to round): not faster. Every omod
+  scale (2, 0.5, 4, 8, 0.25, 0.125) = the x3 control on both (tput: the mul hides beside the rcp, NVIDIA 0, Intel
+  ~0.75; lat: one dependent mul, Intel ~4.4, NVIDIA 4.8): no output modifier on Intel Gen9 / NVIDIA Turing. Whether
+  x4 / x8 / x0.25 are free on AMD (the only one with omod) needs an AMD 0.4.0 report.
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
