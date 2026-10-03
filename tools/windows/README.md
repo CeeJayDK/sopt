@@ -179,7 +179,7 @@ every test.
 
 Version 4 (0.3.0, owner 2026-10-03): renamed OpBench (`OpBench.exe`, zip `OpBench-<version>.zip`).
 Block graphics use only the full block and the half blocks (the 1/8 blocks of 0.2.0 are missing in
-the Windows console fonts): a logo, bars with 4 levels per cell (bright / dark color pairs) and a
+the Windows console fonts): a title box ("OpBench <version> - by CeeJay.dk"), bars with 4 levels per cell (bright / dark color pairs) and a
 progress bar with 6 levels per cell. The summary has an Ops column (Cost / 4). A test whose two
 readings disagree (more than 0.75 units or 15%) is measured again, up to 6 passes, until more than
 half of its readings agree (their mean is the result; "no consensus" otherwise); the CSV adds

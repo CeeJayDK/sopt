@@ -29,7 +29,7 @@
 // describes every test.
 //
 // Version 4 (0.3.0, owner 2026-10-03): renamed OpBench; block graphics only from full and half
-// blocks (4 levels per cell from bright / dark color pairs), a logo, a gradient progress bar, an
+// blocks (4 levels per cell from bright / dark color pairs), a gradient progress bar, an
 // Ops column; tests whose passes disagree are measured again (up to kMaxPasses) until most
 // readings agree.
 
@@ -458,7 +458,6 @@ std::string withCommas(unsigned long long v) {
 // space, left half dark, left half bright, left half bright on dark, full bright.
 constexpr const char* kFull = "\u2588";
 constexpr const char* kLeft = "\u258C";
-constexpr const char* kRight = "\u2590";
 struct Shade {
   int bright, dark;  // foreground codes; the dark background is dark + 10
 };
@@ -517,50 +516,23 @@ struct Progress {
   }
 };
 
-// "OpBench" in block graphics: each cell holds two pixels (left, right) of 4 grey levels, coded
-// 'a' + 4 * left + right. Drawn by the owner in MoebiusXBIN (opbench/logo.ans, from a first version
-// rendered from Liberation Sans Bold): black / dark grey / light grey / white are levels 0-3.
-const char* const kLogo[] = {
-    "aabgppppjeaaaaaaaaaaaaaabppppppjaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaacpo",
-    "acppkaakppjaaaaaaaaaaaaacppaaagppiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaacpo",
-    "bppiaaaabppeaalppppppeaacppaaaalpiaaagppppoeaadpnlpppjaaacpppppiaacpoppppn",
-    "cppaaaaaalpmaalpnaadpoaacpppppppjaaacpoaacpnaadppeacppaabppeabppaacppeabppe",
-    "bppeaaaaappiaalpiaacppaacppaaaagpoaadppppppkaadpnaabppaacpoaaaaaaacpoaaappe",
-    "ahpofaablpoaaalpnaahpoaacppaaaagppaacppaabfeaadpnaabppaabppeabppaacpoaaappe",
-    "aaglppppojaaaalpppppoeaacpppppppoeaaagppppoeaadpnaabppaaaclpppoeaacpoaaappe",
-    "aaaaaaaaaaaaaalpi",
-    "aaaaaaaaaaaaaalpi",
-};
-
-void printLogo(const Style& st) {
-  if (!st.vt) {
-    std::printf("OpBench %s - part of sopt (https://github.com/CeeJayDK/sopt)\n\n", SOPT_VERSION);
-    return;
-  }
-  static const int kFg[4] = {30, 90, 37, 97}, kBg[4] = {40, 100, 47, 107};
-  for (const char* row : kLogo) {
-    std::string line = "  ";
-    for (const char* p = row; *p; ++p) {
-      const int l = (*p - 'a') / 4, r = (*p - 'a') % 4;
-      char buf[48];
-      if (l == 0 && r == 0) std::snprintf(buf, sizeof(buf), " ");
-      else if (l == r) std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", kFg[l], kFull);
-      else if (r == 0) std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", kFg[l], kLeft);
-      else if (l == 0) std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", kFg[r], kRight);
-      else std::snprintf(buf, sizeof(buf), "\x1b[%d;%dm%s\x1b[0m", kFg[l], kBg[r], kLeft);
-      line += buf;
-    }
-    std::printf("%s\n", line.c_str());
-  }
-  std::printf("  %sversion %s, part of sopt: https://github.com/CeeJayDK/sopt%s\n\n", st.c("\x1b[90m"), SOPT_VERSION,
-              st.reset());
-}
 
 // Display width of a UTF-8 string (one column per code point).
 int columns(const std::string& s) {
   int n = 0;
   for (unsigned char ch : s) n += (ch & 0xC0) != 0x80;
   return n;
+}
+
+// A double-line box around a title (bright cyan frame, bright white title; ASCII without VT).
+void printBox(const Style& st, const std::string& title) {
+  const std::string hz = st.vt ? "\u2550" : "=";
+  std::string line;
+  for (int k = 0; k < columns(title) + 4; ++k) line += hz;
+  std::printf("  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "\u2554" : "+", line.c_str(), st.vt ? "\u2557" : "+", st.reset());
+  std::printf("  %s%s%s  %s%s%s  %s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "\u2551" : "|", st.reset(), st.c("\x1b[1;97m"),
+              title.c_str(), st.reset(), st.c("\x1b[1;96m"), st.vt ? "\u2551" : "|", st.reset());
+  std::printf("  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "\u255A" : "+", line.c_str(), st.vt ? "\u255D" : "+", st.reset());
 }
 
 }  // namespace
@@ -593,7 +565,10 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (!list) printLogo(st);
+  if (!list) {
+    printBox(st, std::string("OpBench ") + SOPT_VERSION + "  -  by CeeJay.dk");
+    std::printf("\n");
+  }
   IDXGIFactory1* factory = nullptr;
   if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) fail("CreateDXGIFactory1 failed");
   std::vector<IDXGIAdapter1*> adapters;
@@ -836,15 +811,8 @@ int main(int argc, char** argv) {
 
   // Summary: banner, other adapters, throughput costs in the fixed order.
   const double fmaRate = 1.0 / madNs["tput"];  // per ns
-  const std::string title = std::string("OpBench ") + SOPT_VERSION + "  -  " + gpuName;
-  const int w = columns(title) + 4;
-  const std::string hz = st.vt ? "\u2550" : "=";
-  std::string line;
-  for (int k = 0; k < w; ++k) line += hz;
-  std::printf("\n  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "\u2554" : "+", line.c_str(), st.vt ? "\u2557" : "+", st.reset());
-  std::printf("  %s%s%s  %s%s%s  %s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "\u2551" : "|", st.reset(), st.c("\x1b[1;97m"),
-              title.c_str(), st.reset(), st.c("\x1b[1;96m"), st.vt ? "\u2551" : "|", st.reset());
-  std::printf("  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "\u255A" : "+", line.c_str(), st.vt ? "\u255D" : "+", st.reset());
+  std::printf("\n");
+  printBox(st, std::string("OpBench ") + SOPT_VERSION + "  -  " + gpuName);
   std::printf("  driver %s, vendor 0x%04X, device 0x%04X, %.1f TFLOPS fp32 (measured)\n", driver.c_str(), desc.VendorId,
               desc.DeviceId, fmaRate * 2.0 / 1000.0);
   std::printf("  min16float runs at %s\n", half16 ? "16 bits" : "32 bits on this driver (the half precision tests measure fp32)");

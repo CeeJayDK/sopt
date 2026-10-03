@@ -739,9 +739,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   headings, capitalized table headings, summary in sections; TESTS.txt (zip) explains every test.
   0.3.0 (owner, 2026-10-03, after his 0.2.0 run: the 1/8 blocks showed as boxes in the Windows console
   font): renamed OpBench (target opbench, OpBench.exe, OpBench-<v>.zip); only full / half blocks (CP437):
-  bars with 4 levels per cell from bright / dark color pairs (owner's design), a 9-row logo (2 grey pixels per
-  cell; first rendered from Liberation Sans Bold, then cleaned up by the owner in MoebiusXBIN: opbench/logo.ans,
-  CP437 + iCE colors; scratch logo/ans2grid.py converts it; preview renderer logo/render.py), a 6-level progress
+  bars with 4 levels per cell from bright / dark color pairs (owner's design), a title box (owner, after a block
+  logo round: "we are overthinking the logo": "OpBench <v> - by CeeJay.dk" in a cyan double-line box, the same
+  printBox as the summary banner; preview renderer for ANSI output: scratch logo/render.py), a 6-level progress
   bar, Ops column (Cost / 4, one decimal: owner ok); extra passes (owner's redundant-sensor idea): tests
   whose readings disagree are measured again (alternating direction) until > half agree, max 6 passes
   (`consensus`, kMaxPasses), CSV columns passes / consensus / readings.
