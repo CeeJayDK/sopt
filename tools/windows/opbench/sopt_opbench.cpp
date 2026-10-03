@@ -518,16 +518,16 @@ struct Progress {
 };
 
 // "OpBench" in block graphics: each cell holds two pixels (left, right) of 4 grey levels, coded
-// 'a' + 4 * left + right (Liberation Sans Bold, letter by letter, condensed to 80%; scratch
-// script logo/gen2.py).
+// 'a' + 4 * left + right. Drawn by the owner in MoebiusXBIN (opbench/logo.ans, from a first version
+// rendered from Liberation Sans Bold): black / dark grey / light grey / white are levels 0-3.
 const char* const kLogo[] = {
-    "aabgkkkkjeaaaaaaaaaaaaaabkkkkkkjeaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaacpo",
-    "acppkffkppjaaaaaaafeaaaacppfffgppiaaaaabfaaaaaaaaabfaaaaaaaafeaaaacpoaaf",
-    "bppiaaaabppeaalpkolppeaacppaaaalpiaaagpokpoeaadpnlpppjaaacppkppiaacpolpppn",
-    "cppaaaaaalpmaalpnaadpoaacpppppppjaaacpoaacpnaadppeacppaabppeabkkaacppeabppe",
-    "bppeaaaaappiaalpiaacppaacppaaaagpoaadppkkkkkaadpoaabppaacpoaaaaaaacpoaaappe",
-    "ahpofaablpoaaalpnaahpoaacppaaaagppaacppaabfeaadpnaabppaabppeabkkaacpoaaappe",
-    "aaglppppojaaaalpopppoeaacpppppppoeaaagppppoeaadpnaabppaaaclpppoeaacpoaaappe",
+    "aabgppppjeaaaaaaaaaaaaaabppppppjaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaacpo",
+    "acppkaakppjaaaaaaaaaaaaacppaaagppiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaacpo",
+    "bppiaaaabppeaalppppppeaacppaaaalpiaaagppppoeaadpnlpppjaaacpppppiaacpoppppn",
+    "cppaaaaaalpmaalpnaadpoaacpppppppjaaacpoaacpnaadppeacppaabppeabppaacppeabppe",
+    "bppeaaaaappiaalpiaacppaacppaaaagpoaadppppppkaadpnaabppaacpoaaaaaaacpoaaappe",
+    "ahpofaablpoaaalpnaahpoaacppaaaagppaacppaabfeaadpnaabppaabppeabppaacpoaaappe",
+    "aaglppppojaaaalpppppoeaacpppppppoeaaagppppoeaadpnaabppaaaclpppoeaacpoaaappe",
     "aaaaaaaaaaaaaalpi",
     "aaaaaaaaaaaaaalpi",
 };
