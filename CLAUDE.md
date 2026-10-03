@@ -772,6 +772,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   bar, Ops column (Cost / 4, one decimal: owner ok); extra passes (owner's redundant-sensor idea): tests
   whose readings disagree are measured again (alternating direction) until > half agree, max 6 passes
   (`consensus`, kMaxPasses), CSV columns passes / consensus / readings.
+- OpBench 0.3.0 on the owner's cards (2026-10-03; docs/opbench/intel-uhd-630-v3.csv, nvidia-gtx-1660-v3.csv): both
+  = their v1 runs within 0.1-0.3 on every old test (the 1660 despite 60% reference drift in tput: the fresh
+  reference per test works), all tests consensus in 2-3 passes. New tests, tput: GTX 1660 (Turing): signsel2 -0.2
+  (free), signbits 0.6, signclamp 3.8, signmad 7.7 vs sign 8.2; roundadd 8.0 vs round 12, flooradd / fracadd 20 (worse
+  than floor 12); dot2 / dot3 / dot4 7.6 / 12.5 / 15.9 (= 2 / 3 / 4 fma: no hardware dot), cross 24, normalize /
+  length 24, distance 37; int: ixmul 0.1 over the mad base, iadd 0.6, imul 0.8, iand / imin / ishr 4, irot 8, popc /
+  fbh / bitrev / utof ~12 (quarter rate), ftou 8, ftoitof 27, bitor / signbits 0.6; half: mad16 0, add16 / mul16 2,
+  rcp16 / sqrt16 / exp2_16 16 (vs 12 in fp32); atan 50, atan2 59, asin 36, acos 32, tan 44. UHD 630 (Gen9.5): signmad
+  7.2 / signsel2 3.6 / signbits 7.2 vs sign 14.4; roundadd 7.7 vs round 3.9 (worse), flooradd / fracadd 18.5; dot3 14.4,
+  dot4 18.3, cross 22, length 32; int: ixmul 7.5, imul 7.3 (32-bit mul = 2 ops), ishr 7.3, irot 18, popc / bitrev 4.7,
+  utof / ftou 3.6, ftoitof 15; half: mad16 -1.9 (fp16 faster than fp32), add16 2.6, mul16 0.6, rcp16 12.8; atan 64,
+  atan2 78. omod tests sit under the rcp's issue rate on both (NVIDIA 0, Intel 0.8 for omod2 / half / 3 alike).
 - OpBench output modifier scales (owner, 2026-10-03: "test whether x8 and x0.25 are free ... I expect them NOT
   to be free on modern hardware, but we want to know"): tests omod4 (AMD's third scale), omod8, omod0.25, omod0.125
   (DX9-era _x8 / _d4 / _d8), base rcpmax like omod2. Next release.
