@@ -74,18 +74,14 @@ void section(const Style& st, const std::string& title) {
 Progress::Progress(const Style& st, size_t total, int width)
     : st_(st), total_(total), width_(width), start_(std::chrono::steady_clock::now()) {
   if (!st_.vt || total_ == 0) return;
-  // The scale: 0% at the bar's start, 100% at its end.
-  std::string s(static_cast<size_t>(width_) + 6, ' ');
-  auto put = [&](const std::string& label, int at) {
-    at = std::max(0, std::min(at, static_cast<int>(s.size() - label.size())));
-    s.replace(static_cast<size_t>(at), label.size(), label);
-  };
-  put("0%", 0);
-  for (int q : {25, 50, 75}) {
+  // The scale: 0% at the bar's first cell, 100% at its last. Each label's marking digit sits on its cell
+  // (owner): the 0 of 0%, the 5 of 25%, the 0 of 50%, the 5 of 75% and the first 0 of 100%.
+  std::string s(static_cast<size_t>(width_) + 4, ' ');
+  for (int q : {0, 25, 50, 75, 100}) {
     const std::string label = std::to_string(q) + "%";
-    put(label, width_ * q / 100 - static_cast<int>(label.size()) / 2);
+    const int at = ((width_ - 1) * q + 50) / 100 - (q == 0 ? 0 : 1);
+    if (at >= 0 && at + label.size() <= s.size()) s.replace(static_cast<size_t>(at), label.size(), label);
   }
-  put("100%", width_ - 4);
   while (!s.empty() && s.back() == ' ') s.pop_back();
   std::printf("   %s%s%s\n", st_.c("\x1b[90m"), s.c_str(), st_.reset());
   open_ = true;

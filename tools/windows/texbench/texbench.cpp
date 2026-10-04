@@ -14,13 +14,14 @@
 //   coherent  each thread reads within one texel of its own pixel (8 x 8 thread tiles, like a
 //             post-processing pass over a 1024 x 1024 texture): mostly cache hits
 //   random    each read lands anywhere in the texture: cache misses on large textures, memory speed
+//             (the next place from the value read and the place before it)
 // Its base computes the same coordinate without reading (so the cost is the read alone).
 //
 // Configurations (compute shaders): tput (8 chains per thread, 1M threads), dep (1 chain, 1M threads:
 // the GPU hides waiting by switching threads), lat (1 chain, one thread group: nothing hides it).
 // Pixel shader tests (derivatives, sampling with automatic mip selection) draw a full-screen triangle
 // into a 1024 x 1024 target (tput and dep). Render target writes: full-screen passes into a 3840 x 2160
-// target of each format, in GB/s.
+// target of each format, in GB/s, with noise and with a smooth gradient (render target compression).
 //
 // Each test is read at least twice and more often (up to 6 times) when its readings disagree; a test's
 // texture exists only while it is measured (large textures in 19 formats would not fit together).
@@ -148,6 +149,7 @@ struct Test {
   Filter filter = Filter::Point;
   bool intTex = false;       // integer format: read through Texture2D<uint4>
   float scaleX = 1.0f, scaleY = 1.0f;  // pixel shader: texture coordinate scale (mip level, anisotropy)
+  bool noise = false;        // render target write: noise (incompressible) instead of a smooth gradient
   std::string note;
 };
 
@@ -157,22 +159,28 @@ const char* const kRandom2D = "float2 uv = frac(float2(x, x * 1.618034) * c.x + 
 const char* const kRandom1D = "float2 uv = float2(frac(x * c.x + c.y), 0.5);";
 const char* const kRandom3D = "float3 uv = frac(float3(x, x * 1.618034, x * 2.414214) * c.x + c.y);";
 const char* const kUse = "x = (t.x + t.y) * c.z + c.w;";
+// Random 2D reads: the next coordinate from the value read and the coordinate before it (uv.y). From
+// the value alone, the chain would visit only as many places as the format has distinct values (R8:
+// 256, all cached) and measure the data instead of the format.
+const char* const kUseRandom = "x = (t.x + uv.y) * c.z + c.w;";
 const char* const kUseBase = "x = (uv.x + uv.y) * c.z + c.w;";
 // Integer textures: the low 10 bits as float, the same conversion in the base.
 const char* const kUseInt = "float4 t = float4(tu & 1023u); x = (t.x + t.y) * (c.z * 0.0009765625) + c.w;";
 const char* const kIntBase = "uint4 tu = asuint(uv.xyxy);";
+const char* const kUseIntRandom = "float t = float(tu.x & 1023u); x = t * (c.z * 0.0009765625) + (uv.y * c.z + c.w);";
 
 std::vector<Test> makeTests() {
   std::vector<Test> v;
   auto add = [&](Test t) { v.push_back(std::move(t)); };
   const float tx = 37.13f, ty = 0.1234f, tz = 0.7f, tw = 0.3f;  // texture steps: scatter, offset, scale, bias
   auto texTest = [&](std::string name, std::string section, std::string base, std::string coord, std::string read,
-                     const Format* f, Tex tex, UINT size, Filter filter, bool intTex = false, std::string note = "") {
+                     const Format* f, Tex tex, UINT size, Filter filter, bool intTex = false, std::string note = "",
+                     std::string use = "") {
     Test t;
     t.name = std::move(name);
     t.section = std::move(section);
     t.base = std::move(base);
-    t.step = coord + " " + read + " " + (intTex ? kUseInt : kUse);
+    t.step = coord + " " + read + " " + (!use.empty() ? use : intTex ? kUseInt : kUse);
     t.cx = tx, t.cy = ty, t.cz = tz, t.cw = tw;
     t.format = f;
     t.tex = tex;
@@ -182,13 +190,14 @@ std::vector<Test> makeTests() {
     t.note = std::move(note);
     add(std::move(t));
   };
-  auto baseTest = [&](std::string name, std::string coord, bool intTex, Stage stage = Stage::Compute) {
+  auto baseTest = [&](std::string name, std::string coord, bool intTex, Stage stage = Stage::Compute,
+                      std::string use = "") {
     Test t;
     t.name = std::move(name);
     t.section = "";
     t.stage = stage;
     t.base = "mad";
-    t.step = coord + " " + (intTex ? std::string(kIntBase) + " " + kUseInt : std::string(kUseBase));
+    t.step = coord + " " + (intTex ? std::string(kIntBase) + " " + (use.empty() ? kUseInt : use) : std::string(kUseBase));
     t.cx = tx, t.cy = ty, t.cz = tz, t.cw = tw;
     add(std::move(t));
   };
@@ -201,7 +210,7 @@ std::vector<Test> makeTests() {
   baseTest("addr.coherent", kCoherent, false);
   baseTest("addr.random", kRandom2D, false);
   baseTest("addr.coherent.int", kCoherent, true);
-  baseTest("addr.random.int", kRandom2D, true);
+  baseTest("addr.random.int", kRandom2D, true, Stage::Compute, kUseIntRandom);
   baseTest("addr.lut1d", kRandom1D, false);
   baseTest("addr.lut3d", kRandom3D, false);
 
@@ -217,7 +226,8 @@ std::vector<Test> makeTests() {
   for (const Format& f : kFormats) {
     const bool i = f.kind == 'i';
     texTest(std::string(f.name) + " random", "Formats: random reads from 4096 x 4096 (Load)",
-            i ? "addr.random.int" : "addr.random", kRandom2D, i ? loadInt : load, &f, Tex::Plain, 4096, Filter::Point, i);
+            i ? "addr.random.int" : "addr.random", kRandom2D, i ? loadInt : load, &f, Tex::Plain, 4096, Filter::Point, i,
+            "", i ? kUseIntRandom : kUseRandom);
   }
   const Format* rgba8 = formatByName("RGBA8");
   const char* acc = "Access and filtering: RGBA8 1024 x 1024 with mipmaps, coherent";
@@ -237,7 +247,8 @@ std::vector<Test> makeTests() {
   texTest("LUT 32^3", lut, "addr.lut3d", kRandom3D, "float4 t = T3.SampleLevel(S, uv, 0.0);", rgba8, Tex::Lut3D, 32,
           Filter::Linear, false, "a 3D color grading lookup table (trilinear between slices)");
   for (UINT size : {512u, 1024u, 2048u, 4096u, 8192u})
-    texTest(std::to_string(size) + "^2", lut, "addr.random", kRandom2D, sample, rgba8, Tex::Plain, size, Filter::Linear);
+    texTest(std::to_string(size) + "^2", lut, "addr.random", kRandom2D, sample, rgba8, Tex::Plain, size, Filter::Linear,
+            false, "", kUseRandom);
 
   // Pixel shader: derivatives (quad operations) and sampling with automatic mip selection.
   const char* ps = "Pixel shader: derivatives and automatic mip selection";
@@ -277,16 +288,19 @@ std::vector<Test> makeTests() {
   psSample("Sample trilinear", Filter::Trilinear, 1.5f, 1.5f, "1.5 texels per pixel: between mip 0 and 1");
   psSample("Sample aniso 4:1", Filter::Aniso, 1.0f, 4.0f, "4 x 1 texel footprint, 16x anisotropic filtering");
 
-  // Render target writes: full-screen passes per format.
-  for (const Format& f : kFormats) {
-    Test t;
-    t.name = std::string(f.name) + " write";
-    t.section = "Render target writes: full-screen passes into 3840 x 2160";
-    t.stage = Stage::Write;
-    t.format = &f;
-    t.intTex = f.kind == 'i';
-    add(t);
-  }
+  // Render target writes: full-screen passes per format, noise and a smooth gradient (the same shader,
+  // only the data differs): GPUs compress render targets, so smooth output can beat the memory bandwidth.
+  for (const Format& f : kFormats)
+    for (bool noise : {true, false}) {
+      Test t;
+      t.name = std::string(f.name) + (noise ? " write noise" : " write smooth");
+      t.section = "Render target writes: full-screen passes into 3840 x 2160";
+      t.stage = Stage::Write;
+      t.format = &f;
+      t.intTex = f.kind == 'i';
+      t.noise = noise;
+      add(t);
+    }
   return v;
 }
 
@@ -356,9 +370,25 @@ std::string pixelSource(const Test& t, int chains) {
   return s;
 }
 
+// Render target writes: a hash of the pixel (noise) or a smooth gradient, picked by U[0].x (1 = noise),
+// so both cost the same shader work.
 std::string writeSource(bool integer) {
-  return integer ? "uint4 main(float4 pos : SV_Position) : SV_Target { return uint4(pos.xyxy); }\n"
-                 : "float4 main(float4 pos : SV_Position) : SV_Target { return frac(pos.xyxy * float4(0.0013, 0.0017, 0.0019, 0.0023)); }\n";
+  std::string s = std::string(kHeader) +
+                  "uint hash(uint v) { v ^= v >> 16; v *= 0x7feb352du; v ^= v >> 15; v *= 0x846ca68bu; v ^= v >> 16; return v; }\n"
+                  "uint4 noise4(float4 pos) {\n"
+                  "  uint k = uint(pos.y) * 4096u + uint(pos.x);\n"
+                  "  return uint4(hash(k), hash(k ^ 0x9e3779b9u), hash(k ^ 0x7f4a7c15u), hash(k ^ 0x94d049bbu));\n"
+                  "}\n";
+  if (integer)
+    return s + "uint4 main(float4 pos : SV_Position) : SV_Target {\n"
+               "  uint mask = U[0].x > 0.5 ? 0xffffffffu : 0u;\n"
+               "  return (noise4(pos) & mask) | (uint4(pos.xyxy) & ~mask);\n"
+               "}\n";
+  return s + "float4 main(float4 pos : SV_Position) : SV_Target {\n"
+             "  float4 noise = asfloat((noise4(pos) >> 9) | 0x3f800000u) - 1.0;\n"
+             "  float4 smooth = frac(pos.xyxy * float4(0.0013, 0.0017, 0.0019, 0.0023));\n"
+             "  return lerp(smooth, noise, U[0].x);\n"
+             "}\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -776,6 +806,9 @@ int main(int argc, char** argv) {
       ID3D11PixelShader* ps = nullptr;
       g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &ps);
       code->Release();
+      CbData cd = {};
+      cd.U[0][0] = t->noise ? 1.0f : 0.0f;
+      g.ctx->UpdateSubresource(g.cb, 0, nullptr, &cd, 0, 0);
       UINT draws = 0;
       std::vector<double>& rd = writeReadings[t->name];
       for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
@@ -923,14 +956,19 @@ int main(int argc, char** argv) {
   for (const Test* t : tests)
     if (t->stage == Stage::Write) anyWrite = true, maxW = std::max(maxW, writeUnits[t->name].value);
   if (anyWrite) {
-    std::printf("\n  %sRender target writes: full-screen passes into 3840 x 2160%s\n  %s%-18s %7s  %-*s  %8s%s\n",
-                st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Format", "GB/s", kBarWidth, "", "ms/pass", st.reset());
-    for (const Test* t : tests)
-      if (t->stage == Stage::Write) {
-        const double v = writeUnits[t->name].value;
-        std::printf("  %-18s %7.1f  %s  %8.3f\n", t->format->name, v, bar(v, maxW, kBarWidth, st, kCyan).c_str(),
-                    writeMs[t->name]);
-      }
+    std::printf("\n  %sRender target writes: full-screen passes into 3840 x 2160 (GB/s; smooth output compresses)%s\n"
+                "  %s%-18s %7s  %-*s  %7s  %-*s  %6s%s\n",
+                st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Format", "Noise", kBarWidth / 2, "", "Smooth",
+                kBarWidth / 2, "", "Gain", st.reset());
+    for (const Format& f : kFormats) {
+      const std::string noiseName = std::string(f.name) + " write noise", smoothName = std::string(f.name) + " write smooth";
+      if (!writeUnits.count(noiseName) && !writeUnits.count(smoothName)) continue;
+      const double n = writeUnits.count(noiseName) ? writeUnits[noiseName].value : 0.0;
+      const double sm = writeUnits.count(smoothName) ? writeUnits[smoothName].value : 0.0;
+      std::printf("  %-18s %7.1f  %s  %7.1f  %s  %5.2fx\n", f.name, n,
+                  bar(n, maxW, kBarWidth / 2, st, kCyan).c_str(), sm, bar(sm, maxW, kBarWidth / 2, st, kCyan).c_str(),
+                  n > 0.0 ? sm / n : 0.0);
+    }
   }
   std::printf("\n  Cost = extra over the test's base in sopt units (4 = one fma, measured right before); Ops = Cost / 4;\n"
               "  dep / lat = the same cost with one chain per thread / one thread group. What each test measures:\n"

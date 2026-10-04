@@ -22,7 +22,8 @@ Formats: coherent reads (bilinear; integer formats: Load)
 Formats: random reads from 4096 x 4096 (Load)
   The same formats read at random places: cache misses, so the texel size and memory speed show
   (R8 = 1 byte per texel, RGBA32F = 16). Large textures in big caches (e.g. 64+ MB on some GPUs)
-  stay partly cached.
+  stay partly cached. The next place comes from the value read and the place before it (from the
+  value alone, R8 with its 256 values would visit only 256 places, all in the cache).
 
 Access and filtering: RGBA8 1024 x 1024 with mipmaps, coherent
   Load        texel fetch, no filtering
@@ -46,5 +47,8 @@ Pixel shader: derivatives and automatic mip selection (1024 x 1024 target; tput 
   Sample aniso 4:1   4 x 1 texel footprint, 16x anisotropic filtering
 
 Render target writes: full-screen passes into 3840 x 2160
-  Each format as a render target (a pixel shader writing a cheap value), in GB/s and milliseconds
-  per pass. Shows how much a format costs to write (bytes per pixel, sRGB encoding, packing).
+  Each format as a render target, in GB/s, written twice by the same pixel shader: noise (a hash
+  of the pixel position, which cannot be compressed) and a smooth gradient. GPUs compress render
+  targets, so smooth output can be written faster than the memory bandwidth allows; Gain = smooth /
+  noise shows how well this card compresses each format. Small formats (R8, R16) are usually limited
+  by the pixel rate (ROPs), not by memory.

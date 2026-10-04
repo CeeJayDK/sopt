@@ -874,10 +874,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   the next coordinate depends only on the value read, so the chain collapses onto as many addresses as the format
   has distinct values (R8 256 -> cached, 115; R16 / R32F -> DRAM, ~6000): measures data entropy, not the format;
   (2) writes reach ~300 GB/s (> the 1660's 192 GB/s peak): the smooth gradient compresses (DCC); R8 74 / R16 155
-  GB/s = ROP fill rate. Fixes proposed to the owner (not done): coordinate from the previous x plus the value
-  (t.x + uv.y, same op count as the base) and noise output for writes. OpBench rerun (nvidia-gtx-1660-v4-2.csv,
-  driver 32.0.15.6614) = v4, iand 3.99 again: the RTX 2060's 1.05 is likely its newer driver; owner will update
-  his driver and rerun.
+  GB/s = ROP fill rate. Fixed (owner's go): random 2D reads use x = (t.x + uv.y) * c.z + c.w (int: low 10 bits
+  of tu.x plus uv.y; same op count as the bases), writes run twice per format with one shader (U[0].x picks):
+  noise (integer hash of the pixel) and the smooth gradient, summary Noise / Smooth / Gain. OpBench rerun
+  (nvidia-gtx-1660-v4-2.csv, driver 32.0.15.6614) = v4, iand 3.99 again: the RTX 2060's 1.05 is likely its newer
+  driver; owner will update his driver and rerun.
+  Progress scale (owner): the marking digit of each label (0 of 0%, 5 of 25%, 0 of 50%, 5 of 75%, first 0 of
+  100%) on cell round((cells - 1) * q / 100) (benchkit scaleLine, console Progress).
+  Owner's ideas (2026-10-04, not decided): cache tests (size of each cache level, how to use it best) and
+  compression tests for topt (the owner's texture sampling optimizer); expected costs per cost model built into
+  OpBench / TexBench, telling the user when their card does not match its model ("your report is very
+  interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs
+  more data first).
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"

@@ -186,24 +186,29 @@ struct Progress {
   }
 };
 
-// The percentage scale above the progress bar: 0% at its start, 100% where the planned steps end.
-inline std::string progressScale(int planned) {
-  const int cells = (planned + kStepsPerCell - 1) / kStepsPerCell;
-  std::string s(static_cast<size_t>(cells) + 6, ' ');
-  auto put = [&](const std::string& label, int at) {
-    at = std::max(0, std::min(at, static_cast<int>(s.size() - label.size())));
-    s.replace(static_cast<size_t>(at), label.size(), label);
+// The percentage scale above the progress bar: 0% at its first cell, 100% at its last cell (where the
+// planned steps end). Each label's marking digit sits on its cell (owner): the 0 of 0%, the 5 of 25%,
+// the 0 of 50%, the 5 of 75% and the first 0 of 100%.
+inline std::string scaleLine(int cells, bool quarters) {
+  std::string s(static_cast<size_t>(cells) + 4, ' ');
+  auto put = [&](int q) {
+    const std::string label = std::to_string(q) + "%";
+    const int digit = q == 0 ? 0 : 1;
+    const int at = ((cells - 1) * q + 50) / 100 - digit;
+    if (at >= 0 && at + label.size() <= s.size()) s.replace(static_cast<size_t>(at), label.size(), label);
   };
-  if (cells < 8) return {};
-  put("0%", 0);
-  if (cells >= 24)  // room for the quarters
-    for (int q : {25, 50, 75}) {
-      const std::string label = std::to_string(q) + "%";
-      put(label, cells * q / 100 - static_cast<int>(label.size()) / 2);
-    }
-  put("100%", cells - 4);
+  put(0);
+  if (quarters)
+    for (int q : {25, 50, 75}) put(q);
+  put(100);
   while (!s.empty() && s.back() == ' ') s.pop_back();
   return s;
+}
+
+inline std::string progressScale(int planned) {
+  const int cells = (planned + kStepsPerCell - 1) / kStepsPerCell;
+  if (cells < 8) return {};
+  return scaleLine(cells, cells >= 24);  // room for the quarters
 }
 
 // Display width of a UTF-8 string (one column per code point).
