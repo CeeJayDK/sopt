@@ -115,6 +115,17 @@ inline Style initConsole() {
       SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)) {
     st.vt = true;
     SetConsoleOutputCP(CP_UTF8);
+    // The caret (text cursor) is hidden while the program runs (owner: it blinks at the progress bar) and
+    // shown again at exit, after an error (fail exits) and on Ctrl+C / closing the window.
+    std::fputs("\x1b[?25l", stdout);
+    std::atexit([] { std::fputs("\x1b[?25h", stdout); std::fflush(stdout); });
+    SetConsoleCtrlHandler(
+        [](DWORD) -> BOOL {
+          std::fputs("\x1b[?25h", stdout);
+          std::fflush(stdout);
+          return FALSE;  // then the default handling (the program ends)
+        },
+        TRUE);
   }
   return st;
 }
