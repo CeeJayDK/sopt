@@ -1549,9 +1549,15 @@ int main(int argc, char** argv) {
       if (t->section == sec && results["tput"].count(t->name)) m = std::max(m, results["tput"][t->name].vsBase);
     return m;
   };
+  // The name column fits the longest name shown, so the graphs line up; the notes start where they do.
+  int nameW = 18;
+  for (const Test* t : tests)
+    if (!t->section.empty() && (t->stage == Stage::Compute || t->stage == Stage::Pixel))
+      nameW = std::max(nameW, int(t->name.size()));
+  const std::string graphIndent(size_t(2 + nameW + 1 + 7 + 2), ' ');
   bool rows = false;  // rows printed since the last "(shorter is better)" note
   auto betterNote = [&](const char* text) {
-    if (rows) std::printf("  %s(%s is better)%s\n", st.c("\x1b[90m"), text, st.reset());
+    if (rows) std::printf("%s%s(%s is better)%s\n", graphIndent.c_str(), st.c("\x1b[90m"), text, st.reset());
     rows = false;
   };
   for (const Test* t : tests) {
@@ -1564,8 +1570,8 @@ int main(int argc, char** argv) {
       maxV = sectionMax(section);
       bool bytes = false;
       for (const Test* u : tests) bytes |= u->section == section && u->perByte;
-      std::printf("\n  %s%s%s\n  %s%-18s %7s  %-*s  %6s %6s %6s%s%s\n", st.c("\x1b[1;96m"), section.c_str(), st.reset(),
-                  st.c("\x1b[90m"), "Test", "Cost", kBarWidth, "(throughput)", "Ops", "dep", "lat",
+      std::printf("\n  %s%s%s\n  %s%-*s %7s  %-*s  %6s %6s %6s%s%s\n", st.c("\x1b[1;96m"), section.c_str(), st.reset(),
+                  st.c("\x1b[90m"), nameW, "Test", "Cost", kBarWidth, "(throughput)", "Ops", "dep", "lat",
                   bytes ? "    GB/s" : "", st.reset());
     }
     rows = true;
@@ -1587,7 +1593,7 @@ int main(int argc, char** argv) {
     if (t->perByte && t->format && x.vsBase > 0.05 && refNs > 0.0)
       std::snprintf(perByte, sizeof(perByte), "  %6.0f", t->format->bytes / (x.vsBase / 4.0 * refNs));
     else if (t->perByte) std::snprintf(perByte, sizeof(perByte), "  %6s", "-");
-    std::printf("  %-18s %7.1f  %s  %6.1f %s %s%s%s\n", t->name.c_str(), std::fabs(x.vsBase) < 0.05 ? 0.0 : x.vsBase,
+    std::printf("  %-*s %7.1f  %s  %6.1f %s %s%s%s\n", nameW, t->name.c_str(), std::fabs(x.vsBase) < 0.05 ? 0.0 : x.vsBase,
                 bar(x.vsBase, maxV, kBarWidth, st, shade).c_str(), x.vsBase / 4.0, other("dep").c_str(),
                 other("lat").c_str(), perByte, shaky ? (st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus") : "");
   }
@@ -1624,7 +1630,7 @@ int main(int argc, char** argv) {
       std::printf("  %-18s %s  %s  %s  %s %s\n", f.name, col(n).c_str(), col(sm).c_str(), col(fl).c_str(),
                   gain(sm).c_str(), gain(fl).c_str());
     }
-    std::printf("  %s(longer is better)%s\n", st.c("\x1b[90m"), st.reset());
+    std::printf("%*s%s(longer is better)%s\n", 2 + 18 + 1 + 7 + 2, "", st.c("\x1b[90m"), st.reset());
   }
   bool anyBlend = false;
   for (const Test* t : tests) anyBlend |= t->stage == Stage::Blend;
@@ -1659,7 +1665,7 @@ int main(int argc, char** argv) {
       else std::snprintf(head, sizeof(head), "  %-10s %7s", fn, "-");
       std::printf("%s%s\n", head, line.c_str());
     }
-    std::printf("  %s(lower is better)%s\n", st.c("\x1b[90m"), st.reset());
+    std::printf("%*s%s(lower is better)%s\n", 2 + 10 + 1, "", st.c("\x1b[90m"), st.reset());
   }
   double maxP = 0.0;
   for (const Test* t : tests)
@@ -1671,7 +1677,7 @@ int main(int argc, char** argv) {
       if (t->stage == Stage::Pass)
         std::printf("  %-26s %8.3f  %s\n", t->name.c_str(), passMs[t->name].value,
                     bar(passMs[t->name].value, maxP, kBarWidth, st, kCyan).c_str());
-    std::printf("  %s(shorter is better)%s\n", st.c("\x1b[90m"), st.reset());
+    std::printf("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
   }
   std::printf("\n  Cost = extra over the test's base in sopt units (4 = one fma, measured right before); Ops = Cost / 4;\n"
               "  dep / lat = the same cost with one chain per thread / one thread group. What each test measures:\n"

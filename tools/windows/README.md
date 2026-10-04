@@ -191,7 +191,10 @@ Version 5 (0.4.0, owner 2026-10-03): more output modifier scales after `rcp` (`o
 `omod0.25`, `omod0.125`: free on DX9-era GPUs, measured to know whether they still are) and `trunc`
 (round toward zero, suggested by a tester).
 
-Next version (owner 2026-10-04): a percentage scale (0% 25% 50% 75% 100%) above each progress bar.
+Version 6 (0.5.0, owner 2026-10-04): the rest of ReShade FX's math (hyperbolic functions, ldexp / frexp /
+modf, isnan / isinf, f16 conversions, refract, faceforward, matrices, determinant, integer divide / modulo);
+"(shorter is better)" under each section, aligned with the graphs; GPU names in their vendor's color; the
+progress bar stays within 70 characters. Also a percentage scale (0% 25% 50% 75% 100%) above each progress bar.
 100% is the end of the two passes over every test; extra passes for tests whose readings disagree
 continue past it in yellow (`+` without colors).
 The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics

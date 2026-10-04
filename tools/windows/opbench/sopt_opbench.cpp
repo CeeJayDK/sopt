@@ -33,7 +33,7 @@
 // Ops column; tests whose passes disagree are measured again (up to kMaxPasses) until most
 // readings agree.
 //
-// Version 5 (owner 2026-10-04: test everything ReShade FX and HLSL can do): the rest of the
+// Version 6 (0.5.0, owner 2026-10-04: test everything ReShade FX and HLSL can do): the rest of the
 // intrinsics (hyperbolic, ldexp / frexp / modf, isnan / isinf, f16 conversions, refract,
 // faceforward, matrices, determinant), integer divide / modulo, int -> float, compare + select;
 // "(shorter is better)" under each section; the progress bar stays within 70 characters.
@@ -635,13 +635,18 @@ int main(int argc, char** argv) {
   double maxV = 0.0;
   for (const char* name : kDisplayOrder)
     if (results["tput"].count(name)) maxV = std::max(maxV, results["tput"][name].vsBase);
-  std::printf("\n  %s%-10s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1m"), "Test", "Cost", kBarWidth, "Graph", "Ops", "Comment",
-              st.reset());
+  // The name column fits the longest name, so the graphs line up.
+  int nameW = 10;
+  for (const char* name : kDisplayOrder)
+    if (name[0] != '#') nameW = std::max(nameW, int(std::strlen(name)));
+  const std::string graphIndent(size_t(2 + nameW + 1 + 6 + 2), ' ');  // where the graphs start
+  std::printf("\n  %s%-*s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1m"), nameW, "Test", "Cost", kBarWidth, "Graph", "Ops",
+              "Comment", st.reset());
   std::vector<std::string> unstable;
   const char* section = nullptr;
   bool rows = false;  // rows printed since the last "(shorter is better)" note
   auto betterNote = [&] {
-    if (rows) std::printf("  %s(shorter is better)%s\n", st.c("\x1b[90m"), st.reset());
+    if (rows) std::printf("%s%s(shorter is better)%s\n", graphIndent.c_str(), st.c("\x1b[90m"), st.reset());
     rows = false;
   };
   for (const char* name : kDisplayOrder) {
@@ -674,8 +679,8 @@ int main(int argc, char** argv) {
       note = std::string("  ") + st.c("\x1b[90m") + std::to_string(x.readings.size()) + " passes" + st.reset();
     const double shown = std::fabs(v) < 0.05 ? 0.0 : v;  // no "-0.0"
     const double ops = std::fabs(v / 4.0) < 0.05 ? 0.0 : v / 4.0;
-    std::printf("  %-10s %6.1f  %s  %5.1f  %s%s%s%s\n", name, shown, b.c_str(), ops, color.c_str(), comment, st.reset(),
-                note.c_str());
+    std::printf("  %-*s %6.1f  %s  %5.1f  %s%s%s%s\n", nameW, name, shown, b.c_str(), ops, color.c_str(), comment,
+                st.reset(), note.c_str());
   }
   betterNote();
   std::printf("\n  Cost = extra over the test's base, in sopt units (4 = one fma); Ops = Cost / 4 (fma equivalents);\n"
