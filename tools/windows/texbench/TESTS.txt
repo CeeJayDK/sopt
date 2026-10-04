@@ -39,6 +39,10 @@ Lookup tables and texture size: RGBA8, random reads, bilinear
   LUT 32^3    a 3D color grading lookup table (128 KB), trilinear between slices.
   512^2 ... 8192^2   random reads from growing textures: where the caches run out.
 
+B/op (in the format sections): the texel's bytes divided by the read's cost in fma times (Ops):
+  how much data a read delivers for its time. Formats with the same texel size do not always cost
+  the same, so this shows which formats give the most data per time.
+
 Cache sizes: random reads (Load) from an RGBA8 texture of growing size
   4 KB ... 256 MB in steps of 2x. While the texture fits in a cache level, reads cost about the
   same; where the cost jumps, a cache level ran out (clearest in the lat column: the waiting time
@@ -73,3 +77,13 @@ Render target writes: full-screen passes into 3840 x 2160
   bandwidth allows; the two Gain columns (smooth / noise, flat / noise) show how well this card
   compresses each format. Small formats (R8, R16) are usually limited
   by the pixel rate (ROPs), not by memory.
+
+Blending: full-screen passes into 3840 x 2160 (ms per pass)
+  ReShade passes can blend their output into the target (BlendEnable, BlendOp, SrcBlend,
+  DestBlend) instead of reading the image in the shader. For RGBA8, RGB10A2, RG11B10F, RGBA16F and
+  RGBA32F: a plain write, then four common blends, each done by the blend hardware ("blend") and by
+  a shader that reads the target's content as a texture and does the same math ("shader"):
+  add (ONE, ONE: e.g. bloom), lerp (SRCALPHA, INVSRCALPHA: mixing with the image), multiply
+  (DESTCOLOR, ZERO) and min (BlendOp MIN). The faster of each pair is shown in green. Every pass
+  first restores the target's content (noise) with a copy; the copy is timed alone right before
+  and subtracted.

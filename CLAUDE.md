@@ -891,6 +891,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   formats, RGBA32F 211 (quarter); int Load 22; writes (shared DDR4, ~38 GB/s): RGBA8 / RGBA16F / R32U 38 but
   RGBA16 / RG16 / R32F / RG32F / RGBA32F ~20-23, sRGB / RGB10A2 / RG11B10F 26-28; ddx / ddy / ddx_fine 5.6,
   ddy_fine 12.5, fwidth 15.
+  Blending (owner's go): Stage::Blend, RGBA8 / RGB10A2 / RG11B10F / RGBA16F / RGBA32F, plain + add (ONE, ONE),
+  lerp (SRCALPHA, INVSRCALPHA), multiply (DESTCOLOR, ZERO), min (OP_MIN) by blend state vs a shader reading the
+  content texture (blendSource); every pass restores the target from a noise texture by CopyResource, copies
+  timed alone right before and subtracted (blendPass); CSV config "blend" (ms per pass). B/op column (owner:
+  "bandwidth per performance"): texel bytes / Ops for Test::perByte (format coherent / random, texel size).
   Owner's ideas (2026-10-04, not decided): expected costs per cost model built into
   OpBench / TexBench, telling the user when their card does not match its model ("your report is very
   interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs

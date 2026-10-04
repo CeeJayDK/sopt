@@ -21,7 +21,8 @@
 // the GPU hides waiting by switching threads), lat (1 chain, one thread group: nothing hides it).
 // Pixel shader tests (derivatives, sampling with automatic mip selection) draw a full-screen triangle
 // into a 1024 x 1024 target (tput and dep). Render target writes: full-screen passes into a 3840 x 2160
-// target of each format, in GB/s, with noise and with a smooth gradient (render target compression).
+// target of each format, in GB/s, with noise, a smooth gradient and a flat color (render target
+// compression); blending by the hardware against the same math in a shader (ms per pass).
 //
 // Each test is read at least twice and more often (up to 6 times) when its readings disagree; a test's
 // texture exists only while it is measured (large textures in 19 formats would not fit together).
@@ -132,7 +133,7 @@ std::vector<uint8_t> texelData(const Format& f, size_t texels, std::mt19937& rng
 // ---------------------------------------------------------------------------
 // Tests
 
-enum class Stage { Compute, Pixel, Write };
+enum class Stage { Compute, Pixel, Write, Blend };
 enum class Tex { None, Plain, Mipped, Lut1D, Lut3D };
 enum class Filter { Point, Linear, Trilinear, Aniso };
 
@@ -151,6 +152,9 @@ struct Test {
   float scaleX = 1.0f, scaleY = 1.0f;  // pixel shader: texture coordinate scale (mip level, anisotropy)
   int write = 0;             // render target write: 0 smooth gradient, 1 noise (incompressible), 2 flat color
   UINT tileW = 8;            // compute: thread tile of a 64-thread group, tileW x (64 / tileW) pixels
+  int blend = 0;             // blending test: 0 plain write, 1 add, 2 lerp (alpha), 3 multiply, 4 min
+  bool shaderBlend = false;  // blending test: the shader reads the destination as a texture and does the math
+  bool perByte = false;      // summary: show bytes per op (texel bytes / Ops)
   std::string note;
 };
 
@@ -231,12 +235,14 @@ std::vector<Test> makeTests() {
     texTest(std::string(f.name) + (i ? " load" : " bilinear"), "Formats: coherent reads (bilinear; integer formats: Load)",
             i ? "addr.coherent.int" : "addr.coherent", kCoherent, i ? loadInt : sample, &f, Tex::Plain, 1024,
             Filter::Linear, i);
+    v.back().perByte = true;
   }
   for (const Format& f : kFormats) {
     const bool i = f.kind == 'i';
     texTest(std::string(f.name) + " random", "Formats: random reads from 4096 x 4096 (Load)",
             i ? "addr.random.int" : "addr.random", kRandom2D, i ? loadInt : load, &f, Tex::Plain, 4096, Filter::Point, i,
             "", i ? kUseIntRandom : kUseRandom);
+    v.back().perByte = true;
   }
   const Format* rgba8 = formatByName("RGBA8");
   const char* acc = "Access and filtering: RGBA8 1024 x 1024 with mipmaps, coherent";
@@ -295,6 +301,7 @@ std::vector<Test> makeTests() {
     const Format* f = formatByName(fn);
     texTest(std::string(fn) + " 1024^2", texelSize, "addr.random", kRandom2D, load, f, Tex::Plain, 1024,
             Filter::Point, false, std::to_string(f->bytes) + " MB", kUseRandom);
+    v.back().perByte = true;
   }
 
   // Pixel shader: derivatives (quad operations) and sampling with automatic mip selection.
@@ -349,6 +356,24 @@ std::vector<Test> makeTests() {
       t.write = mode;
       add(t);
     }
+
+  // Blending (ReShade pass states BlendEnable / BlendOp / SrcBlend / DestBlend): the output blended into
+  // the target by the hardware against a shader that reads the target's content as a texture and does the
+  // same math. Each pass first restores the target's content (noise) by a copy, timed alone and subtracted.
+  for (const char* fn : {"RGBA8", "RGB10A2", "RG11B10F", "RGBA16F", "RGBA32F"})
+    for (int op = 0; op <= 4; ++op)
+      for (bool shader : {false, true}) {
+        if (op == 0 && shader) continue;
+        static const char* const kOps[] = {"plain", "add", "lerp", "multiply", "min"};
+        Test t;
+        t.name = std::string(fn) + " " + kOps[op] + (op == 0 ? "" : shader ? " shader" : " blend");
+        t.section = "Blending: full-screen passes into 3840 x 2160";
+        t.stage = Stage::Blend;
+        t.format = formatByName(fn);
+        t.blend = op;
+        t.shaderBlend = shader;
+        add(t);
+      }
   return v;
 }
 
@@ -441,6 +466,21 @@ std::string writeSource(bool integer) {
              "  float4 smooth = frac(pos.xyxy * float4(0.0013, 0.0017, 0.0019, 0.0023));\n"
              "  return U[0].x > 1.5 ? float4(0.25, 0.5, 0.75, 1.0) : lerp(smooth, noise, U[0].x);\n"
              "}\n";
+}
+
+// Blending: the source color is noise (alpha too); the shader version reads the destination from T and
+// does the blend's math itself.
+std::string blendSource(int op, bool shader) {
+  std::string s = std::string(kHeader) +
+                  "uint hash(uint v) { v ^= v >> 16; v *= 0x7feb352du; v ^= v >> 15; v *= 0x846ca68bu; v ^= v >> 16; return v; }\n"
+                  "float4 main(float4 pos : SV_Position) : SV_Target {\n"
+                  "  uint k = uint(pos.y) * 4096u + uint(pos.x);\n"
+                  "  uint4 n = uint4(hash(k), hash(k ^ 0x9e3779b9u), hash(k ^ 0x7f4a7c15u), hash(k ^ 0x94d049bbu));\n"
+                  "  float4 s = asfloat((n >> 9) | 0x3f800000u) - 1.0;\n";
+  if (!shader || op == 0) return s + "  return s;\n}\n";
+  s += "  float4 d = T.Load(int3(pos.xy, 0));\n";
+  static const char* const kMath[] = {"", "s + d", "lerp(d, s, s.a)", "s * d", "min(s, d)"};
+  return s + "  return " + kMath[op] + ";\n}\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -682,6 +722,41 @@ double writePass(Gpu& g, ID3D11RenderTargetView* rtv, ID3D11PixelShader* ps, int
   return median(runs);
 }
 
+// Blending: the median time of one pass (in ms) over reps readings; each reading times n x (copy + draw)
+// and, right before, n copies alone, and takes the difference.
+double blendPass(Gpu& g, ID3D11RenderTargetView* rtv, ID3D11Texture2D* rt, ID3D11Texture2D* content,
+                 ID3D11ShaderResourceView* srv, ID3D11PixelShader* ps, ID3D11BlendState* bs, int reps, UINT& draws) {
+  ID3D11ShaderResourceView* nullSrv = nullptr;
+  g.ctx->PSSetShaderResources(0, 1, &nullSrv);
+  g.ctx->OMSetRenderTargets(1, &rtv, nullptr);
+  const float factor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+  g.ctx->OMSetBlendState(bs, factor, 0xffffffffu);
+  g.ctx->PSSetShaderResources(0, 1, &srv);
+  D3D11_VIEWPORT vp = {0.0f, 0.0f, float(kRtW), float(kRtH), 0.0f, 1.0f};
+  g.ctx->RSSetViewports(1, &vp);
+  g.ctx->PSSetShader(ps, nullptr, 0);
+  auto timeUnits = [&](UINT n, bool draw) {
+    return g.timer.time(g.ctx, [&] {
+      for (UINT k = 0; k < n; ++k) {
+        g.ctx->CopyResource(rt, content);
+        if (draw) g.ctx->Draw(3, 0);
+      }
+    });
+  };
+  if (draws == 0) {
+    draws = 1;
+    while (draws < 4096 && timeUnits(draws, true) < 2.0) draws *= 2;
+  }
+  std::vector<double> runs;
+  for (int n = 0; n < reps * 3 && int(runs.size()) < reps; ++n) {
+    const double copy = timeUnits(draws, false), unit = timeUnits(draws, true);
+    if (copy > 0.0 && unit > 0.0) runs.push_back((unit - copy) / draws);
+  }
+  g.ctx->OMSetBlendState(nullptr, factor, 0xffffffffu);
+  g.ctx->PSSetShaderResources(0, 1, &nullSrv);
+  return median(runs);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -801,7 +876,7 @@ int main(int argc, char** argv) {
   // Compile every compute / pixel test for its configurations.
   std::map<std::string, std::map<std::string, Kernel>> kernels;  // test -> config -> kernel
   for (const Test* t : tests) {
-    if (t->stage == Stage::Write) continue;
+    if (t->stage == Stage::Write || t->stage == Stage::Blend) continue;
     for (const Config& c : kConfigs) {
       if (t->stage == Stage::Pixel && std::strcmp(c.name, "lat") == 0) continue;
       Kernel k;
@@ -840,7 +915,70 @@ int main(int argc, char** argv) {
   std::map<std::string, Consensus> writeUnits;
   std::map<std::string, double> writeMs;
   std::vector<double> refs;
+  std::map<std::string, std::vector<double>> blendReadings;
+  std::map<std::string, Consensus> blendMs;
   for (const Test* t : tests) {
+    if (t->stage == Stage::Blend) {
+      // A 3840 x 2160 target, its content (noise) in a second texture that restores it before every pass.
+      D3D11_TEXTURE2D_DESC td = {};
+      td.Width = kRtW;
+      td.Height = kRtH;
+      td.MipLevels = td.ArraySize = 1;
+      td.Format = t->format->dxgi;
+      td.SampleDesc.Count = 1;
+      td.BindFlags = D3D11_BIND_RENDER_TARGET;
+      ID3D11Texture2D* rt = nullptr;
+      ID3D11RenderTargetView* rtv = nullptr;
+      if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &rt)) || FAILED(g.dev->CreateRenderTargetView(rt, nullptr, &rtv)))
+        fail("cannot create the render target for " + t->name);
+      td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+      td.Usage = D3D11_USAGE_IMMUTABLE;
+      const auto data = texelData(*t->format, size_t(kRtW) * kRtH, rng);
+      D3D11_SUBRESOURCE_DATA init = {data.data(), kRtW * UINT(t->format->bytes), 0};
+      ID3D11Texture2D* content = nullptr;
+      ID3D11ShaderResourceView* srv = nullptr;
+      if (FAILED(g.dev->CreateTexture2D(&td, &init, &content)) ||
+          FAILED(g.dev->CreateShaderResourceView(content, nullptr, &srv)))
+        fail("cannot create the content texture for " + t->name);
+      ID3D11BlendState* bs = nullptr;
+      if (t->blend != 0 && !t->shaderBlend) {
+        D3D11_BLEND_DESC bd = {};
+        D3D11_RENDER_TARGET_BLEND_DESC& b = bd.RenderTarget[0];
+        b.BlendEnable = TRUE;
+        b.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        b.BlendOp = b.BlendOpAlpha = t->blend == 4 ? D3D11_BLEND_OP_MIN : D3D11_BLEND_OP_ADD;
+        b.SrcBlend = b.SrcBlendAlpha = b.DestBlend = b.DestBlendAlpha = D3D11_BLEND_ONE;
+        if (t->blend == 2) {
+          b.SrcBlend = b.SrcBlendAlpha = D3D11_BLEND_SRC_ALPHA;
+          b.DestBlend = b.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+        } else if (t->blend == 3) {
+          b.SrcBlend = D3D11_BLEND_DEST_COLOR;
+          b.SrcBlendAlpha = D3D11_BLEND_DEST_ALPHA;
+          b.DestBlend = b.DestBlendAlpha = D3D11_BLEND_ZERO;
+        }
+        if (FAILED(g.dev->CreateBlendState(&bd, &bs))) fail("cannot create the blend state for " + t->name);
+      }
+      ID3DBlob* code = compile(blendSource(t->blend, t->shaderBlend), t->name.c_str(), "ps_5_0");
+      ID3D11PixelShader* ps = nullptr;
+      g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &ps);
+      code->Release();
+      UINT draws = 0;
+      std::vector<double>& rd = blendReadings[t->name];
+      for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
+        rd.push_back(blendPass(g, rtv, rt, content, srv, ps, bs, reps, draws));
+        progress.step();
+      }
+      blendMs[t->name] = consensus(rd, 0.0);
+      ID3D11RenderTargetView* nullRtv = nullptr;
+      g.ctx->OMSetRenderTargets(1, &nullRtv, nullptr);
+      release(ps);
+      release(bs);
+      release(srv);
+      release(content);
+      release(rtv);
+      release(rt);
+      continue;
+    }
     if (t->stage == Stage::Write) {
       // A 3840 x 2160 target of the format; GB/s from the pass time.
       D3D11_TEXTURE2D_DESC td = {};
@@ -964,6 +1102,11 @@ int main(int argc, char** argv) {
       std::fprintf(csv, "write,%s,\"%s\",,,%.4f,,%.3f,,%zu,%s,%s,\"GB/s, %u x %u\",\"\"\n", t->name.c_str(),
                    t->section.c_str(), writeMs[t->name], writeUnits[t->name].value, writeReadings[t->name].size(),
                    writeUnits[t->name].ok ? "yes" : "no", readingsText(writeReadings[t->name]).c_str(), kRtW, kRtH);
+  for (const Test* t : tests)
+    if (t->stage == Stage::Blend)
+      std::fprintf(csv, "blend,%s,\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"\"\n", t->name.c_str(),
+                   t->section.c_str(), blendMs[t->name].value, blendMs[t->name].value, blendReadings[t->name].size(),
+                   blendMs[t->name].ok ? "yes" : "no", readingsText(blendReadings[t->name]).c_str(), kRtW, kRtH);
   std::fclose(csv);
 
   // Summary
@@ -981,12 +1124,16 @@ int main(int argc, char** argv) {
     return m;
   };
   for (const Test* t : tests) {
-    if (t->section.empty() || t->stage == Stage::Write || !results["tput"].count(t->name)) continue;
+    if (t->section.empty() || t->stage == Stage::Write || t->stage == Stage::Blend || !results["tput"].count(t->name))
+      continue;
     if (t->section != section) {
       section = t->section;
       maxV = sectionMax(section);
-      std::printf("\n  %s%s%s\n  %s%-18s %7s  %-*s  %6s %6s %6s%s\n", st.c("\x1b[1;96m"), section.c_str(), st.reset(),
-                  st.c("\x1b[90m"), "Test", "Cost", kBarWidth, "(throughput)", "Ops", "dep", "lat", st.reset());
+      bool bytes = false;
+      for (const Test* u : tests) bytes |= u->section == section && u->perByte;
+      std::printf("\n  %s%s%s\n  %s%-18s %7s  %-*s  %6s %6s %6s%s%s\n", st.c("\x1b[1;96m"), section.c_str(), st.reset(),
+                  st.c("\x1b[90m"), "Test", "Cost", kBarWidth, "(throughput)", "Ops", "dep", "lat",
+                  bytes ? "   B/op" : "", st.reset());
     }
     const Measured& x = results["tput"][t->name];
     Shade shade;
@@ -999,9 +1146,13 @@ int main(int argc, char** argv) {
       std::snprintf(buf, sizeof(buf), "%6.1f", results[cfg][t->name].vsBase);
       return std::string(buf);
     };
-    std::printf("  %-18s %7.1f  %s  %6.1f %s %s%s\n", t->name.c_str(), std::fabs(x.vsBase) < 0.05 ? 0.0 : x.vsBase,
+    // Bytes per op: the texel's bytes over the read's cost in fma times (more = more data for the time).
+    char perByte[16] = "";
+    if (t->perByte && t->format && x.vsBase > 0.05) std::snprintf(perByte, sizeof(perByte), "  %5.2f", t->format->bytes / (x.vsBase / 4.0));
+    else if (t->perByte) std::snprintf(perByte, sizeof(perByte), "  %5s", "-");
+    std::printf("  %-18s %7.1f  %s  %6.1f %s %s%s%s\n", t->name.c_str(), std::fabs(x.vsBase) < 0.05 ? 0.0 : x.vsBase,
                 bar(x.vsBase, maxV, kBarWidth, st, shade).c_str(), x.vsBase / 4.0, other("dep").c_str(),
-                other("lat").c_str(), shaky ? (st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus") : "");
+                other("lat").c_str(), perByte, shaky ? (st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus") : "");
   }
   bool anyWrite = false;
   double maxW = 0.0;
@@ -1034,6 +1185,40 @@ int main(int argc, char** argv) {
       };
       std::printf("  %-18s %s  %s  %s  %s %s\n", f.name, col(n).c_str(), col(sm).c_str(), col(fl).c_str(),
                   gain(sm).c_str(), gain(fl).c_str());
+    }
+  }
+  bool anyBlend = false;
+  for (const Test* t : tests) anyBlend |= t->stage == Stage::Blend;
+  if (anyBlend) {
+    // ms per pass; of each blend / shader pair the faster one in green.
+    std::printf("\n  %sBlending: full-screen passes into 3840 x 2160 (ms per pass)%s\n"
+                "  %s%-10s %7s   %-15s   %-15s   %-15s   %-15s%s\n"
+                "  %s%-10s %7s   %7s %7s   %7s %7s   %7s %7s   %7s %7s%s\n",
+                st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Format", "Plain", "Add", "Lerp (alpha)", "Multiply",
+                "Min", st.reset(), st.c("\x1b[90m"), "", "", "blend", "shader", "blend", "shader", "blend", "shader",
+                "blend", "shader", st.reset());
+    for (const char* fn : {"RGBA8", "RGB10A2", "RG11B10F", "RGBA16F", "RGBA32F"}) {
+      auto get = [&](const std::string& name) { return blendMs.count(name) ? blendMs[name].value : -1.0; };
+      const double plain = get(std::string(fn) + " plain");
+      std::string line;
+      bool any = plain >= 0.0;
+      for (const char* op : {"add", "lerp", "multiply", "min"}) {
+        const double b = get(std::string(fn) + " " + op + " blend"), sh = get(std::string(fn) + " " + op + " shader");
+        any |= b >= 0.0 || sh >= 0.0;
+        auto cell = [&](double v, double other) {
+          char buf[48];
+          if (v < 0.0) return std::string("      -");
+          const bool win = other >= 0.0 && v < other;
+          std::snprintf(buf, sizeof(buf), "%s%7.3f%s", win ? st.c("\x1b[92m") : "", v, win ? st.reset() : "");
+          return std::string(buf);
+        };
+        line += "   " + cell(b, sh) + " " + cell(sh, b);
+      }
+      if (!any) continue;
+      char head[64];
+      if (plain >= 0.0) std::snprintf(head, sizeof(head), "  %-10s %7.3f", fn, plain);
+      else std::snprintf(head, sizeof(head), "  %-10s %7s", fn, "-");
+      std::printf("%s%s\n", head, line.c_str());
     }
   }
   std::printf("\n  Cost = extra over the test's base in sopt units (4 = one fma, measured right before); Ops = Cost / 4;\n"
