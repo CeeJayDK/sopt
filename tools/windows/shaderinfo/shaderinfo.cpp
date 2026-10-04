@@ -5,6 +5,7 @@
 //     representations (often the disassembly) of a compiled pipeline
 //   - VK_AMD_shader_info: AMD's statistics and disassembly
 //   - VK_KHR_performance_query: the hardware counters the GPU exposes (listed only)
+//   - whether VK_AMD_gpa_interface / VK_INTEL_performance_query exist, and every device extension (in the file)
 // Two compute shaders (shaders_spv.h, from int.comp and float.comp) are compiled on every Vulkan GPU;
 // everything the driver returns goes to shaderinfo-<gpu>.txt next to the exe, a summary to the console.
 //
@@ -170,15 +171,22 @@ int main(int argc, char** argv) {
     }
     const bool pep = has(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME), amd = has(VK_AMD_SHADER_INFO_EXTENSION_NAME),
                perf = has(VK_KHR_PERFORMANCE_QUERY_EXTENSION_NAME);
+    // Vendor profiling interfaces (listed only): AMD's GPA (counters, thread traces, a stable profiling clock
+    // mode; newer than the vendored headers) and Intel's performance query.
+    const bool gpa = has("VK_AMD_gpa_interface"), intelPerf = has(VK_INTEL_PERFORMANCE_QUERY_EXTENSION_NAME);
     std::printf("\nGPU: %s%s%s (vendor 0x%04X, device 0x%04X)\n  driver %s\n", vendorColor(st, props.vendorID), name.c_str(),
                 st.reset(), props.vendorID, props.deviceID, driverInfo.c_str());
     out("GPU: " + name + "\nvendor " + std::to_string(props.vendorID) + ", device " + std::to_string(props.deviceID) +
         "\ndriver: " + driverInfo + "\n\n");
     auto yesNo = [&](bool b) { return b ? std::string(st.c("\x1b[92m")) + "yes" + st.reset() : std::string(st.c("\x1b[91m")) + "no" + st.reset(); };
-    std::printf("  pipeline executable properties: %s, AMD shader info: %s, performance query: %s\n", yesNo(pep).c_str(),
-                yesNo(amd).c_str(), yesNo(perf).c_str());
+    std::printf("  pipeline executable properties: %s, AMD shader info: %s, performance query: %s\n"
+                "  AMD GPA interface: %s, Intel performance query: %s\n",
+                yesNo(pep).c_str(), yesNo(amd).c_str(), yesNo(perf).c_str(), yesNo(gpa).c_str(), yesNo(intelPerf).c_str());
     out(std::string("VK_KHR_pipeline_executable_properties: ") + (pep ? "yes" : "no") + "\nVK_AMD_shader_info: " +
-        (amd ? "yes" : "no") + "\nVK_KHR_performance_query: " + (perf ? "yes" : "no") + "\n");
+        (amd ? "yes" : "no") + "\nVK_KHR_performance_query: " + (perf ? "yes" : "no") + "\nVK_AMD_gpa_interface: " +
+        (gpa ? "yes" : "no") + "\nVK_INTEL_performance_query: " + (intelPerf ? "yes" : "no") + "\n");
+    out("\nAll device extensions (" + std::to_string(exts.size()) + "):\n");
+    for (const auto& x : exts) out("  " + std::string(x.extensionName) + " " + std::to_string(x.specVersion) + "\n");
 
     // A compute queue family.
     uint32_t nf = 0;
