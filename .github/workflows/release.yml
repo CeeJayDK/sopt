@@ -57,7 +57,7 @@ jobs:
       - name: Version info check
         shell: pwsh
         run: |
-          foreach ($f in 'build/Release/sopt.exe', 'build/Release/sopt-fx.exe', 'build/Release/OpBench.exe', 'build/Release/TexBench.exe', 'build/Release/sopt-host.exe', 'build/Release/sopt-fxc.exe', 'build/Release/sopt-timer.addon64', 'build32/Release/sopt-timer.addon32') {
+          foreach ($f in 'build/Release/sopt.exe', 'build/Release/sopt-fx.exe', 'build/Release/OpBench.exe', 'build/Release/TexBench.exe', 'build/Release/ShaderInfo.exe', 'build/Release/sopt-host.exe', 'build/Release/sopt-fxc.exe', 'build/Release/sopt-timer.addon64', 'build32/Release/sopt-timer.addon32') {
             $v = (Get-Item $f).VersionInfo
             "{0}: {1} {2} ({3})" -f $f, $v.ProductName, $v.FileVersion, $v.CompanyName
             if ($v.CompanyName -ne 'CeeJay.dk') { throw "$f has no version resource" }
@@ -66,17 +66,19 @@ jobs:
         shell: pwsh
         run: |
           $v = '${{ steps.version.outputs.version }}'
-          New-Item -ItemType Directory -Force -Path sopt, opbench, texbench, tools, unsigned | Out-Null
+          New-Item -ItemType Directory -Force -Path sopt, opbench, texbench, shaderinfo, tools, unsigned | Out-Null
           Copy-Item build/Release/sopt.exe, build/Release/sopt-fx.exe, LICENSE sopt/
           Copy-Item docs/QUICKSTART.txt sopt/QUICKSTART.txt
           Compress-Archive -Path sopt/* -DestinationPath "unsigned/sopt-$v-windows-x64.zip"
           Copy-Item build/Release/OpBench.exe, tools/windows/measure-gpu.bat, tools/windows/opbench/README.txt, tools/windows/opbench/TESTS.txt opbench/
           Copy-Item build/Release/TexBench.exe, tools/windows/measure-textures.bat, tools/windows/texbench/README.txt, tools/windows/texbench/TESTS.txt texbench/
+          Copy-Item build/Release/ShaderInfo.exe, tools/windows/shader-info.bat, tools/windows/shaderinfo/README.txt shaderinfo/
           Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, build/Release/OpBench.exe, tools/windows/measure-gpu.bat, tools/windows/opbench/TESTS.txt, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md tools/
           Copy-Item build/Release/TexBench.exe, tools/windows/measure-textures.bat, tools/windows/measure-both.bat, tools/windows/measure-all-gpus.bat, build/Release/ShaderInfo.exe, tools/windows/shader-info.bat tools/
           Copy-Item tools/windows/texbench/TESTS.txt tools/TexBench-TESTS.txt
           Compress-Archive -Path opbench/* -DestinationPath "unsigned/OpBench-$v.zip"
           Compress-Archive -Path texbench/* -DestinationPath "unsigned/TexBench-$v.zip"
+          Compress-Archive -Path shaderinfo/* -DestinationPath "unsigned/ShaderInfo-$v.zip"
           Compress-Archive -Path tools/* -DestinationPath "unsigned/sopt-windows-tools-$v.zip"
       - name: Upload unsigned
         id: upload
@@ -159,6 +161,7 @@ jobs:
             - `sopt-${{ needs.windows.outputs.version }}-windows-x64.zip` / `sopt-${{ needs.windows.outputs.version }}-linux-x64.tar.gz`: sopt-fx (finds cheaper, verified rewrites of the arithmetic in ReShade FX and HLSL pixel shaders, written next to the originals behind preprocessor switches) and sopt (single expressions). Early release: start with QUICKSTART.txt inside, and send feedback at https://github.com/CeeJayDK/sopt/issues. Windows needs the VC++ 2015-2022 redistributable (most gaming PCs have it).
             - `OpBench-${{ needs.windows.outputs.version }}.zip`: measures what GPU instructions cost on your graphics card. Unzip, double-click `measure-gpu.bat`, send the CSV it writes (see README.txt inside).
             - `TexBench-${{ needs.windows.outputs.version }}.zip`: measures what texture reads, derivatives and render target writes cost per format on your graphics card. Unzip, double-click `measure-textures.bat`, send the CSV it writes (see README.txt inside).
-            - `sopt-windows-tools-${{ needs.windows.outputs.version }}.zip`: the benchmark harness (sopt-host, sopt-timer add-on, run-bench.bat, ReShade64.dll 6.8.0), OpBench and TexBench.
+            - `ShaderInfo-${{ needs.windows.outputs.version }}.zip`: shows what your graphics driver reports about the shaders it compiles (instruction counts, registers, hardware counters). Unzip, double-click `shader-info.bat`, send the text file it writes (see README.txt inside).
+            - `sopt-windows-tools-${{ needs.windows.outputs.version }}.zip`: the benchmark harness (sopt-host, sopt-timer add-on, run-bench.bat, ReShade64.dll 6.8.0), OpBench, TexBench and ShaderInfo, with measure-both.bat (OpBench, then TexBench) and measure-all-gpus.bat (both, on every GPU in the PC).
 
             Code signing: ${{ needs.windows.outputs.signed == 'yes' && 'signed through SignPath Foundation.' || 'not signed yet (SignPath application pending); Windows Defender may warn. Check the files against SHA256SUMS.txt.' }}
