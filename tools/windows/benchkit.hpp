@@ -34,8 +34,12 @@ namespace benchkit {
 // The program's name in error messages ("OpBench", "TexBench").
 inline const char* gProgram = "bench";
 
+// The test being measured, named in error messages (a GPU that stops responding names its test).
+inline std::string gCurrent;
+
 [[noreturn]] inline void fail(const std::string& what) {
-  std::fprintf(stderr, "%s: %s\n", gProgram, what.c_str());
+  std::fprintf(stderr, "\n%s: %s\n", gProgram, what.c_str());
+  if (!gCurrent.empty()) std::fprintf(stderr, "%s: while measuring \"%s\"\n", gProgram, gCurrent.c_str());
   std::exit(1);
 }
 
@@ -461,18 +465,45 @@ struct Timer {
     dev->CreateQuery(&qd, &t0);
     dev->CreateQuery(&qd, &t1);
   }
+  // The work's GPU time in ms. A disjoint reading (the GPU clock or power state changed during it: Intel
+  // iGPUs do this) is run again, up to 4 times in all; -1 when every try was disjoint.
   template <class Work>
   double time(ID3D11DeviceContext* ctx, Work work) {
+    for (int attempt = 0; attempt < 4; ++attempt)
+      if (const double ms = timeOnce(ctx, work); ms >= 0.0) return ms;
+    return -1.0;
+  }
+  template <class Work>
+  double timeOnce(ID3D11DeviceContext* ctx, Work work) {
     ctx->Begin(disjoint);
     ctx->End(t0);
     work();
     ctx->End(t1);
     ctx->End(disjoint);
+    // Waits for a query; a GPU that stopped responding (driver reset: the device is removed, every query fails)
+    // or a measurement still unfinished after 60 seconds ends the program with a message instead of hanging.
+    const ULONGLONG start = GetTickCount64();
+    auto wait = [&](ID3D11Query* q, void* data, UINT size) {
+      for (;;) {
+        const HRESULT hr = ctx->GetData(q, data, size, 0);
+        if (hr == S_OK) return;
+        if (FAILED(hr)) {
+          ID3D11Device* dev = nullptr;
+          ctx->GetDevice(&dev);
+          char buf[160];
+          std::snprintf(buf, sizeof(buf), "the GPU stopped responding (0x%08lX, device removed reason 0x%08lX)",
+                        static_cast<unsigned long>(hr), dev ? static_cast<unsigned long>(dev->GetDeviceRemovedReason()) : 0ul);
+          fail(buf);
+        }
+        if (GetTickCount64() - start > 60000) fail("the GPU has not finished a measurement in 60 seconds");
+        Sleep(0);
+      }
+    };
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
-    while (ctx->GetData(disjoint, &dj, sizeof(dj), 0) != S_OK) Sleep(0);
+    wait(disjoint, &dj, sizeof(dj));
     UINT64 a = 0, b = 0;
-    while (ctx->GetData(t0, &a, sizeof(a), 0) != S_OK) Sleep(0);
-    while (ctx->GetData(t1, &b, sizeof(b), 0) != S_OK) Sleep(0);
+    wait(t0, &a, sizeof(a));
+    wait(t1, &b, sizeof(b));
     if (dj.Disjoint || dj.Frequency == 0) return -1.0;
     return double(b - a) * 1000.0 / double(dj.Frequency);
   }

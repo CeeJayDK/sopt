@@ -953,7 +953,8 @@ Plan calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
     p.groups = std::max(kMinGroups, p.groups / 2);
     ms = run(g, k, p.groups);
   }
-  while (ms < 2.0 && p.iters < (1u << 20)) {
+  // ms < 0: no valid reading (disjoint every time); keep the run length rather than doubling it blindly.
+  while (ms >= 0.0 && ms < 2.0 && p.iters < (1u << 20)) {
     p.iters *= 2;
     setConstants(g, t, p.iters, t.size);
     ms = run(g, k, p.groups);
@@ -1000,7 +1001,7 @@ double writePass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader
   };
   if (draws == 0) {
     draws = 1;
-    while (draws < 4096 && timeDraws(draws) < 2.0) draws *= 2;
+    while (draws < 4096 && [&] { const double m = timeDraws(draws); return m >= 0.0 && m < 2.0; }()) draws *= 2;
   }
   std::vector<double> runs;
   for (int n = 0; n < reps * 3 && int(runs.size()) < reps; ++n)
@@ -1039,7 +1040,7 @@ double blendPass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader
   };
   if (draws == 0) {
     draws = 1;
-    while (draws < 4096 && timeUnits(draws, true) < 2.0) draws *= 2;
+    while (draws < 4096 && [&] { const double m = timeUnits(draws, true); return m >= 0.0 && m < 2.0; }()) draws *= 2;
   }
   std::vector<double> runs;
   for (int n = 0; n < reps * 3 && int(runs.size()) < reps; ++n) {
@@ -1224,7 +1225,7 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
       });
     };
     UINT draws = 1;
-    while (draws < 4096 && timeDraws(draws) < 2.0) draws *= 2;
+    while (draws < 4096 && [&] { const double m = timeDraws(draws); return m >= 0.0 && m < 2.0; }()) draws *= 2;
     std::vector<double> runs;
     for (int k = 0; k < reps * 3 && int(runs.size()) < reps; ++k)
       if (const double m = timeDraws(draws); m > 0.0) runs.push_back(m / draws);
@@ -1914,7 +1915,7 @@ int main(int argc, char** argv) {
         });
       };
       UINT n = 1;
-      while (n < 4096 && timeUnits(n) < 2.0) n *= 2;
+      while (n < 4096 && [&] { const double m = timeUnits(n); return m >= 0.0 && m < 2.0; }()) n *= 2;
       std::vector<double>& rd = passReadings[t->name];
       for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
         std::vector<double> runs;
@@ -2089,6 +2090,7 @@ int main(int argc, char** argv) {
   progress.start();
   for (const Test* t : tests) {
     lap(t);
+    gCurrent = t->name;
     measure(t);
     // Costs over the bases (bases come first, so they are known).
     for (auto& [cname, byTest] : results)

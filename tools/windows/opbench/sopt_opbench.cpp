@@ -446,7 +446,8 @@ UINT calibrate(Gpu& g, ID3D11ComputeShader* cs, const Test& t, const Config& c) 
   UINT iters = 2;
   for (;;) {
     setConstants(g, t, iters);
-    if (timeDispatch(g, c.groups) >= 2.0 || iters >= (1u << 20)) return iters;
+    const double ms = timeDispatch(g, c.groups);  // < 0: no valid reading, keep the run length
+    if (ms < 0.0 || ms >= 2.0 || iters >= (1u << 20)) return iters;
     iters *= 2;
   }
 }
@@ -828,6 +829,7 @@ int main(int argc, char** argv) {
         if (order.empty()) break;
         if (pass % 2 == 1) std::reverse(order.begin(), order.end());
         for (const Test* t : order) {
+          gCurrent = std::string(t->name) + " (" + c.name + ")";
           // A fresh reference right before the test: a clock change moves both.
           const Result m = measureAt(g, shaders[c.name]["mad"], *madTest, c, it["mad"], reps);
           const Result r = t == madTest ? m : measureAt(g, shaders[c.name][t->name], *t, c, it[t->name], reps);
