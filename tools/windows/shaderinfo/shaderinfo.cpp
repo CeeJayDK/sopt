@@ -9,8 +9,10 @@
 // Two compute shaders (shaders_spv.h, from int.comp and float.comp) are compiled on every Vulkan GPU;
 // everything the driver returns goes to shaderinfo-<gpu>.txt next to the exe, a summary to the console.
 //
-//   ShaderInfo [--spv file.spv] [--all]   (--spv adds a compute shader of your own, entry point main;
-//                                        --all includes software renderers)
+//   ShaderInfo [--spv file.spv] [--batch folder] [--all]
+//     --spv adds a compute shader of your own (entry point main); --batch compiles every *.ps.spv in the folder
+//     as a pixel shader pipeline and writes the driver's statistics to shaderinfo-batch-<gpu>.csv there;
+//     --all includes software renderers
 //
 // Vulkan is loaded at run time (vulkan-1.dll), no SDK needed.
 
@@ -23,6 +25,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -53,6 +56,9 @@ PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
   X(vkCreatePipelineLayout)         \
   X(vkDestroyPipelineLayout)        \
   X(vkCreateComputePipelines)       \
+  X(vkCreateGraphicsPipelines)      \
+  X(vkCreateRenderPass)             \
+  X(vkDestroyRenderPass)            \
   X(vkDestroyPipeline)
 #define VK_DECLARE(name) PFN_##name name;
 VK_INSTANCE_FUNCS(VK_DECLARE)
@@ -88,6 +94,218 @@ std::string driverVersion(const VkPhysicalDeviceProperties& p) {
   return buf;
 }
 
+// --batch: the descriptor bindings a SPIR-V module declares (set, binding, type), read from its decorations,
+// so the pipeline layout matches the shader (fxstat's ReShade modules: a combined image sampler per texture in
+// set 1, the uniform buffer in set 0).
+struct Binding {
+  uint32_t set = 0, binding = 0;
+  VkDescriptorType type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+};
+
+std::vector<Binding> reflectBindings(const std::vector<uint32_t>& code) {
+  std::map<uint32_t, uint32_t> set, binding, pointee, storage, typeOp, elem, imageSampled, varType;
+  std::map<uint32_t, bool> bufferBlock;
+  std::vector<uint32_t> vars;
+  for (size_t i = 5; i < code.size();) {
+    const uint32_t op = code[i] & 0xffff, len = code[i] >> 16;
+    if (len == 0 || i + len > code.size()) break;
+    const uint32_t* w = &code[i];
+    if (op == 71 && len >= 4 && w[2] == 34) set[w[1]] = w[3];             // OpDecorate DescriptorSet
+    else if (op == 71 && len >= 4 && w[2] == 33) binding[w[1]] = w[3];    // OpDecorate Binding
+    else if (op == 71 && len >= 3 && w[2] == 3) bufferBlock[w[1]] = true; // OpDecorate BufferBlock
+    else if (op == 32 && len >= 4) pointee[w[1]] = w[3];                  // OpTypePointer
+    else if (op == 25 && len >= 8) typeOp[w[1]] = op, imageSampled[w[1]] = w[7];  // OpTypeImage
+    else if (op == 26 || op == 27 || op == 30) typeOp[w[1]] = op;         // sampler, sampled image, struct
+    else if ((op == 28 || op == 29) && len >= 3) typeOp[w[1]] = op, elem[w[1]] = w[2];  // (runtime) array
+    else if (op == 59 && len >= 4) vars.push_back(w[2]), varType[w[2]] = w[1], storage[w[2]] = w[3];  // OpVariable
+    i += len;
+  }
+  std::vector<Binding> out;
+  for (uint32_t v : vars) {
+    if (!set.count(v) || !binding.count(v)) continue;
+    uint32_t t = pointee[varType[v]];
+    while (typeOp.count(t) && (typeOp[t] == 28 || typeOp[t] == 29)) t = elem[t];  // arrays of resources
+    const uint32_t top = typeOp.count(t) ? typeOp[t] : 0, sc = storage[v];
+    Binding b;
+    b.set = set[v];
+    b.binding = binding[v];
+    if (sc == 12) b.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    else if (sc == 2) b.type = bufferBlock.count(t) ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    else if (top == 27) b.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    else if (top == 26) b.type = VK_DESCRIPTOR_TYPE_SAMPLER;
+    else if (top == 25) b.type = imageSampled[t] == 2 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    else continue;
+    out.push_back(b);
+  }
+  return out;
+}
+
+// The first entry point of the given execution model (0 vertex, 4 fragment, 5 compute), or "".
+std::string entryPoint(const std::vector<uint32_t>& code, uint32_t model) {
+  for (size_t i = 5; i < code.size();) {
+    const uint32_t op = code[i] & 0xffff, len = code[i] >> 16;
+    if (len == 0 || i + len > code.size()) break;
+    if (op == 15 && len >= 4 && code[i + 1] == model) return std::string(reinterpret_cast<const char*>(&code[i + 3]));
+    i += len;
+  }
+  return "";
+}
+
+std::vector<uint32_t> readSpv(const std::filesystem::path& file) {
+  std::ifstream f(file, std::ios::binary);
+  std::vector<char> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+  std::vector<uint32_t> code(bytes.size() / 4);
+  if (bytes.size() >= 20 && bytes.size() % 4 == 0) std::memcpy(code.data(), bytes.data(), bytes.size());
+  else code.clear();
+  return code;
+}
+
+// --batch DIR: every *.ps.spv in DIR (a pixel shader module, with NAME.vs.spv as its vertex shader when present,
+// else a full-screen triangle) compiled as a graphics pipeline; every statistic the driver reports goes to csv as
+// shader,executable,statistic,value (owner, 2026-10-04: the Intel driver's instruction / cycle counts for sopt's
+// variants; sopt-fx --export-spirv writes the folder, --driver-stats reads the file back).
+size_t runBatch(VkDevice dev, bool pepOn, const std::filesystem::path& dir, FILE* csv) {
+  std::vector<std::filesystem::path> files;
+  for (const auto& e : std::filesystem::directory_iterator(dir)) {
+    const std::string n = e.path().filename().string();
+    if (n.size() > 7 && n.compare(n.size() - 7, 7, ".ps.spv") == 0) files.push_back(e.path());
+  }
+  std::sort(files.begin(), files.end());
+  VkAttachmentDescription att = {0, VK_FORMAT_R8G8B8A8_UNORM, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                                 VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                                 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+  VkAttachmentReference ref = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+  VkSubpassDescription sub = {};
+  sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  sub.colorAttachmentCount = 1;
+  sub.pColorAttachments = &ref;
+  VkRenderPassCreateInfo rpi = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+  rpi.attachmentCount = 1;
+  rpi.pAttachments = &att;
+  rpi.subpassCount = 1;
+  rpi.pSubpasses = &sub;
+  VkRenderPass pass;
+  if (vkCreateRenderPass(dev, &rpi, nullptr, &pass) != VK_SUCCESS) return 0;
+  const std::vector<uint32_t> fallbackVs(std::begin(kFullscreenVsSpv), std::end(kFullscreenVsSpv));
+  size_t compiled = 0;
+  for (const auto& file : files) {
+    const std::string name = file.filename().string().substr(0, file.filename().string().size() - 7);
+    const std::vector<uint32_t> ps = readSpv(file);
+    const std::filesystem::path vsFile = file.parent_path() / (name + ".vs.spv");
+    const std::vector<uint32_t> vs = std::filesystem::exists(vsFile) ? readSpv(vsFile) : fallbackVs;
+    const std::string psEntry = entryPoint(ps, 4), vsEntry = entryPoint(vs, 0);
+    bool ok = !ps.empty() && !vs.empty() && !psEntry.empty() && !vsEntry.empty();
+    VkShaderModule mods[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+    std::vector<VkDescriptorSetLayout> sets;
+    VkPipelineLayout layout = VK_NULL_HANDLE;
+    VkPipeline pipe = VK_NULL_HANDLE;
+    if (ok) {
+      for (int k = 0; k < 2 && ok; ++k) {
+        const std::vector<uint32_t>& c = k ? ps : vs;
+        VkShaderModuleCreateInfo smi = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        smi.codeSize = c.size() * 4;
+        smi.pCode = c.data();
+        ok = vkCreateShaderModule(dev, &smi, nullptr, &mods[k]) == VK_SUCCESS;
+      }
+    }
+    if (ok) {
+      // The pipeline layout from both modules' bindings (sets 0 .. the highest used).
+      std::vector<Binding> bs = reflectBindings(ps);
+      for (const Binding& b : reflectBindings(vs)) bs.push_back(b);
+      uint32_t maxSet = 0;
+      for (const Binding& b : bs) maxSet = std::max(maxSet, b.set);
+      for (uint32_t si = 0; si <= maxSet && ok; ++si) {
+        std::vector<VkDescriptorSetLayoutBinding> lb;
+        for (const Binding& b : bs) {
+          if (b.set != si) continue;
+          bool dup = false;
+          for (const auto& x : lb) dup |= x.binding == b.binding;
+          if (!dup) lb.push_back({b.binding, b.type, 1, VK_SHADER_STAGE_ALL_GRAPHICS, nullptr});
+        }
+        VkDescriptorSetLayoutCreateInfo dl = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        dl.bindingCount = uint32_t(lb.size());
+        dl.pBindings = lb.data();
+        VkDescriptorSetLayout sl;
+        ok = vkCreateDescriptorSetLayout(dev, &dl, nullptr, &sl) == VK_SUCCESS;
+        if (ok) sets.push_back(sl);
+      }
+      VkPipelineLayoutCreateInfo pl = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+      pl.setLayoutCount = uint32_t(sets.size());
+      pl.pSetLayouts = sets.data();
+      ok = ok && vkCreatePipelineLayout(dev, &pl, nullptr, &layout) == VK_SUCCESS;
+    }
+    if (ok) {
+      VkPipelineShaderStageCreateInfo stages[2] = {
+          {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, mods[0], vsEntry.c_str(), nullptr},
+          {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, mods[1], psEntry.c_str(), nullptr}};
+      VkPipelineVertexInputStateCreateInfo vi = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+      VkPipelineInputAssemblyStateCreateInfo ia = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+      ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+      VkPipelineViewportStateCreateInfo vp = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+      vp.viewportCount = vp.scissorCount = 1;
+      VkPipelineRasterizationStateCreateInfo rs = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+      rs.polygonMode = VK_POLYGON_MODE_FILL;
+      rs.cullMode = VK_CULL_MODE_NONE;
+      rs.lineWidth = 1.0f;
+      VkPipelineMultisampleStateCreateInfo ms = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+      ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+      VkPipelineColorBlendAttachmentState cba = {};
+      cba.colorWriteMask = 0xf;
+      VkPipelineColorBlendStateCreateInfo cb = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+      cb.attachmentCount = 1;
+      cb.pAttachments = &cba;
+      const VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+      VkPipelineDynamicStateCreateInfo ds = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+      ds.dynamicStateCount = 2;
+      ds.pDynamicStates = dyn;
+      VkGraphicsPipelineCreateInfo gpi = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+      if (pepOn) gpi.flags = VK_PIPELINE_CREATE_CAPTURE_STATISTICS_BIT_KHR;
+      gpi.stageCount = 2;
+      gpi.pStages = stages;
+      gpi.pVertexInputState = &vi;
+      gpi.pInputAssemblyState = &ia;
+      gpi.pViewportState = &vp;
+      gpi.pRasterizationState = &rs;
+      gpi.pMultisampleState = &ms;
+      gpi.pColorBlendState = &cb;
+      gpi.pDynamicState = &ds;
+      gpi.layout = layout;
+      gpi.renderPass = pass;
+      ok = vkCreateGraphicsPipelines(dev, VK_NULL_HANDLE, 1, &gpi, nullptr, &pipe) == VK_SUCCESS;
+    }
+    std::fprintf(csv, "%s,,compiled,%s\n", name.c_str(), ok ? "yes" : "no");
+    if (ok) {
+      ++compiled;
+      if (pepOn) {
+        VkPipelineInfoKHR pi = {VK_STRUCTURE_TYPE_PIPELINE_INFO_KHR};
+        pi.pipeline = pipe;
+        uint32_t nx = 0;
+        vkGetPipelineExecutablePropertiesKHR(dev, &pi, &nx, nullptr);
+        std::vector<VkPipelineExecutablePropertiesKHR> xs(nx, {VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_PROPERTIES_KHR});
+        vkGetPipelineExecutablePropertiesKHR(dev, &pi, &nx, xs.data());
+        for (uint32_t e = 0; e < nx; ++e) {
+          VkPipelineExecutableInfoKHR ei = {VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_INFO_KHR};
+          ei.pipeline = pipe;
+          ei.executableIndex = e;
+          uint32_t ns = 0;
+          vkGetPipelineExecutableStatisticsKHR(dev, &ei, &ns, nullptr);
+          std::vector<VkPipelineExecutableStatisticKHR> stats(ns, {VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_STATISTIC_KHR});
+          vkGetPipelineExecutableStatisticsKHR(dev, &ei, &ns, stats.data());
+          for (const auto& st : stats)
+            std::fprintf(csv, "%s,\"%s\",\"%s\",%s\n", name.c_str(), xs[e].name, st.name, statValue(st).c_str());
+        }
+      }
+      vkDestroyPipeline(dev, pipe, nullptr);
+    }
+    if (layout) vkDestroyPipelineLayout(dev, layout, nullptr);
+    for (auto sl : sets) vkDestroyDescriptorSetLayout(dev, sl, nullptr);
+    for (auto m : mods)
+      if (m) vkDestroyShaderModule(dev, m, nullptr);
+  }
+  vkDestroyRenderPass(dev, pass, nullptr);
+  return compiled;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -98,10 +316,14 @@ int main(int argc, char** argv) {
                                  {"float (fma, rcp, sqrt, floor, max, clamp, sign, exp2)",
                                   std::vector<uint32_t>(std::begin(kFloatSpv), std::end(kFloatSpv))}};
   bool all = false;
+  std::filesystem::path batch;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (a == "--all") {
       all = true;
+    } else if (a == "--batch" && i + 1 < argc) {
+      batch = argv[++i];
+      if (!std::filesystem::is_directory(batch)) fail("not a folder: " + batch.string());
     } else if (a == "--spv" && i + 1 < argc) {
       std::ifstream f(argv[++i], std::ios::binary);
       std::vector<char> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
@@ -110,7 +332,7 @@ int main(int argc, char** argv) {
       std::memcpy(s.code.data(), bytes.data(), bytes.size());
       shaders.push_back(std::move(s));
     } else {
-      std::printf("ShaderInfo %s\nusage: ShaderInfo [--spv file.spv] [--all]\n", SOPT_VERSION);
+      std::printf("ShaderInfo %s\nusage: ShaderInfo [--spv file.spv] [--batch folder] [--all]\n", SOPT_VERSION);
       return a == "-h" || a == "--help" ? 0 : 1;
     }
   }
@@ -210,7 +432,7 @@ int main(int argc, char** argv) {
         out("  " + std::string(descs[i].category) + " / " + descs[i].name + ": " + descs[i].description + "\n");
     }
 
-    if (!pep && !amd) {
+    if (!pep && !amd && batch.empty()) {
       std::printf("  this driver reports nothing about compiled shaders\n");
     } else if (family == UINT32_MAX) {
       std::printf("  no compute queue\n");
@@ -264,7 +486,19 @@ int main(int argc, char** argv) {
       VkPipelineLayout layout;
       vkCreatePipelineLayout(dev, &pl, nullptr, &layout);
 
+      if (!batch.empty()) {
+        const std::filesystem::path csvPath = batch / ("shaderinfo-batch-" + safe + ".csv");
+        if (FILE* csv = std::fopen(csvPath.string().c_str(), "wb")) {
+          std::fprintf(csv, "# ShaderInfo %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\nshader,executable,statistic,value\n",
+                       SOPT_VERSION, name.c_str(), props.vendorID, props.deviceID, driverInfo.c_str());
+          const size_t n = runBatch(dev, pepOn, batch, csv);
+          std::fclose(csv);
+          std::printf("  batch: %zu shaders compiled -> %s\n", n, csvPath.string().c_str());
+          files.push_back(csvPath.string());
+        }
+      }
       for (const Shader& sh : shaders) {
+        if (!batch.empty()) break;  // --batch: only the folder's shaders
         out("\n==== " + sh.name + " ====\n");
         std::printf("  %s%s%s\n", st.c("\x1b[1;96m"), sh.name.c_str(), st.reset());
         VkShaderModuleCreateInfo smi = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
