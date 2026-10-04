@@ -842,7 +842,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   round = floor (UHD 630 3.96, one op; GTX 1660 12.0, quarter rate; lat identical to round): not faster. Every omod
   scale (2, 0.5, 4, 8, 0.25, 0.125) = the x3 control on both (tput: the mul hides beside the rcp, NVIDIA 0, Intel
   ~0.75; lat: one dependent mul, Intel ~4.4, NVIDIA 4.8): no output modifier on Intel Gen9 / NVIDIA Turing. Whether
-  x4 / x8 / x0.25 are free on AMD (the only one with omod) needs an AMD 0.4.0 report.
+  x4 / x8 / x0.25 are free on AMD (the only one with omod) needs an AMD 0.4.0 report. First AMD 0.4.0 report:
+  RX 6700 XT (amd-radeon-rx-6700-xt.csv, Navi 22, 0x73DF, drift 0.1%, all consensus): = the RX 6950 XT within 0.6 on
+  every tput test (only length / atan / atan2 0.6-1.2 lower): third RDNA 2 device, amd-rdna2 unchanged. omod2 /
+  omodhalf / omod4 0.0 (free), omod8 / omod0.25 / omod0.125 = the x3 control (tput 1.2, lat 3.1): exactly AMD's
+  output modifier set (x2, x4, x0.5), as CostModel::amdFolds assumes. trunc = round = floor (one op, 2.97).
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
