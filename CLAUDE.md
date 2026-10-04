@@ -866,6 +866,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   trilinear (1.5 texels per pixel) / aniso 4:1; render target writes per format (GB/s, 3840 x 2160). Each read's
   coordinate depends on the previous result; bases compute the same coordinate without reading. Runs under
   Wine (xvfb-run, lavapipe: functional only, timestamps meaningless there).
+  First runs (owner, GTX 1660, 2026-10-04, 2 runs agree; docs/texbench/nvidia-gtx-1660*.csv; units: mad = 4):
+  coherent bilinear ~39 (~10 mads) for every format up to 32 bits (R8 = RG8 = RGBA8 = RGB10A2 = RG11B10F = sRGB =
+  R16F = R32F), 64-bit and RGBA32F ~102 (half rate), int Load ~35; Load = point = bilinear = gather; trilinear 104,
+  aniso 8:1 485; latency bilinear ~113. ddx / ddy (= coarse) 28, ddx_fine / ddy_fine 12, fwidth 44. LUT 256x1
+  (random) 193, LUT 32^3 1080, random over 512^2 885 .. 8192^2 7740. Two test flaws: (1) "random" format reads:
+  the next coordinate depends only on the value read, so the chain collapses onto as many addresses as the format
+  has distinct values (R8 256 -> cached, 115; R16 / R32F -> DRAM, ~6000): measures data entropy, not the format;
+  (2) writes reach ~300 GB/s (> the 1660's 192 GB/s peak): the smooth gradient compresses (DCC); R8 74 / R16 155
+  GB/s = ROP fill rate. Fixes proposed to the owner (not done): coordinate from the previous x plus the value
+  (t.x + uv.y, same op count as the base) and noise output for writes. OpBench rerun (nvidia-gtx-1660-v4-2.csv,
+  driver 32.0.15.6614) = v4, iand 3.99 again: the RTX 2060's 1.05 is likely its newer driver; owner will update
+  his driver and rerun.
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
