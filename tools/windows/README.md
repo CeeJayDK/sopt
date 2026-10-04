@@ -199,6 +199,11 @@ modf, isnan / isinf, f16 conversions, refract, faceforward, matrices, determinan
 progress bar stays within 70 characters. Also a percentage scale (0% 25% 50% 75% 100%) above each progress bar.
 100% is the end of the two passes over every test; extra passes for tests whose readings disagree
 continue past it in yellow (`+` without colors).
+Results per section (owner, 2026-10-04: users can read while the rest is measured): OpBench measures section
+by section (all three configurations, the bases with the first section that needs them, forward then
+backward within the section) and prints each section's table as soon as it is done, with the progress bar
+below; graphs on a fixed scale (a full bar = 100 = 25 mads, longer costs fill it). TexBench prints each
+section once its last test is measured. At the end: the GPU box, drift / consensus warnings, the footer.
 The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics
 (`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases: the
 `OpBench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases (exe, measure-gpu.bat,

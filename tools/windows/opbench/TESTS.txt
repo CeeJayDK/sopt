@@ -28,7 +28,7 @@ as one more fma, and "Cost 0" means it is free (the GPU folds it into a neighbou
 
 Before every test the reference is measured again. A GPU clock change (boost, temperature,
 power saving) then affects the reference and the test alike, instead of making the test look
-cheaper or dearer. Every test runs twice: forward through the list, then backward. Slow drift
+cheaper or dearer. Every test runs twice: forward through its section, then backward. Slow drift
 cancels out. When the two readings of a test disagree (by more than 0.75 units or 15%), it is
 measured again, like a third sensor: two readings show that one is wrong, three or more show which
 one. This repeats until more than half of the readings agree (at most 6 passes); the result is the

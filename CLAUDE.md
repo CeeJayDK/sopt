@@ -984,6 +984,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   256), share whose bounding box is exactly N pixels ("compact") + the most common shape; the largest N with >= 75%
   compact = "pixels shaded together". Tiles: aligned B x B squares, B^2 / (max - min + 1). BMPs next to the CSV
   (order gradient; middle 64^2 8x with block colors and lines). CSV config "order".
+  Results per section (owner, 2026-10-04: "hide the run time" by showing each section as it completes): benchkit
+  Progress::start / pause (erases the bar, scale and blank line) / resume (redraws them filled to the current step);
+  OpBench measures in display-order sections (Group: shown tests + bases / solos with the first section needing them;
+  leftovers last; all 3 configs per section, fwd / bwd within the section), graph scale fixed at 100 units; TexBench
+  prints a section when its last test is done (`left` counts; printMatrix / printTable / printWrites / printBlend /
+  printPass). Final summary = GPU box, warnings, footer.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):

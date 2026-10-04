@@ -172,6 +172,8 @@ constexpr int kStepsPerCell = 6;
 constexpr int kMaxCells = 70;
 inline int stepsPerCell(int planned) { return std::max(kStepsPerCell, (planned + kMaxCells - 1) / kMaxCells); }
 
+inline std::string progressScale(int planned);
+
 struct Progress {
   const Style* st;
   int planned = 0;
@@ -190,6 +192,20 @@ struct Progress {
     static const char* const kExtra[6] = {"\x1b[33m▌", "\x1b[33m▌", "\x1b[93m▌",
                                           "\x1b[93;43m▌", "\x1b[93;43m▌", "\x1b[93m█"};
     std::printf("%s%s\x1b[0m", pos == 0 ? "" : "\b", (steps > planned ? kExtra : kCell)[sub]);
+  }
+  // The bar sits under a blank line and the percentage scale ("\n   scale\n   bar"). pause() takes the
+  // three lines off a terminal (elsewhere it ends the bar's line), so a finished section can be printed
+  // where they were; resume() draws them again below it, filled as far as the run got (owner: results
+  // per section while the rest is measured).
+  void start() const {
+    std::printf("\n   %s%s%s\n   ", st->c("\x1b[90m"), progressScale(planned).c_str(), st->reset());
+  }
+  void pause() const { std::printf(st->vt ? "\r\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2K" : "\n"); }
+  void resume() {
+    start();
+    const int done = steps;
+    steps = 0;
+    while (steps < done) step();
   }
 };
 

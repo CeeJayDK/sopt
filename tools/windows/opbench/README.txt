@@ -27,7 +27,7 @@ What it does
 ------------
 It runs small compute shaders on the GPU (Direct3D 11) and times them. Each test repeats one
 instruction pattern in long chains; its cost is reported relative to one multiply-add (4 = one
-fma). Every test runs twice, forward and backward through the list, with a fresh reference right
+fma). Every test runs twice, forward and backward through its section, with a fresh reference right
 before it; a test whose two readings disagree is measured again until most readings agree (up to
 6 times), so a GPU clock change costs a little time instead of giving wrong numbers.
 

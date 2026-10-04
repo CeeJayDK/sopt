@@ -647,9 +647,48 @@ int main(int argc, char** argv) {
   for (const Test* t : tests)
     if (std::strcmp(t->name, "mad") == 0) madTest = t;
   // Warm up (clocks ramp up): two seconds of the reference test.
-  std::printf("%zu tests in three ways, each measured twice (forward, then backward through the list) and more\n"
-              "often when its two readings disagree.\n"
-              "Warming up the GPU for 2 seconds so its clock settles ...", tests.size());
+  // Sections in display order, each with the tests it shows plus the bases and solo tests they need
+  // (measured with the first section that needs them); tests no section shows (bases only) go last.
+  // Each section is shown as soon as it is measured (owner: users can read while the rest runs).
+  struct Group {
+    const char* title = nullptr;
+    std::vector<const char*> shown;
+    std::vector<const Test*> run;
+  };
+  auto find = [&](const char* name) -> const Test* {
+    for (const Test* t : tests)
+      if (name && std::strcmp(t->name, name) == 0) return t;
+    return nullptr;
+  };
+  std::vector<Group> groups(1);
+  std::vector<const Test*> assigned;
+  auto assign = [&](Group& gr, const Test* t, auto& self) -> void {
+    if (!t || std::find(assigned.begin(), assigned.end(), t) != assigned.end()) return;
+    assigned.push_back(t);
+    self(gr, find(t->base), self);
+    if (t->pairStep) self(gr, find(t->solo), self);
+    gr.run.push_back(t);
+  };
+  assign(groups[0], madTest, assign);
+  for (const char* name : kDisplayOrder) {
+    if (name[0] == '#') {
+      if (groups.back().title || !groups.back().shown.empty()) groups.emplace_back();
+      groups.back().title = name + 1;
+    } else if (const Test* t = find(name)) {
+      groups.back().shown.push_back(name);
+      assign(groups.back(), t, assign);
+    }
+  }
+  groups.emplace_back();
+  for (const Test* t : tests) assign(groups.back(), t, assign);
+
+  std::printf("%zu tests, each measured in three ways:\n", tests.size());
+  for (const Config& c : kConfigs)
+    std::printf("  %s%-17s%s %s\n", st.c("\x1b[1;96m"), c.title, st.reset(), c.what);
+  std::printf("Each is measured twice (forward, then backward through its section) and more often when its two\n"
+              "readings disagree. Only the throughput is shown; the CSV has all three. The results appear section\n"
+              "by section while the rest is measured.\n"
+              "Warming up the GPU for 2 seconds so its clock settles ...");
   {
     g.ctx->CSSetShader(shaders["tput"]["mad"], nullptr, 0);
     setConstants(g, *madTest, 256);
@@ -658,63 +697,126 @@ int main(int argc, char** argv) {
   }
   std::printf(" done\n");
 
+  // Section tables: throughput costs, graphs on one fixed scale (sections appear before the largest
+  // cost is known): 100 = 25 mads, longer costs fill the graph.
+  const int cols = consoleColumns();  // the graph shrinks in a narrow window so lines do not wrap
+  constexpr double kGraphMax = 100.0;
+  int nameW = 10;  // the longest name, so the graphs line up
+  for (const char* name : kDisplayOrder)
+    if (name[0] != '#') nameW = std::max(nameW, int(std::strlen(name)));
+  const std::string graphIndent(size_t(2 + nameW + 1 + 6 + 2), ' ');  // where the graphs start
+  // Fixed columns: indent, name, cost, Ops, comment ("expensive") and a note ("3 passes").
+  const int kBarWidth = std::clamp(cols - 1 - (2 + nameW + 1 + 6 + 2 + 2 + 5 + 2 + 10 + 10), 10, 40);
   std::map<std::string, std::map<std::string, Measured>> results;  // config -> test -> result
-  std::map<std::string, double> madDrift;                          // config -> spread of the reference
-  std::map<std::string, double> madNs;                             // config -> mean reference time
-  for (const Config& c : kConfigs) {
-    std::printf("\n%s== %s%s: %d %schain%s per thread, %s threads\n   %s%s%s\n", st.c("\x1b[1;96m"), c.title,
-                st.reset(), c.chains, c.chains > 1 ? "independent " : "", c.chains > 1 ? "s" : "",
-                withCommas(c.groups * kGroupSize).c_str(), st.c("\x1b[90m"), c.what, st.reset());
-    const int planned = 2 * static_cast<int>(tests.size());  // passes 1 and 2 measure every test
-    std::printf("   %s%s%s\n   ", st.c("\x1b[90m"), progressScale(planned).c_str(), st.reset());
-    std::map<std::string, UINT> iters;
-    for (const Test* t : tests) iters[t->name] = calibrate(g, shaders[c.name][t->name], *t, c);
-    std::vector<double> mads;
-    std::map<std::string, Result> sum;
-    Progress progress{&st, planned};
-    // Passes 1 and 2 measure every test (forward, then backward); later passes only the tests whose
-    // readings have no majority yet, alternating the direction.
-    for (int pass = 0; pass < kMaxPasses; ++pass) {
-      std::vector<const Test*> order;
-      for (const Test* t : tests)
-        if (pass < 2 || !consensus(results[c.name][t->name].readings).ok) order.push_back(t);
-      if (order.empty()) break;
-      if (pass % 2 == 1) std::reverse(order.begin(), order.end());
-      for (const Test* t : order) {
-        // A fresh reference right before the test: a clock change moves both.
-        const Result m = measureAt(g, shaders[c.name]["mad"], *madTest, c, iters["mad"], reps);
-        const Result r = t == madTest ? m : measureAt(g, shaders[c.name][t->name], *t, c, iters[t->name], reps);
-        mads.push_back(m.nsPerStep);
-        results[c.name][t->name].readings.push_back(4.0 * r.nsPerStep / m.nsPerStep);
-        Result& acc = sum[t->name];
-        acc.iters = r.iters;
-        acc.ms += r.ms;
-        acc.nsPerStep += r.nsPerStep;
-        progress.step();
+  std::vector<std::string> unstable;
+  auto printSection = [&](const Group& gr) {
+    std::printf("\n  %s%s%s\n  %s%-*s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1;96m"), gr.title, st.reset(), st.c("\x1b[90m"),
+                nameW, "Test", "Cost", kBarWidth, "Graph", "Ops", "Comment", st.reset());
+    for (const char* name : gr.shown) {
+      const Measured& x = results["tput"][name];
+      const Test* self = find(name);
+      // Parallel issue: Cost = one fma and one X together (two chain steps of the pair test); the comment
+      // compares it with the two one after the other (4 for the fma + X measured alone).
+      const bool pair = self->pairStep && results["tput"].count(self->solo);
+      const double together = pair ? 2.0 * x.units.value : 0.0;
+      const double apart = pair ? 4.0 + results["tput"][self->solo].units.value : 0.0;
+      const double v = pair ? together : x.vsBase;
+      Shade shade;
+      const char* comment = costComment(v, &shade);
+      char pairComment[64];
+      if (pair) {
+        const double pct = apart > 0.0 ? 100.0 * together / apart : 100.0;
+        std::snprintf(pairComment, sizeof(pairComment), "%3.0f%% of %.1f: %s", pct, apart,
+                      pct < 85.0 ? "in parallel" : "one after the other");
+        comment = pairComment;
+        shade = pct < 85.0 ? kGreen : kWhite;
+      }
+      const std::string color = st.vt ? "\x1b[" + std::to_string(shade.bright) + "m" : "";
+      const std::string b = bar(std::min(v, kGraphMax), kGraphMax, kBarWidth, st, shade);
+      // A test (or its base) without a majority among its readings, or settled by extra passes.
+      const Measured* base = self->base ? &results["tput"][self->base] : nullptr;
+      const bool shaky = !x.units.ok || (base && !base->units.ok);
+      if (shaky) unstable.push_back(name);
+      std::string note;
+      if (shaky) note = st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus";
+      else if (x.readings.size() > 2)
+        note = std::string("  ") + st.c("\x1b[90m") + std::to_string(x.readings.size()) + " passes" + st.reset();
+      const double shown = std::fabs(v) < 0.05 ? 0.0 : v;  // no "-0.0"
+      const double ops = std::fabs(v / 4.0) < 0.05 ? 0.0 : v / 4.0;
+      std::printf("  %-*s %6.1f  %s  %5.1f  %s%s%s%s\n", nameW, name, shown, b.c_str(), ops, color.c_str(), comment,
+                  st.reset(), note.c_str());
+    }
+    std::printf("%s%s(shorter is better)%s\n", graphIndent.c_str(), st.c("\x1b[90m"), st.reset());
+  };
+
+  std::map<std::string, double> madDrift;                     // config -> spread of the reference
+  std::map<std::string, double> madNs;                        // config -> mean reference time
+  std::map<std::string, std::vector<double>> mads;            // config -> reference readings
+  std::map<std::string, std::map<std::string, UINT>> iters;   // config -> test -> run length
+  std::map<std::string, std::map<std::string, Result>> sums;  // config -> test -> summed readings
+  Progress progress{&st, 2 * static_cast<int>(tests.size() * std::size(kConfigs))};  // passes 1 and 2
+  progress.start();
+  for (const Group& gr : groups) {
+    for (const Config& c : kConfigs) {
+      std::map<std::string, UINT>& it = iters[c.name];
+      if (!it.count("mad")) it["mad"] = calibrate(g, shaders[c.name]["mad"], *madTest, c);
+      for (const Test* t : gr.run)
+        if (!it.count(t->name)) it[t->name] = calibrate(g, shaders[c.name][t->name], *t, c);
+      // Passes 1 and 2 measure every test of the section (forward, then backward); later passes only the
+      // tests whose readings have no majority yet, alternating the direction.
+      for (int pass = 0; pass < kMaxPasses; ++pass) {
+        std::vector<const Test*> order;
+        for (const Test* t : gr.run)
+          if (pass < 2 || !consensus(results[c.name][t->name].readings).ok) order.push_back(t);
+        if (order.empty()) break;
+        if (pass % 2 == 1) std::reverse(order.begin(), order.end());
+        for (const Test* t : order) {
+          // A fresh reference right before the test: a clock change moves both.
+          const Result m = measureAt(g, shaders[c.name]["mad"], *madTest, c, it["mad"], reps);
+          const Result r = t == madTest ? m : measureAt(g, shaders[c.name][t->name], *t, c, it[t->name], reps);
+          mads[c.name].push_back(m.nsPerStep);
+          results[c.name][t->name].readings.push_back(4.0 * r.nsPerStep / m.nsPerStep);
+          Result& acc = sums[c.name][t->name];
+          acc.iters = r.iters;
+          acc.ms += r.ms;
+          acc.nsPerStep += r.nsPerStep;
+          progress.step();
+        }
+      }
+      for (const Test* t : gr.run) {
+        Measured& x = results[c.name][t->name];
+        const double n = double(x.readings.size());
+        x.r = sums[c.name][t->name];
+        x.r.ms /= n;
+        x.r.nsPerStep /= n;
+        x.units = consensus(x.readings);
+      }
+      // Bases are measured in this section or an earlier one.
+      for (const Test* t : gr.run) {
+        Measured& x = results[c.name][t->name];
+        const Measured* b = t->base ? &results[c.name][t->base] : nullptr;
+        x.vsBase = b ? x.units.value - b->units.value : x.units.value;
+        for (int pass = 0; pass < 2; ++pass)
+          x.vsBasePass[pass] = b ? x.readings[size_t(pass)] - b->readings[size_t(pass)] : x.readings[size_t(pass)];
       }
     }
-    for (const Test* t : tests) {
-      Measured& x = results[c.name][t->name];
-      const double n = double(x.readings.size());
-      x.r = sum[t->name];
-      x.r.ms /= n;
-      x.r.nsPerStep /= n;
-      x.units = consensus(x.readings);
+    if (!gr.shown.empty()) {
+      progress.pause();
+      printSection(gr);
+      progress.resume();
     }
-    for (const Test* t : tests) {
-      Measured& x = results[c.name][t->name];
-      const Measured* b = t->base ? &results[c.name][t->base] : nullptr;
-      x.vsBase = b ? x.units.value - b->units.value : x.units.value;
-      for (int pass = 0; pass < 2; ++pass)
-        x.vsBasePass[pass] = b ? x.readings[size_t(pass)] - b->readings[size_t(pass)] : x.readings[size_t(pass)];
-    }
-    const auto [lo, hi] = std::minmax_element(mads.begin(), mads.end());
-    madDrift[c.name] = 100.0 * (*hi - *lo) / median(mads);
-    double mean = 0.0;
-    for (double v : mads) mean += v / double(mads.size());
-    madNs[c.name] = mean;
-    std::printf("\n   reference drift %.1f%%%s\n", madDrift[c.name], madDrift[c.name] > 5.0 ? " (the GPU clock moved)" : "");
   }
+  std::printf("\n\n   reference drift:");
+  for (const Config& c : kConfigs) {
+    const std::vector<double>& v = mads[c.name];
+    const auto [lo, hi] = std::minmax_element(v.begin(), v.end());
+    madDrift[c.name] = 100.0 * (*hi - *lo) / median(v);
+    double mean = 0.0;
+    for (double x : v) mean += x / double(v.size());
+    madNs[c.name] = mean;
+    std::printf(" %s %.1f%%", c.name, madDrift[c.name]);
+  }
+  std::printf("\n");
 
   // CSV: the GPU once in header lines, then one row per configuration and test.
   FILE* csv = std::fopen(outPath.c_str(), "wb");
@@ -742,91 +844,20 @@ int main(int argc, char** argv) {
     }
   std::fclose(csv);
 
-  // Summary: banner, other adapters, throughput costs in the fixed order.
+  // Summary: banner and the GPU (the sections are shown above).
   const double fmaRate = 1.0 / madNs["tput"];  // per ns
   std::printf("\n");
   printBox(st, std::string("OpBench ") + SOPT_VERSION + "  -  " + gpuName);
   std::printf("  driver %s, vendor 0x%04X, device 0x%04X, %.1f TFLOPS fp32 (measured)\n", driver.c_str(), desc.VendorId,
               desc.DeviceId, fmaRate * 2.0 / 1000.0);
   std::printf("  min16float runs at %s\n", half16 ? "16 bits" : "32 bits on this driver (the half precision tests measure fp32)");
-
-  const int cols = consoleColumns();  // the graph shrinks in a narrow window so lines do not wrap
-  double maxV = 0.0;
-  for (const char* name : kDisplayOrder)
-    if (results["tput"].count(name)) maxV = std::max(maxV, results["tput"][name].vsBase);
-  // The name column fits the longest name, so the graphs line up.
-  int nameW = 10;
-  for (const char* name : kDisplayOrder)
-    if (name[0] != '#') nameW = std::max(nameW, int(std::strlen(name)));
-  const std::string graphIndent(size_t(2 + nameW + 1 + 6 + 2), ' ');  // where the graphs start
-  // Fixed columns: indent, name, cost, Ops, comment ("expensive") and a note ("3 passes").
-  const int kBarWidth = std::clamp(cols - 1 - (2 + nameW + 1 + 6 + 2 + 2 + 5 + 2 + 10 + 10), 10, 40);
-  std::printf("\n  %s%-*s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1m"), nameW, "Test", "Cost", kBarWidth, "Graph", "Ops",
-              "Comment", st.reset());
-  std::vector<std::string> unstable;
-  const char* section = nullptr;
-  bool rows = false;  // rows printed since the last "(shorter is better)" note
-  auto betterNote = [&] {
-    if (rows) std::printf("%s%s(shorter is better)%s\n", graphIndent.c_str(), st.c("\x1b[90m"), st.reset());
-    rows = false;
-  };
-  for (const char* name : kDisplayOrder) {
-    if (name[0] == '#') {
-      section = name + 1;
-      continue;
-    }
-    if (!results["tput"].count(name)) continue;
-    if (section) {
-      betterNote();
-      std::printf("\n  %s%s%s\n", st.c("\x1b[1;96m"), section, st.reset());
-      section = nullptr;
-    }
-    rows = true;
-    const Measured& x = results["tput"][name];
-    const Test* self = nullptr;
-    for (const Test* t : tests)
-      if (std::strcmp(t->name, name) == 0) self = t;
-    // Parallel issue: Cost = one fma and one X together (two chain steps of the pair test); the comment
-    // compares it with the two one after the other (4 for the fma + X measured alone).
-    const bool pair = self && self->pairStep && results["tput"].count(self->solo);
-    const double together = pair ? 2.0 * x.units.value : 0.0;
-    const double apart = pair ? 4.0 + results["tput"][self->solo].units.value : 0.0;
-    const double v = pair ? together : x.vsBase;
-    Shade shade;
-    const char* comment = costComment(v, &shade);
-    char pairComment[64];
-    if (pair) {
-      const double pct = apart > 0.0 ? 100.0 * together / apart : 100.0;
-      std::snprintf(pairComment, sizeof(pairComment), "%3.0f%% of %.1f: %s", pct, apart,
-                    pct < 85.0 ? "in parallel" : "one after the other");
-      comment = pairComment;
-      shade = pct < 85.0 ? kGreen : kWhite;
-    }
-    const std::string color = st.vt ? "\x1b[" + std::to_string(shade.bright) + "m" : "";
-    const std::string b = bar(v, maxV, kBarWidth, st, shade);
-    // A test (or its base) without a majority among its readings, or settled by extra passes.
-    const Measured* base = nullptr;
-    for (const Test* t : tests)
-      if (std::strcmp(t->name, name) == 0 && t->base) base = &results["tput"][t->base];
-    const bool shaky = !x.units.ok || (base && !base->units.ok);
-    if (shaky) unstable.push_back(name);
-    std::string note;
-    if (shaky) note = st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus";
-    else if (x.readings.size() > 2)
-      note = std::string("  ") + st.c("\x1b[90m") + std::to_string(x.readings.size()) + " passes" + st.reset();
-    const double shown = std::fabs(v) < 0.05 ? 0.0 : v;  // no "-0.0"
-    const double ops = std::fabs(v / 4.0) < 0.05 ? 0.0 : v / 4.0;
-    std::printf("  %-*s %6.1f  %s  %5.1f  %s%s%s%s\n", nameW, name, shown, b.c_str(), ops, color.c_str(), comment,
-                st.reset(), note.c_str());
-  }
-  betterNote();
   // How to read the summary, for people who are not programmers (owner's wording review, 2026-10-04).
   std::printf("\n  %sHow to read this%s\n"
               "  Cost    How long the operation takes, compared with the simplest thing a GPU does:\n"
               "          a multiply-add, which counts as 4. The rest of the test is already subtracted.\n"
               "  Ops     Operations: the cost counted in multiply-adds.\n"
               "          2.0 means \"takes as long as two multiply-adds\".\n"
-              "  Graph   Longer bar = slower. Free operations have no bar.\n"
+              "  Graph   Longer bar = slower. Free operations have no bar; a full bar is 25 multiply-adds or more.\n"
               "\n"
               "  The numbers show how fast the GPU is when it is fully busy (as in a game).\n"
               "  TESTS.txt, next to this program, explains every test in plain words.\n",
