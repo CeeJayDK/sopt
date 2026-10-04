@@ -575,6 +575,9 @@ int main(int argc, char** argv) {
   }
 
   std::map<std::string, std::map<std::string, ID3D11ComputeShader*>> shaders;
+  std::printf("\n");
+  CompileCounter compiling{&st, std::size(kConfigs) * tests.size()};
+  compiling.start();
   for (const Config& c : kConfigs)
     for (const Test* t : tests) {
       const std::string src = shaderSource(*t, c.chains);
@@ -600,13 +603,15 @@ int main(int argc, char** argv) {
         fail(std::string("cannot create test ") + t->name);
       code->Release();
       shaders[c.name][t->name] = cs;
+      compiling.step();
     }
+  compiling.finish();
 
   const Test* madTest = nullptr;
   for (const Test* t : tests)
     if (std::strcmp(t->name, "mad") == 0) madTest = t;
   // Warm up (clocks ramp up): two seconds of the reference test.
-  std::printf("\n%zu tests in three ways, each measured twice (forward, then backward through the list) and more\n"
+  std::printf("%zu tests in three ways, each measured twice (forward, then backward through the list) and more\n"
               "often when its two readings disagree.\n"
               "Warming up the GPU for 2 seconds so its clock settles ...", tests.size());
   {

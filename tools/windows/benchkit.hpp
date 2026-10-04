@@ -226,6 +226,19 @@ inline int columns(const std::string& s) {
   return n;
 }
 
+// "Compiling N shaders ... k / N": the shaders compile before any measuring (D3DCompile -O3 takes a while
+// for hundreds of them), counted in place on a terminal.
+struct CompileCounter {
+  const Style* st;
+  size_t total = 0, done = 0;
+  void start() { std::printf("Compiling %zu shaders ...", total); }
+  void step() {
+    ++done;
+    if (st->vt && (done % 8 == 0 || done == total)) std::printf("\rCompiling %zu shaders ... %zu", total, done);
+  }
+  void finish() { std::printf(st->vt ? "\rCompiling %zu shaders ... done\x1b[K\n" : " done\n", total); }
+};
+
 // The console window's width in characters (120 when the output is not a console), so summary lines
 // can be fitted to it instead of wrapping.
 inline int consoleColumns() {

@@ -103,35 +103,44 @@ uint16_t toHalf(float v) {
   return uint16_t((e << 10) | ((b >> 13) & 0x3FF));
 }
 
-// Texel data: values in [0, 1) for float formats (no NaN / Inf), random bits otherwise.
+// Texel data: values in [0, 1) for float formats (no NaN / Inf), random bits otherwise. A splitmix64
+// generator seeded from rng: filling the 256 MB textures with mt19937 and uniform_real_distribution took
+// seconds on slower CPUs.
 std::vector<uint8_t> texelData(const Format& f, size_t texels, std::mt19937& rng) {
   std::vector<uint8_t> d(texels * size_t(f.bytes));
-  std::uniform_real_distribution<float> u01(0.0f, 0.999f);
+  uint64_t state = (uint64_t(rng()) << 32) | rng();
+  auto next = [&state] {
+    uint64_t z = (state += 0x9e3779b97f4a7c15ull);
+    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ull;
+    z = (z ^ (z >> 27)) * 0x94d049bb133111ebull;
+    return z ^ (z >> 31);
+  };
+  auto u01 = [&] { return float(next() >> 40) * (0.999f / 16777216.0f); };  // [0, 0.999)
   switch (f.kind) {
     case 'h':
       for (size_t k = 0; k < d.size() / 2; ++k) {
-        const uint16_t h = toHalf(u01(rng));
+        const uint16_t h = toHalf(u01());
         std::memcpy(&d[k * 2], &h, 2);
       }
       break;
     case 'f':
       for (size_t k = 0; k < d.size() / 4; ++k) {
-        const float v = u01(rng);
+        const float v = u01();
         std::memcpy(&d[k * 4], &v, 4);
       }
       break;
     case 'r':  // 11 / 11 / 10-bit floats below 1: exponent 0..14, random mantissa
       for (size_t k = 0; k < texels; ++k) {
-        const uint32_t r = uint32_t(rng());
+        const uint32_t r = uint32_t(next());
         auto f11 = [&](uint32_t bits, int mant) { return ((bits % 15u) << mant) | ((bits >> 4) & ((1u << mant) - 1)); };
         const uint32_t v = f11(r, 6) | (f11(r >> 10, 6) << 11) | (f11(r >> 20, 5) << 22);
         std::memcpy(&d[k * 4], &v, 4);
       }
       break;
     default:
-      for (size_t k = 0; k < d.size(); k += 4) {
-        const uint32_t r = uint32_t(rng());
-        std::memcpy(&d[k], &r, std::min<size_t>(4, d.size() - k));
+      for (size_t k = 0; k < d.size(); k += 8) {
+        const uint64_t r = next();
+        std::memcpy(&d[k], &r, std::min<size_t>(8, d.size() - k));
       }
   }
   return d;
@@ -928,24 +937,43 @@ struct Result {
   double nsPerStep = 0.0;
 };
 
-UINT calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
-  UINT iters = 2;
-  for (;;) {
-    setConstants(g, t, iters, t.size);
-    if (run(g, k, groups) >= 2.0 || iters >= (1u << 20)) return iters;
-    iters *= 2;
+// How long one timed run is: iterations of the loop, and thread groups (compute).
+struct Plan {
+  UINT iters = 1;
+  UINT groups = 1;
+};
+
+// A run of >= 2 ms. Slow tests on slow GPUs (random reads on an iGPU) took far longer than that even at one
+// iteration, and every reading repeats the run: then fewer thread groups, down to kMinGroups (64K threads,
+// still enough to fill a GPU).
+constexpr UINT kMinGroups = 1024;
+Plan calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
+  Plan p;
+  p.groups = groups;
+  setConstants(g, t, p.iters, t.size);
+  double ms = run(g, k, p.groups);
+  while (k.cs && ms > 8.0 && p.groups > kMinGroups) {
+    p.groups = std::max(kMinGroups, p.groups / 2);
+    ms = run(g, k, p.groups);
   }
+  while (ms < 2.0 && p.iters < (1u << 20)) {
+    p.iters *= 2;
+    setConstants(g, t, p.iters, t.size);
+    ms = run(g, k, p.groups);
+  }
+  return p;
 }
 
-Result measureAt(Gpu& g, const Test& t, const Kernel& k, const Config& c, UINT iters, int reps) {
+Result measureAt(Gpu& g, const Test& t, const Kernel& k, const Config& c, const Plan& p, int reps) {
+  const UINT iters = p.iters;
   setConstants(g, t, iters, t.size);
   std::vector<double> runs;
   for (int n = 0; n < reps * 3 && int(runs.size()) < reps; ++n)
-    if (const double m = run(g, k, c.groups); m > 0.0) runs.push_back(m);
+    if (const double m = run(g, k, p.groups); m > 0.0) runs.push_back(m);
   Result r;
   r.iters = iters;
   r.ms = median(runs);
-  const double threads = k.cs ? double(c.groups) * kGroupSize : double(kPsSize) * kPsSize;
+  const double threads = k.cs ? double(p.groups) * kGroupSize : double(kPsSize) * kPsSize;
   r.nsPerStep = r.ms * 1e6 / (double(iters) * kUnroll * threads * c.chains);
   return r;
 }
@@ -1153,8 +1181,12 @@ int main(int argc, char** argv) {
   size_t planned = 0;
   for (const Test* t : tests) planned += t->stage == Stage::Compute ? 2 * 3 : t->stage == Stage::Pixel ? 2 * 2 : 2;
   std::printf("\n%zu tests, each read at least twice (more often when the readings disagree), each against the\n"
-              "reference mad measured right before it. Warming up the GPU for 2 seconds ...",
+              "reference mad measured right before it.\n",
               tests.size());
+  CompileCounter compiling{&st};
+  for (const Test* t : tests)
+    if (t->stage == Stage::Compute || t->stage == Stage::Pixel) compiling.total += t->stage == Stage::Compute ? 3 : 2;
+  compiling.start();
   std::mt19937 rng(12345);
 
   // Compile every compute / pixel test for its configurations.
@@ -1178,8 +1210,11 @@ int main(int argc, char** argv) {
         code->Release();
       }
       kernels[t->name][c.name] = k;
+      compiling.step();
     }
   }
+  compiling.finish();
+  std::printf("Warming up the GPU for 2 seconds ...");
   // Warm up with the compute reference.
   {
     Bound none = bindResources(g, *byName("mad"), rng);
@@ -1194,7 +1229,7 @@ int main(int argc, char** argv) {
   Progress progress{&st, int(planned)};
 
   std::map<std::string, std::map<std::string, Measured>> results;  // config -> test -> result
-  std::map<std::string, std::map<std::string, UINT>> iters;        // config -> test -> iterations
+  std::map<std::string, std::map<std::string, Plan>> iters;        // config -> test -> run length
   std::map<std::string, std::vector<double>> writeReadings;
   std::map<std::string, Consensus> writeUnits;
   std::map<std::string, double> writeMs;

@@ -951,6 +951,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   32.0.15.6614: 4.0): with the RTX 2060 (32.0.16.2002: 1.05) the third card where a 32.0.16 driver makes the
   xor + and one instruction: a driver improvement, not hardware. measure-all.bat (owner): OpBench, then
   TexBench, no pause in between, pause at the end (tools artifact / zip).
+  Run time (owner: TexBench "takes forever" on the UHD 630): calibrate (Plan) starts at one iteration and, when a
+  compute run still takes > 8 ms, halves the thread groups down to kMinGroups (1024 = 64K threads); texelData uses
+  splitmix64 instead of mt19937 + uniform_real_distribution; "Compiling N shaders ... k" before "Warming up"
+  (TexBench compiled its ~1000 shaders after printing the 2-second warm-up message; OpBench gets the counter too).
   Owner's ideas (2026-10-04, not decided): expected costs per cost model built into
   OpBench / TexBench, telling the user when their card does not match its model ("your report is very
   interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs
