@@ -1461,7 +1461,7 @@ int main(int argc, char** argv) {
     return false;
   };
   for (const Test& t : all)
-    if ((filter.empty() || t.name.find(filter) != std::string::npos || t.section.empty() || t.name == "mad" || t.name == "ps.mad") &&
+    if ((filter.empty() || t.name.find(filter) != std::string::npos || t.name == "mad" || t.name == "ps.mad") &&
         storageOk(t))
       tests.push_back(&t);
   if (!unsupported.empty()) std::printf("Not supported by this GPU, left out: %s\n", unsupported.c_str());
