@@ -180,3 +180,13 @@ moved (drift) in each mode. Then one row per mode and test:
   passes, consensus, readings   how many passes the test needed, whether most readings agreed,
                  and every reading (units, ';'-separated)
   step           the HLSL step, note: what it is about
+
+OpBench score (at the end)
+  fp32               TFLOPS from the reference multiply-add (2 floating point operations each).
+  fp16 (min16float)  TFLOPS of the half precision multiply-add ("runs at fp32" when the driver does not
+                     run min16float at 16 bits).
+  Special functions  rcp per second (Gops/s); sqrt, exp2, sin and the like usually run at the same rate.
+  The fp32 number is the one GPU spec lists give ("processing power"); measured ones are usually a bit
+  lower, or higher when the GPU boosts above its listed clock.
+
+The CSV is written again after every section, so a run stopped early still leaves its results.

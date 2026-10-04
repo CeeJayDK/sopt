@@ -149,3 +149,15 @@ Pixel shader order: which pixels the GPU shades together (not a timing)
   Images (next to the CSV): texbench-<GPU>-order.bmp, the whole order from blue (first) to red
   (last); texbench-<GPU>-order-zoom.bmp, the middle 64 x 64 pixels 8x enlarged, one color per block
   of the size found, black lines between blocks, darker lines between 2 x 2 quads.
+  Speed: the same draw timed plain, with the store alone and with the counter and the store. The
+  cost per pixel over the plain draw shows what one shared counter costs when every pixel uses it
+  (they have to take turns).
+
+TexBench score (at the end)
+  Texture rate      bilinear RGBA8 reads per second (GTexels/s): the whole read step, because the
+                    coordinate math runs beside the texture units when they are the limit.
+  Pixel fill rate   the fastest render target write, in pixels per second (GPixels/s).
+  Memory bandwidth  the fastest write of noise (cannot be compressed), GB/s.
+  These are the numbers GPU spec lists give; measured ones are usually a bit lower.
+
+The CSV is written again after every section, so a run stopped early still leaves its results.

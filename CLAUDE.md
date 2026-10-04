@@ -990,6 +990,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   leftovers last; all 3 configs per section, fwd / bwd within the section), graph scale fixed at 100 units; TexBench
   prints a section when its last test is done (`left` counts; printMatrix / printTable / printWrites / printBlend /
   printPass). Final summary = GPU box, warnings, footer.
+  Score boxes (owner, 2026-10-04: "a number users can brag about", spec-list units): benchkit printScore (double-line
+  cyan box, headline in large yellow block digits, bigNumber / threeDigits / visibleColumns). OpBench: fp32 TFLOPS
+  (mean reference fma), fp16 TFLOPS (mad16, only with 16-bit min precision), special functions Gops/s (rcp step).
+  TexBench: texture rate GTexels/s (RGBA8 bilinear whole step time: tex and ALU overlap, so vsBase understates the
+  texture time; spec-like), pixel fill rate (max write GB/s / bytes), memory bandwidth (max noise write). Also as
+  "#" CSV header lines. CSV rewritten at every section display (GPU idle then; owner: not during measurements).
+  Pixel shader order timed too (owner): plain / store / counter + store draws, units per pixel over plain.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):

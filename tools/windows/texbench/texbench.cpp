@@ -1078,6 +1078,9 @@ struct OrderResult {
   UINT together = 0;                           // the largest W with >= 75% compact blocks
   std::string togetherShape;
   std::string image, zoom;
+  // Timing (owner: benchmark it too): one draw of 1024 x 1024 plain, with the store alone, and with the
+  // counter and the store; ms per draw and the cost per pixel over the plain draw (4 = one fma).
+  double plainMs = 0.0, storeMs = 0.0, orderMs = 0.0, storeUnits = 0.0, orderUnits = 0.0;
 };
 
 // 24-bit BMP, rows bottom-up, rgb[y][x] = 0xRRGGBB.
@@ -1133,17 +1136,17 @@ uint32_t hashColor(uint32_t v) {
   return (v | 0x404040u) & 0xffffffu;  // not too dark
 }
 
-OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::string& imageBase) {
+OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::string& imageBase, double refNs, int reps) {
   OrderResult res;
   const UINT n = kOrderSize;
   ID3D11Texture2D *rt = nullptr, *ord = nullptr, *ordRead = nullptr;
   ID3D11RenderTargetView* rtv = nullptr;
   ID3D11Buffer *cnt = nullptr, *cntRead = nullptr;
   ID3D11UnorderedAccessView *ordUav = nullptr, *cntUav = nullptr;
-  ID3D11PixelShader* ps = nullptr;
+  ID3D11PixelShader *ps = nullptr, *psPlain = nullptr, *psStore = nullptr;
   auto cleanup = [&]() {
     release(rt), release(ord), release(ordRead), release(rtv), release(cnt), release(cntRead), release(ordUav),
-        release(cntUav), release(ps);
+        release(cntUav), release(ps), release(psPlain), release(psStore);
   };
   D3D11_TEXTURE2D_DESC td = {};
   td.Width = td.Height = n;
@@ -1185,6 +1188,15 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
     return res;
   }
   code->Release();
+  const char* const plainSrc[2] = {
+      "RWTexture2D<uint> ORD : register(u2);\nfloat4 main(float4 pos : SV_Position) : SV_Target\n{\n  return 0.0;\n}\n",
+      "RWTexture2D<uint> ORD : register(u2);\nfloat4 main(float4 pos : SV_Position) : SV_Target\n{\n"
+      "  ORD[uint2(pos.xy)] = uint(pos.x) ^ uint(pos.y);\n  return 0.0;\n}\n"};
+  for (int k = 0; k < 2; ++k) {
+    code = compile(plainSrc[k], k ? "order store" : "order plain", "ps_5_0");
+    g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, k ? &psStore : &psPlain);
+    code->Release();
+  }
 
   D3D11_VIEWPORT vp = {0.0f, 0.0f, float(n), float(n), 0.0f, 1.0f};
   g.ctx->RSSetViewports(1, &vp);
@@ -1202,6 +1214,29 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
   g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &nullRtv, nullptr, 1, 0, nullptr, nullptr);
   g.ctx->CopyResource(ordRead, ord);
   g.ctx->CopyResource(cntRead, cnt);
+  // Timing: draws in a row until a run takes >= 2 ms, the median of reps runs.
+  g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &rtv, nullptr, 1, 2, uavs, nullptr);
+  auto timeShader = [&](ID3D11PixelShader* p) {
+    g.ctx->PSSetShader(p, nullptr, 0);
+    auto timeDraws = [&](UINT k) {
+      return g.timer.time(g.ctx, [&] {
+        for (UINT i = 0; i < k; ++i) g.ctx->Draw(3, 0);
+      });
+    };
+    UINT draws = 1;
+    while (draws < 4096 && timeDraws(draws) < 2.0) draws *= 2;
+    std::vector<double> runs;
+    for (int k = 0; k < reps * 3 && int(runs.size()) < reps; ++k)
+      if (const double m = timeDraws(draws); m > 0.0) runs.push_back(m / draws);
+    return median(runs);
+  };
+  res.plainMs = timeShader(psPlain);
+  res.storeMs = timeShader(psStore);
+  res.orderMs = timeShader(ps);
+  g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &nullRtv, nullptr, 1, 0, nullptr, nullptr);
+  auto units = [&](double ms) { return refNs > 0.0 ? 4.0 * (ms - res.plainMs) * 1e6 / (double(n) * n) / refNs : 0.0; };
+  res.storeUnits = units(res.storeMs);
+  res.orderUnits = units(res.orderMs);
   std::vector<uint32_t> o(size_t(n) * n);
   D3D11_MAPPED_SUBRESOURCE m;
   if (SUCCEEDED(g.ctx->Map(cntRead, 0, D3D11_MAP_READ, 0, &m))) {
@@ -1701,6 +1736,92 @@ int main(int argc, char** argv) {
     timed = next;
     mark = now;
   };
+  // Score (owner: a number to show others, in the units GPU spec lists use): texture rate = bilinear RGBA8
+  // reads per second (the whole read step's time: when the texture units are the limit, the coordinate
+  // math runs beside them), pixel fill rate = the fastest render target write in pixels per second, memory
+  // bandwidth = the fastest write of noise (cannot be compressed) in GB/s.
+  struct Score {
+    double texRate = 0.0, fill = 0.0, bandwidth = 0.0;
+  };
+  auto score = [&] {
+    Score sc;
+    if (results["tput"].count("RGBA8 bilinear") && results["tput"]["RGBA8 bilinear"].r.nsPerStep > 0.0)
+      sc.texRate = 1.0 / results["tput"]["RGBA8 bilinear"].r.nsPerStep;  // per ns = G per s
+    for (const Test* t : tests)
+      if (t->stage == Stage::Write && writeUnits.count(t->name)) {
+        sc.fill = std::max(sc.fill, writeUnits[t->name].value / t->format->bytes);
+        if (t->write == 1) sc.bandwidth = std::max(sc.bandwidth, writeUnits[t->name].value);
+      }
+    return sc;
+  };
+  // CSV: written again whenever a section is shown (between measurements, the GPU idle) and at the end,
+  // so a run stopped early still leaves its results.
+  OrderResult order;
+  auto writeCsv = [&] {
+    const double runSeconds = std::chrono::duration<double>(Clock::now() - runStart).count();
+    double drift = 0.0;
+    if (!refs.empty()) {
+      const auto [lo, hi] = std::minmax_element(refs.begin(), refs.end());
+      drift = 100.0 * (*hi - *lo) / median(refs);
+    }
+  FILE* csv = std::fopen(outPath.c_str(), "wb");
+  if (!csv) return;
+  std::fprintf(csv, "# TexBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n# reference drift: %.2f%%\n# run time: %.0f s\n",
+               SOPT_VERSION, ad.name.c_str(), ad.desc.VendorId, ad.desc.DeviceId, ad.driver.c_str(), drift, runSeconds);
+  const Score sc = score();
+  std::fprintf(csv, "# texture rate: %.1f GTexels/s\n# pixel fill rate: %.1f GPixels/s\n# memory bandwidth (writes): %.1f GB/s\n",
+               sc.texRate, sc.fill, sc.bandwidth);
+  std::fprintf(csv, "config,test,section,base,iters,ms,ns_per_step,units,units_vs_base,passes,consensus,readings,step,note,seconds\n");
+  auto readingsText = [](const std::vector<double>& v) {
+    std::string s;
+    for (double r : v) {
+      char buf[32];
+      std::snprintf(buf, sizeof(buf), "%s%.3f", s.empty() ? "" : ";", r);
+      s += buf;
+    }
+    return s;
+  };
+  for (const Config& c : kConfigs)
+    for (const Test* t : tests) {
+      if (!results[c.name].count(t->name)) continue;
+      const Measured& x = results[c.name][t->name];
+      std::fprintf(csv, "%s,\"%s\",\"%s\",%s,%u,%.4f,%.6f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\",%.2f\n", c.name, t->name.c_str(),
+                   t->section.c_str(), t->base.c_str(), x.r.iters, x.r.ms, x.r.nsPerStep, x.units.value, x.vsBase,
+                   x.readings.size(), x.units.ok ? "yes" : "no", readingsText(x.readings).c_str(), t->step.c_str(),
+                   t->note.c_str(), seconds[t->name]);
+    }
+  for (const Test* t : tests)
+    if (t->stage == Stage::Write && writeUnits.count(t->name))
+      std::fprintf(csv, "write,\"%s\",\"%s\",,,%.4f,,%.3f,,%zu,%s,%s,\"GB/s, %u x %u\",\"\",%.2f\n", t->name.c_str(),
+                   t->section.c_str(), writeMs[t->name], writeUnits[t->name].value, writeReadings[t->name].size(),
+                   writeUnits[t->name].ok ? "yes" : "no", readingsText(writeReadings[t->name]).c_str(), kRtW, kRtH,
+                   seconds[t->name]);
+  for (const Test* t : tests)
+    if (t->stage == Stage::Pass && passMs.count(t->name))
+      std::fprintf(csv, "pass,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"%s\",%.2f\n", t->name.c_str(),
+                   t->section.c_str(), passMs[t->name].value, passMs[t->name].value, passReadings[t->name].size(),
+                   passMs[t->name].ok ? "yes" : "no", readingsText(passReadings[t->name]).c_str(), kRtW, kRtH, t->note.c_str(),
+                   seconds[t->name]);
+  for (const Test* t : tests)
+    if (t->stage == Stage::Blend && blendMs.count(t->name))
+      std::fprintf(csv, "blend,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"\",%.2f\n", t->name.c_str(),
+                   t->section.c_str(), blendMs[t->name].value, blendMs[t->name].value, blendReadings[t->name].size(),
+                   blendMs[t->name].ok ? "yes" : "no", readingsText(blendReadings[t->name]).c_str(), kRtW, kRtH,
+                   seconds[t->name]);
+  if (order.ran) {
+    for (const auto& b : order.blocks)
+      std::fprintf(csv, "order,\"block %u\",\"Pixel shader order\",,,,,%.4f,,,,,,\"compact fraction; most common shape %s\",\n", b.w,
+                   b.compact, b.shape.c_str());
+    for (const auto& [b, c] : order.tiles)
+      std::fprintf(csv, "order,\"tile %u\",\"Pixel shader order\",,,,,%.4f,,,,,,\"contiguity of aligned squares\",\n", b, c);
+    std::fprintf(csv, "order,\"plain draw\",\"Pixel shader order\",,,%.4f,,,,,,,,\"ms per 1024 x 1024 draw\",\n", order.plainMs);
+    std::fprintf(csv, "order,\"store\",\"Pixel shader order\",plain draw,,%.4f,,,%.3f,,,,,\"ms per draw; units per pixel over the plain draw\",\n",
+                 order.storeMs, order.storeUnits);
+    std::fprintf(csv, "order,\"counter + store\",\"Pixel shader order\",plain draw,,%.4f,,,%.3f,,,,,\"one atomic add on one address per pixel\",\n",
+                 order.orderMs, order.orderUnits);
+  }
+  std::fclose(csv);
+  };
   auto measure = [&](const Test* t) {
     if (t->stage == Stage::Pass) {
       std::vector<ID3D11Texture2D*> rts;
@@ -1978,6 +2099,7 @@ int main(int argc, char** argv) {
     if (--left[t->section] == 0 && !t->section.empty()) {
       progress.pause();
       printSection(t->section);
+      writeCsv();
       progress.resume();
     }
   }
@@ -1987,61 +2109,11 @@ int main(int argc, char** argv) {
   const double drift = refs.empty() ? 0.0 : 100.0 * (*hi - *lo) / median(refs);
   std::printf("\n   reference drift %.1f%%%s\n", drift, drift > 5.0 ? " (the GPU clock moved)" : "");
   // Pixel shader order (not a timing: one draw, read back).
-  OrderResult order;
   if (filter.empty() || std::string("Pixel shader order").find(filter) != std::string::npos)
-    order = runOrder(g, dxbcDir, (std::filesystem::path(outPath).parent_path() /
-                                  std::filesystem::path(outPath).stem()).string());
+    order = runOrder(g, dxbcDir, (std::filesystem::path(outPath).parent_path() / std::filesystem::path(outPath).stem()).string(),
+                     refs.empty() ? 0.0 : median(refs), reps);
 
-  // CSV
-  FILE* csv = std::fopen(outPath.c_str(), "wb");
-  if (!csv) fail("cannot write " + outPath);
-  std::fprintf(csv, "# TexBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n# reference drift: %.2f%%\n# run time: %.0f s\n",
-               SOPT_VERSION, ad.name.c_str(), ad.desc.VendorId, ad.desc.DeviceId, ad.driver.c_str(), drift, runSeconds);
-  std::fprintf(csv, "config,test,section,base,iters,ms,ns_per_step,units,units_vs_base,passes,consensus,readings,step,note,seconds\n");
-  auto readingsText = [](const std::vector<double>& v) {
-    std::string s;
-    for (double r : v) {
-      char buf[32];
-      std::snprintf(buf, sizeof(buf), "%s%.3f", s.empty() ? "" : ";", r);
-      s += buf;
-    }
-    return s;
-  };
-  for (const Config& c : kConfigs)
-    for (const Test* t : tests) {
-      if (!results[c.name].count(t->name)) continue;
-      const Measured& x = results[c.name][t->name];
-      std::fprintf(csv, "%s,\"%s\",\"%s\",%s,%u,%.4f,%.6f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\",%.2f\n", c.name, t->name.c_str(),
-                   t->section.c_str(), t->base.c_str(), x.r.iters, x.r.ms, x.r.nsPerStep, x.units.value, x.vsBase,
-                   x.readings.size(), x.units.ok ? "yes" : "no", readingsText(x.readings).c_str(), t->step.c_str(),
-                   t->note.c_str(), seconds[t->name]);
-    }
-  for (const Test* t : tests)
-    if (t->stage == Stage::Write)
-      std::fprintf(csv, "write,\"%s\",\"%s\",,,%.4f,,%.3f,,%zu,%s,%s,\"GB/s, %u x %u\",\"\",%.2f\n", t->name.c_str(),
-                   t->section.c_str(), writeMs[t->name], writeUnits[t->name].value, writeReadings[t->name].size(),
-                   writeUnits[t->name].ok ? "yes" : "no", readingsText(writeReadings[t->name]).c_str(), kRtW, kRtH,
-                   seconds[t->name]);
-  for (const Test* t : tests)
-    if (t->stage == Stage::Pass)
-      std::fprintf(csv, "pass,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"%s\",%.2f\n", t->name.c_str(),
-                   t->section.c_str(), passMs[t->name].value, passMs[t->name].value, passReadings[t->name].size(),
-                   passMs[t->name].ok ? "yes" : "no", readingsText(passReadings[t->name]).c_str(), kRtW, kRtH, t->note.c_str(),
-                   seconds[t->name]);
-  for (const Test* t : tests)
-    if (t->stage == Stage::Blend)
-      std::fprintf(csv, "blend,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"\",%.2f\n", t->name.c_str(),
-                   t->section.c_str(), blendMs[t->name].value, blendMs[t->name].value, blendReadings[t->name].size(),
-                   blendMs[t->name].ok ? "yes" : "no", readingsText(blendReadings[t->name]).c_str(), kRtW, kRtH,
-                   seconds[t->name]);
-  if (order.ran) {
-    for (const auto& b : order.blocks)
-      std::fprintf(csv, "order,\"block %u\",\"Pixel shader order\",,,,,%.4f,,,,,,\"compact fraction; most common shape %s\",\n", b.w,
-                   b.compact, b.shape.c_str());
-    for (const auto& [b, c] : order.tiles)
-      std::fprintf(csv, "order,\"tile %u\",\"Pixel shader order\",,,,,%.4f,,,,,,\"contiguity of aligned squares\",\n", b, c);
-  }
-  std::fclose(csv);
+  writeCsv();
 
   // Summary
   std::printf("\n");
@@ -2064,6 +2136,10 @@ int main(int argc, char** argv) {
     }
     if (order.together)
       std::printf("  Pixels shaded together: blocks of %u (%s).\n", order.together, order.togetherShape.c_str());
+    std::printf("  Speed (1024 x 1024 draw): plain %.3f ms, with the store %.3f ms, with the counter and the store %.3f ms\n"
+                "  Cost per pixel over the plain draw: store %.1f, counter + store %.1f (4 = one multiply-add; every\n"
+                "  pixel adds 1 to the same counter, so they have to take turns)\n",
+                order.plainMs, order.storeMs, order.orderMs, order.storeUnits, order.orderUnits);
     if (order.counter != UINT64(kOrderSize) * kOrderSize || order.missing)
       std::printf("  %sNote:%s counter %llu, %llu pixels without a number.\n", st.c("\x1b[1;93m"), st.reset(),
                   (unsigned long long)order.counter, (unsigned long long)order.missing);
@@ -2094,5 +2170,11 @@ int main(int argc, char** argv) {
     std::printf("\n");
   }
   std::printf("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
+  if (const Score sc = score(); sc.texRate > 0.0) {
+    std::vector<std::pair<std::string, std::string>> more;
+    if (sc.fill > 0.0) more.push_back({"Pixel fill rate", threeDigits(sc.fill) + " GPixels/s"});
+    if (sc.bandwidth > 0.0) more.push_back({"Memory bandwidth (writes)", threeDigits(sc.bandwidth) + " GB/s"});
+    printScore(st, "TexBench score", ad.name, ad.desc.VendorId, sc.texRate, "GTexels/s", "texture rate, bilinear RGBA8", more);
+  }
   return 0;
 }

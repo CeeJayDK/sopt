@@ -278,6 +278,77 @@ inline void printBox(const Style& st, const std::string& title) {
   std::printf("  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "╚" : "+", line.c_str(), st.vt ? "╝" : "+", st.reset());
 }
 
+// Display width of a line that may hold color codes.
+inline int visibleColumns(const std::string& s) {
+  int n = 0;
+  for (size_t i = 0; i < s.size(); ++i) {
+    if (s[i] == '\x1b') {
+      while (i < s.size() && !std::isalpha(static_cast<unsigned char>(s[i]))) ++i;
+      continue;
+    }
+    n += (static_cast<unsigned char>(s[i]) & 0xC0) != 0x80;
+  }
+  return n;
+}
+
+// A number in large digits, 3 rows of full / half blocks (the characters the progress bars use).
+inline std::vector<std::string> bigNumber(const std::string& text) {
+  static const char* const kDigit[10][3] = {
+      {"█▀█", "█ █", "█▄█"}, {"▄█ ", " █ ", "▄█▄"}, {"▀▀█", "█▀▀", "█▄▄"}, {"▀▀█", " ▀█", "▄▄█"}, {"█ █", "▀▀█", "  █"},
+      {"█▀▀", "▀▀█", "▄▄█"}, {"█▀▀", "█▀█", "█▄█"}, {"▀▀█", "  █", "  █"}, {"█▀█", "█▀█", "█▄█"}, {"█▀█", "▀▀█", "▄▄█"}};
+  std::vector<std::string> rows(3);
+  for (char ch : text)
+    for (int r = 0; r < 3; ++r) {
+      if (ch >= '0' && ch <= '9') rows[r] += std::string(kDigit[ch - '0'][r]) + " ";
+      else if (ch == '.') rows[r] += r == 2 ? "▄ " : "  ";
+      else rows[r] += "  ";
+    }
+  return rows;
+}
+
+// A value with three significant digits ("5.03", "48.7", "157").
+inline std::string threeDigits(double v) {
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), v < 9.995 ? "%.2f" : v < 99.95 ? "%.1f" : "%.0f", v);
+  return buf;
+}
+
+inline const char* vendorColor(const Style& st, UINT vendor);
+
+// The score box at the end of a run (owner, 2026-10-04: a number users can show others, jazzed up):
+// a title, the headline value in large yellow digits with its unit beside them, then more values.
+inline void printScore(const Style& st, const std::string& title, const std::string& gpu, UINT vendor, double headline,
+                       const std::string& unit, const std::string& what,
+                       const std::vector<std::pair<std::string, std::string>>& more) {
+  const std::string value = threeDigits(headline);
+  if (!st.vt) {
+    std::printf("\n  %s - %s\n  %s %s (%s)\n", title.c_str(), gpu.c_str(), value.c_str(), unit.c_str(), what.c_str());
+    for (const auto& [k, v] : more) std::printf("  %-26s %s\n", k.c_str(), v.c_str());
+    return;
+  }
+  std::vector<std::string> lines;
+  lines.push_back(std::string("\x1b[1;97m") + title + "\x1b[0m   " + vendorColor(st, vendor) + gpu + "\x1b[0m");
+  lines.emplace_back();
+  const std::vector<std::string> big = bigNumber(value);
+  lines.push_back("\x1b[1;93m" + big[0] + "\x1b[0m");
+  lines.push_back("\x1b[1;93m" + big[1] + "\x1b[0m  \x1b[1;97m" + unit + "\x1b[0m");
+  lines.push_back("\x1b[1;93m" + big[2] + "\x1b[0m  \x1b[90m" + what + "\x1b[0m");
+  if (!more.empty()) lines.emplace_back();
+  for (const auto& [k, v] : more) {
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "%-26s \x1b[1;97m%s\x1b[0m", k.c_str(), v.c_str());
+    lines.push_back(buf);
+  }
+  int width = 0;
+  for (const std::string& l : lines) width = std::max(width, visibleColumns(l));
+  std::string hz;
+  for (int k = 0; k < width + 6; ++k) hz += "═";
+  std::printf("\n  \x1b[1;96m╔%s╗\x1b[0m\n", hz.c_str());
+  for (const std::string& l : lines)
+    std::printf("  \x1b[1;96m║\x1b[0m   %s%*s   \x1b[1;96m║\x1b[0m\n", l.c_str(), width - visibleColumns(l), "");
+  std::printf("  \x1b[1;96m╚%s╝\x1b[0m\n", hz.c_str());
+}
+
 // ---------------------------------------------------------------------------
 // Adapter selection: the discrete GPU with the most memory unless --adapter N picks another.
 

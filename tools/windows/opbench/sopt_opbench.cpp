@@ -754,6 +754,63 @@ int main(int argc, char** argv) {
   std::map<std::string, std::vector<double>> mads;            // config -> reference readings
   std::map<std::string, std::map<std::string, UINT>> iters;   // config -> test -> run length
   std::map<std::string, std::map<std::string, Result>> sums;  // config -> test -> summed readings
+  // Score (owner: a number to show others, in the units GPU spec lists use): fp32 TFLOPS from the reference
+  // fma, fp16 TFLOPS from mad16 (min16float; 0 when the driver runs it at 32 bits), special functions from
+  // the rcp step's time (one rcp per step; the fma beside it runs in parallel where the GPU can).
+  auto driftOf = [&](const char* cname) {
+    const std::vector<double>& v = mads[cname];
+    if (v.empty()) return 0.0;
+    const auto [lo, hi] = std::minmax_element(v.begin(), v.end());
+    return 100.0 * (*hi - *lo) / median(v);
+  };
+  struct Score {
+    double fp32 = 0.0, fp16 = 0.0, special = 0.0;
+  };
+  auto score = [&] {
+    Score sc;
+    auto ns = [&](const char* name) {
+      return results["tput"].count(name) && !results["tput"][name].readings.empty() ? results["tput"][name].r.nsPerStep : 0.0;
+    };
+    double mean = 0.0;  // every reference reading so far
+    for (double v : mads["tput"]) mean += v / double(mads["tput"].size());
+    if (mean > 0.0) sc.fp32 = 2.0 / mean / 1000.0;
+    if (half16 && ns("mad16") > 0.0) sc.fp16 = 2.0 / ns("mad16") / 1000.0;
+    if (ns("rcp") > 0.0) sc.special = 1.0 / ns("rcp");
+    return sc;
+  };
+  // CSV: the GPU once in header lines, then one row per configuration and test. Written again whenever a
+  // section is shown (between measurements, the GPU idle) and at the end, so a run stopped early still
+  // leaves its results.
+  auto writeCsv = [&] {
+  FILE* csv = std::fopen(outPath.c_str(), "wb");
+  if (!csv) return;
+  std::fprintf(csv, "# OpBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", SOPT_VERSION,
+               gpuName.c_str(), desc.VendorId, desc.DeviceId, driver.c_str());
+  std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
+  for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, driftOf(c.name));
+  const Score sc = score();
+  std::fprintf(csv, "# fp32: %.3f TFLOPS\n# fp16 (min16float): %.3f TFLOPS\n# special functions (rcp): %.1f Gops/s\n", sc.fp32,
+               sc.fp16, sc.special);
+  std::fprintf(csv,
+               "config,test,base,iters,ms,ns_per_step,units,units_vs_base,vs_base_fwd,vs_base_bwd,passes,consensus,readings,"
+               "step,note\n");
+  for (const Config& c : kConfigs)
+    for (const Test* t : tests) {
+      if (!results[c.name].count(t->name) || results[c.name][t->name].readings.empty()) continue;
+      const Measured& x = results[c.name][t->name];
+      std::string readings;
+      for (double v : x.readings) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%s%.3f", readings.empty() ? "" : ";", v);
+        readings += buf;
+      }
+      std::fprintf(csv, "%s,%s,%s,%u,%.4f,%.6f,%.3f,%.3f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\"\n", c.name, t->name,
+                   t->base ? t->base : "", x.r.iters, x.r.ms, x.r.nsPerStep, x.units.value, x.vsBase, x.vsBasePass[0],
+                   x.vsBasePass[1], x.readings.size(), x.units.ok ? "yes" : "no", readings.c_str(), t->step,
+                   t->note ? t->note : "");
+    }
+  std::fclose(csv);
+  };
   Progress progress{&st, 2 * static_cast<int>(tests.size() * std::size(kConfigs))};  // passes 1 and 2
   progress.start();
   for (const Group& gr : groups) {
@@ -803,6 +860,7 @@ int main(int argc, char** argv) {
     if (!gr.shown.empty()) {
       progress.pause();
       printSection(gr);
+      writeCsv();
       progress.resume();
     }
   }
@@ -818,31 +876,8 @@ int main(int argc, char** argv) {
   }
   std::printf("\n");
 
-  // CSV: the GPU once in header lines, then one row per configuration and test.
-  FILE* csv = std::fopen(outPath.c_str(), "wb");
-  if (!csv) fail("cannot write " + outPath);
-  std::fprintf(csv, "# OpBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", SOPT_VERSION,
-               gpuName.c_str(), desc.VendorId, desc.DeviceId, driver.c_str());
-  std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
-  for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, madDrift[c.name]);
-  std::fprintf(csv,
-               "config,test,base,iters,ms,ns_per_step,units,units_vs_base,vs_base_fwd,vs_base_bwd,passes,consensus,readings,"
-               "step,note\n");
-  for (const Config& c : kConfigs)
-    for (const Test* t : tests) {
-      const Measured& x = results[c.name][t->name];
-      std::string readings;
-      for (double v : x.readings) {
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), "%s%.3f", readings.empty() ? "" : ";", v);
-        readings += buf;
-      }
-      std::fprintf(csv, "%s,%s,%s,%u,%.4f,%.6f,%.3f,%.3f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\"\n", c.name, t->name,
-                   t->base ? t->base : "", x.r.iters, x.r.ms, x.r.nsPerStep, x.units.value, x.vsBase, x.vsBasePass[0],
-                   x.vsBasePass[1], x.readings.size(), x.units.ok ? "yes" : "no", readings.c_str(), t->step,
-                   t->note ? t->note : "");
-    }
-  std::fclose(csv);
+  writeCsv();
+
 
   // Summary: banner and the GPU (the sections are shown above).
   const double fmaRate = 1.0 / madNs["tput"];  // per ns
@@ -882,5 +917,11 @@ int main(int argc, char** argv) {
     std::printf("  For steadier numbers: close other programs, plug in a laptop, set \"Prefer maximum performance\"\n"
                 "  (NVIDIA) or lock the clocks, and run it again.\n");
   std::printf("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
+  if (const Score sc = score(); sc.fp32 > 0.0) {
+    std::vector<std::pair<std::string, std::string>> more;
+    more.push_back({"fp16 (min16float)", sc.fp16 > 0.0 ? threeDigits(sc.fp16) + " TFLOPS" : std::string("runs at fp32")});
+    if (sc.special > 0.0) more.push_back({"Special functions (rcp)", threeDigits(sc.special) + " Gops/s"});
+    printScore(st, "OpBench score", gpuName, desc.VendorId, sc.fp32, "TFLOPS", "fp32, measured", more);
+  }
   return 0;
 }
