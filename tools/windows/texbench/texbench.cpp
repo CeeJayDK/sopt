@@ -1584,7 +1584,7 @@ int main(int argc, char** argv) {
       }
       if (!any) continue;
       char gb[16] = "";
-      if (gbs && perByte >= 0.0) std::snprintf(gb, sizeof(gb), "  %6.0f", perByte);
+      if (gbs && perByte >= 0.0) std::snprintf(gb, sizeof(gb), perByte < 9999.95 ? "  %6.1f" : "  %6.0f", perByte);
       else if (gbs) std::snprintf(gb, sizeof(gb), "  %6s", "-");
       std::printf("  %-10s%s%s\n", f.name, line.c_str(), gb);
     }
@@ -1625,7 +1625,7 @@ int main(int argc, char** argv) {
       char perByte[24] = "";
       const double refNs = x.units.value > 0.0 ? x.r.nsPerStep * 4.0 / x.units.value : 0.0;
       if (t->perByte && t->format && x.vsBase > 0.05 && refNs > 0.0)
-        std::snprintf(perByte, sizeof(perByte), "  %6.0f", t->format->bytes / (x.vsBase / 4.0 * refNs));
+        std::snprintf(perByte, sizeof(perByte), "  %s", num(t->format->bytes / (x.vsBase / 4.0 * refNs), 6).c_str());
       else if (t->perByte) std::snprintf(perByte, sizeof(perByte), "  %6s", "-");
       std::printf("  %-*s %s  %s  %s %s %s%s%s\n", nameW, shortName(t->name).c_str(), num(x.vsBase, 7).c_str(),
                   bar(x.vsBase, maxV, kBarWidth, st, shade).c_str(), num(x.vsBase / 4.0, 6).c_str(), other("dep").c_str(),
