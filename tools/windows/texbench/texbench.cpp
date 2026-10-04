@@ -59,26 +59,27 @@ struct Format {
   int channels;
 };
 
+// Smallest to largest texel (owner), so formats of the same size stand together.
 const Format kFormats[] = {
     {"R8", DXGI_FORMAT_R8_UNORM, 1, 'u', 1},
+    {"RG8", DXGI_FORMAT_R8G8_UNORM, 2, 'u', 2},
     {"R16", DXGI_FORMAT_R16_UNORM, 2, 'u', 1},
     {"R16F", DXGI_FORMAT_R16_FLOAT, 2, 'h', 1},
+    {"RGBA8", DXGI_FORMAT_R8G8B8A8_UNORM, 4, 'u', 4},
+    {"RGBA8sRGB", DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 4, 'u', 4},
+    {"RGB10A2", DXGI_FORMAT_R10G10B10A2_UNORM, 4, 'p', 4},
+    {"RG11B10F", DXGI_FORMAT_R11G11B10_FLOAT, 4, 'r', 3},
+    {"RG16", DXGI_FORMAT_R16G16_UNORM, 4, 'u', 2},
+    {"RG16F", DXGI_FORMAT_R16G16_FLOAT, 4, 'h', 2},
     {"R32F", DXGI_FORMAT_R32_FLOAT, 4, 'f', 1},
     {"R32U", DXGI_FORMAT_R32_UINT, 4, 'i', 1},
     {"R32I", DXGI_FORMAT_R32_SINT, 4, 'i', 1},
-    {"RG8", DXGI_FORMAT_R8G8_UNORM, 2, 'u', 2},
-    {"RG16", DXGI_FORMAT_R16G16_UNORM, 4, 'u', 2},
-    {"RG16F", DXGI_FORMAT_R16G16_FLOAT, 4, 'h', 2},
-    {"RG32F", DXGI_FORMAT_R32G32_FLOAT, 8, 'f', 2},
-    {"RGBA8", DXGI_FORMAT_R8G8B8A8_UNORM, 4, 'u', 4},
-    {"RGBA8sRGB", DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 4, 'u', 4},
     {"RGBA16", DXGI_FORMAT_R16G16B16A16_UNORM, 8, 'u', 4},
     {"RGBA16F", DXGI_FORMAT_R16G16B16A16_FLOAT, 8, 'h', 4},
+    {"RG32F", DXGI_FORMAT_R32G32_FLOAT, 8, 'f', 2},
     {"RGBA32F", DXGI_FORMAT_R32G32B32A32_FLOAT, 16, 'f', 4},
     {"RGBA32U", DXGI_FORMAT_R32G32B32A32_UINT, 16, 'i', 4},
     {"RGBA32I", DXGI_FORMAT_R32G32B32A32_SINT, 16, 'i', 4},
-    {"RGB10A2", DXGI_FORMAT_R10G10B10A2_UNORM, 4, 'p', 4},
-    {"RG11B10F", DXGI_FORMAT_R11G11B10_FLOAT, 4, 'r', 3},
 };
 
 const Format* formatByName(const char* name) {
@@ -311,7 +312,7 @@ std::vector<Test> makeTests() {
   pmad.stage = Stage::Pixel;
   pmad.note = "reference in the pixel shader";
   add(pmad);
-  for (const char* d : {"ddx", "ddy", "ddx_fine", "ddy_fine", "ddx_coarse", "fwidth"}) {
+  for (const char* d : {"ddx", "ddy", "ddx_fine", "ddy_fine", "ddx_coarse", "ddy_coarse", "fwidth"}) {
     Test t;
     t.name = d;
     t.section = ps;
@@ -338,6 +339,7 @@ std::vector<Test> makeTests() {
     t.note = note;
     add(t);
   };
+  psSample("Sample point", Filter::Point, 1.0f, 1.0f, "Sample with point filtering, RGBA8 1024 x 1024");
   psSample("Sample bilinear", Filter::Linear, 1.0f, 1.0f, "Sample (automatic mip level 0), RGBA8 1024 x 1024");
   psSample("Sample trilinear", Filter::Trilinear, 1.5f, 1.5f, "1.5 texels per pixel: between mip 0 and 1");
   psSample("Sample aniso 4:1", Filter::Aniso, 1.0f, 4.0f, "4 x 1 texel footprint, 16x anisotropic filtering");
@@ -1123,18 +1125,25 @@ int main(int argc, char** argv) {
       if (t->section == sec && results["tput"].count(t->name)) m = std::max(m, results["tput"][t->name].vsBase);
     return m;
   };
+  bool rows = false;  // rows printed since the last "(shorter is better)" note
+  auto betterNote = [&](const char* text) {
+    if (rows) std::printf("  %s(%s is better)%s\n", st.c("\x1b[90m"), text, st.reset());
+    rows = false;
+  };
   for (const Test* t : tests) {
     if (t->section.empty() || t->stage == Stage::Write || t->stage == Stage::Blend || !results["tput"].count(t->name))
       continue;
     if (t->section != section) {
+      betterNote("shorter");
       section = t->section;
       maxV = sectionMax(section);
       bool bytes = false;
       for (const Test* u : tests) bytes |= u->section == section && u->perByte;
       std::printf("\n  %s%s%s\n  %s%-18s %7s  %-*s  %6s %6s %6s%s%s\n", st.c("\x1b[1;96m"), section.c_str(), st.reset(),
                   st.c("\x1b[90m"), "Test", "Cost", kBarWidth, "(throughput)", "Ops", "dep", "lat",
-                  bytes ? "   B/op" : "", st.reset());
+                  bytes ? "    GB/s" : "", st.reset());
     }
+    rows = true;
     const Measured& x = results["tput"][t->name];
     Shade shade;
     costComment(x.vsBase, &shade);
@@ -1146,14 +1155,18 @@ int main(int argc, char** argv) {
       std::snprintf(buf, sizeof(buf), "%6.1f", results[cfg][t->name].vsBase);
       return std::string(buf);
     };
-    // Bytes per op: the texel's bytes over the read's cost in fma times (more = more data for the time).
-    char perByte[16] = "";
-    if (t->perByte && t->format && x.vsBase > 0.05) std::snprintf(perByte, sizeof(perByte), "  %5.2f", t->format->bytes / (x.vsBase / 4.0));
-    else if (t->perByte) std::snprintf(perByte, sizeof(perByte), "  %5s", "-");
+    // GB/s: the texel data the reads deliver per second at full throughput (the texel's bytes over the
+    // read's own time: its cost in fma times the reference fma's time per step).
+    char perByte[24] = "";
+    const double refNs = x.units.value > 0.0 ? x.r.nsPerStep * 4.0 / x.units.value : 0.0;
+    if (t->perByte && t->format && x.vsBase > 0.05 && refNs > 0.0)
+      std::snprintf(perByte, sizeof(perByte), "  %6.0f", t->format->bytes / (x.vsBase / 4.0 * refNs));
+    else if (t->perByte) std::snprintf(perByte, sizeof(perByte), "  %6s", "-");
     std::printf("  %-18s %7.1f  %s  %6.1f %s %s%s%s\n", t->name.c_str(), std::fabs(x.vsBase) < 0.05 ? 0.0 : x.vsBase,
                 bar(x.vsBase, maxV, kBarWidth, st, shade).c_str(), x.vsBase / 4.0, other("dep").c_str(),
                 other("lat").c_str(), perByte, shaky ? (st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus") : "");
   }
+  betterNote("shorter");
   bool anyWrite = false;
   double maxW = 0.0;
   for (const Test* t : tests)
@@ -1186,6 +1199,7 @@ int main(int argc, char** argv) {
       std::printf("  %-18s %s  %s  %s  %s %s\n", f.name, col(n).c_str(), col(sm).c_str(), col(fl).c_str(),
                   gain(sm).c_str(), gain(fl).c_str());
     }
+    std::printf("  %s(longer is better)%s\n", st.c("\x1b[90m"), st.reset());
   }
   bool anyBlend = false;
   for (const Test* t : tests) anyBlend |= t->stage == Stage::Blend;
@@ -1220,6 +1234,7 @@ int main(int argc, char** argv) {
       else std::snprintf(head, sizeof(head), "  %-10s %7s", fn, "-");
       std::printf("%s%s\n", head, line.c_str());
     }
+    std::printf("  %s(lower is better)%s\n", st.c("\x1b[90m"), st.reset());
   }
   std::printf("\n  Cost = extra over the test's base in sopt units (4 = one fma, measured right before); Ops = Cost / 4;\n"
               "  dep / lat = the same cost with one chain per thread / one thread group. What each test measures:\n"

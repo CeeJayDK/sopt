@@ -896,6 +896,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   content texture (blendSource); every pass restores the target from a noise texture by CopyResource, copies
   timed alone right before and subtracted (blendPass); CSV config "blend" (ms per pass). B/op column (owner:
   "bandwidth per performance"): texel bytes / Ops for Test::perByte (format coherent / random, texel size).
+  Polish (owner): "(shorter / longer / lower is better)" under every graph / table (OpBench too); B/op became
+  GB/s (texel bytes / (Ops x the reference fma's ns per step)); kFormats ordered by texel size; ddy_coarse and
+  "Sample point" added to the pixel shader section; GPU names in vendor colors (benchkit vendorColor: NVIDIA
+  bright green, AMD bright red, Intel bright blue).
   Owner's ideas (2026-10-04, not decided): expected costs per cost model built into
   OpBench / TexBench, telling the user when their card does not match its model ("your report is very
   interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs

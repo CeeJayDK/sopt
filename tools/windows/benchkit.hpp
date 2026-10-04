@@ -238,6 +238,13 @@ struct Adapter {
   std::string name, driver = "unknown";
 };
 
+// A GPU name in its vendor's logo color (owner): NVIDIA bright green, AMD bright red, Intel bright blue.
+inline const char* vendorColor(const Style& st, UINT vendor) {
+  return st.c(vendor == 0x10DE ? "\x1b[1;92m" : vendor == 0x1002 || vendor == 0x1022 ? "\x1b[1;91m"
+              : vendor == 0x8086                    ? "\x1b[1;94m"
+                                                    : "\x1b[1m");
+}
+
 // With list set, prints the adapters and returns an empty Adapter. Otherwise prints the chosen GPU
 // and the other adapters ("Use --adapter N to test this").
 inline Adapter selectAdapter(const Style& st, bool list, int index) {
@@ -252,14 +259,16 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
   int pick = -1;
   SIZE_T bestMem = 0;
   std::vector<std::string> names;
+  std::vector<UINT> vendors;
   for (size_t k = 0; k < adapters.size(); ++k) {
     DXGI_ADAPTER_DESC1 d;
     adapters[k]->GetDesc1(&d);
+    vendors.push_back(d.VendorId);
     const bool software = (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
     names.push_back(narrow(d.Description) + (software ? " [software]" : ""));
     if (list)
-      std::printf("%zu: %s (%zu MB)%s\n", k, narrow(d.Description).c_str(), size_t(d.DedicatedVideoMemory >> 20),
-                  software ? " [software]" : "");
+      std::printf("%zu: %s%s%s (%zu MB)%s\n", k, vendorColor(st, d.VendorId), narrow(d.Description).c_str(), st.reset(),
+                  size_t(d.DedicatedVideoMemory >> 20), software ? " [software]" : "");
     if (!software && (pick < 0 || d.DedicatedVideoMemory > bestMem)) {
       pick = int(k);
       bestMem = d.DedicatedVideoMemory;
@@ -280,8 +289,9 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
                   unsigned(HIWORD(umd.LowPart)), unsigned(LOWORD(umd.LowPart)));
     a.driver = buf;
   }
-  std::printf("%sGPU: %s%s (vendor 0x%04X, device 0x%04X), driver %s\n", st.c("\x1b[1m"), a.name.c_str(), st.reset(),
-              a.desc.VendorId, a.desc.DeviceId, a.driver.c_str());
+  std::printf("%sGPU:%s %s%s%s (vendor 0x%04X, device 0x%04X), driver %s\n", st.c("\x1b[1m"), st.reset(),
+              vendorColor(st, a.desc.VendorId), a.name.c_str(), st.reset(), a.desc.VendorId, a.desc.DeviceId,
+              a.driver.c_str());
   if (adapters.size() > 1) {
     std::printf("Also detected in system:\n");
     size_t nameW = 0;
@@ -289,8 +299,8 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
       if (int(k) != pick) nameW = std::max(nameW, names[k].size());
     for (size_t k = 0; k < adapters.size(); ++k)
       if (int(k) != pick)
-        std::printf("  %zu: %-*s   %sUse --adapter %zu to test this%s\n", k, int(nameW), names[k].c_str(),
-                    st.c("\x1b[90m"), k, st.reset());
+        std::printf("  %zu: %s%-*s%s   %sUse --adapter %zu to test this%s\n", k, vendorColor(st, vendors[k]), int(nameW),
+                    names[k].c_str(), st.reset(), st.c("\x1b[90m"), k, st.reset());
   }
   return a;
 }

@@ -598,6 +598,11 @@ int main(int argc, char** argv) {
               st.reset());
   std::vector<std::string> unstable;
   const char* section = nullptr;
+  bool rows = false;  // rows printed since the last "(shorter is better)" note
+  auto betterNote = [&] {
+    if (rows) std::printf("  %s(shorter is better)%s\n", st.c("\x1b[90m"), st.reset());
+    rows = false;
+  };
   for (const char* name : kDisplayOrder) {
     if (name[0] == '#') {
       section = name + 1;
@@ -605,9 +610,11 @@ int main(int argc, char** argv) {
     }
     if (!results["tput"].count(name)) continue;
     if (section) {
+      betterNote();
       std::printf("\n  %s%s%s\n", st.c("\x1b[1;96m"), section, st.reset());
       section = nullptr;
     }
+    rows = true;
     const Measured& x = results["tput"][name];
     const double v = x.vsBase;
     Shade shade;
@@ -629,6 +636,7 @@ int main(int argc, char** argv) {
     std::printf("  %-10s %6.1f  %s  %5.1f  %s%s%s%s\n", name, shown, b.c_str(), ops, color.c_str(), comment, st.reset(),
                 note.c_str());
   }
+  betterNote();
   std::printf("\n  Cost = extra over the test's base, in sopt units (4 = one fma); Ops = Cost / 4 (fma equivalents);\n"
               "  throughput, %d chains. What each test measures: TESTS.txt next to this program.\n",
               kConfigs[0].chains);

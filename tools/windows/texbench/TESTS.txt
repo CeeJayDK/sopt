@@ -39,9 +39,10 @@ Lookup tables and texture size: RGBA8, random reads, bilinear
   LUT 32^3    a 3D color grading lookup table (128 KB), trilinear between slices.
   512^2 ... 8192^2   random reads from growing textures: where the caches run out.
 
-B/op (in the format sections): the texel's bytes divided by the read's cost in fma times (Ops):
-  how much data a read delivers for its time. Formats with the same texel size do not always cost
-  the same, so this shows which formats give the most data per time.
+GB/s (in the format sections): the texel data the reads deliver per second at full throughput
+  (the texel's bytes over the read's own time). Formats with the same texel size do not always cost
+  the same, so this shows which formats give the most data for the time. Formats are listed from
+  the smallest texel to the largest.
 
 Cache sizes: random reads (Load) from an RGBA8 texture of growing size
   4 KB ... 256 MB in steps of 2x. While the texture fits in a cache level, reads cost about the
@@ -64,8 +65,9 @@ Cache use: texel size, random reads (Load) from 1024 x 1024
   texels fill the caches sooner.
 
 Pixel shader: derivatives and automatic mip selection (1024 x 1024 target; tput and dep)
-  ddx, ddy, ddx_fine, ddy_fine, ddx_coarse, fwidth   step x = mad(d(x), c.x, c.y); base: the pixel
+  ddx, ddy, ddx_fine, ddy_fine, ddx_coarse, ddy_coarse, fwidth   step x = mad(d(x), c.x, c.y); base: the pixel
               shader mad. Derivatives exchange values within 2 x 2 pixel quads.
+  Sample point       Sample with point filtering
   Sample bilinear    Sample (mip level from the derivatives: 1 texel per pixel = mip 0)
   Sample trilinear   1.5 texels per pixel: between mip 0 and 1
   Sample aniso 4:1   4 x 1 texel footprint, 16x anisotropic filtering
