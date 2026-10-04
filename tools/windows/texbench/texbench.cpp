@@ -1580,11 +1580,18 @@ int main(int argc, char** argv) {
     costComment(x.vsBase, &shade);
     const bool shaky = !x.units.ok;
     if (shaky) unstable.push_back(t->name);
-    auto other = [&](const char* cfg) {
-      char buf[16];
-      if (!results[cfg].count(t->name)) return std::string("     -");
-      std::snprintf(buf, sizeof(buf), "%6.1f", results[cfg][t->name].vsBase);
+    // A number in a fixed width: one decimal while it fits, none for large values (random writes reach
+    // 10000+), so the columns never shift.
+    auto num = [](double v, int width) {
+      char buf[32];
+      if (std::fabs(v) < 0.05) v = 0.0;  // no "-0.0"
+      std::snprintf(buf, sizeof(buf), "%*.1f", width, v);
+      if (int(std::strlen(buf)) > width) std::snprintf(buf, sizeof(buf), "%*.0f", width, v);
       return std::string(buf);
+    };
+    auto other = [&](const char* cfg) {
+      if (!results[cfg].count(t->name)) return std::string("     -");
+      return num(results[cfg][t->name].vsBase, 6);
     };
     // GB/s: the texel data the reads deliver per second at full throughput (the texel's bytes over the
     // read's own time: its cost in fma times the reference fma's time per step).
@@ -1593,8 +1600,8 @@ int main(int argc, char** argv) {
     if (t->perByte && t->format && x.vsBase > 0.05 && refNs > 0.0)
       std::snprintf(perByte, sizeof(perByte), "  %6.0f", t->format->bytes / (x.vsBase / 4.0 * refNs));
     else if (t->perByte) std::snprintf(perByte, sizeof(perByte), "  %6s", "-");
-    std::printf("  %-*s %7.1f  %s  %6.1f %s %s%s%s\n", nameW, t->name.c_str(), std::fabs(x.vsBase) < 0.05 ? 0.0 : x.vsBase,
-                bar(x.vsBase, maxV, kBarWidth, st, shade).c_str(), x.vsBase / 4.0, other("dep").c_str(),
+    std::printf("  %-*s %s  %s  %s %s %s%s%s\n", nameW, t->name.c_str(), num(x.vsBase, 7).c_str(),
+                bar(x.vsBase, maxV, kBarWidth, st, shade).c_str(), num(x.vsBase / 4.0, 6).c_str(), other("dep").c_str(),
                 other("lat").c_str(), perByte, shaky ? (st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus") : "");
   }
   betterNote("shorter");
