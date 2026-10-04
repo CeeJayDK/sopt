@@ -634,13 +634,15 @@ int main(int argc, char** argv) {
       if (moreFetches) continue;
       const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, rr.region.prog.inputs);
       const bool cheaper = compiled < targetCompiled;
-      if (!cheaper && !(a.moreAccurate && compiled <= targetCompiled + opt.accuracySlack)) {
+      // Not faster but maybe fewer registers (owner, 2026-10-04): only measurement shows it.
+      const bool registerCandidate = (isa || sass) && compiled <= targetCompiled + opt.accuracySlack;
+      if (!cheaper && !(a.moreAccurate && compiled <= targetCompiled + opt.accuracySlack) && !registerCandidate) {
         ++rr.onlyContraction;
         continue;
       }
       fx::Variant v;
       v.moreAccurate = a.moreAccurate;
-      v.accuracyOnly = !cheaper;
+      v.notFaster = !cheaper;
       v.expr = a.expr;
       v.text = a.text;
       v.cost = a.cost;
@@ -655,9 +657,10 @@ int main(int argc, char** argv) {
     if (accuracyRule(rr.region.prog.budget) && opt.exactRule) rr.targetExactAbs = res.targetExact.exactAbs;
     // Accurate variants first (cheapest first); less accurate ones only if cheaper than
     // every accurate one, after them: the user decides from their accuracy.
-    std::vector<fx::Variant> strict, loose, accurate;
+    std::vector<fx::Variant> strict, loose, accurate, registers;
     for (auto& v : rr.variants)
-      (v.accuracyOnly ? accurate : (v.klass == Klass::LessAccurate ? loose : strict)).push_back(std::move(v));
+      (v.notFaster ? (v.moreAccurate ? accurate : registers) : (v.klass == Klass::LessAccurate ? loose : strict))
+          .push_back(std::move(v));
     auto byCost = [](const fx::Variant& a, const fx::Variant& b) { return a.cost < b.cost; };
     std::stable_sort(strict.begin(), strict.end(), byCost);
     std::stable_sort(loose.begin(), loose.end(), byCost);
@@ -669,9 +672,16 @@ int main(int argc, char** argv) {
     if (loose.size() > numVariants) loose.resize(numVariants);
     std::stable_sort(accurate.begin(), accurate.end(), byCost);
     if (accurate.size() > 2) accurate.resize(2);
+    // Register candidates (measured below): the cheapest two accurate ones.
+    registers.erase(std::remove_if(registers.begin(), registers.end(),
+                                   [](const fx::Variant& v) { return v.klass == Klass::LessAccurate; }),
+                    registers.end());
+    std::stable_sort(registers.begin(), registers.end(), byCost);
+    if (registers.size() > 2) registers.resize(2);
     rr.variants = std::move(strict);
     for (auto& v : loose) rr.variants.push_back(std::move(v));
     for (auto& v : accurate) rr.variants.push_back(std::move(v));
+    for (auto& v : registers) rr.variants.push_back(std::move(v));
     rr.sec = searchSec[firstOf[i]] + std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
     std::lock_guard<std::mutex> lock(printMu);
     const size_t n = ++done;
@@ -725,13 +735,23 @@ int main(int argc, char** argv) {
           better = better || c < t;
           close = close && c <= t + 1;
         }
-        if (measured && !better && v.moreAccurate && close) {
-          v.accuracyOnly = true;  // accuracy variant: not faster, at most 1 instruction slower
+        // Registers (AMD VGPRs, NVIDIA registers per thread): fewer on a measured vendor, more on none.
+        bool fewer = false, more = false;
+        for (auto [t, c] : {std::pair{rr.targetAmdVgprs, v.amdVgprs}, std::pair{rr.targetNvRegs, v.nvRegs}}) {
+          if (t < 0 || c < 0) continue;
+          fewer = fewer || c < t;
+          more = more || c > t;
+        }
+        v.fewerRegisters = fewer && !more;
+        if (measured && !better && close && (v.moreAccurate || v.fewerRegisters)) {
+          v.notFaster = true;  // accuracy / register variant: not faster, at most 1 instruction slower
           kept.push_back(std::move(v));
         } else if (measured && !better) {
-          ++rr.measuredNoGain;
+          if (!v.notFaster || v.moreAccurate) ++rr.measuredNoGain;  // register candidates never claimed a gain
+        } else if (!measured && v.notFaster && !v.moreAccurate) {
+          // a register candidate whose registers could not be measured
         } else {
-          v.accuracyOnly = false;
+          v.notFaster = false;
           kept.push_back(std::move(v));
         }
       }
@@ -744,7 +764,7 @@ int main(int argc, char** argv) {
         return g;
       };
       std::stable_sort(kept.begin(), kept.end(), [&](const fx::Variant& a, const fx::Variant& b) {
-        if (a.accuracyOnly != b.accuracyOnly) return b.accuracyOnly;  // accuracy variants last
+        if (a.notFaster != b.notFaster) return b.notFaster;  // accuracy / register variants last
         const double ga = gain(a), gb = gain(b);
         if (ga != gb) return ga > gb;
         return a.cost < b.cost;
@@ -794,7 +814,8 @@ int main(int argc, char** argv) {
       };
       auto asGood = [&](const fx::Variant& k, const fx::Variant& v) {  // k at least as good as v
         return k.cost <= v.cost && noWorse(k.amd, v.amd) && noWorse(k.nv, v.nv) && noWorse(k.spirv, v.spirv) &&
-               noWorse(k.dxbc, v.dxbc) && err(k) <= err(v) && (k.problems.empty() || !v.problems.empty()) &&
+               noWorse(k.dxbc, v.dxbc) && noWorse(k.amdVgprs, v.amdVgprs) && noWorse(k.nvRegs, v.nvRegs) &&
+               err(k) <= err(v) && (k.problems.empty() || !v.problems.empty()) &&
                (k.klass != Klass::LessAccurate || v.klass == Klass::LessAccurate);
       };
       const auto& vs = rr.variants;
@@ -809,7 +830,7 @@ int main(int argc, char** argv) {
       }
       rr.variants = std::move(kept);
     }
-    if (dropped) std::printf("%zu variants dropped: another variant of the region is as fast everywhere and as accurate\n", dropped);
+    if (dropped) std::printf("%zu variants dropped: another variant of the region is as fast everywhere, as accurate and uses no more registers\n", dropped);
   }
 
   // Sampling cannot find a difference confined to a small part of a wide assumed range

@@ -26,10 +26,12 @@ struct Variant {
   // some), fine on ..."; owner: kept and marked, the user decides; never picked by SOPT_AUTO.
   std::string problems;
   // Clearly more accurate than the original against exact math (accuracy variants, owner
-  // 2026-09-26); accuracyOnly: not faster, kept at most one instruction slower per
-  // measured vendor. Never picked by SOPT_AUTO.
+  // 2026-09-26); fewer registers than the original on a measured vendor and more on none
+  // (owner, 2026-10-04); notFaster: kept for one of those, not faster, at most one
+  // instruction slower per measured vendor. Never picked by SOPT_AUTO.
   bool moreAccurate = false;
-  bool accuracyOnly = false;
+  bool fewerRegisters = false;
+  bool notFaster = false;
   // Backend normalization (--backends): instruction counts after the compilers' optimizers
   // (-1 = not measured) and whether the code is identical to the original's there.
   int spirv = -1, dxbc = -1;

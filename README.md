@@ -226,6 +226,14 @@ original's error against exact math is kept as "more accurate" (sopt-fx: if at m
 instruction slower per measured vendor; never picked by `SOPT_AUTO`).
 `--no-accuracy-variants` turns this off.
 
+Register variants (sopt-fx with `--isa` / `--sass`): a candidate that is not faster but
+needs fewer registers on a measured vendor (AMD VGPRs, NVIDIA registers per thread) and
+more on none is kept as "fewer registers (not faster)", under the same rule (at most one
+instruction slower per measured vendor, never `SOPT_AUTO`). Registers also count when
+variants of a region are compared: a variant stays if no other is as fast, as accurate
+and as frugal with registers. The counts are those of the region compiled on its own; a
+whole shader may allocate the same either way.
+
 ## Exhaustive verification (V2)
 
 When the input domain is small (every grid value, or every float32 of a component in a

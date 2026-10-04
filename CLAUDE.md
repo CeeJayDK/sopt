@@ -842,7 +842,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
-  and ptxas -v (`parsePtxasRegs`); informative only, not used to keep / drop). Polynomial approximations
+  and ptxas -v (`parsePtxasRegs`); informative only at first). Register variants (owner, 2026-10-04: "2-pass
+  looks for variants that may not be faster but might be preferable in other ways"; part 2 first): with --isa /
+  --sass, accepted candidates that are not statically cheaper (up to accuracySlack above) are measured too (max 2
+  per region, `registers` bucket); kept as Variant::fewerRegisters + notFaster (renamed from accuracyOnly) when
+  some vendor's VGPRs / regs drop, none rise, and every vendor is at most 1 instruction slower; labeled "fewer
+  registers (not faster)", listed last, never SOPT_AUTO, not in sopt-found.txt; registers join the Pareto check
+  (amdVgprs, nvRegs). Part 1 (later, behind a flag, bench / corpus runs to see the impact): the second phase also
+  keeps the best hit per extra static measure (critical path, live values, MUFU ops). Polynomial approximations
   (`--poly`, planned; owner 2026-10-03: after the full corpus run): a special mode for development, not a default; its approximations go into
   docs/inexact-tricks.md. Later (owner): the compiler's output as a seed or comparison variant; instead /
   first (owner): do what the compilers do by reading their source (done for Mesa nir_opt_algebraic, ACO,

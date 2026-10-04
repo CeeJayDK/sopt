@@ -97,11 +97,13 @@ std::string switchName(const Region& r) {
   return name + std::to_string(r.line);
 }
 
-// Class text of a variant: "within budget", "too exact, more accurate (not faster)", ...
+// Class text of a variant: "within budget", "too exact, more accurate (not faster)",
+// "bit-exact, fewer registers (not faster)", ...
 std::string variantClass(const Variant& v, int codeBits) {
   std::string s = klassName(v.klass, codeBits);
   if (v.moreAccurate) s += ", more accurate";
-  if (v.accuracyOnly) s += " (not faster)";
+  if (v.fewerRegisters && v.notFaster) s += ", fewer registers";
+  if (v.notFaster) s += " (not faster)";
   return s;
 }
 
@@ -113,7 +115,7 @@ int vendorPick(const RegionResult& rr, bool amd, bool dx) {
   for (size_t k = 0; k < rr.variants.size(); ++k) {
     const Variant& v = rr.variants[k];
     const int c = amd ? v.amd : v.nv;
-    if (v.klass == Klass::LessAccurate || v.klass == Klass::Accurate || !v.problems.empty() || v.accuracyOnly || c < 0 || c >= bestCost) continue;
+    if (v.klass == Klass::LessAccurate || v.klass == Klass::Accurate || !v.problems.empty() || v.notFaster || c < 0 || c >= bestCost) continue;
     if (dx && (v.dxbcSame || (v.dxbc >= 0 && rr.targetDxbc >= 0 && v.dxbc > rr.targetDxbc))) continue;
     best = static_cast<int>(k + 1);
     bestCost = c;
@@ -554,7 +556,7 @@ std::string foundRewrites(const std::vector<RegionResult>& results) {
     }
     const std::string lhs = toString(r.prog.target, named);
     auto emit = [&](const Variant& v, bool assumed) {
-      if (v.accuracyOnly) return;
+      if (v.notFaster) return;
       std::string rule = lhs + " -> " + toString(v.expr, named);
       if (!where.empty()) rule += "   where " + where;
       if (!seen.insert(rule).second) return;

@@ -927,6 +927,24 @@ TEST(fx_register_counts) {
   CHECK(ss.str().find("amd 7 -> 5, nv 9 -> 8, vgpr 10 -> 12") != std::string::npos);
   CHECK(ss.str().find("nv regs") == std::string::npos);  // unchanged: not mentioned
   fs::remove_all(out, ec);
+
+  // A variant kept only for fewer registers (owner, 2026-10-04): labeled, never SOPT_AUTO.
+  fx::RegionResult rg = rr;
+  fx::Variant& w = rg.variants[0];
+  w.amd = 7;
+  w.amdVgprs = 8;
+  w.nv = 9;
+  w.nvRegs = 12;
+  w.fewerRegisters = w.notFaster = true;
+  CHECK(fx::vendorPick(rg, true) == 0 && fx::vendorPick(rg, false) == 0);
+  fs::remove_all(out, ec);
+  fx::writeVariants({rg}, out, errors);
+  std::ifstream g(out / "sopt_test.fx");
+  std::stringstream gs;
+  gs << g.rdbuf();
+  CHECK(gs.str().find("within budget, fewer registers (not faster)") != std::string::npos);
+  CHECK(gs.str().find("vgpr 10 -> 8") != std::string::npos);
+  fs::remove_all(out, ec);
 }
 
 TEST(fx_precise_and_too_exact) {
