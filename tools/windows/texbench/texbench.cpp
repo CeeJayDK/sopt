@@ -1054,6 +1054,246 @@ double blendPass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader
   return median(runs);
 }
 
+// ---------------------------------------------------------------------------
+// Pixel shader order (owner, 2026-10-04: use atomics to see how the GPU hands pixels to its shader
+// units; 2 x 2 quads are the minimum, many GPUs group larger blocks). One full-screen draw into 1024 x
+// 1024; every pixel takes the next number from one atomic counter and stores it at its position.
+// Lanes of one wave usually get consecutive numbers, so pixels whose numbers share o / W form a block of
+// W pixels shaded together; a block is compact when its bounding box holds exactly its W pixels. Tiles:
+// for aligned B x B squares, B^2 / (max - min + 1) is 100% when the square's pixels got consecutive
+// numbers (shaded as one piece before the GPU moved on) and lower when it was interleaved with others.
+
+constexpr UINT kOrderSize = 1024;
+
+struct OrderResult {
+  bool ran = false;
+  UINT64 counter = 0, missing = 0;
+  struct Block {
+    UINT w;
+    double compact;  // fraction of blocks whose bounding box holds exactly their pixels
+    std::string shape;  // the most common bounding box
+  };
+  std::vector<Block> blocks;
+  std::vector<std::pair<UINT, double>> tiles;  // B -> mean contiguity
+  UINT together = 0;                           // the largest W with >= 75% compact blocks
+  std::string togetherShape;
+  std::string image, zoom;
+};
+
+// 24-bit BMP, rows bottom-up, rgb[y][x] = 0xRRGGBB.
+void writeBmp(const std::string& path, UINT w, UINT h, const std::vector<uint32_t>& rgb) {
+  FILE* f = std::fopen(path.c_str(), "wb");
+  if (!f) return;
+  const UINT row = (w * 3 + 3) & ~3u, size = 54 + row * h;
+  uint8_t hd[54] = {'B', 'M'};
+  auto put32 = [&](int at, uint32_t v) {
+    for (int i = 0; i < 4; ++i) hd[at + i] = uint8_t(v >> (8 * i));
+  };
+  put32(2, size);
+  put32(10, 54);
+  put32(14, 40);
+  put32(18, w);
+  put32(22, h);
+  hd[26] = 1;
+  hd[28] = 24;
+  put32(34, row * h);
+  std::fwrite(hd, 1, 54, f);
+  std::vector<uint8_t> line(row, 0);
+  for (UINT y = h; y-- > 0;) {
+    for (UINT x = 0; x < w; ++x) {
+      const uint32_t c = rgb[size_t(y) * w + x];
+      line[x * 3 + 0] = uint8_t(c);
+      line[x * 3 + 1] = uint8_t(c >> 8);
+      line[x * 3 + 2] = uint8_t(c >> 16);
+    }
+    std::fwrite(line.data(), 1, row, f);
+  }
+  std::fclose(f);
+}
+
+// t in [0, 1] -> blue, cyan, green, yellow, red.
+uint32_t gradient(double t) {
+  t = std::clamp(t, 0.0, 1.0) * 4.0;
+  const int seg = std::min(3, int(t));
+  const double u = t - seg;
+  double r = 0, gr = 0, b = 0;
+  if (seg == 0) gr = u, b = 1;
+  else if (seg == 1) gr = 1, b = 1 - u;
+  else if (seg == 2) r = u, gr = 1;
+  else r = 1, gr = 1 - u;
+  return (uint32_t(r * 255.0 + 0.5) << 16) | (uint32_t(gr * 255.0 + 0.5) << 8) | uint32_t(b * 255.0 + 0.5);
+}
+
+uint32_t hashColor(uint32_t v) {
+  v ^= v >> 16;
+  v *= 0x7feb352du;
+  v ^= v >> 15;
+  v *= 0x846ca68bu;
+  v ^= v >> 16;
+  return (v | 0x404040u) & 0xffffffu;  // not too dark
+}
+
+OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::string& imageBase) {
+  OrderResult res;
+  const UINT n = kOrderSize;
+  ID3D11Texture2D *rt = nullptr, *ord = nullptr, *ordRead = nullptr;
+  ID3D11RenderTargetView* rtv = nullptr;
+  ID3D11Buffer *cnt = nullptr, *cntRead = nullptr;
+  ID3D11UnorderedAccessView *ordUav = nullptr, *cntUav = nullptr;
+  ID3D11PixelShader* ps = nullptr;
+  auto cleanup = [&]() {
+    release(rt), release(ord), release(ordRead), release(rtv), release(cnt), release(cntRead), release(ordUav),
+        release(cntUav), release(ps);
+  };
+  D3D11_TEXTURE2D_DESC td = {};
+  td.Width = td.Height = n;
+  td.MipLevels = td.ArraySize = 1;
+  td.SampleDesc.Count = 1;
+  td.Format = DXGI_FORMAT_R8_UNORM;
+  td.BindFlags = D3D11_BIND_RENDER_TARGET;
+  bool ok = SUCCEEDED(g.dev->CreateTexture2D(&td, nullptr, &rt)) && SUCCEEDED(g.dev->CreateRenderTargetView(rt, nullptr, &rtv));
+  td.Format = DXGI_FORMAT_R32_UINT;
+  td.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+  ok = ok && SUCCEEDED(g.dev->CreateTexture2D(&td, nullptr, &ord)) && SUCCEEDED(g.dev->CreateUnorderedAccessView(ord, nullptr, &ordUav));
+  td.BindFlags = 0;
+  td.Usage = D3D11_USAGE_STAGING;
+  td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  ok = ok && SUCCEEDED(g.dev->CreateTexture2D(&td, nullptr, &ordRead));
+  D3D11_BUFFER_DESC bd = {};
+  bd.ByteWidth = 4;
+  bd.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+  bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+  bd.StructureByteStride = 4;
+  ok = ok && SUCCEEDED(g.dev->CreateBuffer(&bd, nullptr, &cnt)) && SUCCEEDED(g.dev->CreateUnorderedAccessView(cnt, nullptr, &cntUav));
+  bd.BindFlags = bd.MiscFlags = bd.StructureByteStride = 0;
+  bd.Usage = D3D11_USAGE_STAGING;
+  bd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  ok = ok && SUCCEEDED(g.dev->CreateBuffer(&bd, nullptr, &cntRead));
+  if (!ok) {
+    cleanup();
+    return res;
+  }
+  const char* src =
+      "RWStructuredBuffer<uint> CNT : register(u1);\n"
+      "RWTexture2D<uint> ORD : register(u2);\n"
+      "float4 main(float4 pos : SV_Position) : SV_Target\n{\n"
+      "  uint o;\n  InterlockedAdd(CNT[0], 1u, o);\n  ORD[uint2(pos.xy)] = o;\n  return 0.0;\n}\n";
+  ID3DBlob* code = compile(src, "order", "ps_5_0", dxbcDir / "Pixel_shader_order.txt");
+  if (FAILED(g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &ps))) {
+    code->Release();
+    cleanup();
+    return res;
+  }
+  code->Release();
+
+  D3D11_VIEWPORT vp = {0.0f, 0.0f, float(n), float(n), 0.0f, 1.0f};
+  g.ctx->RSSetViewports(1, &vp);
+  g.ctx->PSSetShader(ps, nullptr, 0);
+  ID3D11UnorderedAccessView* uavs[2] = {cntUav, ordUav};
+  g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &rtv, nullptr, 1, 2, uavs, nullptr);
+  // A warm-up draw, then the one read back.
+  for (int k = 0; k < 2; ++k) {
+    const UINT zero[4] = {0, 0, 0, 0}, none[4] = {~0u, ~0u, ~0u, ~0u};
+    g.ctx->ClearUnorderedAccessViewUint(cntUav, zero);
+    g.ctx->ClearUnorderedAccessViewUint(ordUav, none);
+    g.ctx->Draw(3, 0);
+  }
+  ID3D11RenderTargetView* nullRtv = nullptr;
+  g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &nullRtv, nullptr, 1, 0, nullptr, nullptr);
+  g.ctx->CopyResource(ordRead, ord);
+  g.ctx->CopyResource(cntRead, cnt);
+  std::vector<uint32_t> o(size_t(n) * n);
+  D3D11_MAPPED_SUBRESOURCE m;
+  if (SUCCEEDED(g.ctx->Map(cntRead, 0, D3D11_MAP_READ, 0, &m))) {
+    res.counter = *(const uint32_t*)m.pData;
+    g.ctx->Unmap(cntRead, 0);
+  }
+  if (FAILED(g.ctx->Map(ordRead, 0, D3D11_MAP_READ, 0, &m))) {
+    cleanup();
+    return res;
+  }
+  for (UINT y = 0; y < n; ++y) std::memcpy(&o[size_t(y) * n], (const uint8_t*)m.pData + size_t(y) * m.RowPitch, n * 4);
+  g.ctx->Unmap(ordRead, 0);
+  cleanup();
+  res.ran = true;
+  const uint32_t total = n * n;
+  for (uint32_t v : o) res.missing += v >= total;
+
+  // Blocks: pixels with the same o / W.
+  for (UINT w = 4; w <= 256; w *= 2) {
+    const size_t groups = total / w;
+    std::vector<int> x0(groups, INT32_MAX), x1(groups, -1), y0(groups, INT32_MAX), y1(groups, -1), count(groups, 0);
+    for (UINT y = 0; y < n; ++y)
+      for (UINT x = 0; x < n; ++x) {
+        const uint32_t v = o[size_t(y) * n + x];
+        if (v >= total) continue;
+        const size_t gi = v / w;
+        x0[gi] = std::min(x0[gi], int(x)), x1[gi] = std::max(x1[gi], int(x));
+        y0[gi] = std::min(y0[gi], int(y)), y1[gi] = std::max(y1[gi], int(y));
+        ++count[gi];
+      }
+    size_t full = 0, compact = 0;
+    std::map<std::pair<int, int>, size_t> shapes;
+    for (size_t gi = 0; gi < groups; ++gi) {
+      if (count[gi] != int(w)) continue;
+      ++full;
+      const int bw = x1[gi] - x0[gi] + 1, bh = y1[gi] - y0[gi] + 1;
+      if (bw * bh == int(w)) ++compact, ++shapes[{bw, bh}];
+    }
+    std::string shape = "-";
+    size_t best = 0;
+    for (const auto& [s, c] : shapes)
+      if (c > best) best = c, shape = std::to_string(s.first) + " x " + std::to_string(s.second);
+    const double frac = full ? double(compact) / double(full) : 0.0;
+    res.blocks.push_back({w, frac, shape});
+    if (frac >= 0.75 && w == (res.together ? res.together * 2 : 4)) res.together = w, res.togetherShape = shape;
+  }
+  // Tiles: contiguity of aligned B x B squares.
+  for (UINT b = 8; b <= 512; b *= 2) {
+    double sum = 0.0;
+    size_t squares = 0;
+    for (UINT ty = 0; ty < n; ty += b)
+      for (UINT tx = 0; tx < n; tx += b) {
+        uint32_t lo = ~0u, hi = 0;
+        bool valid = true;
+        for (UINT y = ty; y < ty + b && valid; ++y)
+          for (UINT x = tx; x < tx + b; ++x) {
+            const uint32_t v = o[size_t(y) * n + x];
+            if (v >= total) {
+              valid = false;
+              break;
+            }
+            lo = std::min(lo, v), hi = std::max(hi, v);
+          }
+        if (!valid) continue;
+        sum += double(b) * b / double(hi - lo + 1);
+        ++squares;
+      }
+    res.tiles.push_back({b, squares ? sum / double(squares) : 0.0});
+  }
+
+  // Images: the whole order as a gradient (first blue, last red), and the middle 64 x 64 pixels 8x
+  // enlarged, one color per block of the size found, with lines between blocks.
+  std::vector<uint32_t> img(size_t(n) * n);
+  for (size_t i = 0; i < img.size(); ++i) img[i] = o[i] >= total ? 0 : gradient(double(o[i]) / double(total - 1));
+  res.image = imageBase + "-order.bmp";
+  writeBmp(res.image, n, n, img);
+  const UINT zs = 64, zf = 8, z0 = n / 2 - zs / 2, w = std::max(4u, res.together);
+  auto group = [&](UINT x, UINT y) { return o[size_t(y) * n + x] >= total ? ~0u : o[size_t(y) * n + x] / w; };
+  std::vector<uint32_t> zoom(size_t(zs * zf) * zs * zf);
+  for (UINT y = 0; y < zs * zf; ++y)
+    for (UINT x = 0; x < zs * zf; ++x) {
+      const UINT sx = z0 + x / zf, sy = z0 + y / zf;
+      const uint32_t gi = group(sx, sy);
+      const bool edge = (x % zf == 0 && group(sx - 1, sy) != gi) || (y % zf == 0 && group(sx, sy - 1) != gi);
+      const bool quad = (x % zf == 0 && sx % 2 == 0) || (y % zf == 0 && sy % 2 == 0);
+      zoom[size_t(y) * zs * zf + x] = edge ? 0 : quad ? (hashColor(gi) >> 1) & 0x7f7f7fu : hashColor(gi);
+    }
+  res.zoom = imageBase + "-order-zoom.bmp";
+  writeBmp(res.zoom, zs * zf, zs * zf, zoom);
+  return res;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1550,6 +1790,11 @@ int main(int argc, char** argv) {
   const auto [lo, hi] = std::minmax_element(refs.begin(), refs.end());
   const double drift = refs.empty() ? 0.0 : 100.0 * (*hi - *lo) / median(refs);
   std::printf("\n   reference drift %.1f%%%s\n", drift, drift > 5.0 ? " (the GPU clock moved)" : "");
+  // Pixel shader order (not a timing: one draw, read back).
+  OrderResult order;
+  if (filter.empty() || std::string("Pixel shader order").find(filter) != std::string::npos)
+    order = runOrder(g, dxbcDir, (std::filesystem::path(outPath).parent_path() /
+                                  std::filesystem::path(outPath).stem()).string());
 
   // CSV
   FILE* csv = std::fopen(outPath.c_str(), "wb");
@@ -1593,6 +1838,13 @@ int main(int argc, char** argv) {
                    t->section.c_str(), blendMs[t->name].value, blendMs[t->name].value, blendReadings[t->name].size(),
                    blendMs[t->name].ok ? "yes" : "no", readingsText(blendReadings[t->name]).c_str(), kRtW, kRtH,
                    seconds[t->name]);
+  if (order.ran) {
+    for (const auto& b : order.blocks)
+      std::fprintf(csv, "order,\"block %u\",\"Pixel shader order\",,,,,%.4f,,,,,,\"compact fraction; most common shape %s\",\n", b.w,
+                   b.compact, b.shape.c_str());
+    for (const auto& [b, c] : order.tiles)
+      std::fprintf(csv, "order,\"tile %u\",\"Pixel shader order\",,,,,%.4f,,,,,,\"contiguity of aligned squares\",\n", b, c);
+  }
   std::fclose(csv);
 
   // Summary
@@ -1802,6 +2054,27 @@ int main(int argc, char** argv) {
         std::printf("  %-26s %8.3f  %s\n", t->name.c_str(), passMs[t->name].value,
                     bar(passMs[t->name].value, maxP, kBarWidth, st, kCyan).c_str());
     std::printf("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
+  }
+  if (order.ran) {
+    // Blocks: the share of compact blocks per size; tiles: how contiguous aligned squares were shaded.
+    std::printf("\n  %sPixel shader order: which pixels the GPU shades together (one draw, 1024 x 1024)%s\n"
+                "  %s%-8s %8s  %-*s  %-9s%s\n",
+                st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Block", "Compact", kBarWidth, "", "Shape", st.reset());
+    for (const auto& b : order.blocks)
+      std::printf("  %-8u %7.0f%%  %s  %s\n", b.w, 100.0 * b.compact, bar(100.0 * b.compact, 100.0, kBarWidth, st, kCyan).c_str(),
+                  b.shape.c_str());
+    std::printf("  %s%-8s %8s%s\n", st.c("\x1b[90m"), "Tile", "In one go", st.reset());
+    for (const auto& [b, c] : order.tiles) {
+      char name[24];
+      std::snprintf(name, sizeof(name), "%u x %u", b, b);
+      std::printf("  %-8s %7.0f%%  %s\n", name, 100.0 * c, bar(100.0 * c, 100.0, kBarWidth, st, kCyan).c_str());
+    }
+    if (order.together)
+      std::printf("  Pixels shaded together: blocks of %u (%s).\n", order.together, order.togetherShape.c_str());
+    if (order.counter != UINT64(kOrderSize) * kOrderSize || order.missing)
+      std::printf("  %sNote:%s counter %llu, %llu pixels without a number.\n", st.c("\x1b[1;93m"), st.reset(),
+                  (unsigned long long)order.counter, (unsigned long long)order.missing);
+    std::printf("  Images: %s\n          %s\n", order.image.c_str(), order.zoom.c_str());
   }
   // How to read the summary, for people who are not programmers (owner's wording review, 2026-10-04).
   std::printf("\n  %sHow to read this%s\n"

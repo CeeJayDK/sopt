@@ -978,6 +978,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   measure-all-gpus.bat (owner): OpBench + TexBench for every GPU in the PC, each once (`--adapters` prints the
   hardware adapter indices, one per LUID, no software adapter; the batch loops over them with
   for /f "usebackq" ... (`call "%~dp0OpBench.exe" --adapters`)); checked under Wine (cmd).
+  Pixel shader order (owner's go 2026-10-04: atomics show how the GPU schedules pixels; runOrder, not a timing,
+  after the measurements, `--filter order`): one full-screen draw into 1024^2, each pixel InterlockedAdd on one
+  counter and stores the number at its position (R32_UINT UAV, read back). Blocks: runs of N numbers (N = 4 ..
+  256), share whose bounding box is exactly N pixels ("compact") + the most common shape; the largest N with >= 75%
+  compact = "pixels shaded together". Tiles: aligned B x B squares, B^2 / (max - min + 1). BMPs next to the CSV
+  (order gradient; middle 64^2 8x with block colors and lines). CSV config "order".
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):

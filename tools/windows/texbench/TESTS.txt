@@ -135,3 +135,17 @@ Pass states: full-screen passes into 3840 x 2160 (ms per pass)
   heavy, discard 50% tiles   discard first in half the 8 x 8 tiles.
   heavy, discard 50% pixels  discard first in every other pixel: GPUs shade 2 x 2 pixel quads,
                so this usually saves nothing.
+
+Pixel shader order: which pixels the GPU shades together (not a timing)
+  One full-screen draw into 1024 x 1024. Every pixel takes the next number from one shared counter
+  (an atomic add) and stores it at its position, so the numbers show the order in which the GPU
+  shaded the pixels. GPUs shade pixels in 2 x 2 quads and hand them to the shader units in larger
+  groups (waves of 32 or 64 pixels on most GPUs, 8 / 16 / 32 on Intel).
+  Block N    pixels whose numbers fall in the same run of N (0..N-1, N..2N-1, ...). "Compact" is
+             the share of these runs that fill a rectangle exactly (e.g. 8 x 4 for 32): such pixels
+             were shaded together. The largest size where most runs are compact is printed below.
+  Tile B     for squares of B x B pixels: 100% when the square got one unbroken run of numbers (the
+             GPU finished it before moving on), lower when it was mixed with other squares.
+  Images (next to the CSV): texbench-<GPU>-order.bmp, the whole order from blue (first) to red
+  (last); texbench-<GPU>-order-zoom.bmp, the middle 64 x 64 pixels 8x enlarged, one color per block
+  of the size found, black lines between blocks, darker lines between 2 x 2 quads.
