@@ -101,7 +101,7 @@ Compute: groupshared memory and barriers
                after a groupshared write.
 
 Compute: atomics
-  atomicAdd, And, Or, Xor, Min, Max, Exchange, CompareExchange on groupshared memory ("gs ...") and
+  atomicAdd, And, Or, Xor, Min, Max, Exchange, CompareExchange (shown as CmpXchg) on groupshared memory ("gs ...") and
   on storage (R32U): each thread on its own address, and "(one)": the group's 64 threads on one
   address (contention). (Not a whole dispatch on one address: that could take seconds and trip the
   driver's timeout.)
@@ -110,7 +110,7 @@ Compute: local arrays and branches
   array read, array write + read   a local float A[16] indexed at run time (the index differs per
                lane). fxc puts such arrays in indexable temps, which some GPUs keep in slow memory.
   const array read   a static const float K[16] indexed at run time (an immediate constant buffer).
-  select (both)      sqrt and rcp both computed, one picked.
+  select (both)      4 sin and 4 cos both computed, one result picked.
   branch uniform     the same as a branch; all threads of a group take the same side.
   branch divergent   the same as a branch; neighbouring threads take different sides, so every
                group runs both.
@@ -128,7 +128,9 @@ Render target writes: full-screen passes into 3840 x 2160
   hash of the pixel position, which cannot be compressed), a smooth gradient and one flat color.
   GPUs compress render targets, so compressible output can be written faster than the memory
   bandwidth allows; the two Gain columns (smooth / noise, flat / noise) show how well this card
-  compresses each format. Small formats (R8, R16) are usually limited
+  compresses each format. The passes alternate between two targets: some GPUs (NVIDIA among them)
+  keep back to back full-screen draws into one target in an on-chip cache, so only the last one
+  would reach memory. Small formats (R8, R16) are usually limited
   by the pixel rate (ROPs), not by memory.
 
 Blending: full-screen passes into 3840 x 2160 (ms per pass)
@@ -137,9 +139,9 @@ Blending: full-screen passes into 3840 x 2160 (ms per pass)
   RGBA32F: a plain write, then four common blends, each done by the blend hardware ("blend") and by
   a shader that reads the target's content as a texture and does the same math ("shader"):
   add (ONE, ONE: e.g. bloom), lerp (SRCALPHA, INVSRCALPHA: mixing with the image), multiply
-  (DESTCOLOR, ZERO) and min (BlendOp MIN). The faster of each pair is shown in green. Every pass
-  first restores the target's content (noise) with a copy; the copy is timed alone right before
-  and subtracted.
+  (DESTCOLOR, ZERO) and min (BlendOp MIN). The faster of each pair is shown in green. Before each
+  pass a plain draw restores the target's content (noise); those draws are timed alone right
+  before and subtracted. Two targets take turns, as for the writes.
 
 Pass states: full-screen passes into 3840 x 2160 (ms per pass)
   1 / 2 / 4 / 8 targets   one pass writing several RGBA8 render targets (RenderTarget0..7).

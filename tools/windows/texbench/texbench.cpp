@@ -471,7 +471,8 @@ std::vector<Test> makeTests() {
         const std::string call = std::strcmp(op, "CompareExchange") == 0
                                      ? "InterlockedCompareExchange(" + dest + ", asuint(x) & 255u, 7u, o);"
                                      : std::string("Interlocked") + op + "(" + dest + ", asuint(x) & 255u, o);";
-        Test* t = cTest(std::string(storage ? "" : "gs ") + "atomic" + op + (one ? " (one)" : ""), atomics, "addr.atomic",
+        const std::string shortOp = std::strcmp(op, "CompareExchange") == 0 ? "CmpXchg" : op;  // fits the column
+        Test* t = cTest(std::string(storage ? "" : "gs ") + "atomic" + shortOp + (one ? " (one)" : ""), atomics, "addr.atomic",
                         "uint o; " + call + atUse,
                         std::string(storage ? "storage R32U" : "groupshared") +
                             (one ? ", the group's 64 threads on one address" : ", each thread its own address"));
@@ -496,13 +497,15 @@ std::vector<Test> makeTests() {
   cTest("array write + read", flow, "addr.array", arIdx + " A[ai] = x; float v = A[ai ^ 1u];" + arUse, "")->localArray = true;
   cTest("const array read", flow, "addr.array", arIdx + " float v = K[ai];" + arUse, "static const float K[16]");
   const std::string brUse = " x = mad(v, c.x, c.y);";
-  cTest("select (both)", flow, "mad", "bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v = sel ? sqrt(x) : rcp(x + 1.0);" + brUse,
-        "sqrt and rcp both computed, one picked");
+  // Each side: 4 sin / 4 cos in a row (short sides get turned into selects by the driver).
+  const std::string sideA = "sin(sin(sin(sin(x))))", sideB = "cos(cos(cos(cos(x))))";
+  cTest("select (both)", flow, "mad", "bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v = sel ? " + sideA + " : " + sideB + ";" + brUse,
+        "4 sin and 4 cos both computed, one result picked");
   cTest("branch uniform", flow, "mad",
-        "bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v; [branch] if (sel) v = sqrt(x); else v = rcp(x + 1.0);" + brUse,
+        "bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v; [branch] if (sel) v = " + sideA + "; else v = " + sideB + ";" + brUse,
         "the same in a branch, one side per group");
   cTest("branch divergent", flow, "mad",
-        "bool sel = ((asuint(c.w) ^ l) & 1u) != 0; float v; [branch] if (sel) v = sqrt(x); else v = rcp(x + 1.0);" + brUse,
+        "bool sel = ((asuint(c.w) ^ l) & 1u) != 0; float v; [branch] if (sel) v = " + sideA + "; else v = " + sideB + ";" + brUse,
         "the same in a branch, both sides in every group");
 
   // Pixel shader: derivatives (quad operations) and sampling with automatic mip selection.
@@ -742,10 +745,12 @@ std::string passSource(const Test& t) {
     for (int k = 0; k < t.count; ++k) s += std::string("  o.c") + std::to_string(k) + " = v." + kSw[k] + ";\n";
     return s + "  return o;\n}\n";
   }
-  s += "float4 main(float4 pos : SV_Position) : SV_Target {\n";
+  s = std::string("cbuffer C : register(b0) { float4 U[16]; };\n") + s + "float4 main(float4 pos : SV_Position) : SV_Target {\n";
   if (t.pass == kPassDiscardTiles) s += "  if (((uint(pos.x) >> 3) ^ (uint(pos.y) >> 3)) & 1u) discard;\n";
   if (t.pass == kPassDiscardPixels) s += "  if ((uint(pos.x) ^ uint(pos.y)) & 1u) discard;\n";
-  return s + "  float4 v = noise(pos);\n  [unroll] for (int k = 0; k < 32; ++k) v = sin(v * 1.7 + 0.3);\n  return v;\n}\n";
+  // Constants from the constant buffer: with literals fxc folds the whole loop into one constant.
+  return s + "  float4 v = noise(pos);\n  [unroll] for (int k = 0; k < 32; ++k) v = sin(v * U[k & 15].x + U[k & 15].y);\n"
+             "  return v;\n}\n";
 }
 
 // Stencil test: marks half the pixels (8 x 8 tiles) in the stencil buffer.
@@ -1001,15 +1006,19 @@ struct Measured {
 };
 
 // Render target writes: the median time of one full-screen pass (in ms) at a draw count that
-// takes >= 2 ms.
-double writePass(Gpu& g, ID3D11RenderTargetView* rtv, ID3D11PixelShader* ps, int reps, UINT& draws) {
-  g.ctx->OMSetRenderTargets(1, &rtv, nullptr);
+// takes >= 2 ms. The draws alternate between two targets: NVIDIA (and other tiling GPUs) keep back to
+// back full-screen draws into one target in an on-chip tile cache, so only the last one reached memory
+// (measured above the GTX 1660's memory bandwidth).
+double writePass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader* ps, int reps, UINT& draws) {
   D3D11_VIEWPORT vp = {0.0f, 0.0f, float(kRtW), float(kRtH), 0.0f, 1.0f};
   g.ctx->RSSetViewports(1, &vp);
   g.ctx->PSSetShader(ps, nullptr, 0);
   auto timeDraws = [&](UINT n) {
     return g.timer.time(g.ctx, [&] {
-      for (UINT k = 0; k < n; ++k) g.ctx->Draw(3, 0);
+      for (UINT k = 0; k < n; ++k) {
+        g.ctx->OMSetRenderTargets(1, &rtv[k & 1], nullptr);
+        g.ctx->Draw(3, 0);
+      }
     });
   };
   if (draws == 0) {
@@ -1022,24 +1031,32 @@ double writePass(Gpu& g, ID3D11RenderTargetView* rtv, ID3D11PixelShader* ps, int
   return median(runs);
 }
 
-// Blending: the median time of one pass (in ms) over reps readings; each reading times n x (copy + draw)
-// and, right before, n copies alone, and takes the difference.
-double blendPass(Gpu& g, ID3D11RenderTargetView* rtv, ID3D11Texture2D* rt, ID3D11Texture2D* content,
-                 ID3D11ShaderResourceView* srv, ID3D11PixelShader* ps, ID3D11BlendState* bs, int reps, UINT& draws) {
-  ID3D11ShaderResourceView* nullSrv = nullptr;
-  g.ctx->PSSetShaderResources(0, 1, &nullSrv);
-  g.ctx->OMSetRenderTargets(1, &rtv, nullptr);
+// Blending: the median time of one pass (in ms). A unit restores both targets' content (noise, a plain
+// draw each), then runs the test's pass on both; the time of the restores alone, measured right before,
+// is subtracted. Two targets so no draw lands on the one right before it (tile cache, see writePass);
+// draws, not copies, restore the content (copies gave two-valued results on the GTX 1660).
+double blendPass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader* restore, ID3D11PixelShader* ps,
+                 ID3D11ShaderResourceView* srv, ID3D11BlendState* bs, int reps, UINT& draws) {
   const float factor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-  g.ctx->OMSetBlendState(bs, factor, 0xffffffffu);
-  g.ctx->PSSetShaderResources(0, 1, &srv);
   D3D11_VIEWPORT vp = {0.0f, 0.0f, float(kRtW), float(kRtH), 0.0f, 1.0f};
   g.ctx->RSSetViewports(1, &vp);
-  g.ctx->PSSetShader(ps, nullptr, 0);
-  auto timeUnits = [&](UINT n, bool draw) {
+  g.ctx->PSSetShaderResources(0, 1, &srv);
+  auto timeUnits = [&](UINT n, bool pass) {
     return g.timer.time(g.ctx, [&] {
       for (UINT k = 0; k < n; ++k) {
-        g.ctx->CopyResource(rt, content);
-        if (draw) g.ctx->Draw(3, 0);
+        g.ctx->OMSetBlendState(nullptr, factor, 0xffffffffu);
+        g.ctx->PSSetShader(restore, nullptr, 0);
+        for (int r = 0; r < 2; ++r) {
+          g.ctx->OMSetRenderTargets(1, &rtv[r], nullptr);
+          g.ctx->Draw(3, 0);
+        }
+        if (!pass) continue;
+        g.ctx->OMSetBlendState(bs, factor, 0xffffffffu);
+        g.ctx->PSSetShader(ps, nullptr, 0);
+        for (int r = 0; r < 2; ++r) {
+          g.ctx->OMSetRenderTargets(1, &rtv[r], nullptr);
+          g.ctx->Draw(3, 0);
+        }
       }
     });
   };
@@ -1049,9 +1066,12 @@ double blendPass(Gpu& g, ID3D11RenderTargetView* rtv, ID3D11Texture2D* rt, ID3D1
   }
   std::vector<double> runs;
   for (int n = 0; n < reps * 3 && int(runs.size()) < reps; ++n) {
-    const double copy = timeUnits(draws, false), unit = timeUnits(draws, true);
-    if (copy > 0.0 && unit > 0.0) runs.push_back((unit - copy) / draws);
+    const double base = timeUnits(draws, false), unit = timeUnits(draws, true);
+    if (base > 0.0 && unit > 0.0) runs.push_back((unit - base) / (2.0 * draws));
   }
+  ID3D11ShaderResourceView* nullSrv = nullptr;
+  ID3D11RenderTargetView* nullRtv = nullptr;
+  g.ctx->OMSetRenderTargets(1, &nullRtv, nullptr);
   g.ctx->OMSetBlendState(nullptr, factor, 0xffffffffu);
   g.ctx->PSSetShaderResources(0, 1, &nullSrv);
   return median(runs);
@@ -1243,8 +1263,10 @@ int main(int argc, char** argv) {
       ID3D11DepthStencilView* dsv = nullptr;
       ID3D11DepthStencilState *dsMark = nullptr, *dsTest = nullptr;
       ID3D11PixelShader *ps = nullptr, *psMark = nullptr;
+      // Draw tests alternate between two sets of targets (the tile cache, see writePass).
       const int count = t->pass == kPassTargets ? t->count : 1;
-      for (int k = 0; k < count; ++k) {
+      const bool draws2 = t->pass != kPassClear && t->pass != kPassMips;
+      for (int k = 0; k < count * (draws2 ? 2 : 1); ++k) {
         D3D11_TEXTURE2D_DESC td = {};
         td.Width = kRtW;
         td.Height = kRtH;
@@ -1302,17 +1324,25 @@ int main(int argc, char** argv) {
         g.ctx->Draw(3, 0);
         g.ctx->OMSetDepthStencilState(dsTest, 1);
       }
-      if (t->pass != kPassMips) g.ctx->OMSetRenderTargets(UINT(rtvs.size()), rtvs.data(), dsv);
       if (ps) g.ctx->PSSetShader(ps, nullptr, 0);
+      {
+        // The heavy shader's constants (from the constant buffer, so fxc cannot fold the loop).
+        CbData cd = {};
+        for (int r = 0; r < 16; ++r) cd.U[r][0] = 1.7f + 0.001f * float(r), cd.U[r][1] = 0.3f;
+        g.ctx->UpdateSubresource(g.cb, 0, nullptr, &cd, 0, 0);
+      }
       const float clearColor[4] = {0.1f, 0.2f, 0.3f, 1.0f};
-      auto unit = [&] {
+      auto unit = [&](UINT k) {
         if (t->pass == kPassClear) g.ctx->ClearRenderTargetView(rtvs[0], clearColor);
         else if (t->pass == kPassMips) g.ctx->GenerateMips(srv);
-        else g.ctx->Draw(3, 0);
+        else {
+          g.ctx->OMSetRenderTargets(UINT(count), &rtvs[size_t((k & 1) * count)], dsv);
+          g.ctx->Draw(3, 0);
+        }
       };
       auto timeUnits = [&](UINT n) {
         return g.timer.time(g.ctx, [&] {
-          for (UINT k = 0; k < n; ++k) unit();
+          for (UINT k = 0; k < n; ++k) unit(k);
         });
       };
       UINT n = 1;
@@ -1340,7 +1370,7 @@ int main(int argc, char** argv) {
       continue;
     }
     if (t->stage == Stage::Blend) {
-      // A 3840 x 2160 target, its content (noise) in a second texture that restores it before every pass.
+      // Two 3840 x 2160 targets (see blendPass) and a noise texture the shader version reads.
       D3D11_TEXTURE2D_DESC td = {};
       td.Width = kRtW;
       td.Height = kRtH;
@@ -1348,10 +1378,11 @@ int main(int argc, char** argv) {
       td.Format = t->format->dxgi;
       td.SampleDesc.Count = 1;
       td.BindFlags = D3D11_BIND_RENDER_TARGET;
-      ID3D11Texture2D* rt = nullptr;
-      ID3D11RenderTargetView* rtv = nullptr;
-      if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &rt)) || FAILED(g.dev->CreateRenderTargetView(rt, nullptr, &rtv)))
-        fail("cannot create the render target for " + t->name);
+      ID3D11Texture2D* rt[2] = {nullptr, nullptr};
+      ID3D11RenderTargetView* rtv[2] = {nullptr, nullptr};
+      for (int r = 0; r < 2; ++r)
+        if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &rt[r])) || FAILED(g.dev->CreateRenderTargetView(rt[r], nullptr, &rtv[r])))
+          fail("cannot create the render target for " + t->name);
       td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
       td.Usage = D3D11_USAGE_IMMUTABLE;
       const auto data = texelData(*t->format, size_t(kRtW) * kRtH, rng);
@@ -1383,25 +1414,29 @@ int main(int argc, char** argv) {
       ID3D11PixelShader* ps = nullptr;
       g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &ps);
       code->Release();
+      code = compile(blendSource(0, false), "restore", "ps_5_0");
+      ID3D11PixelShader* restore = nullptr;
+      g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &restore);
+      code->Release();
       UINT draws = 0;
       std::vector<double>& rd = blendReadings[t->name];
       for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
-        rd.push_back(blendPass(g, rtv, rt, content, srv, ps, bs, reps, draws));
+        rd.push_back(blendPass(g, rtv, restore, ps, srv, bs, reps, draws));
         progress.step();
       }
       blendMs[t->name] = consensus(rd, 0.0);
       ID3D11RenderTargetView* nullRtv = nullptr;
       g.ctx->OMSetRenderTargets(1, &nullRtv, nullptr);
       release(ps);
+      release(restore);
       release(bs);
       release(srv);
       release(content);
-      release(rtv);
-      release(rt);
+      for (int r = 0; r < 2; ++r) release(rtv[r]), release(rt[r]);
       continue;
     }
     if (t->stage == Stage::Write) {
-      // A 3840 x 2160 target of the format; GB/s from the pass time.
+      // Two 3840 x 2160 targets of the format (see writePass); GB/s from the pass time.
       D3D11_TEXTURE2D_DESC td = {};
       td.Width = kRtW;
       td.Height = kRtH;
@@ -1409,10 +1444,11 @@ int main(int argc, char** argv) {
       td.Format = t->format->dxgi;
       td.SampleDesc.Count = 1;
       td.BindFlags = D3D11_BIND_RENDER_TARGET;
-      ID3D11Texture2D* rt = nullptr;
-      ID3D11RenderTargetView* rtv = nullptr;
-      if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &rt)) || FAILED(g.dev->CreateRenderTargetView(rt, nullptr, &rtv)))
-        fail("cannot create the render target for " + t->name);
+      ID3D11Texture2D* rt[2] = {nullptr, nullptr};
+      ID3D11RenderTargetView* rtv[2] = {nullptr, nullptr};
+      for (int r = 0; r < 2; ++r)
+        if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &rt[r])) || FAILED(g.dev->CreateRenderTargetView(rt[r], nullptr, &rtv[r])))
+          fail("cannot create the render target for " + t->name);
       ID3DBlob* code = compile(writeSource(t->intTex), t->name.c_str(), "ps_5_0");
       ID3D11PixelShader* ps = nullptr;
       g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &ps);
@@ -1432,8 +1468,7 @@ int main(int argc, char** argv) {
       ID3D11RenderTargetView* nullRtv = nullptr;
       g.ctx->OMSetRenderTargets(1, &nullRtv, nullptr);
       release(ps);
-      release(rtv);
-      release(rt);
+      for (int r = 0; r < 2; ++r) release(rtv[r]), release(rt[r]);
       continue;
     }
     Bound b = bindResources(g, *t, rng);
@@ -1513,24 +1548,24 @@ int main(int argc, char** argv) {
     for (const Test* t : tests) {
       if (!results[c.name].count(t->name)) continue;
       const Measured& x = results[c.name][t->name];
-      std::fprintf(csv, "%s,%s,\"%s\",%s,%u,%.4f,%.6f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\"\n", c.name, t->name.c_str(),
+      std::fprintf(csv, "%s,\"%s\",\"%s\",%s,%u,%.4f,%.6f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\"\n", c.name, t->name.c_str(),
                    t->section.c_str(), t->base.c_str(), x.r.iters, x.r.ms, x.r.nsPerStep, x.units.value, x.vsBase,
                    x.readings.size(), x.units.ok ? "yes" : "no", readingsText(x.readings).c_str(), t->step.c_str(),
                    t->note.c_str());
     }
   for (const Test* t : tests)
     if (t->stage == Stage::Write)
-      std::fprintf(csv, "write,%s,\"%s\",,,%.4f,,%.3f,,%zu,%s,%s,\"GB/s, %u x %u\",\"\"\n", t->name.c_str(),
+      std::fprintf(csv, "write,\"%s\",\"%s\",,,%.4f,,%.3f,,%zu,%s,%s,\"GB/s, %u x %u\",\"\"\n", t->name.c_str(),
                    t->section.c_str(), writeMs[t->name], writeUnits[t->name].value, writeReadings[t->name].size(),
                    writeUnits[t->name].ok ? "yes" : "no", readingsText(writeReadings[t->name]).c_str(), kRtW, kRtH);
   for (const Test* t : tests)
     if (t->stage == Stage::Pass)
-      std::fprintf(csv, "pass,%s,\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"%s\"\n", t->name.c_str(),
+      std::fprintf(csv, "pass,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"%s\"\n", t->name.c_str(),
                    t->section.c_str(), passMs[t->name].value, passMs[t->name].value, passReadings[t->name].size(),
                    passMs[t->name].ok ? "yes" : "no", readingsText(passReadings[t->name]).c_str(), kRtW, kRtH, t->note.c_str());
   for (const Test* t : tests)
     if (t->stage == Stage::Blend)
-      std::fprintf(csv, "blend,%s,\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"\"\n", t->name.c_str(),
+      std::fprintf(csv, "blend,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"\"\n", t->name.c_str(),
                    t->section.c_str(), blendMs[t->name].value, blendMs[t->name].value, blendReadings[t->name].size(),
                    blendMs[t->name].ok ? "yes" : "no", readingsText(blendReadings[t->name]).c_str(), kRtW, kRtH);
   std::fclose(csv);
@@ -1539,7 +1574,9 @@ int main(int argc, char** argv) {
   std::printf("\n");
   printBox(st, std::string("TexBench ") + SOPT_VERSION + "  -  " + ad.name);
   std::printf("  driver %s, vendor 0x%04X, device 0x%04X\n", ad.driver.c_str(), ad.desc.VendorId, ad.desc.DeviceId);
-  constexpr int kBarWidth = 24;
+  // Lines fit the console: names up to 24 characters (longer ones cut), the graphs shrink when the
+  // window is narrow (one character spare, or the console wraps the line).
+  const int cols = consoleColumns();
   std::string section;
   std::vector<std::string> unstable;
   double maxV = 0.0;
@@ -1553,7 +1590,10 @@ int main(int argc, char** argv) {
   int nameW = 18;
   for (const Test* t : tests)
     if (!t->section.empty() && (t->stage == Stage::Compute || t->stage == Stage::Pixel))
-      nameW = std::max(nameW, int(t->name.size()));
+      nameW = std::min(24, std::max(nameW, int(t->name.size())));
+  // Fixed columns: indent, name, cost, Ops, dep, lat, GB/s.
+  const int kBarWidth = std::clamp(cols - 1 - (2 + nameW + 1 + 7 + 2 + 2 + 6 + 1 + 6 + 1 + 6 + 8), 8, 24);
+  auto shortName = [&](const std::string& n) { return int(n.size()) > nameW ? n.substr(0, size_t(nameW - 1)) + "~" : n; };
   const std::string graphIndent(size_t(2 + nameW + 1 + 7 + 2), ' ');
   bool rows = false;  // rows printed since the last "(shorter is better)" note
   auto betterNote = [&](const char* text) {
@@ -1600,7 +1640,7 @@ int main(int argc, char** argv) {
     if (t->perByte && t->format && x.vsBase > 0.05 && refNs > 0.0)
       std::snprintf(perByte, sizeof(perByte), "  %6.0f", t->format->bytes / (x.vsBase / 4.0 * refNs));
     else if (t->perByte) std::snprintf(perByte, sizeof(perByte), "  %6s", "-");
-    std::printf("  %-*s %s  %s  %s %s %s%s%s\n", nameW, t->name.c_str(), num(x.vsBase, 7).c_str(),
+    std::printf("  %-*s %s  %s  %s %s %s%s%s\n", nameW, shortName(t->name).c_str(), num(x.vsBase, 7).c_str(),
                 bar(x.vsBase, maxV, kBarWidth, st, shade).c_str(), num(x.vsBase / 4.0, 6).c_str(), other("dep").c_str(),
                 other("lat").c_str(), perByte, shaky ? (st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus") : "");
   }
@@ -1611,7 +1651,7 @@ int main(int argc, char** argv) {
     if (t->stage == Stage::Write) anyWrite = true, maxW = std::max(maxW, writeUnits[t->name].value);
   if (anyWrite) {
     // Noise cannot be compressed; Gain = how much faster the smooth gradient / the flat color writes.
-    constexpr int w = 8;
+    const int w = std::clamp((cols - 1 - (2 + 18 + 1 + 3 * 9 + 2 * 7 + 2)) / 3, 4, 8);
     std::printf("\n  %sRender target writes: full-screen passes into 3840 x 2160 (GB/s)%s\n"
                 "  %s%-18s %7s  %-*s  %7s  %-*s  %7s  %-*s  %6s %6s%s\n",
                 st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Format", "Noise", w, "", "Smooth", w, "", "Flat", w, "",

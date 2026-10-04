@@ -913,6 +913,24 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   (indexable temp), const array (icb), select vs uniform / divergent [branch]), "Pass states" (Stage::Pass: 1-8
   RGBA8 targets, clears, GenerateMips, heavy 32-sin shader vs stencil 50% / discard tiles / discard pixels).
   Progress bars: at most benchkit::kMaxCells (70) cells (stepsPerCell).
+  First full run (owner, GTX 1660, 2026-10-04, docs/texbench/nvidia-gtx-1660-v5.csv, docs/opbench/nvidia-gtx-1660-v5.csv):
+  random reads now ~6400-7500 for every format (DRAM bound: the fix works); cache sizes: <= 32 KB ~100, 128 KB -
+  1 MB ~450, 2 MB 940, 4 MB 2640, >= 16 MB ~6000-7400 (texture cache ~64 KB, L2 1.5 MB); spread <= 8 texels ~35,
+  16-32 ~80, 64+ 280-470; row = column (tiled layout); offsets, size queries, address modes, 1D = 2D free; grad 1:1 =
+  aniso 2:1 = trilinear 104, aniso 4:1 231, 16:1 992; trilinear R8 / RGB10A2 / RG11B10F 104, RGBA16F 167, RGBA32F
+  232; tex3D linear 112; LUT 32: 2D (2 reads) 108 vs 3D 104, LUT 64: 187 vs 146 (3D wins); storage stores
+  coherent RGBA8 53, other 32-bit ~67, 64-bit 140-164, 128-bit ~400, random ~7400-8300; groupshared read 1.7 /
+  write 3.8, stride 32 ~460-500 (bank conflicts), barrier 18, groupMemoryBarrier 48, memoryBarrier 66; gs atomics
+  ~1 (CAS 16), 64 on one address 155-545 (CAS 1020); storage atomics ~250-280 (CAS 532), one address ~1000-1240;
+  local array read 40, write + read 848, const array (divergent index) 239; derivatives as before. OpBench: cosh /
+  sinh 28, tanh 44, log10 12, radians ~0, ldexp 7, frexp 26, modf 12, isnan 4, isinf 7, f16round ~0, refract 45,
+  faceforward 23, matmul4 68, transpose free, det3 32, fbl 27, icmpsel 8, udiv / umod ~67, idiv / imod ~82, itof 12,
+  iand still 4.0 (driver 32.0.15.6614). Flaws found and fixed: CSV test names with commas were unquoted; the heavy
+  pass shader folded to a constant in fxc (now cbuffer constants); the branch tests were flattened by the driver
+  (sides now 4 sin / 4 cos); writes measured above the 1660's 192 GB/s (230-300: back to back full-screen draws
+  stay in NVIDIA's on-chip tile cache) - writes and draw pass tests alternate between two targets; blend results
+  were two-valued (~0.42 / ~0.74 ms, copy-based restore) - restore by plain draws, two targets; summary lines fit
+  the console (consoleColumns, names <= 24, CmpXchg), numbers keep their width.
   Owner's ideas (2026-10-04, not decided): expected costs per cost model built into
   OpBench / TexBench, telling the user when their card does not match its model ("your report is very
   interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs

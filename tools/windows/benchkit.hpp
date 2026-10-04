@@ -226,6 +226,18 @@ inline int columns(const std::string& s) {
   return n;
 }
 
+// The console window's width in characters (120 when the output is not a console), so summary lines
+// can be fitted to it instead of wrapping.
+inline int consoleColumns() {
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  const HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+  if (out && out != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(out, &info)) {
+    const int w = info.srWindow.Right - info.srWindow.Left + 1;
+    if (w >= 40) return w;
+  }
+  return 120;
+}
+
 // A double-line box around a title (bright cyan frame, bright white title; ASCII without VT).
 inline void printBox(const Style& st, const std::string& title) {
   const std::string hz = st.vt ? "═" : "=";

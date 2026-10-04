@@ -631,7 +631,7 @@ int main(int argc, char** argv) {
               desc.DeviceId, fmaRate * 2.0 / 1000.0);
   std::printf("  min16float runs at %s\n", half16 ? "16 bits" : "32 bits on this driver (the half precision tests measure fp32)");
 
-  constexpr int kBarWidth = 28;
+  const int cols = consoleColumns();  // the graph shrinks in a narrow window so lines do not wrap
   double maxV = 0.0;
   for (const char* name : kDisplayOrder)
     if (results["tput"].count(name)) maxV = std::max(maxV, results["tput"][name].vsBase);
@@ -640,6 +640,8 @@ int main(int argc, char** argv) {
   for (const char* name : kDisplayOrder)
     if (name[0] != '#') nameW = std::max(nameW, int(std::strlen(name)));
   const std::string graphIndent(size_t(2 + nameW + 1 + 6 + 2), ' ');  // where the graphs start
+  // Fixed columns: indent, name, cost, Ops, comment ("expensive") and a note ("3 passes").
+  const int kBarWidth = std::clamp(cols - 1 - (2 + nameW + 1 + 6 + 2 + 2 + 5 + 2 + 10 + 10), 10, 28);
   std::printf("\n  %s%-*s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1m"), nameW, "Test", "Cost", kBarWidth, "Graph", "Ops",
               "Comment", st.reset());
   std::vector<std::string> unstable;
