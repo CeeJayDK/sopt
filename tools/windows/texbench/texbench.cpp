@@ -398,9 +398,10 @@ std::vector<Test> makeTests() {
 
   // Cache use: how far apart neighbouring threads may read, rows against columns, texel size and the
   // thread group's shape.
-  const char* cacheUse = "Cache use: RGBA8 4096 x 4096 (Load), reads around each thread's own pixel";
+  // 2048 x 2048: the reads stay within 1024 + 256 + 128 texels of the corner (smaller texture, same reads).
+  const char* cacheUse = "Cache use: RGBA8 2048 x 2048 (Load), reads around each thread's own pixel";
   auto spreadTest = [&](std::string name, float sx, float sy, UINT tileW, std::string note) {
-    texTest(std::move(name), cacheUse, "addr.spread", kSpread, load, rgba8, Tex::Plain, 4096, Filter::Point, false,
+    texTest(std::move(name), cacheUse, "addr.spread", kSpread, load, rgba8, Tex::Plain, 2048, Filter::Point, false,
             std::move(note), kUseSpread);
     v.back().scaleX = sx, v.back().scaleY = sy, v.back().tileW = tileW;
   };
@@ -425,14 +426,14 @@ std::vector<Test> makeTests() {
 
   // Compute: storage writes (tex2Dstore / RWTexture2D) per format, coherent (near the thread's pixel) and
   // random; GB/s comparable with the render target writes below.
-  const char* stores = "Compute: storage writes (tex2Dstore) into 4096 x 4096";
+  const char* stores = "Compute: storage writes (tex2Dstore), near the pixel into 1024 x 1024, random into 4096 x 4096";
   for (const Format& f : kFormats) {
     if (f.dxgi == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) continue;  // not a storage format
     const bool i = f.kind == 'i';
     const std::string store = i ? "WU[int2(uv * size)] = uint4(asuint(uv), 1u, 2u);" : "W[int2(uv * size)] = float4(uv, x, 1.0);";
     for (bool random : {false, true}) {
       texTest(std::string(f.name) + (random ? " store random" : " store"), stores, random ? "addr.random" : "addr.coherent",
-              random ? kRandom2D : kCoherent, store, &f, Tex::Storage, 4096, Filter::Point, false,
+              random ? kRandom2D : kCoherent, store, &f, Tex::Storage, random ? 4096 : 1024, Filter::Point, false,
               random ? "random places" : "near the thread's own pixel", kUseBase);
       v.back().uav = i ? 2 : 1;
       v.back().perByte = true;
@@ -1066,7 +1067,7 @@ int main(int argc, char** argv) {
   int adapterIndex = -1;
   bool list = false;
   std::string filter, outPath;
-  int reps = 7;
+  int reps = 5;  // runs per reading (median); readings agree within ~0.1% on clean runs
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     auto next = [&]() -> const char* {

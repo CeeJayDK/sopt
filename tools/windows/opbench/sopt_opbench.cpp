@@ -483,7 +483,7 @@ int main(int argc, char** argv) {
   int adapterIndex = -1;
   bool list = false;
   std::string filter, outPath;
-  int reps = 7;
+  int reps = 5;  // runs per reading (median); readings agree within ~0.1% on clean runs
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     auto next = [&]() -> const char* {

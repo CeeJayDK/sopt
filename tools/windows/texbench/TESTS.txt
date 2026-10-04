@@ -70,7 +70,7 @@ Cache sizes: random reads (Load) from an RGBA8 texture of growing size
   of a single read). So the jumps show this card's cache sizes (texture / L1 cache, L2 cache, and
   on some AMD cards the large Infinity Cache).
 
-Cache use: RGBA8 4096 x 4096 (Load), reads around each thread's own pixel
+Cache use: RGBA8 2048 x 2048 (Load), reads around each thread's own pixel
   spread N     each thread reads at random within N x N texels around its own pixel (N = 1 ...
                256). Neighbouring threads share cache lines while N is small; the cost rises
                where they stop sharing. Shows how far apart neighbouring pixels may read (blur
@@ -84,7 +84,7 @@ Cache use: texel size, random reads (Load) from 1024 x 1024
   R8, RGBA8, RGBA16F, RGBA32F: the same texel count in 1, 4, 8 and 16 MB. Shows whether bigger
   texels fill the caches sooner.
 
-Compute: storage writes (tex2Dstore) into 4096 x 4096
+Compute: storage writes (tex2Dstore): near the pixel into 1024 x 1024, random into 4096 x 4096
   <format> store         a compute shader writes near its own pixel (like a post-processing pass).
   <format> store random  writes at random places.
   GB/s as for reads, comparable with the render target writes. Formats the GPU cannot write from a
