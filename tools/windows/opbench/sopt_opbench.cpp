@@ -64,6 +64,11 @@ struct Test {
   // after it, or fxc drops writes nothing reads), kLocalArray (a local float A[16]). A step with ';' is
   // statements that assign x, not an expression.
   int setup = 0;
+  // Parallel issue: the odd chains run pairStep (of pairType) instead of step, so a throughput run
+  // interleaves 4 chains of each; solo names the test that runs pairStep alone (and is the base).
+  const char* pairStep = nullptr;
+  const char* pairType = "float";
+  const char* solo = nullptr;
 };
 enum { kGroupshared = 1, kLocalArray = 2 };
 
@@ -273,6 +278,27 @@ const Test kTests[] = {
      0.5f, 0.25f, 0.7f, 0.3f, "mad", "a branch, one side per group"},
     {"branchdiv", "bool sel = ((asuint(c.w) ^ l) & 1u) != 0; float v; [branch] if (sel) v = sin(sin(sin(sin(x)))); else v = cos(cos(cos(cos(x)))); x = mad(v, c.x, c.y);",
      0.5f, 0.25f, 0.7f, 0.3f, "mad", "a branch, both sides in every group"},
+    // Parallel issue (owner, 2026-10-04): can the GPU run an fma and another kind of instruction at the same
+    // time (VLIW slots, Turing's integer pipe beside the float pipe, a second FP32 pipe, dual issue)? Each
+    // "fma+X" test runs 4 chains of mad and 4 chains of X; "X" alone is measured too. If the pair takes less
+    // than the two one after the other, they overlap.
+    {"int", "(x ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "mad", "integer xor + add, alone", "uint"},
+    {"rcp1", "rcp(x + c.x)", 0.5f, 0.5f, 1.2f, 0.8f, "mad", "add + rcp, alone"},
+    {"minmax1", "max(min(x, c.z), c.w)", 0.5f, 0.5f, 1.2f, 0.8f, "mad", "min + max, alone"},
+    {"cvt1", "asuint(float(x) * 0.7)", 0, 0, 0, 0, "mad", "uint -> float + mul, alone", "uint"},
+    {"half1", "mad(x, (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "fp16 fma, alone", "min16float"},
+    {"fma+fma", "mad(x, c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.8f, "mad", "control: the same fma on both halves", "float", 0,
+     "mad(x, c.x, c.y)", "float", "mad"},
+    {"fma+int", "mad(x, c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.8f, "int", "fma beside integer ops", "float", 0,
+     "(x ^ asuint(c.y)) + asuint(c.x)", "uint", "int"},
+    {"fma+rcp", "mad(x, c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.8f, "rcp1", "fma beside the transcendental unit", "float", 0,
+     "rcp(x + c.x)", "float", "rcp1"},
+    {"fma+minmax", "mad(x, c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.8f, "minmax1", "fma beside min / max", "float", 0,
+     "max(min(x, c.z), c.w)", "float", "minmax1"},
+    {"fma+cvt", "mad(x, c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.8f, "cvt1", "fma beside conversions", "float", 0,
+     "asuint(float(x) * 0.7)", "uint", "cvt1"},
+    {"fma+half", "mad(x, c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.8f, "half1", "fp32 fma beside fp16 fma", "float", 0,
+     "mad(x, (min16float)c.x, (min16float)c.y)", "min16float", "half1"},
 };
 
 constexpr int kUnroll = 16;          // steps per loop iteration, each with its own constants
@@ -312,8 +338,11 @@ std::string shaderSource(const Test& t, int chains) {
     s += "  for (uint k = l; k < 2048u; k += 64u) GS[k] = 0.5 + float(k) * 1e-4 + seed;\n"
          "  GSI[l] = l;\n  GroupMemoryBarrierWithGroupSync();\n";
   if (t.setup & kLocalArray) s += "  float A[16];\n  [unroll] for (uint k = 0; k < 16u; ++k) A[k] = 0.5 + float(k) * 0.01 + seed;\n";
-  const std::string type = t.type;
+  // The type and step of chain k (pair tests: the odd chains run the pair step).
+  auto typeOf = [&](int k) { return std::string(t.pairStep && (k & 1) ? t.pairType : t.type); };
+  auto stepOf = [&](int k) { return std::string(t.pairStep && (k & 1) ? t.pairStep : t.step); };
   for (int k = 0; k < chains; ++k) {
+    const std::string type = typeOf(k);
     const std::string ks = std::to_string(k);
     std::string init;
     if (type == "uint") init = "id.x * 2654435761u + " + ks + "u * 40503u + 1u";
@@ -330,7 +359,7 @@ std::string shaderSource(const Test& t, int chains) {
     s += "    {\n      const float4 c = U[" + std::to_string(r) + "];\n";
     for (int k = 0; k < chains; ++k) {
       const std::string x = "x" + std::to_string(k);
-      std::string step = t.step;
+      std::string step = stepOf(k);
       // Replace the chain variable x (a lone identifier) with xk.
       std::string out;
       for (size_t p = 0; p < step.size(); ++p) {
@@ -346,6 +375,7 @@ std::string shaderSource(const Test& t, int chains) {
   s += "  }\n  O[id.x] = 0.0";
   for (int k = 0; k < chains; ++k) {
     const std::string x = "x" + std::to_string(k);
+    const std::string type = typeOf(k);
     if (type == "float") s += " + " + x;
     else if (type == "uint") s += " + float(" + x + " & 1023u)";
     else if (type == "min16float") s += " + (float)" + x;
@@ -471,7 +501,9 @@ const char* const kDisplayOrder[] = {
     "#Compute: groupshared atomics (aAdd = atomicAdd ...; 1 = 64 threads on one address)", "aAdd", "aAnd", "aOr", "aXor",
     "aMin", "aMax", "aXchg", "aCmpXchg", "aAdd1", "aAnd1", "aOr1", "aXor1", "aMin1", "aMax1",
     "aXchg1", "aCmpXchg1",
-    "#Compute: local arrays and branches", "arrayread", "arraywrite", "constarray", "selectboth", "branchuni", "branchdiv"};
+    "#Compute: local arrays and branches", "arrayread", "arraywrite", "constarray", "selectboth", "branchuni", "branchdiv",
+    "#Parallel issue: an fma and X together (Cost = both; % = of the two one after the other)", "fma+fma", "fma+int",
+    "fma+minmax", "fma+cvt", "fma+rcp", "fma+half"};
 
 
 }  // namespace
@@ -751,9 +783,25 @@ int main(int argc, char** argv) {
     }
     rows = true;
     const Measured& x = results["tput"][name];
-    const double v = x.vsBase;
+    const Test* self = nullptr;
+    for (const Test* t : tests)
+      if (std::strcmp(t->name, name) == 0) self = t;
+    // Parallel issue: Cost = one fma and one X together (two chain steps of the pair test); the comment
+    // compares it with the two one after the other (4 for the fma + X measured alone).
+    const bool pair = self && self->pairStep && results["tput"].count(self->solo);
+    const double together = pair ? 2.0 * x.units.value : 0.0;
+    const double apart = pair ? 4.0 + results["tput"][self->solo].units.value : 0.0;
+    const double v = pair ? together : x.vsBase;
     Shade shade;
     const char* comment = costComment(v, &shade);
+    char pairComment[64];
+    if (pair) {
+      const double pct = apart > 0.0 ? 100.0 * together / apart : 100.0;
+      std::snprintf(pairComment, sizeof(pairComment), "%3.0f%% of %.1f: %s", pct, apart,
+                    pct < 85.0 ? "in parallel" : "one after the other");
+      comment = pairComment;
+      shade = pct < 85.0 ? kGreen : kWhite;
+    }
     const std::string color = st.vt ? "\x1b[" + std::to_string(shade.bright) + "m" : "";
     const std::string b = bar(v, maxV, kBarWidth, st, shade);
     // A test (or its base) without a majority among its readings, or settled by extra passes.

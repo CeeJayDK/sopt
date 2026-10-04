@@ -161,6 +161,15 @@ Compute: local arrays and branches
   branchdiv         the same as a branch; neighbouring threads take different sides, so every
                     group runs both.
 
+Parallel issue: an fma and X together
+  fma+int, fma+minmax, fma+cvt, fma+rcp, fma+half   half of the chains run mad, the other half run X
+                    (integer xor + add, min + max, uint -> float, rcp, an fp16 fma); int1 ... half1
+                    measure X alone. Cost = one fma and one X together; the comment gives it as a
+                    percentage of the two one after the other (4 + X alone). Below ~85% they run at
+                    the same time: separate units or slots (old AMD VLIW cards, NVIDIA's integer pipe
+                    beside the float pipe, a second FP32 pipe, AMD dual issue).
+  fma+fma           control: the same fma on both halves (should be ~100%).
+
 Reading the CSV
 ---------------
 Lines starting with '#' describe the card, driver, OpBench version and how much the reference
