@@ -143,6 +143,24 @@ Half precision (min16float)
                     other cards run these at twice the rate (two per instruction). Drivers may run
                     min16float at 32 bits instead. The summary and the CSV header say which.
 
+Compute: groupshared memory and barriers (moved from TexBench)
+  gsread, gswrite, gswriteread   groupshared memory (fast on-chip memory shared by a thread group).
+  gsread32, gswrite32            lanes 32 words apart: they hit the same memory bank (bank conflicts).
+  barrier, groupbarrier, membarrier   barrier() / groupMemoryBarrier() / memoryBarrier() after a write.
+
+Compute: groupshared atomics
+  aAdd, aAnd, aOr, aXor, aMin, aMax, aXchg, aCmpXchg = atomicAdd ... atomicCompareExchange, each
+  thread on its own address; with "1" (aAdd1 ...): the group's 64 threads on one address.
+
+Compute: local arrays and branches
+  arrayread, arraywrite   a local float A[16] indexed at run time (the index differs per thread). fxc
+                    puts such arrays in indexable temps, which some GPUs keep in slow memory.
+  constarray        a static const float K[16] indexed at run time.
+  selectboth        4 sin and 4 cos both computed, one result picked.
+  branchuni         the same as a branch; all threads of a group take the same side.
+  branchdiv         the same as a branch; neighbouring threads take different sides, so every
+                    group runs both.
+
 Reading the CSV
 ---------------
 Lines starting with '#' describe the card, driver, OpBench version and how much the reference

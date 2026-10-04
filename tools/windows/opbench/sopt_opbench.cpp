@@ -60,7 +60,12 @@ struct Test {
   // Type of the chain value x: float, float2..4, uint (constants are then random odd 32-bit
   // patterns, read with asuint) or min16float.
   const char* type = "float";
+  // Compute setup: kGroupshared (groupshared float GS[2048] / uint GSI[64], filled before the loop and read
+  // after it, or fxc drops writes nothing reads), kLocalArray (a local float A[16]). A step with ';' is
+  // statements that assign x, not an expression.
+  int setup = 0;
 };
+enum { kGroupshared = 1, kLocalArray = 2 };
 
 // Constants keep every chain finite and away from denormals (x stays roughly in [0.3, 3]).
 const Test kTests[] = {
@@ -210,6 +215,64 @@ const Test kTests[] = {
     {"rcp16", "mad(rcp(x), (min16float)c.x, (min16float)c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad16", "", "min16float"},
     {"sqrt16", "mad(sqrt(x), (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad16", "", "min16float"},
     {"exp2_16", "mad(exp2(x), (min16float)c.x, (min16float)c.y)", 0.25f, 0.0f, 0.0f, 0.0f, "mad16", "", "min16float"},
+    // Compute (moved from TexBench, owner 2026-10-04: ops in OpBench, texture work in TexBench). gi / ai index
+    // groupshared memory / a local array from x and the thread's lane l, so the address differs per lane.
+    {"gsbase", "uint gi = (l + uint(x * 64.0)) & 2047u; float v = asfloat((gi & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
+     0.5f, 0.25f, 0.7f, 0.3f, "mad", "base: groupshared index, a stand-in value", "float", kGroupshared},
+    {"gsbase32", "uint gi = (l * 32u + uint(x * 64.0)) & 2047u; float v = asfloat((gi & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
+     0.5f, 0.25f, 0.7f, 0.3f, "mad", "base: index with stride 32", "float", kGroupshared},
+    {"gsread", "uint gi = (l + uint(x * 64.0)) & 2047u; float v = GS[gi]; x = mad(x, c.x, c.y + v * 0.01);", 0.5f, 0.25f, 0.7f,
+     0.3f, "gsbase", "groupshared read, neighbouring lanes in neighbouring words", "float", kGroupshared},
+    {"gsread32", "uint gi = (l * 32u + uint(x * 64.0)) & 2047u; float v = GS[gi]; x = mad(x, c.x, c.y + v * 0.01);", 0.5f, 0.25f,
+     0.7f, 0.3f, "gsbase32", "lanes 32 words apart: bank conflicts", "float", kGroupshared},
+    {"gswrite", "uint gi = (l + uint(x * 64.0)) & 2047u; GS[gi] = x; float v = asfloat((gi & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
+     0.5f, 0.25f, 0.7f, 0.3f, "gsbase", "groupshared write", "float", kGroupshared},
+    {"gswrite32", "uint gi = (l * 32u + uint(x * 64.0)) & 2047u; GS[gi] = x; float v = asfloat((gi & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
+     0.5f, 0.25f, 0.7f, 0.3f, "gsbase32", "bank conflicts", "float", kGroupshared},
+    {"gswriteread", "uint gi = (l + uint(x * 64.0)) & 2047u; GS[gi] = x; float v = GS[gi ^ 1u]; x = mad(x, c.x, c.y + v * 0.01);",
+     0.5f, 0.25f, 0.7f, 0.3f, "gsbase", "write, then read the neighbour's word", "float", kGroupshared},
+    {"barrier", "uint gi = (l + uint(x * 64.0)) & 2047u; GS[gi] = x; GroupMemoryBarrierWithGroupSync(); float v = asfloat((gi & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
+     0.5f, 0.25f, 0.7f, 0.3f, "gswrite", "barrier() after a groupshared write", "float", kGroupshared},
+    {"groupbarrier", "uint gi = (l + uint(x * 64.0)) & 2047u; GS[gi] = x; GroupMemoryBarrier(); float v = asfloat((gi & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
+     0.5f, 0.25f, 0.7f, 0.3f, "gswrite", "groupMemoryBarrier() after a write", "float", kGroupshared},
+    {"membarrier", "uint gi = (l + uint(x * 64.0)) & 2047u; GS[gi] = x; AllMemoryBarrier(); float v = asfloat((gi & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
+     0.5f, 0.25f, 0.7f, 0.3f, "gswrite", "memoryBarrier() after a write", "float", kGroupshared},
+    // Atomics on groupshared memory: each thread its own address, and "1": the group's 64 threads on one.
+    {"atombase", "uint o = asuint(x) & 255u; x = mad(x, c.x, c.y + float(o & 255u) * 1e-6);", 0.5f, 0.25f, 0.7f, 0.3f, "mad",
+     "base: the atomic's stand-in", "float", kGroupshared},
+#define SOPT_ATOMIC(N, CALL, CALL1, NOTE)                                                                                 \
+  {N, "uint o; " CALL " x = mad(x, c.x, c.y + float(o & 255u) * 1e-6);", 0.5f, 0.25f, 0.7f, 0.3f, "atombase", NOTE, "float",  \
+   kGroupshared},                                                                                                         \
+  {N "1", "uint o; " CALL1 " x = mad(x, c.x, c.y + float(o & 255u) * 1e-6);", 0.5f, 0.25f, 0.7f, 0.3f, "atombase",          \
+   NOTE ", 64 threads on one address", "float", kGroupshared},
+    SOPT_ATOMIC("aAdd", "InterlockedAdd(GSI[l], asuint(x) & 255u, o);", "InterlockedAdd(GSI[0], asuint(x) & 255u, o);", "atomicAdd")
+    SOPT_ATOMIC("aAnd", "InterlockedAnd(GSI[l], asuint(x) & 255u, o);", "InterlockedAnd(GSI[0], asuint(x) & 255u, o);", "atomicAnd")
+    SOPT_ATOMIC("aOr", "InterlockedOr(GSI[l], asuint(x) & 255u, o);", "InterlockedOr(GSI[0], asuint(x) & 255u, o);", "atomicOr")
+    SOPT_ATOMIC("aXor", "InterlockedXor(GSI[l], asuint(x) & 255u, o);", "InterlockedXor(GSI[0], asuint(x) & 255u, o);", "atomicXor")
+    SOPT_ATOMIC("aMin", "InterlockedMin(GSI[l], asuint(x) & 255u, o);", "InterlockedMin(GSI[0], asuint(x) & 255u, o);", "atomicMin")
+    SOPT_ATOMIC("aMax", "InterlockedMax(GSI[l], asuint(x) & 255u, o);", "InterlockedMax(GSI[0], asuint(x) & 255u, o);", "atomicMax")
+    SOPT_ATOMIC("aXchg", "InterlockedExchange(GSI[l], asuint(x) & 255u, o);", "InterlockedExchange(GSI[0], asuint(x) & 255u, o);",
+                "atomicExchange")
+    SOPT_ATOMIC("aCmpXchg", "InterlockedCompareExchange(GSI[l], asuint(x) & 255u, 7u, o);",
+                "InterlockedCompareExchange(GSI[0], asuint(x) & 255u, 7u, o);", "atomicCompareExchange")
+#undef SOPT_ATOMIC
+    // Local arrays indexed at run time (fxc: indexable temps), a constant array (an immediate constant
+    // buffer), and branches: 4 sin / 4 cos per side (short sides become selects), uniform within a group
+    // (from the group) or divergent (from the lane), against both sides computed and one picked.
+    {"arraybase", "uint ai = (uint(x * 64.0) + l) & 15u; float v = asfloat(ai | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
+     0.5f, 0.25f, 0.7f, 0.3f, "mad", "base: array index, a stand-in value", "float", kLocalArray},
+    {"arrayread", "uint ai = (uint(x * 64.0) + l) & 15u; float v = A[ai]; x = mad(x, c.x, c.y + v * 0.01);", 0.5f, 0.25f, 0.7f,
+     0.3f, "arraybase", "float A[16][i], i differs per lane", "float", kLocalArray},
+    {"arraywrite", "uint ai = (uint(x * 64.0) + l) & 15u; A[ai] = x; float v = A[ai ^ 1u]; x = mad(x, c.x, c.y + v * 0.01);",
+     0.5f, 0.25f, 0.7f, 0.3f, "arraybase", "A[i] = x, then a read", "float", kLocalArray},
+    {"constarray", "uint ai = (uint(x * 64.0) + l) & 15u; float v = K[ai]; x = mad(x, c.x, c.y + v * 0.01);", 0.5f, 0.25f, 0.7f,
+     0.3f, "arraybase", "static const float K[16][i]", "float", kLocalArray},
+    {"selectboth", "bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v = sel ? sin(sin(sin(sin(x)))) : cos(cos(cos(cos(x)))); x = mad(v, c.x, c.y);",
+     0.5f, 0.25f, 0.7f, 0.3f, "mad", "4 sin and 4 cos computed, one result picked"},
+    {"branchuni", "bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v; [branch] if (sel) v = sin(sin(sin(sin(x)))); else v = cos(cos(cos(cos(x)))); x = mad(v, c.x, c.y);",
+     0.5f, 0.25f, 0.7f, 0.3f, "mad", "a branch, one side per group"},
+    {"branchdiv", "bool sel = ((asuint(c.w) ^ l) & 1u) != 0; float v; [branch] if (sel) v = sin(sin(sin(sin(x)))); else v = cos(cos(cos(cos(x)))); x = mad(v, c.x, c.y);",
+     0.5f, 0.25f, 0.7f, 0.3f, "mad", "a branch, both sides in every group"},
 };
 
 constexpr int kUnroll = 16;          // steps per loop iteration, each with its own constants
@@ -240,8 +303,15 @@ std::string shaderSource(const Test& t, int chains) {
       "float frexpM(float v) { float e; float m = frexp(v, e); return m + e * 0.01; }\n"
       "float modfS(float v) { float i; float f = modf(v, i); return f + i * 0.5; }\n"
       "float fracAdd(float v) { precise float d = v - ((v + 12582912.0) - 12582912.0); precise float f = d + saturate(d * -1e38); return f; }\n"
-      "[numthreads(64, 1, 1)]\n"
-      "void main(uint3 id : SV_DispatchThreadID)\n{\n";
+      "static const float K[16] = {0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.59, 0.60, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66};\n";
+  if (t.setup & kGroupshared) s += "groupshared float GS[2048];\ngroupshared uint GSI[64];\n";
+  s += "[numthreads(64, 1, 1)]\n"
+       "void main(uint3 id : SV_DispatchThreadID)\n{\n"
+       "  const uint g = id.x / 64u, l = id.x % 64u;\n";
+  if (t.setup & kGroupshared)
+    s += "  for (uint k = l; k < 2048u; k += 64u) GS[k] = 0.5 + float(k) * 1e-4 + seed;\n"
+         "  GSI[l] = l;\n  GroupMemoryBarrierWithGroupSync();\n";
+  if (t.setup & kLocalArray) s += "  float A[16];\n  [unroll] for (uint k = 0; k < 16u; ++k) A[k] = 0.5 + float(k) * 0.01 + seed;\n";
   const std::string type = t.type;
   for (int k = 0; k < chains; ++k) {
     const std::string ks = std::to_string(k);
@@ -268,7 +338,8 @@ std::string shaderSource(const Test& t, int chains) {
                           (p + 1 == step.size() || !(isalnum((unsigned char)step[p + 1]) || step[p + 1] == '_'));
         out += lone ? x : std::string(1, step[p]);
       }
-      s += "      " + x + " = " + out + ";\n";
+      if (out.find(';') != std::string::npos) s += "      { " + out + " }\n";  // statements that assign x
+      else s += "      " + x + " = " + out + ";\n";
     }
     s += "    }\n";
   }
@@ -280,6 +351,7 @@ std::string shaderSource(const Test& t, int chains) {
     else if (type == "min16float") s += " + (float)" + x;
     else s += " + dot(" + x + ", 1.0)";
   }
+  if (t.setup & kGroupshared) s += " + GS[(l * 7u) & 2047u] + float(GSI[l] & 1u)";  // keeps the writes
   s += ";\n}\n";
   return s;
 }
@@ -393,7 +465,13 @@ const char* const kDisplayOrder[] = {
     "sinh", "cosh",
     "#Integer and conversions", "bitor", "ixmul", "iadd", "iand", "imin", "ishr", "irot", "imul", "popc", "fbh",
     "bitrev", "fbl", "icmpsel", "unitf", "utof", "itof", "ftou", "ftoitof", "udiv", "umod", "idiv", "imod",
-    "#Half precision (min16float)", "mad16", "add16", "mul16", "rcp16", "sqrt16", "exp2_16"};
+    "#Half precision (min16float)", "mad16", "add16", "mul16", "rcp16", "sqrt16", "exp2_16",
+    "#Compute: groupshared memory and barriers", "gsread", "gswrite", "gswriteread", "gsread32", "gswrite32", "barrier",
+    "groupbarrier", "membarrier",
+    "#Compute: groupshared atomics (aAdd = atomicAdd ...; 1 = 64 threads on one address)", "aAdd", "aAnd", "aOr", "aXor",
+    "aMin", "aMax", "aXchg", "aCmpXchg", "aAdd1", "aAnd1", "aOr1", "aXor1", "aMin1", "aMax1",
+    "aXchg1", "aCmpXchg1",
+    "#Compute: local arrays and branches", "arrayread", "arraywrite", "constarray", "selectboth", "branchuni", "branchdiv"};
 
 
 }  // namespace
@@ -641,7 +719,7 @@ int main(int argc, char** argv) {
     if (name[0] != '#') nameW = std::max(nameW, int(std::strlen(name)));
   const std::string graphIndent(size_t(2 + nameW + 1 + 6 + 2), ' ');  // where the graphs start
   // Fixed columns: indent, name, cost, Ops, comment ("expensive") and a note ("3 passes").
-  const int kBarWidth = std::clamp(cols - 1 - (2 + nameW + 1 + 6 + 2 + 2 + 5 + 2 + 10 + 10), 10, 28);
+  const int kBarWidth = std::clamp(cols - 1 - (2 + nameW + 1 + 6 + 2 + 2 + 5 + 2 + 10 + 10), 10, 40);
   std::printf("\n  %s%-*s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1m"), nameW, "Test", "Cost", kBarWidth, "Graph", "Ops",
               "Comment", st.reset());
   std::vector<std::string> unstable;

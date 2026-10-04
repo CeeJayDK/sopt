@@ -931,6 +931,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   stay in NVIDIA's on-chip tile cache) - writes and draw pass tests alternate between two targets; blend results
   were two-valued (~0.42 / ~0.74 ms, copy-based restore) - restore by plain draws, two targets; summary lines fit
   the console (consoleColumns, names <= 24, CmpXchg), numbers keep their width.
+  Restructure (owner, 2026-10-04: "OpBench for ops, TexBench for texture operations", pixel shader ops stay):
+  groupshared read / write / stride 32 / barriers, groupshared atomics (aAdd .. aCmpXchg, "1" = 64 threads on
+  one address), local / const arrays, select vs branches moved to OpBench (Test::setup kGroupshared /
+  kLocalArray; a step with ';' is statements). TexBench keeps storage stores and storage atomics (aAdd (1) ...).
+  Formats x filtering matrix (owner: point vs bilinear differ in some formats): every format x Load, point,
+  bilinear, gather, trilinear, aniso 2x / 4x / 8x / 16x (MaxAnisotropy on a 16:1 footprint; Test::maxAniso;
+  integer formats Load + gather), one summary table (printMatrix) with the bilinear GB/s; replaces the coherent
+  format list, the RGBA8 access section and the per-format trilinear / aniso tests. Test::needs (format support
+  bits) leaves out what a GPU lacks (storage, gather, mip autogen) and lists it. CSV column "seconds" per test
+  and "# run time" (owner: shrink texture sizes where they do not matter, tune as we go). Graphs grow to 40
+  characters in wide consoles.
   Owner's ideas (2026-10-04, not decided): expected costs per cost model built into
   OpBench / TexBench, telling the user when their card does not match its model ("your report is very
   interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs

@@ -35,6 +35,7 @@
 #include "../benchkit.hpp"
 #include <d3dcompiler.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -139,6 +140,9 @@ std::vector<uint8_t> texelData(const Format& f, size_t texels, std::mt19937& rng
 // ---------------------------------------------------------------------------
 // Tests
 
+// Formats x filtering columns.
+const char* const kMatrixCols[] = {"Load", "point", "bilinear", "gather", "trilinear", "aniso 2x", "aniso 4x", "aniso 8x", "aniso 16x"};
+
 // Pass state tests (full-screen passes into 3840 x 2160, ms per pass).
 enum { kPassTargets = 1, kPassClear, kPassMips, kPassHeavy, kPassStencil, kPassDiscardTiles, kPassDiscardPixels };
 
@@ -163,8 +167,6 @@ struct Test {
   D3D11_TEXTURE_ADDRESS_MODE address = D3D11_TEXTURE_ADDRESS_CLAMP;
   UINT depth = 1;            // Vol: depth
   int uav = 0;               // compute: storage at u1, 1 float4 (W), 2 uint4 (WU), 3 uint for atomics (WA)
-  bool groupshared = false;  // compute: groupshared float GS[2048] and uint GSI[64], filled before the loop
-  bool localArray = false;   // compute: a local float A[16] filled before the loop (dynamic indexing)
   bool intTex = false;       // integer format: read through Texture2D<uint4>
   float scaleX = 1.0f, scaleY = 1.0f;  // pixel shader: texture coordinate scale (mip level, anisotropy)
   int write = 0;             // render target write: 0 smooth gradient, 1 noise (incompressible), 2 flat color
@@ -173,6 +175,9 @@ struct Test {
   bool shaderBlend = false;  // blending test: the shader reads the destination as a texture and does the math
   bool perByte = false;      // summary: show bytes per op (texel bytes / Ops)
   int pass = 0;              // pass state test: kPass* below
+  UINT maxAniso = 16;        // anisotropic filtering: the sampler's MaxAnisotropy
+  int matrix = -1;           // formats x filtering: the column (kMatrixCols), shown as one table
+  UINT needs = 0;            // D3D11_FORMAT_SUPPORT bits the format must have (else the test is left out)
   int count = 1;             // pass state test: render targets
   std::string note;
 };
@@ -261,12 +266,34 @@ std::vector<Test> makeTests() {
   const std::string load = "float4 t = T.Load(int3(uv * size, 0));";
   const std::string loadInt = "uint4 tu = TU.Load(int3(uv * size, 0));";
   const std::string sample = "float4 t = T.SampleLevel(S, uv, 0.0);";
+  // Formats x filtering (owner: point and bilinear cost the same in some formats, not in all): every format
+  // with Load, point, bilinear, gather, trilinear and anisotropic 2x / 4x / 8x / 16x (the sampler's
+  // MaxAnisotropy, on a 16:1 footprint so the setting decides how many taps). Integer formats cannot be
+  // filtered: Load and gather only. Shown as one table.
+  const char* fmx = "Formats and filtering: 1024 x 1024 with mipmaps, coherent (integer formats: Load and gather)";
   for (const Format& f : kFormats) {
     const bool i = f.kind == 'i';
-    texTest(std::string(f.name) + (i ? " load" : " bilinear"), "Formats: coherent reads (bilinear; integer formats: Load)",
-            i ? "addr.coherent.int" : "addr.coherent", kCoherent, i ? loadInt : sample, &f, Tex::Plain, 1024,
-            Filter::Linear, i);
-    v.back().perByte = true;
+    auto cell = [&](int col, const std::string& read, Filter filter, UINT aniso, UINT needs) {
+      texTest(std::string(f.name) + " " + kMatrixCols[col], fmx, i ? "addr.coherent.int" : "addr.coherent", kCoherent, read, &f,
+              i ? Tex::Plain : Tex::Mipped, 1024, filter, i);
+      v.back().matrix = col;
+      v.back().maxAniso = aniso;
+      v.back().needs = needs | (i ? 0u : UINT(D3D11_FORMAT_SUPPORT_MIP_AUTOGEN));
+    };
+    if (i) {
+      cell(0, "uint4 tu = TU.Load(int3(uv * size, 0));", Filter::Point, 1, 0);
+      cell(3, "uint4 tu = TU.GatherRed(S, uv);", Filter::Point, 1, D3D11_FORMAT_SUPPORT_SHADER_GATHER);
+      continue;
+    }
+    cell(0, "float4 t = T.Load(int3(uv * size, 0));", Filter::Point, 1, 0);
+    cell(1, "float4 t = T.SampleLevel(S, uv, 0.0);", Filter::Point, 1, D3D11_FORMAT_SUPPORT_SHADER_SAMPLE);
+    cell(2, "float4 t = T.SampleLevel(S, uv, 0.0);", Filter::Linear, 1, D3D11_FORMAT_SUPPORT_SHADER_SAMPLE);
+    cell(3, "float4 t = T.GatherRed(S, uv);", Filter::Point, 1, D3D11_FORMAT_SUPPORT_SHADER_GATHER);
+    cell(4, "float4 t = T.SampleLevel(S, uv, 0.5);", Filter::Trilinear, 1, D3D11_FORMAT_SUPPORT_SHADER_SAMPLE);
+    const UINT anisos[] = {2, 4, 8, 16};
+    for (int a = 0; a < 4; ++a)
+      cell(5 + a, "float4 t = T.SampleGrad(S, uv, float2(texel.x * 16.0, 0.0), float2(0.0, texel.y));", Filter::Aniso,
+           anisos[a], D3D11_FORMAT_SUPPORT_SHADER_SAMPLE);
   }
   for (const Format& f : kFormats) {
     const bool i = f.kind == 'i';
@@ -276,17 +303,6 @@ std::vector<Test> makeTests() {
     v.back().perByte = true;
   }
   const Format* rgba8 = formatByName("RGBA8");
-  const char* acc = "Access and filtering: RGBA8 1024 x 1024 with mipmaps, coherent";
-  texTest("Load", acc, "addr.coherent", kCoherent, load, rgba8, Tex::Mipped, 1024, Filter::Point);
-  texTest("point", acc, "addr.coherent", kCoherent, sample, rgba8, Tex::Mipped, 1024, Filter::Point);
-  texTest("bilinear", acc, "addr.coherent", kCoherent, sample, rgba8, Tex::Mipped, 1024, Filter::Linear);
-  texTest("gather", acc, "addr.coherent", kCoherent, "float4 t = T.GatherRed(S, uv);", rgba8, Tex::Mipped, 1024,
-          Filter::Point, false, "GatherRed: 4 texels of one channel");
-  texTest("trilinear", acc, "addr.coherent", kCoherent, "float4 t = T.SampleLevel(S, uv, 0.5);", rgba8, Tex::Mipped,
-          1024, Filter::Trilinear, false, "between mip 0 and 1");
-  texTest("aniso 8:1", acc, "addr.coherent", kCoherent,
-          "float4 t = T.SampleGrad(S, uv, float2(texel.x * 8.0, 0.0), float2(0.0, texel.y));", rgba8, Tex::Mipped,
-          1024, Filter::Aniso, false, "SampleGrad, footprint 8 x 1 texels, 16x anisotropic filtering");
   // ReShade FX texture functions not covered above (coherent, RGBA8 1024 x 1024 with mipmaps).
   const char* fns = "Texture functions: RGBA8 1024 x 1024 with mipmaps, coherent";
   texTest("bilinear offset", fns, "addr.coherent", kCoherent, "float4 t = T.SampleLevel(S, uv, 0.0, int2(1, -1));", rgba8,
@@ -304,14 +320,6 @@ std::vector<Test> makeTests() {
   texTest("grad 1:1", fns, "addr.coherent", kCoherent,
           "float4 t = T.SampleGrad(S, uv, float2(texel.x, 0.0), float2(0.0, texel.y));", rgba8, Tex::Mipped, 1024,
           Filter::Linear, false, "tex2Dgrad, gradients of one texel (mip 0)");
-  for (int n : {2, 4, 16})
-    texTest("aniso " + std::to_string(n) + ":1", fns, "addr.coherent", kCoherent,
-            "float4 t = T.SampleGrad(S, uv, float2(texel.x * " + std::to_string(n) + ".0, 0.0), float2(0.0, texel.y));",
-            rgba8, Tex::Mipped, 1024, Filter::Aniso, false,
-            "SampleGrad, footprint " + std::to_string(n) + " x 1 texels, 16x anisotropic filtering");
-  for (const char* fn : {"R8", "RGB10A2", "RG11B10F", "RGBA16F", "RGBA32F"})
-    texTest(std::string("trilinear ") + fn, fns, "addr.coherent", kCoherent, "float4 t = T.SampleLevel(S, uv, 0.5);",
-            formatByName(fn), Tex::Mipped, 1024, Filter::Trilinear, false, "between mip 0 and 1");
   texTest("tex1D bilinear", fns, "addr.coherent", kCoherent, "float4 t = T1.SampleLevel(S, uv.x, 0.0);", rgba8, Tex::Tex1D,
           1024, Filter::Linear, false, "a 1D texture of 1024 texels");
   texTest("tex1Dfetch", fns, "addr.coherent", kCoherent, "float4 t = T1.Load(int2(uv.x * size.x, 0));", rgba8, Tex::Tex1D,
@@ -419,11 +427,13 @@ std::vector<Test> makeTests() {
               random ? "random places" : "near the thread's own pixel", kUseBase);
       v.back().uav = i ? 2 : 1;
       v.back().perByte = true;
+      v.back().needs = D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW;
     }
   }
 
-  // Compute: groupshared memory, barriers, atomics, local arrays and branches. Own constants: x stays near
-  // 0.5; gi / ai index groupshared memory / a local array from x and the thread's lane l (lane-varying).
+  // Compute: atomics on storage (R32U 1024 x 1024), each thread on its own address and "(one)": the
+  // group's 64 threads on one address. The returned value feeds the chain. (Groupshared memory, barriers,
+  // groupshared atomics, local arrays and branches are ops: OpBench.)
   auto cTest = [&](std::string name, std::string section, std::string base, std::string step, std::string note) {
     Test t;
     t.name = std::move(name);
@@ -435,78 +445,28 @@ std::vector<Test> makeTests() {
     add(std::move(t));
     return &v.back();
   };
-  const std::string gsIdx = "uint gi = (l + uint(x * 64.0)) & 2047u;";
-  const std::string gsIdx32 = "uint gi = (l * 32u + uint(x * 64.0)) & 2047u;";
-  const std::string gsUse = " x = mad(x, c.x, c.y + v * 0.01);";
-  const std::string gsFake = " float v = asfloat((gi & 1023u) | 0x3f000000u);";
-  cTest("addr.gs", "", "mad", gsIdx + gsFake + gsUse, "groupshared index, a stand-in value")->groupshared = true;
-  cTest("addr.gs32", "", "mad", gsIdx32 + gsFake + gsUse, "groupshared index (stride 32), a stand-in value")->groupshared = true;
-  const char* gs = "Compute: groupshared memory and barriers";
-  cTest("gs read", gs, "addr.gs", gsIdx + " float v = GS[gi];" + gsUse, "neighbouring lanes, neighbouring words")->groupshared = true;
-  cTest("gs read stride 32", gs, "addr.gs32", gsIdx32 + " float v = GS[gi];" + gsUse,
-        "lanes 32 words apart: bank conflicts")->groupshared = true;
-  cTest("gs write", gs, "addr.gs", gsIdx + " GS[gi] = x;" + gsFake + gsUse, "")->groupshared = true;
-  cTest("gs write stride 32", gs, "addr.gs32", gsIdx32 + " GS[gi] = x;" + gsFake + gsUse, "bank conflicts")->groupshared = true;
-  cTest("gs write + read", gs, "addr.gs", gsIdx + " GS[gi] = x; float v = GS[gi ^ 1u];" + gsUse, "the neighbour's word")
-      ->groupshared = true;
-  cTest("barrier", gs, "gs write", gsIdx + " GS[gi] = x; GroupMemoryBarrierWithGroupSync();" + gsFake + gsUse,
-        "GroupMemoryBarrierWithGroupSync after a write")->groupshared = true;
-  cTest("groupMemoryBarrier", gs, "gs write", gsIdx + " GS[gi] = x; GroupMemoryBarrier();" + gsFake + gsUse,
-        "GroupMemoryBarrier after a write")->groupshared = true;
-  cTest("memoryBarrier", gs, "gs write", gsIdx + " GS[gi] = x; AllMemoryBarrier();" + gsFake + gsUse,
-        "AllMemoryBarrier after a write")->groupshared = true;
-
-  // Atomics: on groupshared memory and on storage (R32U 1024 x 1024), each thread on its own address and
-  // all threads (of the group / of the dispatch) on one address. The returned value feeds the chain.
   const std::string atUse = " x = mad(x, c.x, c.y + float(o & 255u) * 1e-6);";
   cTest("addr.atomic", "", "mad", "uint o = asuint(x) & 255u;" + atUse, "the atomic's stand-in");
-  const char* atomics = "Compute: atomics (each thread its own address / (one): 64 threads on one address)";
+  const char* atomics = "Compute: storage atomics (aAdd = atomicAdd ...; (1) = 64 threads on one address)";
   static const char* const kAtomics[] = {"Add", "And", "Or", "Xor", "Min", "Max", "Exchange", "CompareExchange"};
-  for (bool storage : {false, true})
-    for (const char* op : kAtomics)
-      for (bool one : {false, true}) {
-        // One address per group, not per dispatch: a million threads on one storage address could take
-        // seconds and trip the driver's timeout (TDR).
-        const std::string dest = storage ? (one ? "WA[int2(g % 1024u, g / 1024u)]" : "WA[int2(P * size)]") : (one ? "GSI[0]" : "GSI[l]");
-        const std::string call = std::strcmp(op, "CompareExchange") == 0
-                                     ? "InterlockedCompareExchange(" + dest + ", asuint(x) & 255u, 7u, o);"
-                                     : std::string("Interlocked") + op + "(" + dest + ", asuint(x) & 255u, o);";
-        const std::string shortOp = std::strcmp(op, "CompareExchange") == 0 ? "CmpXchg" : op;  // fits the column
-        Test* t = cTest(std::string(storage ? "" : "gs ") + "atomic" + shortOp + (one ? " (one)" : ""), atomics, "addr.atomic",
-                        "uint o; " + call + atUse,
-                        std::string(storage ? "storage R32U" : "groupshared") +
-                            (one ? ", the group's 64 threads on one address" : ", each thread its own address"));
-        if (storage) {
-          t->uav = 3;
-          t->format = formatByName("R32U");
-          t->tex = Tex::Storage;
-          t->size = 1024;
-        } else {
-          t->groupshared = true;
-        }
-      }
-
-  // Local arrays indexed at run time (fxc: indexable temps, often scratch memory), a constant array (fxc:
-  // immediate constant buffer) and branches: uniform within a group (the condition from the group) against
-  // divergent (from the lane), and both sides computed with a select.
-  const std::string arIdx = "uint ai = (uint(x * 64.0) + l) & 15u;";
-  const std::string arUse = " x = mad(x, c.x, c.y + v * 0.01);";
-  cTest("addr.array", "", "mad", arIdx + " float v = asfloat(ai | 0x3f000000u);" + arUse, "array index, a stand-in value");
-  const char* flow = "Compute: local arrays and branches";
-  cTest("array read", flow, "addr.array", arIdx + " float v = A[ai];" + arUse, "float A[16], index differs per lane")->localArray = true;
-  cTest("array write + read", flow, "addr.array", arIdx + " A[ai] = x; float v = A[ai ^ 1u];" + arUse, "")->localArray = true;
-  cTest("const array read", flow, "addr.array", arIdx + " float v = K[ai];" + arUse, "static const float K[16]");
-  const std::string brUse = " x = mad(v, c.x, c.y);";
-  // Each side: 4 sin / 4 cos in a row (short sides get turned into selects by the driver).
-  const std::string sideA = "sin(sin(sin(sin(x))))", sideB = "cos(cos(cos(cos(x))))";
-  cTest("select (both)", flow, "mad", "bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v = sel ? " + sideA + " : " + sideB + ";" + brUse,
-        "4 sin and 4 cos both computed, one result picked");
-  cTest("branch uniform", flow, "mad",
-        "bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v; [branch] if (sel) v = " + sideA + "; else v = " + sideB + ";" + brUse,
-        "the same in a branch, one side per group");
-  cTest("branch divergent", flow, "mad",
-        "bool sel = ((asuint(c.w) ^ l) & 1u) != 0; float v; [branch] if (sel) v = " + sideA + "; else v = " + sideB + ";" + brUse,
-        "the same in a branch, both sides in every group");
+  for (const char* op : kAtomics)
+    for (bool one : {false, true}) {
+      // One address per group, not per dispatch: a million threads on one storage address could take
+      // seconds and trip the driver's timeout (TDR).
+      const std::string dest = one ? "WA[int2(g % 1024u, g / 1024u)]" : "WA[int2(P * size)]";
+      const std::string call = std::strcmp(op, "CompareExchange") == 0
+                                   ? "InterlockedCompareExchange(" + dest + ", asuint(x) & 255u, 7u, o);"
+                                   : std::string("Interlocked") + op + "(" + dest + ", asuint(x) & 255u, o);";
+      // Short names (owner): a = atomic, CmpXchg = CompareExchange, (1) = 64 threads on one address.
+      const std::string shortOp = std::strcmp(op, "CompareExchange") == 0 ? "CmpXchg" : std::strcmp(op, "Exchange") == 0 ? "Xchg" : op;
+      Test* t = cTest("a" + shortOp + (one ? " (1)" : ""), atomics, "addr.atomic", "uint o; " + call + atUse,
+                      std::string("storage R32U") + (one ? ", the group's 64 threads on one address" : ", each thread its own address"));
+      t->uav = 3;
+      t->format = formatByName("R32U");
+      t->tex = Tex::Storage;
+      t->size = 1024;
+      t->needs = D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW;
+    }
 
   // Pixel shader: derivatives (quad operations) and sampling with automatic mip selection.
   const char* ps = "Pixel shader: derivatives and automatic mip selection";
@@ -648,8 +608,7 @@ std::string computeSource(const Test& t, int chains) {
   if (t.uav == 1) s += "RWTexture2D<float4> W : register(u1);\n";
   if (t.uav == 2) s += "RWTexture2D<uint4> WU : register(u1);\n";
   if (t.uav == 3) s += "RWTexture2D<uint> WA : register(u1);\n";
-  if (t.groupshared) s += "groupshared float GS[2048];\ngroupshared uint GSI[64];\n";
-  s += "static const float K[16] = {0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.59, 0.60, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66};\n";
+
   // Thread groups of 64 as tiles of tileW x (64 / tileW) pixels, laid out over 1024 x 1024 pixels.
   const std::string w = std::to_string(t.tileW), h = std::to_string(64 / t.tileW), row = std::to_string(1024 / t.tileW);
   s += "RWStructuredBuffer<float> O : register(u0);\n"
@@ -657,18 +616,11 @@ std::string computeSource(const Test& t, int chains) {
        "  const uint g = id.x / 64u, l = id.x % 64u;\n"
        "  const float2 P = (float2((g % " + row + "u) * " + w + "u + l % " + w + "u, (g / " + row + "u) * " + h +
        "u + l / " + w + "u) + 0.5) * texel;\n";
-  if (t.groupshared)
-    s += "  for (uint k = l; k < 2048u; k += 64u) GS[k] = 0.5 + float(k) * 1e-4 + seed;\n"
-         "  GSI[l] = l;\n  GroupMemoryBarrierWithGroupSync();\n";
-  if (t.localArray) s += "  float A[16];\n  [unroll] for (uint k = 0; k < 16u; ++k) A[k] = 0.5 + float(k) * 0.01 + seed;\n";
   for (int k = 0; k < chains; ++k)
     s += "  float x" + std::to_string(k) + " = 0.3 + frac(id.x * 0.000123 + " + std::to_string(k) + " * 0.137) * seed;\n";
   s += chainBody(t, chains, "  ");
   s += "  O[id.x] = 0.0";
   for (int k = 0; k < chains; ++k) s += " + x" + std::to_string(k);
-  // Read groupshared memory once at the end: fxc drops groupshared writes (and their barriers) that
-  // nothing reads.
-  if (t.groupshared) s += " + GS[(l * 7u) & 2047u] + float(GSI[l] & 1u)";
   s += ";\n}\n";
   return s;
 }
@@ -839,7 +791,7 @@ Bound bindResources(Gpu& g, const Test& t, std::mt19937& rng) {
                                               : D3D11_FILTER_ANISOTROPIC;
   sd.AddressU = sd.AddressV = sd.AddressW = t.address;
   sd.BorderColor[0] = sd.BorderColor[1] = sd.BorderColor[2] = sd.BorderColor[3] = 0.5f;
-  sd.MaxAnisotropy = t.filter == Filter::Aniso ? 16 : 1;
+  sd.MaxAnisotropy = t.filter == Filter::Aniso ? t.maxAniso : 1;
   sd.MaxLOD = D3D11_FLOAT32_MAX;
   sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
   if (FAILED(g.dev->CreateSamplerState(&sd, &b.sampler))) fail("cannot create a sampler for " + t.name);
@@ -1172,24 +1124,21 @@ int main(int argc, char** argv) {
       if (t.name == n) return &t;
     return nullptr;
   };
-  // Storage formats this GPU cannot write from a compute shader (typed UAV stores beyond D3D11's required
-  // formats are optional) are left out and listed.
-  std::string noStorage;
+  // Tests whose format this GPU does not support for them (storage writes beyond D3D11's required formats,
+  // gather on integer formats, ...) are left out and listed.
+  std::string unsupported;
   auto storageOk = [&](const Test& t) {
-    if (t.tex != Tex::Storage) return true;
+    if (!t.needs || !t.format) return true;
     UINT support = 0;
-    if (SUCCEEDED(g.dev->CheckFormatSupport(t.format->dxgi, &support)) &&
-        (support & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW))
-      return true;
-    if (noStorage.find(t.format->name) == std::string::npos)
-      noStorage += std::string(noStorage.empty() ? "" : ", ") + t.format->name;
+    if (SUCCEEDED(g.dev->CheckFormatSupport(t.format->dxgi, &support)) && (support & t.needs) == t.needs) return true;
+    unsupported += std::string(unsupported.empty() ? "" : ", ") + t.name;
     return false;
   };
   for (const Test& t : all)
     if ((filter.empty() || t.name.find(filter) != std::string::npos || t.section.empty() || t.name == "mad" || t.name == "ps.mad") &&
         storageOk(t))
       tests.push_back(&t);
-  if (!noStorage.empty()) std::printf("Not supported as storage (compute writes) on this GPU, left out: %s\n", noStorage.c_str());
+  if (!unsupported.empty()) std::printf("Not supported by this GPU, left out: %s\n", unsupported.c_str());
   for (bool added = true; added;) {
     added = false;
     for (const Test* t : std::vector<const Test*>(tests))
@@ -1254,7 +1203,20 @@ int main(int argc, char** argv) {
   std::map<std::string, Consensus> blendMs;
   std::map<std::string, std::vector<double>> passReadings;
   std::map<std::string, Consensus> passMs;
+  // Seconds per test (texture setup included), in the CSV, to see where the run time goes.
+  using Clock = std::chrono::steady_clock;
+  const Clock::time_point runStart = Clock::now();
+  std::map<std::string, double> seconds;
+  const Test* timed = nullptr;
+  Clock::time_point mark = runStart;
+  auto lap = [&](const Test* next) {
+    const Clock::time_point now = Clock::now();
+    if (timed) seconds[timed->name] += std::chrono::duration<double>(now - mark).count();
+    timed = next;
+    mark = now;
+  };
   for (const Test* t : tests) {
+    lap(t);
     if (t->stage == Stage::Pass) {
       std::vector<ID3D11Texture2D*> rts;
       std::vector<ID3D11RenderTargetView*> rtvs;
@@ -1518,6 +1480,8 @@ int main(int argc, char** argv) {
     b.free();
     none.free();
   }
+  lap(nullptr);
+  const double runSeconds = std::chrono::duration<double>(Clock::now() - runStart).count();
   // Costs over the bases (bases come first, so they are known).
   for (auto& [cname, byTest] : results)
     for (const Test* t : tests) {
@@ -1532,9 +1496,9 @@ int main(int argc, char** argv) {
   // CSV
   FILE* csv = std::fopen(outPath.c_str(), "wb");
   if (!csv) fail("cannot write " + outPath);
-  std::fprintf(csv, "# TexBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n# reference drift: %.2f%%\n",
-               SOPT_VERSION, ad.name.c_str(), ad.desc.VendorId, ad.desc.DeviceId, ad.driver.c_str(), drift);
-  std::fprintf(csv, "config,test,section,base,iters,ms,ns_per_step,units,units_vs_base,passes,consensus,readings,step,note\n");
+  std::fprintf(csv, "# TexBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n# reference drift: %.2f%%\n# run time: %.0f s\n",
+               SOPT_VERSION, ad.name.c_str(), ad.desc.VendorId, ad.desc.DeviceId, ad.driver.c_str(), drift, runSeconds);
+  std::fprintf(csv, "config,test,section,base,iters,ms,ns_per_step,units,units_vs_base,passes,consensus,readings,step,note,seconds\n");
   auto readingsText = [](const std::vector<double>& v) {
     std::string s;
     for (double r : v) {
@@ -1548,32 +1512,36 @@ int main(int argc, char** argv) {
     for (const Test* t : tests) {
       if (!results[c.name].count(t->name)) continue;
       const Measured& x = results[c.name][t->name];
-      std::fprintf(csv, "%s,\"%s\",\"%s\",%s,%u,%.4f,%.6f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\"\n", c.name, t->name.c_str(),
+      std::fprintf(csv, "%s,\"%s\",\"%s\",%s,%u,%.4f,%.6f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\",%.2f\n", c.name, t->name.c_str(),
                    t->section.c_str(), t->base.c_str(), x.r.iters, x.r.ms, x.r.nsPerStep, x.units.value, x.vsBase,
                    x.readings.size(), x.units.ok ? "yes" : "no", readingsText(x.readings).c_str(), t->step.c_str(),
-                   t->note.c_str());
+                   t->note.c_str(), seconds[t->name]);
     }
   for (const Test* t : tests)
     if (t->stage == Stage::Write)
-      std::fprintf(csv, "write,\"%s\",\"%s\",,,%.4f,,%.3f,,%zu,%s,%s,\"GB/s, %u x %u\",\"\"\n", t->name.c_str(),
+      std::fprintf(csv, "write,\"%s\",\"%s\",,,%.4f,,%.3f,,%zu,%s,%s,\"GB/s, %u x %u\",\"\",%.2f\n", t->name.c_str(),
                    t->section.c_str(), writeMs[t->name], writeUnits[t->name].value, writeReadings[t->name].size(),
-                   writeUnits[t->name].ok ? "yes" : "no", readingsText(writeReadings[t->name]).c_str(), kRtW, kRtH);
+                   writeUnits[t->name].ok ? "yes" : "no", readingsText(writeReadings[t->name]).c_str(), kRtW, kRtH,
+                   seconds[t->name]);
   for (const Test* t : tests)
     if (t->stage == Stage::Pass)
-      std::fprintf(csv, "pass,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"%s\"\n", t->name.c_str(),
+      std::fprintf(csv, "pass,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"%s\",%.2f\n", t->name.c_str(),
                    t->section.c_str(), passMs[t->name].value, passMs[t->name].value, passReadings[t->name].size(),
-                   passMs[t->name].ok ? "yes" : "no", readingsText(passReadings[t->name]).c_str(), kRtW, kRtH, t->note.c_str());
+                   passMs[t->name].ok ? "yes" : "no", readingsText(passReadings[t->name]).c_str(), kRtW, kRtH, t->note.c_str(),
+                   seconds[t->name]);
   for (const Test* t : tests)
     if (t->stage == Stage::Blend)
-      std::fprintf(csv, "blend,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"\"\n", t->name.c_str(),
+      std::fprintf(csv, "blend,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"\",%.2f\n", t->name.c_str(),
                    t->section.c_str(), blendMs[t->name].value, blendMs[t->name].value, blendReadings[t->name].size(),
-                   blendMs[t->name].ok ? "yes" : "no", readingsText(blendReadings[t->name]).c_str(), kRtW, kRtH);
+                   blendMs[t->name].ok ? "yes" : "no", readingsText(blendReadings[t->name]).c_str(), kRtW, kRtH,
+                   seconds[t->name]);
   std::fclose(csv);
 
   // Summary
   std::printf("\n");
   printBox(st, std::string("TexBench ") + SOPT_VERSION + "  -  " + ad.name);
-  std::printf("  driver %s, vendor 0x%04X, device 0x%04X\n", ad.driver.c_str(), ad.desc.VendorId, ad.desc.DeviceId);
+  std::printf("  driver %s, vendor 0x%04X, device 0x%04X, run time %d min %02d s\n", ad.driver.c_str(), ad.desc.VendorId,
+              ad.desc.DeviceId, int(runSeconds) / 60, int(runSeconds) % 60);
   // Lines fit the console: names up to 24 characters (longer ones cut), the graphs shrink when the
   // window is narrow (one character spare, or the console wraps the line).
   const int cols = consoleColumns();
@@ -1592,7 +1560,7 @@ int main(int argc, char** argv) {
     if (!t->section.empty() && (t->stage == Stage::Compute || t->stage == Stage::Pixel))
       nameW = std::min(24, std::max(nameW, int(t->name.size())));
   // Fixed columns: indent, name, cost, Ops, dep, lat, GB/s.
-  const int kBarWidth = std::clamp(cols - 1 - (2 + nameW + 1 + 7 + 2 + 2 + 6 + 1 + 6 + 1 + 6 + 8), 8, 24);
+  const int kBarWidth = std::clamp(cols - 1 - (2 + nameW + 1 + 7 + 2 + 2 + 6 + 1 + 6 + 1 + 6 + 8), 8, 40);
   auto shortName = [&](const std::string& n) { return int(n.size()) > nameW ? n.substr(0, size_t(nameW - 1)) + "~" : n; };
   const std::string graphIndent(size_t(2 + nameW + 1 + 7 + 2), ' ');
   bool rows = false;  // rows printed since the last "(shorter is better)" note
@@ -1600,10 +1568,61 @@ int main(int argc, char** argv) {
     if (rows) std::printf("%s%s(%s is better)%s\n", graphIndent.c_str(), st.c("\x1b[90m"), text, st.reset());
     rows = false;
   };
+  // Formats x filtering as one table: a row per format, a column per access / filter, costs only (and
+  // the GB/s of the bilinear read, integer formats: Load).
+  auto printMatrix = [&](const std::string& sec) {
+    static const char* const kHead[] = {"Load", "point", "bilin", "gather", "trilin", "aniso2", "aniso4", "aniso8", "aniso16"};
+    const bool gbs = cols >= 2 + 10 + 9 * 7 + 8 + 1;
+    std::printf("\n  %s%s%s\n  %s%-10s", st.c("\x1b[1;96m"), sec.c_str(), st.reset(), st.c("\x1b[90m"), "Format");
+    for (const char* h : kHead) std::printf(" %6s", h);
+    std::printf("%s%s\n", gbs ? "    GB/s" : "", st.reset());
+    for (const Format& f : kFormats) {
+      std::string line;
+      bool any = false;
+      double perByte = -1.0;
+      for (int col = 0; col < 9; ++col) {
+        const std::string name = std::string(f.name) + " " + kMatrixCols[col];
+        char buf[48];
+        if (!results["tput"].count(name)) {
+          line += "      -";
+          continue;
+        }
+        any = true;
+        const Measured& x = results["tput"][name];
+        double v = std::fabs(x.vsBase) < 0.05 ? 0.0 : x.vsBase;
+        std::snprintf(buf, sizeof(buf), v >= 9999.5 ? " %6.0f" : " %6.1f", v);
+        if (!x.units.ok) {
+          buf[0] = '!';  // no consensus
+          unstable.push_back(name);
+        }
+        line += buf;
+        const double refNs = x.units.value > 0.0 ? x.r.nsPerStep * 4.0 / x.units.value : 0.0;
+        if ((col == 2 || (col == 0 && f.kind == 'i')) && x.vsBase > 0.05 && refNs > 0.0)
+          perByte = f.bytes / (x.vsBase / 4.0 * refNs);
+      }
+      if (!any) continue;
+      char gb[16] = "";
+      if (gbs && perByte >= 0.0) std::snprintf(gb, sizeof(gb), "  %6.0f", perByte);
+      else if (gbs) std::snprintf(gb, sizeof(gb), "  %6s", "-");
+      std::printf("  %-10s%s%s\n", f.name, line.c_str(), gb);
+    }
+    std::printf("%*s%s(lower is better; GB/s: the bilinear reads' data rate, integer formats: Load)%s\n", 2 + 10 + 1, "",
+                st.c("\x1b[90m"), st.reset());
+  };
+  bool matrixDone = false;
   for (const Test* t : tests) {
     if (t->section.empty() || t->stage == Stage::Write || t->stage == Stage::Blend || t->stage == Stage::Pass ||
         !results["tput"].count(t->name))
       continue;
+    if (t->matrix >= 0) {
+      if (!matrixDone) {
+        betterNote("shorter");
+        printMatrix(t->section);
+        matrixDone = true;
+        section = t->section;
+      }
+      continue;
+    }
     if (t->section != section) {
       betterNote("shorter");
       section = t->section;

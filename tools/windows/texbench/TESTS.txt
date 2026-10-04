@@ -12,12 +12,20 @@ Three ways (compute shaders), as in OpBench:
   dep   1 chain per thread, 1M threads: only other threads hide the waiting.
   lat   1 chain, one group of 64 threads: nothing hides it; close to the raw latency of a read.
 
-Formats: coherent reads (bilinear; integer formats: Load)
-  Every format ReShade supports (R8 ... RG11B10F, plus RGBA8 with an sRGB view), 1024 x 1024.
+Formats and filtering: 1024 x 1024 with mipmaps, coherent (one table)
+  Every format ReShade supports (R8 ... RGBA32I, plus RGBA8 with an sRGB view), each with:
+  Load      texel fetch, no filtering
+  point     SampleLevel with point filtering
+  bilin     bilinear filtering (4 texels)
+  gather    GatherRed: one channel of the 4 texels a bilinear read would use
+  trilin    trilinear: blends two mip levels (8 texels)
+  aniso2 .. aniso16   anisotropic filtering with MaxAnisotropy 2, 4, 8 and 16, on a steep
+            (16 x 1 texel) footprint so the setting decides how many samples are taken.
   Each thread reads within one texel of its own pixel, in 8 x 8 tiles, like a post-processing pass:
-  mostly cache hits. Shows whether a format is slower to filter (e.g. 32-bit floats are often half
-  rate, RGB10A2 / RG11B10F need unpacking). Integer formats cannot be filtered: Load, and the base
-  includes the same integer to float conversion.
+  mostly cache hits. Shows which formats are slower to filter (some GPUs filter 64-bit formats at
+  half speed, unpack RGB10A2 / RG11B10F, or filter point and bilinear at different speeds).
+  Integer formats cannot be filtered: Load and gather only. Formats a GPU cannot gather or
+  mipmap are left out and listed. GB/s: the data rate of the bilinear read (integer formats: Load).
 
 Formats: random reads from 4096 x 4096 (Load)
   The same formats read at random places: cache misses, so the texel size and memory speed show
@@ -25,22 +33,12 @@ Formats: random reads from 4096 x 4096 (Load)
   stay partly cached. The next place comes from the value read and the place before it (from the
   value alone, R8 with its 256 values would visit only 256 places, all in the cache).
 
-Access and filtering: RGBA8 1024 x 1024 with mipmaps, coherent
-  Load        texel fetch, no filtering
-  point       SampleLevel with point filtering
-  bilinear    SampleLevel, linear filtering, mip 0
-  gather      GatherRed: one channel of the 4 texels a bilinear read would use
-  trilinear   SampleLevel at mip 0.5: blends two mip levels
-  aniso 8:1   SampleGrad with an 8 x 1 texel footprint and 16x anisotropic filtering
-
 Texture functions: RGBA8 1024 x 1024 with mipmaps, coherent
   The rest of ReShade FX's texture functions:
   bilinear / Load / gather offset   tex2Dlod, tex2Dfetch, tex2DgatherR with an offset.
   gather green / blue / alpha       tex2DgatherG / B / A.
   Load mip 1   tex2Dfetch from mip level 1.
   grad 1:1     tex2Dgrad with gradients of one texel (mip 0).
-  aniso 2:1, 4:1, 16:1   tex2Dgrad with an N x 1 texel footprint, 16x anisotropic filtering.
-  trilinear R8 / RGB10A2 / RG11B10F / RGBA16F / RGBA32F   trilinear in other formats.
   tex1D bilinear, tex1Dfetch   a real 1D texture (1024 texels).
   tex3D linear, tex3Dfetch     a 1024 x 1024 x 2 3D texture; linear halfway between the slices
                filters 8 texels (like trilinear).
@@ -93,27 +91,12 @@ Compute: storage writes (tex2Dstore) into 4096 x 4096
   compute shader (beyond D3D11's required ones, storage formats are optional) are left out and
   listed at the start.
 
-Compute: groupshared memory and barriers
-  gs read, gs write, gs write + read   groupshared memory (fast on-chip memory shared by a thread
-               group): compare with a texture read to see when caching taps in groupshared pays.
-  ... stride 32  lanes 32 words apart: they hit the same memory bank (bank conflicts).
-  barrier, groupMemoryBarrier, memoryBarrier   barrier() / groupMemoryBarrier() / memoryBarrier()
-               after a groupshared write.
-
-Compute: atomics
-  atomicAdd, And, Or, Xor, Min, Max, Exchange, CompareExchange (shown as CmpXchg) on groupshared memory ("gs ...") and
-  on storage (R32U): each thread on its own address, and "(one)": the group's 64 threads on one
-  address (contention). (Not a whole dispatch on one address: that could take seconds and trip the
-  driver's timeout.)
-
-Compute: local arrays and branches
-  array read, array write + read   a local float A[16] indexed at run time (the index differs per
-               lane). fxc puts such arrays in indexable temps, which some GPUs keep in slow memory.
-  const array read   a static const float K[16] indexed at run time (an immediate constant buffer).
-  select (both)      4 sin and 4 cos both computed, one result picked.
-  branch uniform     the same as a branch; all threads of a group take the same side.
-  branch divergent   the same as a branch; neighbouring threads take different sides, so every
-               group runs both.
+Compute: storage atomics
+  aAdd, aAnd, aOr, aXor, aMin, aMax, aXchg, aCmpXchg = atomicAdd, And, Or, Xor, Min, Max, Exchange,
+  CompareExchange on a storage texture (R32U): each thread on its own address, and "(1)": the
+  group's 64 threads on one address (contention). (Not a whole dispatch on one address: that could
+  take seconds and trip the driver's timeout.) Groupshared memory, barriers, groupshared atomics,
+  local arrays and branches are in OpBench.
 
 Pixel shader: derivatives and automatic mip selection (1024 x 1024 target; tput and dep)
   ddx, ddy, ddx_fine, ddy_fine, ddx_coarse, ddy_coarse, fwidth   step x = mad(d(x), c.x, c.y); base: the pixel
