@@ -39,6 +39,26 @@ Lookup tables and texture size: RGBA8, random reads, bilinear
   LUT 32^3    a 3D color grading lookup table (128 KB), trilinear between slices.
   512^2 ... 8192^2   random reads from growing textures: where the caches run out.
 
+Cache sizes: random reads (Load) from an RGBA8 texture of growing size
+  4 KB ... 256 MB in steps of 2x. While the texture fits in a cache level, reads cost about the
+  same; where the cost jumps, a cache level ran out (clearest in the lat column: the waiting time
+  of a single read). So the jumps show this card's cache sizes (texture / L1 cache, L2 cache, and
+  on some AMD cards the large Infinity Cache).
+
+Cache use: RGBA8 4096 x 4096 (Load), reads around each thread's own pixel
+  spread N     each thread reads at random within N x N texels around its own pixel (N = 1 ...
+               256). Neighbouring threads share cache lines while N is small; the cost rises
+               where they stop sharing. Shows how far apart neighbouring pixels may read (blur
+               radius, sample patterns) before the cache stops helping.
+  row N, column N   random along the pixel's row / column only (N texels): a horizontal against
+               a vertical blur pass. Equal costs mean the texture is stored in tiles.
+  group WxH    compute: 64 threads as W x H pixels (8x8, 16x4, 32x2, 64x1), spread 8: which
+               thread group shape uses the cache best.
+
+Cache use: texel size, random reads (Load) from 1024 x 1024
+  R8, RGBA8, RGBA16F, RGBA32F: the same texel count in 1, 4, 8 and 16 MB. Shows whether bigger
+  texels fill the caches sooner.
+
 Pixel shader: derivatives and automatic mip selection (1024 x 1024 target; tput and dep)
   ddx, ddy, ddx_fine, ddy_fine, ddx_coarse, fwidth   step x = mad(d(x), c.x, c.y); base: the pixel
               shader mad. Derivatives exchange values within 2 x 2 pixel quads.
@@ -47,8 +67,9 @@ Pixel shader: derivatives and automatic mip selection (1024 x 1024 target; tput 
   Sample aniso 4:1   4 x 1 texel footprint, 16x anisotropic filtering
 
 Render target writes: full-screen passes into 3840 x 2160
-  Each format as a render target, in GB/s, written twice by the same pixel shader: noise (a hash
-  of the pixel position, which cannot be compressed) and a smooth gradient. GPUs compress render
-  targets, so smooth output can be written faster than the memory bandwidth allows; Gain = smooth /
-  noise shows how well this card compresses each format. Small formats (R8, R16) are usually limited
+  Each format as a render target, in GB/s, written three times by the same pixel shader: noise (a
+  hash of the pixel position, which cannot be compressed), a smooth gradient and one flat color.
+  GPUs compress render targets, so compressible output can be written faster than the memory
+  bandwidth allows; the two Gain columns (smooth / noise, flat / noise) show how well this card
+  compresses each format. Small formats (R8, R16) are usually limited
   by the pixel rate (ROPs), not by memory.

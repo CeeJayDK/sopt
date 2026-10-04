@@ -881,8 +881,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   driver; owner will update his driver and rerun.
   Progress scale (owner): the marking digit of each label (0 of 0%, 5 of 25%, 0 of 50%, 5 of 75%, first 0 of
   100%) on cell round((cells - 1) * q / 100) (benchkit scaleLine, console Progress).
-  Owner's ideas (2026-10-04, not decided): cache tests (size of each cache level, how to use it best) and
-  compression tests for topt (the owner's texture sampling optimizer); expected costs per cost model built into
+  Cache and compression tests (owner's go, 2026-10-04, for topt, the owner's texture sampling optimizer):
+  "Cache sizes" (random Load from RGBA8 textures of 4 KB .. 256 MB in 2x steps), "Cache use" (spread N: random
+  within N x N texels around the thread's pixel, N = 1 .. 256, kSpread with the cbuffer scale, base addr.spread;
+  row / column 32 / 256; group 8x8 / 16x4 / 32x2 / 64x1 via Test::tileW; texel size: R8 / RGBA8 / RGBA16F /
+  RGBA32F random over 1024^2), writes noise / smooth / flat (U[0].x 1 / 0 / 2) with two Gain columns.
+  Intel UHD 630 (docs/texbench/intel-uhd-630.csv, the pre-fix build): unlike NVIDIA, formats differ: bilinear
+  ~35 for R8 .. RGBA8 / R16F / RG16F / R32F, ~93 (half rate) for RGBA8 sRGB, RGB10A2, RG11B10F and the 64-bit
+  formats, RGBA32F 211 (quarter); int Load 22; writes (shared DDR4, ~38 GB/s): RGBA8 / RGBA16F / R32U 38 but
+  RGBA16 / RG16 / R32F / RG32F / RGBA32F ~20-23, sRGB / RGB10A2 / RG11B10F 26-28; ddx / ddy / ddx_fine 5.6,
+  ddy_fine 12.5, fwidth 15.
+  Owner's ideas (2026-10-04, not decided): expected costs per cost model built into
   OpBench / TexBench, telling the user when their card does not match its model ("your report is very
   interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs
   more data first).
