@@ -33,36 +33,18 @@
 // Ops column; tests whose passes disagree are measured again (up to kMaxPasses) until most
 // readings agree.
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#include <d3d11.h>
+#include "../benchkit.hpp"
 #include <d3dcompiler.h>
-#include <dxgi1_2.h>
 
-#include <algorithm>
-#include <cmath>
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <map>
-#include <string>
-#include <vector>
-
-// Laptops with switchable graphics: ask the NVIDIA (Optimus) and AMD (PowerXpress / Enduro)
-// drivers for the discrete GPU instead of the integrated one.
-extern "C" {
-__declspec(dllexport) DWORD NvOptimusEnablement = 1;
-__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
-}
-
-#ifndef SOPT_VERSION
-#define SOPT_VERSION "dev"
-#endif
 
 namespace {
+
+using namespace benchkit;
+
 
 struct Test {
   const char* name;
@@ -211,17 +193,6 @@ Config kConfigs[] = {
      "every step waits for the one before it; the GPU hides the wait by switching between threads"},
     {"lat", 1, 1, "Latency", "how long one step takes until its result is ready (one group of threads, nothing to hide it)"}};
 
-[[noreturn]] void fail(const std::string& what) {
-  std::fprintf(stderr, "OpBench: %s\n", what.c_str());
-  std::exit(1);
-}
-
-std::string narrow(const wchar_t* w) {
-  char buf[512];
-  WideCharToMultiByte(CP_UTF8, 0, w, -1, buf, sizeof(buf), nullptr, nullptr);
-  return buf;
-}
-
 std::string shaderSource(const Test& t, int chains) {
   std::string s =
       "cbuffer C : register(b0) { float4 U[16]; uint iters; float seed; float2 pad; };\n"
@@ -280,9 +251,7 @@ struct Gpu {
   ID3D11Buffer* cb = nullptr;
   ID3D11Buffer* out = nullptr;
   ID3D11UnorderedAccessView* uav = nullptr;
-  ID3D11Query* disjoint = nullptr;
-  ID3D11Query* t0 = nullptr;
-  ID3D11Query* t1 = nullptr;
+  Timer timer;
 };
 
 struct CbData {
@@ -321,23 +290,7 @@ void setConstants(Gpu& g, const Test& t, UINT iters) {
 
 // One timed dispatch in milliseconds (negative if the timestamps were disjoint).
 double timeDispatch(Gpu& g, UINT groups) {
-  g.ctx->Begin(g.disjoint);
-  g.ctx->End(g.t0);
-  g.ctx->Dispatch(groups, 1, 1);
-  g.ctx->End(g.t1);
-  g.ctx->End(g.disjoint);
-  D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
-  while (g.ctx->GetData(g.disjoint, &dj, sizeof(dj), 0) != S_OK) Sleep(0);
-  UINT64 a = 0, b = 0;
-  while (g.ctx->GetData(g.t0, &a, sizeof(a), 0) != S_OK) Sleep(0);
-  while (g.ctx->GetData(g.t1, &b, sizeof(b), 0) != S_OK) Sleep(0);
-  if (dj.Disjoint || dj.Frequency == 0) return -1.0;
-  return double(b - a) * 1000.0 / double(dj.Frequency);
-}
-
-double median(std::vector<double> v) {
-  std::sort(v.begin(), v.end());
-  return v.empty() ? 0.0 : v[v.size() / 2];
+  return g.timer.time(g.ctx, [&] { g.ctx->Dispatch(groups, 1, 1); });
 }
 
 struct Result {
@@ -375,35 +328,6 @@ Result measureAt(Gpu& g, ID3D11ComputeShader* cs, const Test& t, const Config& c
 // One test in one configuration: both passes, each relative to the mad measured just before it.
 // Version 4: tests whose passes disagree are measured again until most readings agree (like
 // redundant sensors: two show that one is wrong, three or more which one).
-constexpr int kMaxPasses = 6;
-
-// Two readings agree within 0.75 units or 15%.
-bool agree(double a, double b) { return std::fabs(a - b) <= std::max(0.75, 0.15 * std::max(std::fabs(a), std::fabs(b))); }
-
-struct Consensus {
-  bool ok = false;     // more than half of the readings agree
-  double value = 0.0;  // their mean (without a majority: the median of all)
-};
-Consensus consensus(std::vector<double> v) {
-  Consensus c;
-  if (v.empty()) return c;
-  std::sort(v.begin(), v.end());
-  size_t best = 0, bestLo = 0;
-  for (size_t lo = 0; lo < v.size(); ++lo)
-    for (size_t hi = lo; hi < v.size() && agree(v[lo], v[hi]); ++hi)
-      if (hi - lo + 1 > best) {
-        best = hi - lo + 1;
-        bestLo = lo;
-      }
-  c.ok = 2 * best > v.size();
-  if (c.ok) {
-    for (size_t k = bestLo; k < bestLo + best; ++k) c.value += v[k] / double(best);
-  } else {
-    c.value = v[v.size() / 2];
-  }
-  return c;
-}
-
 struct Measured {
   Result r;                      // averaged over all readings
   std::vector<double> readings;  // 4 * time / the reference mad's time, one per pass
@@ -411,26 +335,6 @@ struct Measured {
   double vsBase = 0.0;           // units minus the base test's units (the reported cost)
   double vsBasePass[2] = {0, 0}; // the same from the forward and the backward pass alone
 };
-
-// Console output: ANSI colors and UTF-8 box / bar characters where the console supports virtual
-// terminal sequences (Windows 10+), plain ASCII otherwise.
-struct Style {
-  bool vt = false;
-  const char* c(const char* code) const { return vt ? code : ""; }
-  const char* reset() const { return c("\x1b[0m"); }
-};
-
-Style initConsole() {
-  Style st;
-  HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-  DWORD mode = 0;
-  if (h != INVALID_HANDLE_VALUE && GetConsoleMode(h, &mode) &&
-      SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)) {
-    st.vt = true;
-    SetConsoleOutputCP(CP_UTF8);
-  }
-  return st;
-}
 
 // The summary's fixed order: sections ("#" entries), within each cheapest to most expensive as
 // most GPUs measure it, the same on every GPU so results can be compared line by line.
@@ -450,127 +354,11 @@ const char* const kDisplayOrder[] = {
     "bitrev", "unitf", "utof", "ftou", "ftoitof",
     "#Half precision (min16float)", "mad16", "add16", "mul16", "rcp16", "sqrt16", "exp2_16"};
 
-// 1048576 -> "1,048,576".
-std::string withCommas(unsigned long long v) {
-  std::string s = std::to_string(v);
-  for (int k = int(s.size()) - 3; k > 0; k -= 3) s.insert(size_t(k), ",");
-  return s;
-}
-
-
-// Block graphics use only the full block and the half blocks (code page 437, in every console font;
-// the 1/8 blocks of version 3 showed as boxes). A color is a bright / dark pair of the 16 console
-// colors, and the dark one as a background gives 4 levels per cell (owner's design, 2026-10-03):
-// space, left half dark, left half bright, left half bright on dark, full bright.
-constexpr const char* kFull = "\u2588";
-constexpr const char* kLeft = "\u258C";
-struct Shade {
-  int bright, dark;  // foreground codes; the dark background is dark + 10
-};
-constexpr Shade kRed = {91, 31}, kYellow = {93, 33}, kWhite = {97, 90}, kCyan = {96, 36}, kGreen = {92, 32};
-
-// A comment and a color for a throughput cost (extra over the base, 4 = one fma).
-const char* costComment(double v, Shade* shade) {
-  if (v < 0.75) { *shade = kGreen; return "free"; }
-  if (v < 3.0) { *shade = kCyan; return "cheap"; }
-  if (v < 5.5) { *shade = kWhite; return "one op"; }
-  if (v < 9.0) { *shade = kYellow; return "two ops"; }
-  *shade = kRed;
-  return "expensive";
-}
-
-// One cell of a bar at level 0..4.
-std::string barCell(int level, Shade c) {
-  char buf[48];
-  switch (level) {
-    case 0: return " ";
-    case 1: std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", c.dark, kLeft); break;
-    case 2: std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", c.bright, kLeft); break;
-    case 3: std::snprintf(buf, sizeof(buf), "\x1b[%d;%dm%s\x1b[0m", c.bright, (c.dark == 90 ? 100 : c.dark + 10), kLeft); break;
-    default: std::snprintf(buf, sizeof(buf), "\x1b[%dm%s\x1b[0m", c.bright, kFull); break;
-  }
-  return buf;
-}
-
-// A bar of width cells for v out of maxV (at least one level when v > 0); returns its text, the
-// display width is always `width`.
-std::string bar(double v, double maxV, int width, const Style& st, Shade c) {
-  const int levels = maxV <= 0.0 ? 0 : int(std::lround(std::max(0.0, v) / maxV * width * 4));
-  const int n = std::min(width * 4, v > 0.0 ? std::max(1, levels) : 0);
-  std::string s;
-  for (int k = 0; k < width; ++k) {
-    const int lv = std::min(4, std::max(0, n - 4 * k));
-    s += st.vt ? barCell(lv, c) : std::string(lv >= 2 ? "#" : " ");
-  }
-  return s;
-}
-
-// The progress bar while measuring: one level per measured test, 6 levels per cell (with light grey).
-// The two passes over every test (`planned` steps) fill the scale from 0% to 100%; extra passes for
-// tests whose readings disagree run on past 100% in yellow.
-constexpr int kStepsPerCell = 6;
-
-struct Progress {
-  const Style* st;
-  int planned = 0;
-  int steps = 0;
-  void step() {
-    ++steps;
-    const int sub = (steps - 1) % kStepsPerCell;
-    if (!st->vt) {
-      if (sub == kStepsPerCell - 1) std::printf(steps > planned ? "+" : "#");
-      return;
-    }
-    static const char* const kCell[6] = {"\x1b[90m\u258C", "\x1b[37m\u258C", "\x1b[97m\u258C",
-                                         "\x1b[97;100m\u258C", "\x1b[97;47m\u258C", "\x1b[97m\u2588"};
-    static const char* const kExtra[6] = {"\x1b[33m\u258C", "\x1b[33m\u258C", "\x1b[93m\u258C",
-                                          "\x1b[93;43m\u258C", "\x1b[93;43m\u258C", "\x1b[93m\u2588"};
-    std::printf("%s%s\x1b[0m", sub == 0 ? "" : "\b", (steps > planned ? kExtra : kCell)[sub]);
-  }
-};
-
-// The percentage scale above the progress bar: 0% at its start, 100% where the planned steps end.
-std::string progressScale(int planned) {
-  const int cells = (planned + kStepsPerCell - 1) / kStepsPerCell;
-  std::string s(static_cast<size_t>(cells) + 6, ' ');
-  auto put = [&](const std::string& label, int at) {
-    at = std::max(0, std::min(at, static_cast<int>(s.size() - label.size())));
-    s.replace(static_cast<size_t>(at), label.size(), label);
-  };
-  if (cells < 8) return {};
-  put("0%", 0);
-  if (cells >= 24)  // room for the quarters
-    for (int q : {25, 50, 75}) {
-      const std::string label = std::to_string(q) + "%";
-      put(label, cells * q / 100 - static_cast<int>(label.size()) / 2);
-    }
-  put("100%", cells - 4);
-  while (!s.empty() && s.back() == ' ') s.pop_back();
-  return s;
-}
-
-
-// Display width of a UTF-8 string (one column per code point).
-int columns(const std::string& s) {
-  int n = 0;
-  for (unsigned char ch : s) n += (ch & 0xC0) != 0x80;
-  return n;
-}
-
-// A double-line box around a title (bright cyan frame, bright white title; ASCII without VT).
-void printBox(const Style& st, const std::string& title) {
-  const std::string hz = st.vt ? "\u2550" : "=";
-  std::string line;
-  for (int k = 0; k < columns(title) + 4; ++k) line += hz;
-  std::printf("  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "\u2554" : "+", line.c_str(), st.vt ? "\u2557" : "+", st.reset());
-  std::printf("  %s%s%s  %s%s%s  %s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "\u2551" : "|", st.reset(), st.c("\x1b[1;97m"),
-              title.c_str(), st.reset(), st.c("\x1b[1;96m"), st.vt ? "\u2551" : "|", st.reset());
-  std::printf("  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "\u255A" : "+", line.c_str(), st.vt ? "\u255D" : "+", st.reset());
-}
 
 }  // namespace
 
 int main(int argc, char** argv) {
+  gProgram = "OpBench";
   std::setvbuf(stdout, nullptr, _IONBF, 0);  // progress shows while it runs
   const Style st = initConsole();
   int adapterIndex = -1;
@@ -602,61 +390,15 @@ int main(int argc, char** argv) {
     printBox(st, std::string("OpBench ") + SOPT_VERSION + "  -  by CeeJay.dk");
     std::printf("\n");
   }
-  IDXGIFactory1* factory = nullptr;
-  if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) fail("CreateDXGIFactory1 failed");
-  std::vector<IDXGIAdapter1*> adapters;
-  for (UINT k = 0;; ++k) {
-    IDXGIAdapter1* ad = nullptr;
-    if (factory->EnumAdapters1(k, &ad) == DXGI_ERROR_NOT_FOUND) break;
-    adapters.push_back(ad);
-  }
-  int pick = -1;
-  SIZE_T bestMem = 0;
-  std::vector<std::string> adapterNames;
-  for (size_t k = 0; k < adapters.size(); ++k) {
-    DXGI_ADAPTER_DESC1 d;
-    adapters[k]->GetDesc1(&d);
-    const bool software = (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
-    adapterNames.push_back(narrow(d.Description) + (software ? " [software]" : ""));
-    if (list)
-      std::printf("%zu: %s (%zu MB)%s\n", k, narrow(d.Description).c_str(), size_t(d.DedicatedVideoMemory >> 20),
-                  software ? " [software]" : "");
-    if (!software && (pick < 0 || d.DedicatedVideoMemory > bestMem)) {
-      pick = int(k);
-      bestMem = d.DedicatedVideoMemory;
-    }
-  }
+  const Adapter ad = selectAdapter(st, list, adapterIndex);
   if (list) return 0;
-  if (adapterIndex >= 0) pick = adapterIndex;
-  if (pick < 0 || pick >= int(adapters.size())) fail("no GPU adapter (try --list)");
-
-  DXGI_ADAPTER_DESC1 desc;
-  adapters[pick]->GetDesc1(&desc);
-  const std::string gpuName = narrow(desc.Description);
-  LARGE_INTEGER umd = {};
-  std::string driver = "unknown";
-  if (SUCCEEDED(adapters[pick]->CheckInterfaceSupport(__uuidof(IDXGIDevice), &umd))) {
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "%u.%u.%u.%u", unsigned(HIWORD(umd.HighPart)), unsigned(LOWORD(umd.HighPart)),
-                  unsigned(HIWORD(umd.LowPart)), unsigned(LOWORD(umd.LowPart)));
-    driver = buf;
-  }
-  std::printf("%sGPU: %s%s (vendor 0x%04X, device 0x%04X), driver %s\n", st.c("\x1b[1m"), gpuName.c_str(), st.reset(),
-              desc.VendorId, desc.DeviceId, driver.c_str());
-  if (adapters.size() > 1) {
-    std::printf("Also detected in system:\n");
-    size_t nameW = 0;
-    for (size_t k = 0; k < adapters.size(); ++k)
-      if (int(k) != pick) nameW = std::max(nameW, adapterNames[k].size());
-    for (size_t k = 0; k < adapters.size(); ++k)
-      if (int(k) != pick)
-        std::printf("  %zu: %-*s   %sUse --adapter %zu to test this%s\n", k, int(nameW), adapterNames[k].c_str(),
-                    st.c("\x1b[90m"), k, st.reset());
-  }
+  const DXGI_ADAPTER_DESC1& desc = ad.desc;
+  const std::string& gpuName = ad.name;
+  const std::string& driver = ad.driver;
 
   Gpu g;
   const D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;
-  if (FAILED(D3D11CreateDevice(adapters[pick], D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, &level, 1, D3D11_SDK_VERSION, &g.dev,
+  if (FAILED(D3D11CreateDevice(ad.adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, &level, 1, D3D11_SDK_VERSION, &g.dev,
                                nullptr, &g.ctx)))
     fail("D3D11CreateDevice failed");
   // Whether the driver runs min16float at 16 bits in compute shaders (else at 32: the half tests
@@ -681,11 +423,7 @@ int main(int argc, char** argv) {
     ob.StructureByteStride = 4;
     if (FAILED(g.dev->CreateBuffer(&ob, nullptr, &g.out))) fail("cannot create the output buffer");
     if (FAILED(g.dev->CreateUnorderedAccessView(g.out, nullptr, &g.uav))) fail("cannot create the output view");
-    D3D11_QUERY_DESC qd = {D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
-    g.dev->CreateQuery(&qd, &g.disjoint);
-    qd.Query = D3D11_QUERY_TIMESTAMP;
-    g.dev->CreateQuery(&qd, &g.t0);
-    g.dev->CreateQuery(&qd, &g.t1);
+    g.timer.create(g.dev);
     g.ctx->CSSetConstantBuffers(0, 1, &g.cb);
     g.ctx->CSSetUnorderedAccessViews(0, 1, &g.uav, nullptr);
   }

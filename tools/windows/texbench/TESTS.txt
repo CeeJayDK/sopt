@@ -1,0 +1,50 @@
+TexBench tests
+==============
+
+Costs are in sopt units: 4 = one fma (multiply-add), measured as extra time over the test's base.
+Every texture test reads at a coordinate computed from the previous result, so the reads in one
+chain cannot overlap; the base computes the same coordinate without reading, so the cost is the
+read alone (for Load: with the conversion of the coordinate to texels).
+
+Three ways (compute shaders), as in OpBench:
+  tput  8 chains per thread, 1M threads: the GPU can overlap reads of different chains and threads.
+        The ballpark for a read inside a real shader.
+  dep   1 chain per thread, 1M threads: only other threads hide the waiting.
+  lat   1 chain, one group of 64 threads: nothing hides it; close to the raw latency of a read.
+
+Formats: coherent reads (bilinear; integer formats: Load)
+  Every format ReShade supports (R8 ... RG11B10F, plus RGBA8 with an sRGB view), 1024 x 1024.
+  Each thread reads within one texel of its own pixel, in 8 x 8 tiles, like a post-processing pass:
+  mostly cache hits. Shows whether a format is slower to filter (e.g. 32-bit floats are often half
+  rate, RGB10A2 / RG11B10F need unpacking). Integer formats cannot be filtered: Load, and the base
+  includes the same integer to float conversion.
+
+Formats: random reads from 4096 x 4096 (Load)
+  The same formats read at random places: cache misses, so the texel size and memory speed show
+  (R8 = 1 byte per texel, RGBA32F = 16). Large textures in big caches (e.g. 64+ MB on some GPUs)
+  stay partly cached.
+
+Access and filtering: RGBA8 1024 x 1024 with mipmaps, coherent
+  Load        texel fetch, no filtering
+  point       SampleLevel with point filtering
+  bilinear    SampleLevel, linear filtering, mip 0
+  gather      GatherRed: one channel of the 4 texels a bilinear read would use
+  trilinear   SampleLevel at mip 0.5: blends two mip levels
+  aniso 8:1   SampleGrad with an 8 x 1 texel footprint and 16x anisotropic filtering
+
+Lookup tables and texture size: RGBA8, random reads, bilinear
+  LUT 256x1   a 1D lookup table (1 KB): always in the cache. Compare with OpBench's math costs
+              (pow, exp, sin ...) to see when a lookup table is cheaper than computing.
+  LUT 32^3    a 3D color grading lookup table (128 KB), trilinear between slices.
+  512^2 ... 8192^2   random reads from growing textures: where the caches run out.
+
+Pixel shader: derivatives and automatic mip selection (1024 x 1024 target; tput and dep)
+  ddx, ddy, ddx_fine, ddy_fine, ddx_coarse, fwidth   step x = mad(d(x), c.x, c.y); base: the pixel
+              shader mad. Derivatives exchange values within 2 x 2 pixel quads.
+  Sample bilinear    Sample (mip level from the derivatives: 1 texel per pixel = mip 0)
+  Sample trilinear   1.5 texels per pixel: between mip 0 and 1
+  Sample aniso 4:1   4 x 1 texel footprint, 16x anisotropic filtering
+
+Render target writes: full-screen passes into 3840 x 2160
+  Each format as a render target (a pixel shader writing a cheap value), in GB/s and milliseconds
+  per pass. Shows how much a format costs to write (bytes per pixel, sRGB encoding, packing).

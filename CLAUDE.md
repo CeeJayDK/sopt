@@ -847,6 +847,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   every tput test (only length / atan / atan2 0.6-1.2 lower): third RDNA 2 device, amd-rdna2 unchanged. omod2 /
   omodhalf / omod4 0.0 (free), omod8 / omod0.25 / omod0.125 = the x3 control (tput 1.2, lat 3.1): exactly AMD's
   output modifier set (x2, x4, x0.5), as CostModel::amdFolds assumes. trunc = round = floor (one op, 2.97).
+- TexBench (owner, 2026-10-04: texture costs next to math, "when to use math and when to use lookup tables";
+  do not assume R8 / RG8 / RGB10A2 / RG11B10F / the other ReShade formats perform as expected, test them; a
+  separate exe since it doubles the run time): tools/windows/texbench/texbench.cpp (target texbench,
+  TexBench.exe, measure-textures.bat, TexBench-<v>.zip in release.yml, TexBench.exe in the tools artifact);
+  OpBench's console / statistics / adapter / timestamp code moved to tools/windows/benchkit.hpp (shared;
+  OpBench checked under Wine after the move). Tests: 19 formats (18 ReShade + RGBA8 sRGB) coherent bilinear
+  (1024^2, 8 x 8 thread tiles, int formats Load) and random Load (4096^2); RGBA8 access / filtering; LUT 256x1,
+  LUT 32^3, random 512^2..8192^2; pixel shader ddx / ddy / fine / coarse / fwidth and Sample bilinear /
+  trilinear (1.5 texels per pixel) / aniso 4:1; render target writes per format (GB/s, 3840 x 2160). Each read's
+  coordinate depends on the previous result; bases compute the same coordinate without reading. Runs under
+  Wine (xvfb-run, lavapipe: functional only, timestamps meaningless there).
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
