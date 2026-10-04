@@ -8,7 +8,7 @@ facts, budgets, variant .fx; owner's ReShade test passed on DX11 and Vulkan); pl
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 and the nvidia / intel models default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
-cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-maxwell`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
 `nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3; plain HLSL SM5 pixel and compute shaders, ReShade FX compute shaders.
 
 ## Working with the owner
@@ -942,6 +942,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   bits) leaves out what a GPU lacks (storage, gather, mip autogen) and lists it. CSV column "seconds" per test
   and "# run time" (owner: shrink texture sizes where they do not matter, tune as we go). Graphs grow to 40
   characters in wide consoles.
+  Maxwell (2026-10-04, OpBench 0.4.0, clean): GTX 860M (GM107, nvidia-gtx-860m.csv) and Quadro M5000M (GM204,
+  nvidia-quadro-m5000m.csv) = Pascal except min / max / step 4.6-4.9 (Pascal 6.8), clamp 11.5 (13.7): cost model
+  `nvidia-maxwell` (kNvidiaMaxwell). The 860M (driver 32.0.15.8278) measures sqrt 24 (rsqrt + rcp), the M5000M
+  (32.0.15.8194) 10: another driver difference. Maxwell integer: imul slow (ixmul base 10, XMAD), utof / ftou ~free,
+  bitrev 3.5, popc 7, fbh 14; min16float runs at 32 bits.
+  GTX 1660 Ti (nvidia-gtx-1660-ti-v4.csv, driver 32.0.16.1714, clean tput) = GTX 1660 except iand 1.1 (1660 on
+  32.0.15.6614: 4.0): with the RTX 2060 (32.0.16.2002: 1.05) the third card where a 32.0.16 driver makes the
+  xor + and one instruction: a driver improvement, not hardware. measure-all.bat (owner): OpBench, then
+  TexBench, no pause in between, pause at the end (tools artifact / zip).
   Owner's ideas (2026-10-04, not decided): expected costs per cost model built into
   OpBench / TexBench, telling the user when their card does not match its model ("your report is very
   interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs

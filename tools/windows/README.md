@@ -35,6 +35,7 @@ DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host
 | `ReShade64.dll`, `ReShade-LICENSE.md` | ReShade 6.8.0, full add-on support, unchanged (CI build) |
 | `OpBench.exe`, `measure-gpu.bat` | instruction costs on this GPU, for sopt's cost models (below) |
 | `TexBench.exe`, `measure-textures.bat`, `TexBench-TESTS.txt` | texture reads, derivatives and render target writes per format (below) |
+| `measure-all.bat` | runs OpBench, then TexBench, without stopping in between (pauses at the end) |
 
 Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host),
 `tools/windows/opbench` (OpBench), `tools/windows/texbench` (TexBench), `benchkit.hpp` (shared by both), this folder (scripts).
