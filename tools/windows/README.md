@@ -189,6 +189,10 @@ half of its readings agree (their mean is the result; "no consensus" otherwise);
 Version 5 (0.4.0, owner 2026-10-03): more output modifier scales after `rcp` (`omod4`; `omod8`,
 `omod0.25`, `omod0.125`: free on DX9-era GPUs, measured to know whether they still are) and `trunc`
 (round toward zero, suggested by a tester).
+
+Next version (owner 2026-10-04): a percentage scale (0% 25% 50% 75% 100%) above each progress bar.
+100% is the end of the two passes over every test; extra passes for tests whose readings disagree
+continue past it in yellow (`+` without colors).
 The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics
 (`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases: the
 `OpBench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases (exe, measure-gpu.bat,

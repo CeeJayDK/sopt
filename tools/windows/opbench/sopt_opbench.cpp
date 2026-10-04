@@ -506,21 +506,48 @@ std::string bar(double v, double maxV, int width, const Style& st, Shade c) {
 }
 
 // The progress bar while measuring: one level per measured test, 6 levels per cell (with light grey).
+// The two passes over every test (`planned` steps) fill the scale from 0% to 100%; extra passes for
+// tests whose readings disagree run on past 100% in yellow.
+constexpr int kStepsPerCell = 6;
+
 struct Progress {
   const Style* st;
+  int planned = 0;
   int steps = 0;
   void step() {
     ++steps;
+    const int sub = (steps - 1) % kStepsPerCell;
     if (!st->vt) {
-      std::printf(".");
+      if (sub == kStepsPerCell - 1) std::printf(steps > planned ? "+" : "#");
       return;
     }
     static const char* const kCell[6] = {"\x1b[90m\u258C", "\x1b[37m\u258C", "\x1b[97m\u258C",
                                          "\x1b[97;100m\u258C", "\x1b[97;47m\u258C", "\x1b[97m\u2588"};
-    const int sub = (steps - 1) % 6;
-    std::printf("%s%s\x1b[0m", sub == 0 ? "" : "\b", kCell[sub]);
+    static const char* const kExtra[6] = {"\x1b[33m\u258C", "\x1b[33m\u258C", "\x1b[93m\u258C",
+                                          "\x1b[93;43m\u258C", "\x1b[93;43m\u258C", "\x1b[93m\u2588"};
+    std::printf("%s%s\x1b[0m", sub == 0 ? "" : "\b", (steps > planned ? kExtra : kCell)[sub]);
   }
 };
+
+// The percentage scale above the progress bar: 0% at its start, 100% where the planned steps end.
+std::string progressScale(int planned) {
+  const int cells = (planned + kStepsPerCell - 1) / kStepsPerCell;
+  std::string s(static_cast<size_t>(cells) + 6, ' ');
+  auto put = [&](const std::string& label, int at) {
+    at = std::max(0, std::min(at, static_cast<int>(s.size() - label.size())));
+    s.replace(static_cast<size_t>(at), label.size(), label);
+  };
+  if (cells < 8) return {};
+  put("0%", 0);
+  if (cells >= 24)  // room for the quarters
+    for (int q : {25, 50, 75}) {
+      const std::string label = std::to_string(q) + "%";
+      put(label, cells * q / 100 - static_cast<int>(label.size()) / 2);
+    }
+  put("100%", cells - 4);
+  while (!s.empty() && s.back() == ' ') s.pop_back();
+  return s;
+}
 
 
 // Display width of a UTF-8 string (one column per code point).
@@ -737,14 +764,16 @@ int main(int argc, char** argv) {
   std::map<std::string, double> madDrift;                          // config -> spread of the reference
   std::map<std::string, double> madNs;                             // config -> mean reference time
   for (const Config& c : kConfigs) {
-    std::printf("\n%s== %s%s: %d %schain%s per thread, %s threads\n   %s%s%s\n   ", st.c("\x1b[1;96m"), c.title,
+    std::printf("\n%s== %s%s: %d %schain%s per thread, %s threads\n   %s%s%s\n", st.c("\x1b[1;96m"), c.title,
                 st.reset(), c.chains, c.chains > 1 ? "independent " : "", c.chains > 1 ? "s" : "",
                 withCommas(c.groups * kGroupSize).c_str(), st.c("\x1b[90m"), c.what, st.reset());
+    const int planned = 2 * static_cast<int>(tests.size());  // passes 1 and 2 measure every test
+    std::printf("   %s%s%s\n   ", st.c("\x1b[90m"), progressScale(planned).c_str(), st.reset());
     std::map<std::string, UINT> iters;
     for (const Test* t : tests) iters[t->name] = calibrate(g, shaders[c.name][t->name], *t, c);
     std::vector<double> mads;
     std::map<std::string, Result> sum;
-    Progress progress{&st};
+    Progress progress{&st, planned};
     // Passes 1 and 2 measure every test (forward, then backward); later passes only the tests whose
     // readings have no majority yet, alternating the direction.
     for (int pass = 0; pass < kMaxPasses; ++pass) {
