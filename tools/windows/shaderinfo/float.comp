@@ -1,0 +1,19 @@
+#version 450
+// Float ops sopt's cost models price: fma, rcp, sqrt, floor, min / max, clamp, sign, exp2.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float data[]; };
+layout(push_constant) uniform P { float a, b, c; uint n; };
+void main() {
+  float x = data[gl_GlobalInvocationID.x];
+  for (uint i = 0u; i < n; ++i) {
+    x = fma(x, a, b);
+    x = fma(1.0 / x, a, b);
+    x = fma(sqrt(x), a, b);
+    x = fma(floor(x * c), a, b);
+    x = fma(max(max(x, a), b), a, c);
+    x = fma(clamp(x, 0.0, 1.0) * 2.0, a, b);
+    x = fma(sign(x), a, x);
+    x = fma(exp2(x), a, b);
+  }
+  data[gl_GlobalInvocationID.x] = x;
+}

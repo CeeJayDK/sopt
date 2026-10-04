@@ -151,6 +151,14 @@ if(WIN32)
   target_compile_features(texbench PRIVATE cxx_std_17)
   target_link_libraries(texbench PRIVATE d3d11 dxgi d3dcompiler)
   target_compile_definitions(texbench PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
+  # ShaderInfo: what the Vulkan drivers report about compiled shaders (statistics, disassembly, hardware
+  # counters); tools/windows/shaderinfo. Vulkan loaded at run time.
+  add_executable(shaderinfo tools/windows/shaderinfo/shaderinfo.cpp)
+  set_target_properties(shaderinfo PROPERTIES OUTPUT_NAME ShaderInfo)
+  target_include_directories(shaderinfo PRIVATE third_party/vulkan)
+  target_compile_features(shaderinfo PRIVATE cxx_std_17)
+  target_link_libraries(shaderinfo PRIVATE d3d11 dxgi)
+  target_compile_definitions(shaderinfo PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
   # Version resource (name, publisher, version under Properties > Details) on every tool we
   # distribute, and a manifest (asInvoker, supported Windows versions) on the executables:
   # unsigned executables without them look more suspicious to Windows Defender.
@@ -167,6 +175,7 @@ if(WIN32)
   endfunction()
   sopt_version_info(opbench OpBench.exe "OpBench: GPU instruction cost benchmark (sopt)" VFT_APP)
   sopt_version_info(texbench TexBench.exe "TexBench: GPU texture cost benchmark (sopt)" VFT_APP)
+  sopt_version_info(shaderinfo ShaderInfo.exe "ShaderInfo: what GPU drivers report about compiled shaders (sopt)" VFT_APP)
   sopt_version_info(sopt-host sopt-host.exe "sopt benchmark host window (DX11 / Vulkan)" VFT_APP)
   sopt_version_info(sopt-fxc sopt-fxc.exe "sopt helper: HLSL to DXBC with Microsoft fxc" VFT_APP)
   sopt_version_info(sopt sopt.exe "sopt: shader superoptimizer (single expressions)" VFT_APP)
@@ -179,7 +188,7 @@ if(WIN32)
   # UTF-8 string literals (OpBench's block graphics): without /utf-8 MSVC converts them
   # to the ANSI code page at compile time and writes '?' (0.1.0); C4566 as an error catches that.
   if(MSVC)
-    foreach(t opbench texbench sopt-host sopt-fxc sopt-timer)
+    foreach(t opbench texbench shaderinfo sopt-host sopt-fxc sopt-timer)
       target_compile_options(${t} PRIVATE /utf-8 /we4566)
     endforeach()
   endif()

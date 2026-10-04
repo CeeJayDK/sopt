@@ -997,6 +997,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   texture time; spec-like), pixel fill rate (max write GB/s / bytes), memory bandwidth (max noise write). Also as
   "#" CSV header lines. CSV rewritten at every section display (GPU idle then; owner: not during measurements).
   Pixel shader order timed too (owner): plain / store / counter + store draws, units per pixel over plain.
+  ShaderInfo (owner's go 2026-10-04, after the iand driver finding: the real graphics driver's view instead of
+  ptxas; tools/windows/shaderinfo, ShaderInfo.exe + shader-info.bat in the tools artifact): Vulkan at run time,
+  per GPU: VK_KHR_pipeline_executable_properties (statistics + internal representations of two compute shaders,
+  int.comp / float.comp -> shaders_spv.h; `--spv` adds one), VK_AMD_shader_info (VGPRs, disassembly),
+  VK_KHR_performance_query counters (owner's mention; listed only). Report shaderinfo-<gpu>.txt. Lavapipe has none
+  of them (Wine check: runs, reports "nothing"); waiting for the owner's GTX 1660 / Intel reports to decide.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
