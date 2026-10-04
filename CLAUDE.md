@@ -949,7 +949,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   bitrev 3.5, popc 7, fbh 14; min16float runs at 32 bits.
   GTX 1660 Ti (nvidia-gtx-1660-ti-v4.csv, driver 32.0.16.1714, clean tput) = GTX 1660 except iand 1.1 (1660 on
   32.0.15.6614: 4.0): with the RTX 2060 (32.0.16.2002: 1.05) the third card where a 32.0.16 driver makes the
-  xor + and one instruction: a driver improvement, not hardware. measure-all.bat (owner): OpBench, then
+  xor + and one instruction: a driver improvement, not hardware. measure-both.bat (owner): OpBench, then
   TexBench, no pause in between, pause at the end (tools artifact / zip).
   Run time (owner: TexBench "takes forever" on the UHD 630): calibrate (Plan) starts at one iteration and, when a
   compute run still takes > 8 ms, halves the thread groups down to kMinGroups (1024 = 64K threads); texelData uses
