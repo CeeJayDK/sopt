@@ -36,6 +36,7 @@ DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host
 | `OpBench.exe`, `measure-gpu.bat` | instruction costs on this GPU, for sopt's cost models (below) |
 | `TexBench.exe`, `measure-textures.bat`, `TexBench-TESTS.txt` | texture reads, derivatives and render target writes per format (below) |
 | `measure-all.bat` | runs OpBench, then TexBench, without stopping in between (pauses at the end) |
+| `measure-all-gpus.bat` | the same for every graphics card in the PC (each card once, no software renderer; `--adapters` lists them) |
 
 Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host),
 `tools/windows/opbench` (OpBench), `tools/windows/texbench` (TexBench), `benchkit.hpp` (shared by both), this folder (scripts).

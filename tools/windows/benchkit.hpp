@@ -278,6 +278,29 @@ inline const char* vendorColor(const Style& st, UINT vendor) {
                                                     : "\x1b[1m");
 }
 
+// --adapters: the index of every hardware GPU, one per line, each GPU once (a driver can list the same GPU
+// twice, e.g. the NVIDIA card first because of NvOptimusEnablement and again at its own place: same LUID)
+// and without software adapters (Microsoft Basic Render Driver). measure-all-gpus.bat runs each index.
+inline void printUniqueAdapters() {
+  IDXGIFactory1* factory = nullptr;
+  if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) fail("CreateDXGIFactory1 failed");
+  std::vector<LUID> seen;
+  for (UINT k = 0;; ++k) {
+    IDXGIAdapter1* ad = nullptr;
+    if (factory->EnumAdapters1(k, &ad) == DXGI_ERROR_NOT_FOUND) break;
+    DXGI_ADAPTER_DESC1 d;
+    ad->GetDesc1(&d);
+    ad->Release();
+    if (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
+    bool dup = false;
+    for (const LUID& l : seen) dup |= l.LowPart == d.AdapterLuid.LowPart && l.HighPart == d.AdapterLuid.HighPart;
+    if (dup) continue;
+    seen.push_back(d.AdapterLuid);
+    std::printf("%u\n", k);
+  }
+  factory->Release();
+}
+
 // With list set, prints the adapters and returns an empty Adapter. Otherwise prints the chosen GPU
 // and the other adapters ("Use --adapter N to test this").
 inline Adapter selectAdapter(const Style& st, bool list, int index) {

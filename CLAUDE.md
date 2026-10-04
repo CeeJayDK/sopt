@@ -959,6 +959,25 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   both programs; cache-use tests on 2048^2 (reads stay within 1408 texels), coherent storage writes into 1024^2
   (random stay 4096^2). Pending the owner's next runs (seconds column): whether the matrix keeps dep / lat
   (owner: they stay only if we learn something from them).
+  Intel UHD 630 full run (docs/texbench/intel-uhd-630-v5.csv; the build before the write / blend fixes, names with
+  commas unquoted): formats: 8 / 16 / 32-bit bilinear ~35 except sRGB / RGB10A2 / RG11B10F / 64-bit ~93, RGBA32F
+  209, RGBA32U/I Load 86; trilinear R8 93, RGB10A2 / RG11B10F / RGBA16F 209, RGBA32F 441; grad 1:1 79; aniso 2:1 93,
+  4:1 209, 16:1 905; tex3D linear and tex3Dfetch both 93 (3D loads slow); size queries NOT free (tex2Dsize 26,
+  tex3Dsize 77); offsets / gathers / address modes free; LUT 32 2D = 3D 89.6, LUT 64 2D 168 vs 3D 128; cache
+  sizes <= 32 KB ~100, 64 KB 204, 128 KB - 512 KB ~380-520, 1 MB 700, 4 MB 1680, 256 MB 4240 (L3 + shared LLC:
+  gradual); spread <= 4 ~20, 8 30, 16 60, 128+ 290-370; row 256 118 vs column 256 291 (columns cost more here);
+  group shapes equal (29.5); stores coherent 70-72 (R8 114), 64-bit 137, 128-bit 256, random 3400-3900; gs read
+  1.7, write 11.4, stride 32 ~30 (mild bank conflicts), barrier 35, groupMemoryBarrier 4, memoryBarrier 62; gs
+  atomics ~30 (CAS 40), one address 224; storage atomics 94 (CAS 242), one address ~1710; array read 27, write +
+  read 116, const array 94; branch uniform 15.5 vs divergent 31.7 vs select 29.8 (branches work here);
+  derivatives as before. Writes / blending / pass states were shader bound: the 4-hash noise (integer
+  multiplies are slow on Gen9) capped an RGBA8 write at ~11.5 GB/s, linear in bytes per pixel (R8 2.9, RG8 5.7),
+  while the folded "heavy" constant pass wrote at ~40 GB/s (the DDR4's bandwidth). Fixed: kNoise = one Load per
+  pixel from a 128 x 128 noise texture (TN RGBA32F / TNU RGBA32U at t4 / t5, bound once) for writes, blending
+  and pass states. discard per pixel cost 3x there (2.98 vs 0.83 ms).
+  measure-all-gpus.bat (owner): OpBench + TexBench for every GPU in the PC, each once (`--adapters` prints the
+  hardware adapter indices, one per LUID, no software adapter; the batch loops over them with
+  for /f "usebackq" ... (`call "%~dp0OpBench.exe" --adapters`)); checked under Wine (cmd).
   Owner's ideas (2026-10-04, not decided): expected costs per cost model built into
   OpBench / TexBench, telling the user when their card does not match its model ("your report is very
   interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs

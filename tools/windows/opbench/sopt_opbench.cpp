@@ -492,6 +492,10 @@ int main(int argc, char** argv) {
     };
     if (a == "--adapter") adapterIndex = std::atoi(next());
     else if (a == "--list") list = true;
+    else if (a == "--adapters") {  // hardware GPUs, each once (for measure-all-gpus.bat)
+      printUniqueAdapters();
+      return 0;
+    }
     else if (a == "--filter") filter = next();
     else if (a == "--reps") reps = std::max(1, std::atoi(next()));
     else if (a == "--out") outPath = next();
@@ -499,7 +503,7 @@ int main(int argc, char** argv) {
       const UINT n = UINT(std::max(1, std::min(int(kGroupsFull), std::atoi(next()))));
       kConfigs[0].groups = kConfigs[1].groups = n;
     } else {
-      std::printf("OpBench %s\nusage: OpBench [--adapter N] [--list] [--filter text] [--reps N] [--out file.csv] [--groups N]\n",
+      std::printf("OpBench %s\nusage: OpBench [--adapter N] [--list] [--adapters] [--filter text] [--reps N] [--out file.csv] [--groups N]\n",
                   SOPT_VERSION);
       return a == "-h" || a == "--help" ? 0 : 1;
     }

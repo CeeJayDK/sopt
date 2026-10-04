@@ -653,15 +653,19 @@ std::string pixelSource(const Test& t, int chains) {
   return s;
 }
 
-// Render target writes: a smooth gradient, a hash of the pixel (noise) or a flat color, picked by U[0].x
-// (0 / 1 / 2), so all three cost the same shader work.
+// Noise for the full-screen tests: a 128 x 128 noise texture (TN float [0, 1), TNU random bits) read with one
+// Load per pixel. Computing it (4 integer hashes) made the passes shader bound on the UHD 630 (an RGBA8 write
+// pass at ~12 GB/s instead of the ~38 its memory gives).
+const char* const kNoise =
+    "Texture2D<float4> TN : register(t4);\n"
+    "Texture2D<uint4> TNU : register(t5);\n"
+    "float4 noise(float4 pos) { return TN.Load(int3(uint2(pos.xy) & 127u, 0)); }\n"
+    "uint4 noise4(float4 pos) { return TNU.Load(int3(uint2(pos.xy) & 127u, 0)); }\n";
+
+// Render target writes: a smooth gradient, noise or a flat color, picked by U[0].x (0 / 1 / 2), so all three
+// cost the same shader work.
 std::string writeSource(bool integer) {
-  std::string s = std::string(kHeader) +
-                  "uint hash(uint v) { v ^= v >> 16; v *= 0x7feb352du; v ^= v >> 15; v *= 0x846ca68bu; v ^= v >> 16; return v; }\n"
-                  "uint4 noise4(float4 pos) {\n"
-                  "  uint k = uint(pos.y) * 4096u + uint(pos.x);\n"
-                  "  return uint4(hash(k), hash(k ^ 0x9e3779b9u), hash(k ^ 0x7f4a7c15u), hash(k ^ 0x94d049bbu));\n"
-                  "}\n";
+  std::string s = std::string(kHeader) + kNoise;
   if (integer)
     return s + "uint4 main(float4 pos : SV_Position) : SV_Target {\n"
                "  uint mask = U[0].x > 0.5 ? 0xffffffffu : 0u;\n"
@@ -669,7 +673,7 @@ std::string writeSource(bool integer) {
                "  return U[0].x > 1.5 ? uint4(1u, 2u, 3u, 4u) : v;\n"
                "}\n";
   return s + "float4 main(float4 pos : SV_Position) : SV_Target {\n"
-             "  float4 noise = asfloat((noise4(pos) >> 9) | 0x3f800000u) - 1.0;\n"
+             "  float4 noise = TN.Load(int3(uint2(pos.xy) & 127u, 0));\n"
              "  float4 smooth = frac(pos.xyxy * float4(0.0013, 0.0017, 0.0019, 0.0023));\n"
              "  return U[0].x > 1.5 ? float4(0.25, 0.5, 0.75, 1.0) : lerp(smooth, noise, U[0].x);\n"
              "}\n";
@@ -678,12 +682,9 @@ std::string writeSource(bool integer) {
 // Blending: the source color is noise (alpha too); the shader version reads the destination from T and
 // does the blend's math itself.
 std::string blendSource(int op, bool shader) {
-  std::string s = std::string(kHeader) +
-                  "uint hash(uint v) { v ^= v >> 16; v *= 0x7feb352du; v ^= v >> 15; v *= 0x846ca68bu; v ^= v >> 16; return v; }\n"
+  std::string s = std::string(kHeader) + kNoise +
                   "float4 main(float4 pos : SV_Position) : SV_Target {\n"
-                  "  uint k = uint(pos.y) * 4096u + uint(pos.x);\n"
-                  "  uint4 n = uint4(hash(k), hash(k ^ 0x9e3779b9u), hash(k ^ 0x7f4a7c15u), hash(k ^ 0x94d049bbu));\n"
-                  "  float4 s = asfloat((n >> 9) | 0x3f800000u) - 1.0;\n";
+                  "  float4 s = noise(pos);\n";
   if (!shader || op == 0) return s + "  return s;\n}\n";
   s += "  float4 d = T.Load(int3(pos.xy, 0));\n";
   static const char* const kMath[] = {"", "s + d", "lerp(d, s, s.a)", "s * d", "min(s, d)"};
@@ -692,13 +693,7 @@ std::string blendSource(int op, bool shader) {
 
 // Pass state tests: noise into count targets, or the heavy shader (with discard for the discard tests).
 std::string passSource(const Test& t) {
-  std::string s =
-      "uint hash(uint v) { v ^= v >> 16; v *= 0x7feb352du; v ^= v >> 15; v *= 0x846ca68bu; v ^= v >> 16; return v; }\n"
-      "float4 noise(float4 pos) {\n"
-      "  uint k = uint(pos.y) * 4096u + uint(pos.x);\n"
-      "  uint4 n = uint4(hash(k), hash(k ^ 0x9e3779b9u), hash(k ^ 0x7f4a7c15u), hash(k ^ 0x94d049bbu));\n"
-      "  return asfloat((n >> 9) | 0x3f800000u) - 1.0;\n"
-      "}\n";
+  std::string s = kNoise;
   if (t.pass == kPassTargets) {
     s += "struct Out {";
     for (int k = 0; k < t.count; ++k) s += " float4 c" + std::to_string(k) + " : SV_Target" + std::to_string(k) + ";";
@@ -740,6 +735,7 @@ struct Gpu {
   ID3D11VertexShader* vs = nullptr;
   ID3D11Texture2D* psTarget = nullptr;
   ID3D11RenderTargetView* psRtv = nullptr;
+  ID3D11ShaderResourceView* noise[2] = {nullptr, nullptr};  // t4 / t5: kNoise's textures
   Timer timer;
 };
 
@@ -1076,6 +1072,10 @@ int main(int argc, char** argv) {
     };
     if (a == "--adapter") adapterIndex = std::atoi(next());
     else if (a == "--list") list = true;
+    else if (a == "--adapters") {  // hardware GPUs, each once (for measure-all-gpus.bat)
+      printUniqueAdapters();
+      return 0;
+    }
     else if (a == "--filter") filter = next();
     else if (a == "--reps") reps = std::max(1, std::atoi(next()));
     else if (a == "--out") outPath = next();
@@ -1083,7 +1083,7 @@ int main(int argc, char** argv) {
       const UINT n = UINT(std::max(1, std::min(int(kGroupsFull), std::atoi(next()))));
       kConfigs[0].groups = kConfigs[1].groups = n;
     } else {
-      std::printf("TexBench %s\nusage: TexBench [--adapter N] [--list] [--filter text] [--reps N] [--out file.csv] [--groups N]\n",
+      std::printf("TexBench %s\nusage: TexBench [--adapter N] [--list] [--adapters] [--filter text] [--reps N] [--out file.csv] [--groups N]\n",
                   SOPT_VERSION);
       return a == "-h" || a == "--help" ? 0 : 1;
     }
@@ -1133,6 +1133,28 @@ int main(int argc, char** argv) {
     if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &g.psTarget)) ||
         FAILED(g.dev->CreateRenderTargetView(g.psTarget, nullptr, &g.psRtv)))
       fail("cannot create the pixel shader target");
+  }
+  {
+    // kNoise's textures (128 x 128 RGBA32F in [0, 1) and RGBA32U random bits), bound for every pixel shader.
+    std::mt19937 noiseRng(777);
+    const DXGI_FORMAT formats[2] = {DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_UINT};
+    for (int k = 0; k < 2; ++k) {
+      const Format* f = formatByName(k == 0 ? "RGBA32F" : "RGBA32U");
+      D3D11_TEXTURE2D_DESC td = {};
+      td.Width = td.Height = 128;
+      td.MipLevels = td.ArraySize = 1;
+      td.Format = formats[k];
+      td.SampleDesc.Count = 1;
+      td.Usage = D3D11_USAGE_IMMUTABLE;
+      td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+      const auto data = texelData(*f, 128 * 128, noiseRng);
+      D3D11_SUBRESOURCE_DATA init = {data.data(), 128 * 16, 0};
+      ID3D11Texture2D* tex = nullptr;
+      if (FAILED(g.dev->CreateTexture2D(&td, &init, &tex)) || FAILED(g.dev->CreateShaderResourceView(tex, nullptr, &g.noise[k])))
+        fail("cannot create the noise texture");
+      tex->Release();
+    }
+    g.ctx->PSSetShaderResources(4, 2, g.noise);
   }
 
   char exePath[MAX_PATH];

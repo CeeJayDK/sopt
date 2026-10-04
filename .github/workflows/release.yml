@@ -73,7 +73,7 @@ jobs:
           Copy-Item build/Release/OpBench.exe, tools/windows/measure-gpu.bat, tools/windows/opbench/README.txt, tools/windows/opbench/TESTS.txt opbench/
           Copy-Item build/Release/TexBench.exe, tools/windows/measure-textures.bat, tools/windows/texbench/README.txt, tools/windows/texbench/TESTS.txt texbench/
           Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, build/Release/OpBench.exe, tools/windows/measure-gpu.bat, tools/windows/opbench/TESTS.txt, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md tools/
-          Copy-Item build/Release/TexBench.exe, tools/windows/measure-textures.bat, tools/windows/measure-all.bat tools/
+          Copy-Item build/Release/TexBench.exe, tools/windows/measure-textures.bat, tools/windows/measure-all.bat, tools/windows/measure-all-gpus.bat tools/
           Copy-Item tools/windows/texbench/TESTS.txt tools/TexBench-TESTS.txt
           Compress-Archive -Path opbench/* -DestinationPath "unsigned/OpBench-$v.zip"
           Compress-Archive -Path texbench/* -DestinationPath "unsigned/TexBench-$v.zip"
