@@ -28,6 +28,10 @@ build/sopt-fx -I reshade-shaders/Shaders -o sopt-out SweetFX/Shaders [--isa] [--
 build/sopt-fx -I reshade-shaders/Shaders --list --skips SweetFX/Shaders/SweetFX/Vignette.fx
 ```
 
+On a terminal sopt-fx shows a title box, section headings and progress bars (with the
+percentage done and the time left) for the search and the measurement; redirected output, or
+`NO_COLOR` set, gives plain text.
+
 Reads every `.fx` (directories recursively) with the ReShade FX preprocessor and
 parser (vendored in `third_party/reshadefx`), finds regions in the functions that pixel
 shaders reach, searches each (in parallel, `--time 5` s and `--max-bank 500000` per

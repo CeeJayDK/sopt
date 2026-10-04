@@ -14,6 +14,7 @@
 #include <thread>
 #include <tuple>
 
+#include "cli/console.hpp"
 #include "fx/frontend.hpp"
 #include "fx/variants.hpp"
 #include "measure/isa.hpp"
@@ -300,6 +301,10 @@ int main(int argc, char** argv) {
   }
   ropt.userRanges = &userRanges;
 
+  const console::Style con = console::init();
+  console::titleBox(con, std::string("sopt-fx ") + SOPT_VERSION + "  -  by CeeJay.dk");
+  console::section(con, "Reading " + std::to_string(inputs.size()) + " effect file" + (inputs.size() == 1 ? "" : "s"));
+
   // Front end: every effect twice (two resolutions, see extractRegions).
   fx::ReportInfo info;
   info.costModel = std::string(opt.search.model->name);
@@ -585,12 +590,22 @@ int main(int argc, char** argv) {
   }
   std::vector<RunResult> searched(results.size());
   std::vector<double> searchSec(results.size(), 0.0);
+  {
+    char head[160];
+    std::snprintf(head, sizeof(head), "Searching %zu region%s (%g s search time each, %u at a time)", unique.size(),
+                  unique.size() == 1 ? "" : "s", opt.search.timeLimitSec,
+                  static_cast<unsigned>(std::min<size_t>(jobs, std::max<size_t>(unique.size(), 1))));
+    console::section(con, head);
+  }
+  console::Progress searchBar(con, unique.size());
   parallelFor(unique.size(), jobs, [&](size_t u) {
     const size_t i = unique[u];
     const auto s0 = std::chrono::steady_clock::now();
     searched[i] = optimize(results[i].region.prog, ropt2);
     searchSec[i] = std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
+    searchBar.step();
   });
+  searchBar.finish();
   if (unique.size() < results.size())
     std::printf("%zu regions searched (%zu repeat another one with other input names)\n", unique.size(),
                 results.size() - unique.size());
@@ -604,6 +619,7 @@ int main(int argc, char** argv) {
     std::printf("search time: enumeration %.0f s, verification %.0f s, subtrees %.0f s, cuts %.0f s, other %.0f s\n",
                 se, ve, su, cu, to - se - ve - su - cu);
   }
+  console::section(con, "Results");
   parallelFor(results.size(), jobs, [&](size_t i) {
     fx::RegionResult& rr = results[i];
     const auto s0 = std::chrono::steady_clock::now();
@@ -685,9 +701,10 @@ int main(int argc, char** argv) {
     rr.sec = searchSec[firstOf[i]] + std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
     std::lock_guard<std::mutex> lock(printMu);
     const size_t n = ++done;
-    std::printf("[%zu/%zu] %s:%u cost %u -> %s\n", n, results.size(),
+    std::printf("%s[%zu/%zu]%s %s:%u cost %u -> %s%s%s\n", con.c("\x1b[90m"), n, results.size(), con.reset(),
                 fs::path(rr.region.file).filename().string().c_str(), rr.region.line, rr.targetCost,
-                rr.variants.empty() ? "-" : std::to_string(rr.variants[0].cost).c_str());
+                rr.variants.empty() ? con.c("\x1b[90m") : con.c("\x1b[1;92m"),
+                rr.variants.empty() ? "-" : std::to_string(rr.variants[0].cost).c_str(), con.reset());
     std::fflush(stdout);
   });
 
@@ -697,7 +714,11 @@ int main(int argc, char** argv) {
   if (isa || sass) {
     info.amd = isa;
     info.nv = sass;
-    size_t n = 0;
+    size_t n = 0, toMeasure = 0;
+    for (const auto& rr : results) toMeasure += !rr.variants.empty();
+    console::section(con, std::string("Measuring machine code (") + (isa ? "AMD: fxstat + RGA" : "") +
+                              (isa && sass ? ", " : "") + (sass ? "NVIDIA: ptxas" : "") + ")");
+    console::Progress measureBar(con, toMeasure);
     for (auto& rr : results) {
       if (rr.variants.empty()) continue;
       std::vector<InputDecl> ins = rr.region.prog.inputs;
@@ -770,10 +791,14 @@ int main(int argc, char** argv) {
         return a.cost < b.cost;
       });
       rr.variants = std::move(kept);
-      std::printf("measured %zu: %s:%u amd %d nv %d, %zu variants kept\n", ++n,
-                  fs::path(rr.region.file).filename().string().c_str(), rr.region.line, rr.targetAmd,
-                  rr.targetNv, rr.variants.size());
+      char line[512];
+      std::snprintf(line, sizeof(line), "measured %zu: %s:%u amd %d nv %d, %zu variants kept", ++n,
+                    fs::path(rr.region.file).filename().string().c_str(), rr.region.line, rr.targetAmd,
+                    rr.targetNv, rr.variants.size());
+      measureBar.print(line);
+      measureBar.step();
     }
+    measureBar.finish();
   }
 
   // Backend normalization: counts after the compilers' optimizers, and whether a variant's
@@ -941,6 +966,7 @@ int main(int argc, char** argv) {
     effectsOut.push_back(dst);
   }
 
+  console::section(con, "Writing");
   // Every variant must still parse: SOPT_ALL = k selects variant k where it exists.
   size_t checks = 0, checkFailures = 0;
   for (const auto& e : effectsOut) {
@@ -969,8 +995,10 @@ int main(int argc, char** argv) {
   if (!errors.empty()) std::fprintf(stderr, "%s", errors.c_str());
   size_t improved = 0;
   for (const auto& r : results) improved += !r.variants.empty();
-  std::printf("%zu of %zu regions have cheaper variants; wrote %zu files, sopt-report.md and sopt-found.txt to %s\n",
-              improved, results.size(), files.size(), outDir.string().c_str());
-  std::printf("variant check: %zu of %zu parses failed\n", checkFailures, checks);
+  std::printf("%s%zu of %zu regions have cheaper variants%s; wrote %zu files, sopt-report.md and sopt-found.txt to %s\n",
+              con.c(improved ? "\x1b[1;92m" : "\x1b[1;97m"), improved, results.size(), con.reset(), files.size(),
+              outDir.string().c_str());
+  std::printf("variant check: %s%zu of %zu parses failed%s\n", con.c(checkFailures ? "\x1b[1;91m" : ""), checkFailures,
+              checks, con.reset());
   return info.failed.empty() && checkFailures == 0 ? 0 : 1;
 }

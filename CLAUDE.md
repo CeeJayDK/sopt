@@ -121,6 +121,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 - `src/fx/variants`: `compiledCost` (contraction, modifiers, swizzles free), variant
   files (switch per region, `SOPT_ALL`, overlap resolution), Markdown report.
   `src/cli/fx_main.cpp`: sopt-fx (parallel search, filters, --isa/--sass, re-parse).
+  `src/cli/console`: terminal output of sopt / sopt-fx (owner, 2026-10-04): title box "sopt-fx <v>  -  by
+  CeeJay.dk", section headings, progress bars with a percentage scale and time left (search: per unique
+  region; measurement: per region with variants); colors / UTF-8 blocks only on a terminal (isatty, Windows VT
+  mode; NO_COLOR, TERM=dumb off), block characters as explicit UTF-8 bytes (MSVC without /utf-8).
 - `bench/bench.cpp`: example suite + planted problems. `examples/*.sopt` with `# expect:`.
 
 ## Invariants (do not break)

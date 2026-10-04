@@ -99,12 +99,12 @@ add_library(sopt-fx-lib
 target_link_libraries(sopt-fx-lib PUBLIC reshadefx sopt-search)
 sopt_fp_flags(sopt-fx-lib)
 
-add_executable(sopt-fx src/cli/fx_main.cpp)
+add_executable(sopt-fx src/cli/fx_main.cpp src/cli/console.cpp)
 target_link_libraries(sopt-fx PRIVATE sopt-fx-lib sopt-measure)
 target_compile_definitions(sopt-fx PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
 sopt_fp_flags(sopt-fx)
 
-add_executable(sopt src/cli/main.cpp)
+add_executable(sopt src/cli/main.cpp src/cli/console.cpp)
 target_link_libraries(sopt PRIVATE sopt-search sopt-measure)
 target_compile_definitions(sopt PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
 sopt_fp_flags(sopt)

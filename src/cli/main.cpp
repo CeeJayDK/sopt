@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <numeric>
 
+#include "cli/console.hpp"
 #include "ir/parser.hpp"
 #include "measure/isa.hpp"
 #include "measure/sass.hpp"
@@ -224,6 +225,8 @@ int main(int argc, char** argv) {
     else path = a;
   }
   if (noAmdFolds) opt.search.model = withoutAmdFolds(opt.search.model);
+  const console::Style con = console::init();
+  console::titleBox(con, std::string("sopt ") + SOPT_VERSION + "  -  by CeeJay.dk");
   if (checkLibrary) {
     // Every rule checked on its own (see checkRule); exit code 1 if any fails.
     try {
