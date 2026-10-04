@@ -683,9 +683,17 @@ int main(int argc, char** argv) {
                 st.reset(), note.c_str());
   }
   betterNote();
-  std::printf("\n  Cost = extra over the test's base, in sopt units (4 = one fma); Ops = Cost / 4 (fma equivalents);\n"
-              "  throughput, %d chains. What each test measures: TESTS.txt next to this program.\n",
-              kConfigs[0].chains);
+  // How to read the summary, for people who are not programmers (owner's wording review, 2026-10-04).
+  std::printf("\n  %sHow to read this%s\n"
+              "  Cost    How long the operation takes, compared with the simplest thing a GPU does:\n"
+              "          a multiply-add, which counts as 4. The rest of the test is already subtracted.\n"
+              "  Ops     Operations: the cost counted in multiply-adds.\n"
+              "          2.0 means \"takes as long as two multiply-adds\".\n"
+              "  Graph   Longer bar = slower. Free operations have no bar.\n"
+              "\n"
+              "  The numbers show how fast the GPU is when it is fully busy (as in a game).\n"
+              "  TESTS.txt, next to this program, explains every test in plain words.\n",
+              st.c("\x1b[1;96m"), st.reset());
 
   bool warned = false;
   for (const Config& c : kConfigs)

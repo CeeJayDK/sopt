@@ -1679,9 +1679,21 @@ int main(int argc, char** argv) {
                     bar(passMs[t->name].value, maxP, kBarWidth, st, kCyan).c_str());
     std::printf("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
   }
-  std::printf("\n  Cost = extra over the test's base in sopt units (4 = one fma, measured right before); Ops = Cost / 4;\n"
-              "  dep / lat = the same cost with one chain per thread / one thread group. What each test measures:\n"
-              "  TESTS.txt next to this program.\n");
+  // How to read the summary, for people who are not programmers (owner's wording review, 2026-10-04).
+  std::printf("\n  %sHow to read this%s\n"
+              "  Cost     How long the operation takes, compared with the simplest thing a GPU does:\n"
+              "           a multiply-add, which counts as 4. The rest of the test is already subtracted.\n"
+              "  Ops      Operations: the cost counted in multiply-adds.\n"
+              "           10.0 means \"takes as long as ten multiply-adds\".\n"
+              "  dep      Dependent: the cost when every step has to wait for the result of the one\n"
+              "           before it.\n"
+              "  lat      Latency: the waiting time alone, one step at a time with nothing else to do\n"
+              "           meanwhile.\n"
+              "  GB/s     Gigabytes per second: how much data is read or written (more is better).\n"
+              "  ms/pass  Milliseconds for one full-screen pass at 3840 x 2160 (less is better).\n"
+              "\n"
+              "  TESTS.txt, next to this program, explains every test in plain words.\n",
+              st.c("\x1b[1;96m"), st.reset());
   if (drift > 5.0)
     std::printf("\n  %sWarning:%s the reference changed by %.0f%% during the run: the GPU clock moved.\n", st.c("\x1b[1;93m"),
                 st.reset(), drift);
