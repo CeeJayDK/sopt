@@ -847,6 +847,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   every tput test (only length / atan / atan2 0.6-1.2 lower): third RDNA 2 device, amd-rdna2 unchanged. omod2 /
   omodhalf / omod4 0.0 (free), omod8 / omod0.25 / omod0.125 = the x3 control (tput 1.2, lat 3.1): exactly AMD's
   output modifier set (x2, x4, x0.5), as CostModel::amdFolds assumes. trunc = round = floor (one op, 2.97).
+  One tester, two cards, stock and undervolted (OpBench 0.4.0, 2026-10-04; nvidia-rtx-4090-laptop-v4-stock / -undervolt,
+  nvidia-rtx-2060-stock / -undervolt): reference drift 13-128% in every run, yet every test reached consensus (the
+  fresh reference per reading works) and undervolting changes no cost. RTX 4090 Laptop = RTX 4070 (Ada / nvidia-ampere)
+  within 15% on every tput test (MUFU 23.7, add 3.5, min 4.5, clamp 9.9, sign 27.4-28.2, pow 52): the earlier v1 hybrid
+  run's 7% lower MUFU was drift, nvidia-ampere unchanged. RTX 2060 (0x1F15) = GTX 1660 v4 (Turing) on every test except
+  iand: 1.05 tput / 0.3 lat (~free, like iadd) vs 4.0 / 3.8 on the 1660; driver 32.0.16.2002 vs the 1660's
+  32.0.15.6614, so most likely the newer driver fuses the step's xor and and into one LOP3 (3-input logic op): a
+  driver difference, not hardware.
 - TexBench (owner, 2026-10-04: texture costs next to math, "when to use math and when to use lookup tables";
   do not assume R8 / RG8 / RGB10A2 / RG11B10F / the other ReShade formats perform as expected, test them; a
   separate exe since it doubles the run time): tools/windows/texbench/texbench.cpp (target texbench,
