@@ -1004,6 +1004,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   VK_KHR_performance_query counters (owner's mention; listed only), yes / no for VK_AMD_gpa_interface (counters, thread
   traces, PROFILING clock mode: stable clocks for OpBench on AMD later?) and VK_INTEL_performance_query, all device extensions in the file. Report shaderinfo-<gpu>.txt. Lavapipe has none
   of them (Wine check: runs, reports "nothing"); waiting for the owner's GTX 1660 / Intel reports to decide.
+  Owner (2026-10-04): if useful, driver shader statistics could also be a ReShade feature (not this project's scope;
+  a ReShade add-on like sopt-timer would be the natural route).
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
