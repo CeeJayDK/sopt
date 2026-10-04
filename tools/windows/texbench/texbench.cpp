@@ -1142,7 +1142,9 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
   const UINT n = kOrderSize;
   ID3D11Texture2D *rt = nullptr, *ord = nullptr, *ordRead = nullptr;
   ID3D11RenderTargetView* rtv = nullptr;
-  ID3D11Buffer *cnt = nullptr, *cntRead = nullptr;
+  // The counter is a 1 x 1 R32_UINT texture: typed UAV atomics on R32_UINT are required on every D3D11 GPU
+  // (a structured-buffer counter gave no numbers at all on the UHD 630).
+  ID3D11Texture2D *cnt = nullptr, *cntRead = nullptr;
   ID3D11UnorderedAccessView *ordUav = nullptr, *cntUav = nullptr;
   ID3D11PixelShader *ps = nullptr, *psPlain = nullptr, *psStore = nullptr;
   auto cleanup = [&]() {
@@ -1163,25 +1165,25 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
   td.Usage = D3D11_USAGE_STAGING;
   td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
   ok = ok && SUCCEEDED(g.dev->CreateTexture2D(&td, nullptr, &ordRead));
-  D3D11_BUFFER_DESC bd = {};
-  bd.ByteWidth = 4;
-  bd.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
-  bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-  bd.StructureByteStride = 4;
-  ok = ok && SUCCEEDED(g.dev->CreateBuffer(&bd, nullptr, &cnt)) && SUCCEEDED(g.dev->CreateUnorderedAccessView(cnt, nullptr, &cntUav));
-  bd.BindFlags = bd.MiscFlags = bd.StructureByteStride = 0;
-  bd.Usage = D3D11_USAGE_STAGING;
-  bd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-  ok = ok && SUCCEEDED(g.dev->CreateBuffer(&bd, nullptr, &cntRead));
+  D3D11_TEXTURE2D_DESC cd = td;
+  cd.Width = cd.Height = 1;
+  cd.Usage = D3D11_USAGE_DEFAULT;
+  cd.CPUAccessFlags = 0;
+  cd.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+  ok = ok && SUCCEEDED(g.dev->CreateTexture2D(&cd, nullptr, &cnt)) && SUCCEEDED(g.dev->CreateUnorderedAccessView(cnt, nullptr, &cntUav));
+  cd.BindFlags = 0;
+  cd.Usage = D3D11_USAGE_STAGING;
+  cd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  ok = ok && SUCCEEDED(g.dev->CreateTexture2D(&cd, nullptr, &cntRead));
   if (!ok) {
     cleanup();
     return res;
   }
   const char* src =
-      "RWStructuredBuffer<uint> CNT : register(u1);\n"
+      "RWTexture2D<uint> CNT : register(u1);\n"
       "RWTexture2D<uint> ORD : register(u2);\n"
       "float4 main(float4 pos : SV_Position) : SV_Target\n{\n"
-      "  uint o;\n  InterlockedAdd(CNT[0], 1u, o);\n  ORD[uint2(pos.xy)] = o;\n  return 0.0;\n}\n";
+      "  uint o;\n  InterlockedAdd(CNT[uint2(0, 0)], 1u, o);\n  ORD[uint2(pos.xy)] = o;\n  return 0.0;\n}\n";
   ID3DBlob* code = compile(src, "order", "ps_5_0", dxbcDir / "Pixel_shader_order.txt");
   if (FAILED(g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &ps))) {
     code->Release();
@@ -1818,6 +1820,10 @@ int main(int argc, char** argv) {
                    b.compact, b.shape.c_str());
     for (const auto& [b, c] : order.tiles)
       std::fprintf(csv, "order,\"tile %u\",\"Pixel shader order\",,,,,%.4f,,,,,,\"contiguity of aligned squares\",\n", b, c);
+    std::fprintf(csv, "order,\"counter\",\"Pixel shader order\",,,,,%llu,,,,,,\"expected %u (one per pixel)\",\n",
+                 (unsigned long long)order.counter, kOrderSize * kOrderSize);
+    std::fprintf(csv, "order,\"pixels without a number\",\"Pixel shader order\",,,,,%llu,,,,,,\"expected 0\",\n",
+                 (unsigned long long)order.missing);
     std::fprintf(csv, "order,\"plain draw\",\"Pixel shader order\",,,%.4f,,,,,,,,\"ms per 1024 x 1024 draw\",\n", order.plainMs);
     std::fprintf(csv, "order,\"store\",\"Pixel shader order\",plain draw,,%.4f,,,%.3f,,,,,\"ms per draw; units per pixel over the plain draw\",\n",
                  order.storeMs, order.storeUnits);
@@ -2128,16 +2134,16 @@ int main(int argc, char** argv) {
   if (order.ran) {
     // Blocks: the share of compact blocks per size; tiles: how contiguous aligned squares were shaded.
     std::printf("\n  %sPixel shader order: which pixels the GPU shades together (one draw, 1024 x 1024)%s\n"
-                "  %s%-8s %8s  %-*s  %-9s%s\n",
+                "  %s%-10s %8s  %-*s  %-9s%s\n",
                 st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Block", "Compact", kBarWidth, "", "Shape", st.reset());
     for (const auto& b : order.blocks)
-      std::printf("  %-8u %7.0f%%  %s  %s\n", b.w, 100.0 * b.compact, bar(100.0 * b.compact, 100.0, kBarWidth, st, kCyan).c_str(),
+      std::printf("  %-10u %7.0f%%  %s  %s\n", b.w, 100.0 * b.compact, bar(100.0 * b.compact, 100.0, kBarWidth, st, kCyan).c_str(),
                   b.shape.c_str());
-    std::printf("  %s%-8s %8s%s\n", st.c("\x1b[90m"), "Tile", "In one go", st.reset());
+    std::printf("  %s%-10s %8s%s\n", st.c("\x1b[90m"), "Tile", "In one go", st.reset());
     for (const auto& [b, c] : order.tiles) {
       char name[24];
       std::snprintf(name, sizeof(name), "%u x %u", b, b);
-      std::printf("  %-8s %7.0f%%  %s\n", name, 100.0 * c, bar(100.0 * c, 100.0, kBarWidth, st, kCyan).c_str());
+      std::printf("  %-10s %7.0f%%  %s\n", name, 100.0 * c, bar(100.0 * c, 100.0, kBarWidth, st, kCyan).c_str());
     }
     if (order.together)
       std::printf("  Pixels shaded together: blocks of %u (%s).\n", order.together, order.togetherShape.c_str());

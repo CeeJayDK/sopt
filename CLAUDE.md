@@ -999,6 +999,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   texture time; spec-like), pixel fill rate (max write GB/s / bytes), memory bandwidth (max noise write). Also as
   "#" CSV header lines. CSV rewritten at every section display (GPU idle then; owner: not during measurements).
   Pixel shader order timed too (owner): plain / store / counter + store draws, units per pixel over plain.
+  TexBench 0.5.0 full runs (owner, 2026-10-04; docs/texbench/*-v6.csv): run time 211 s (GTX 1660) and 178 s (UHD 630; the
+  earlier builds took "forever" there). Scores: GTX 1660 165.8 GTexels/s (spec 157 at 1785 MHz: boost above it), 63.5
+  GPixels/s (spec 85.7), 154 GB/s writes (spec 192); UHD 630 15.4 GTexels/s, 9.7 GPixels/s (8 px/clk x 1.2 GHz = 9.6),
+  25.6 GB/s (dual DDR4-2400 peak 38.4). Pixel shader order, GTX 1660: runs of 32 numbers are 4 x 8 pixel blocks (100%
+  compact; a warp = 8 quads), 64 not (0.7%: the next warp lands elsewhere); 512 x 512 tiles 72% contiguous. UHD 630: no
+  numbers at all (all pixels "without a number"; the store itself ran: it costs time) - counter switched from a
+  RWStructuredBuffer to a 1 x 1 R32_UINT texture, counter / missing pixels now CSV rows; rerun wanted.
   Stall on the owner's UHD 630 (TexBench, after the random section, 2026-10-04): a disjoint timestamp reading (-1)
   counted as "faster than 2 ms", so calibration doubled the run length blindly (up to 2^20 iterations). Fixed:
   Timer::time retries disjoint readings (4 tries), calibrate / draw-count loops stop on -1; a query that fails
@@ -1013,6 +1020,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   VK_KHR_performance_query counters (owner's mention; listed only), yes / no for VK_AMD_gpa_interface (counters, thread
   traces, PROFILING clock mode: stable clocks for OpBench on AMD later?) and VK_INTEL_performance_query, all device extensions in the file. Report shaderinfo-<gpu>.txt. Lavapipe has none
   of them (Wine check: runs, reports "nothing"); waiting for the owner's GTX 1660 / Intel reports to decide.
+  First reports (owner, 2026-10-04; docs/shaderinfo/): GTX 1660 (driver 617.14): pipeline executable properties yes but
+  statistics only (Register Count 16, Binary Size 1280 / 768 bytes ~ 16 bytes per SASS instruction, Local Memory Size
+  garbage 2^36), no disassembly, no performance query. UHD 630 (101.2141): Instruction Count (25 / 39 GEN instructions),
+  Cycle Count estimate (87 / 152), SEND count, spills, loops; no disassembly; VK_KHR_performance_query with 195 counters
+  (EU active / stall, FPU0 / FPU1, sampler busy / bottleneck, L3 / GTI bytes, ...) and VK_INTEL_performance_query.
+  So: an Intel instruction / cycle count source (sopt has none) and NVIDIA register counts / binary size from the real
+  drivers; using them in sopt is a design decision for the owner.
   Owner (2026-10-04): if useful, driver shader statistics could also be a ReShade feature (not this project's scope;
   a ReShade add-on like sopt-timer would be the natural route).
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
