@@ -1474,6 +1474,9 @@ int main(int argc, char** argv) {
         added = true;
       }
   }
+  // Only the references left (e.g. --filter order: the pixel shader order alone): nothing to measure.
+  if (!filter.empty() && std::all_of(tests.begin(), tests.end(), [](const Test* t) { return t->name == "mad" || t->name == "ps.mad"; }))
+    tests.clear();
   // Bases first (their results are subtracted), then in the list's order.
   std::stable_sort(tests.begin(), tests.end(), [](const Test* a, const Test* b) { return a->section.empty() && !b->section.empty(); });
 
@@ -1513,9 +1516,9 @@ int main(int argc, char** argv) {
     }
   }
   compiling.finish();
-  std::printf("Warming up the GPU for 2 seconds ...");
-  // Warm up with the compute reference.
-  {
+  if (!tests.empty()) {
+    std::printf("Warming up the GPU for 2 seconds ...");
+    // Warm up with the compute reference.
     Bound none = bindResources(g, *byName("mad"), rng);
     const Kernel& k = kernels["mad"]["tput"];
     bind(g, *byName("mad"), none, k);
@@ -1523,8 +1526,8 @@ int main(int argc, char** argv) {
     const ULONGLONG start = GetTickCount64();
     while (GetTickCount64() - start < 2000) run(g, k, kConfigs[0].groups);
     none.free();
+    std::printf(" done\n");
   }
-  std::printf(" done\n");
   Progress progress{&st, int(planned)};
 
   std::map<std::string, std::map<std::string, Measured>> results;  // config -> test -> result
@@ -2087,7 +2090,7 @@ int main(int argc, char** argv) {
     b.free();
     none.free();
   };
-  progress.start();
+  if (planned) progress.start();
   for (const Test* t : tests) {
     lap(t);
     gCurrent = t->name;

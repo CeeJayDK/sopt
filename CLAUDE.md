@@ -1003,6 +1003,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   counted as "faster than 2 ms", so calibration doubled the run length blindly (up to 2^20 iterations). Fixed:
   Timer::time retries disjoint readings (4 tries), calibrate / draw-count loops stop on -1; a query that fails
   (device removed) or takes > 60 s ends the run with a message naming the test (benchkit gCurrent).
+  Owner confirmed: Windows logged event 4101 (display driver reset, TDR) at the stall. Caret hidden while running
+  (ESC[?25l, restored atexit / Ctrl+C). Scrolling (owner: every update snapped the console to the bottom): option 2,
+  progress only in the window title between sections, the bar redrawn when a section prints (Progress::draw).
   ShaderInfo (owner's go 2026-10-04, after the iand driver finding: the real graphics driver's view instead of
   ptxas; tools/windows/shaderinfo, ShaderInfo.exe + shader-info.bat in the tools artifact): Vulkan at run time,
   per GPU: VK_KHR_pipeline_executable_properties (statistics + internal representations of two compute shaders,
