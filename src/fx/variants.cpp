@@ -107,14 +107,15 @@ std::string variantClass(const Variant& v, int codeBits) {
   return s;
 }
 
-int vendorPick(const RegionResult& rr, bool amd, bool dx) {
+int vendorPick(const RegionResult& rr, Vendor vendor, bool dx) {
   if (rr.region.hlsl) return 0;  // plain HLSL has no __VENDOR__ / __RENDERER__
-  const int target = amd ? rr.targetAmd : rr.targetNv;
+  auto cost = [&](const Variant& v) { return vendor == Vendor::Amd ? v.amd : vendor == Vendor::Nv ? v.nv : v.intel; };
+  const int target = vendor == Vendor::Amd ? rr.targetAmd : vendor == Vendor::Nv ? rr.targetNv : rr.targetIntel;
   if (target < 0) return 0;
   int best = 0, bestCost = target;
   for (size_t k = 0; k < rr.variants.size(); ++k) {
     const Variant& v = rr.variants[k];
-    const int c = amd ? v.amd : v.nv;
+    const int c = cost(v);
     if (v.klass == Klass::LessAccurate || v.klass == Klass::Accurate || !v.problems.empty() || v.notFaster || c < 0 || c >= bestCost) continue;
     if (dx && (v.dxbcSame || (v.dxbc >= 0 && rr.targetDxbc >= 0 && v.dxbc > rr.targetDxbc))) continue;
     best = static_cast<int>(k + 1);
@@ -181,7 +182,8 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         "// one where a region has fewer).\n"
         "#ifndef SOPT_ALL\n#define SOPT_ALL 0\n#endif\n";
     bool anyPick = false;
-    for (const Piece& p : pieces) anyPick = anyPick || vendorPick(*p.rr, true) || vendorPick(*p.rr, false);
+    for (const Piece& p : pieces)
+      anyPick = anyPick || vendorPick(*p.rr, Vendor::Amd) || vendorPick(*p.rr, Vendor::Nv) || vendorPick(*p.rr, Vendor::Intel);
     bool anyTooExact = false;
     for (const Piece& p : pieces)
       for (const Variant& v : p.rr->variants) anyTooExact = anyTooExact || v.klass == Klass::Accurate;
@@ -192,7 +194,7 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
              "#ifndef SOPT_TOO_EXACT\n#define SOPT_TOO_EXACT 1\n#endif\n";
     if (anyPick)
       out += "// SOPT_AUTO = 1: switches not set otherwise take the variant measured fastest on\n"
-             "// the GPU's vendor (__VENDOR__: AMD 0x1002, NVIDIA 0x10DE; others: original) and\n"
+             "// the GPU's vendor (__VENDOR__: AMD 0x1002, NVIDIA 0x10DE, Intel 0x8086; others: original) and\n"
              "// API (__RENDERER__ < 0x10000: DX9-DX12, where fxc's DXBC reaches the driver).\n"
              "#ifndef SOPT_AUTO\n#define SOPT_AUTO 0\n#endif\n";
     // Switches up front, outside any #if of the source.
@@ -202,9 +204,10 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       const std::string sw = switchName(p.rr->region);
       const std::string n = std::to_string(p.rr->variants.size());
       const std::string note = " // 0 = original, 1.." + n + " = variants (larger = " + n + ")\n";
-      const int amd = vendorPick(*p.rr, true), nv = vendorPick(*p.rr, false);
-      const int amdDx = vendorPick(*p.rr, true, true), nvDx = vendorPick(*p.rr, false, true);
-      if (!amd && !nv) {
+      const int amd = vendorPick(*p.rr, Vendor::Amd), nv = vendorPick(*p.rr, Vendor::Nv);
+      const int amdDx = vendorPick(*p.rr, Vendor::Amd, true), nvDx = vendorPick(*p.rr, Vendor::Nv, true);
+      const int intel = vendorPick(*p.rr, Vendor::Intel), intelDx = vendorPick(*p.rr, Vendor::Intel, true);
+      if (!amd && !nv && !intel) {
         out += "#ifndef " + sw + "\n#define " + sw + " SOPT_ALL" + note + "#endif\n";
         continue;
       }
@@ -221,6 +224,7 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       };
       vendor("0x1002", amd, amdDx);
       vendor("0x10DE", nv, nvDx);
+      vendor("0x8086", intel, intelDx);
       out += "#else\n#define " + sw + " SOPT_ALL" + note + "#endif\n#endif\n";
     }
     uint32_t next = 1;  // next source line to copy
@@ -272,6 +276,8 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
           len += std::snprintf(note + len, sizeof(note) - len, ", amd %d -> %d", rr->targetAmd, v.amd);
         if (v.nv >= 0 && rr->targetNv >= 0 && len > 0 && len < 200)
           len += std::snprintf(note + len, sizeof(note) - len, ", nv %d -> %d", rr->targetNv, v.nv);
+        if (v.intel >= 0 && rr->targetIntel >= 0 && len > 0 && len < 200)
+          len += std::snprintf(note + len, sizeof(note) - len, ", intel %d -> %d", rr->targetIntel, v.intel);
         std::string back;
         // Register counts only where they change (register pressure).
         if (v.amdVgprs >= 0 && rr->targetAmdVgprs >= 0 && v.amdVgprs != rr->targetAmdVgprs)
@@ -385,6 +391,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       s += ", nv " + std::to_string(rr.targetNv);
       if (rr.targetNvRegs >= 0) s += " (" + std::to_string(rr.targetNvRegs) + " regs)";
     }
+    if (info.intel) s += ", intel " + std::to_string(rr.targetIntel);
     s += ".";
     const bool exact = rr.targetExactAbs >= 0;
     if (exact) {
@@ -393,9 +400,10 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     }
     // Row 0 is the original; costs with the gain against it; "auto" marks what
     // SOPT_AUTO = 1 picks per vendor.
-    const int pickAmd = vendorPick(rr, true), pickNv = vendorPick(rr, false);
-    const int pickAmdDx = vendorPick(rr, true, true), pickNvDx = vendorPick(rr, false, true);
-    const bool autoCol = pickAmd || pickNv;
+    const int pickAmd = vendorPick(rr, Vendor::Amd), pickNv = vendorPick(rr, Vendor::Nv);
+    const int pickAmdDx = vendorPick(rr, Vendor::Amd, true), pickNvDx = vendorPick(rr, Vendor::Nv, true);
+    const int pickIntel = vendorPick(rr, Vendor::Intel), pickIntelDx = vendorPick(rr, Vendor::Intel, true);
+    const bool autoCol = pickAmd || pickNv || pickIntel;
     auto withGain = [&](int c, int t) {
       if (c < 0) return std::string("?");
       std::string cell = std::to_string(c);
@@ -417,18 +425,21 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     s += "\n\n| # | code | cost |";
     if (info.amd) s += " amd | amd vgpr |";
     if (info.nv) s += " nv | nv regs |";
+    if (info.intel) s += " intel |";
     if (info.spirv) s += " spirv |";
     if (info.dxbc) s += " dxbc |";
     s += std::string(" class | max abs err |") + (exact ? " vs exact |" : "") + " verified |" +
          (autoCol ? " auto |" : "") + "\n|---|---|---|";
     if (info.amd) s += "---|---|";
     if (info.nv) s += "---|---|";
+    if (info.intel) s += "---|";
     if (info.spirv) s += "---|";
     if (info.dxbc) s += "---|";
     s += std::string(exact ? "---|---|---|---|" : "---|---|---|") + (autoCol ? "---|" : "") + "\n";
     s += "| 0 | `" + escapeCell(toString(r.prog.target, r.prog.inputs)) + "` | " + std::to_string(rr.targetCost) + " |";
     if (info.amd) s += " " + withGain(rr.targetAmd, -1) + " | " + regsCell(rr.targetAmdVgprs, -1) + " |";
     if (info.nv) s += " " + withGain(rr.targetNv, -1) + " | " + regsCell(rr.targetNvRegs, -1) + " |";
+    if (info.intel) s += " " + withGain(rr.targetIntel, -1) + " |";
     if (info.spirv) s += " " + withGain(rr.targetSpirv, -1) + " |";
     if (info.dxbc) s += " " + withGain(rr.targetDxbc, -1) + " |";
     s += " original | 0 |";
@@ -443,6 +454,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
            withGain(static_cast<int>(v.cost), static_cast<int>(rr.targetCost)) + " |";
       if (info.amd) s += " " + withGain(v.amd, rr.targetAmd) + " | " + regsCell(v.amdVgprs, rr.targetAmdVgprs) + " |";
       if (info.nv) s += " " + withGain(v.nv, rr.targetNv) + " | " + regsCell(v.nvRegs, rr.targetNvRegs) + " |";
+      if (info.intel) s += " " + withGain(v.intel, rr.targetIntel) + " |";
       if (info.spirv) s += " " + (v.spirvSame ? std::string("same") : withGain(v.spirv, rr.targetSpirv)) + " |";
       if (info.dxbc) s += " " + (v.dxbcSame ? std::string("same") : withGain(v.dxbc, rr.targetDxbc)) + " |";
       std::string cls = variantClass(v, r.prog.budget.codeBits());
@@ -474,6 +486,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
         };
         mark("AMD", pickAmd, pickAmdDx);
         mark("NVIDIA", pickNv, pickNvDx);
+        mark("Intel", pickIntel, pickIntelDx);
         s += " " + a + " |";
       }
       s += "\n";
@@ -565,6 +578,8 @@ std::string foundRewrites(const std::vector<RegionResult>& results) {
            " (" + r.function + ")  cost " + std::to_string(rr.targetCost) + " -> " + std::to_string(v.cost);
       if (rr.targetAmd >= 0 && v.amd >= 0) s += ", amd " + std::to_string(rr.targetAmd) + " -> " + std::to_string(v.amd);
       if (rr.targetNv >= 0 && v.nv >= 0) s += ", nv " + std::to_string(rr.targetNv) + " -> " + std::to_string(v.nv);
+      if (rr.targetIntel >= 0 && v.intel >= 0)
+        s += ", intel " + std::to_string(rr.targetIntel) + " -> " + std::to_string(v.intel);
       if (rr.targetDxbc >= 0 && v.dxbc >= 0)
         s += ", dxbc " + std::to_string(rr.targetDxbc) + " -> " + (v.dxbcSame ? std::string("same") : std::to_string(v.dxbc));
       s += ", " + variantClass(v, r.prog.budget.codeBits());

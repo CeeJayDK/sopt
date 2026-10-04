@@ -72,7 +72,8 @@ add_library(sopt-measure
   src/measure/tools.cpp
   src/measure/isa.cpp
   src/measure/sass.cpp
-  src/measure/backends.cpp)
+  src/measure/backends.cpp
+  src/measure/driverstats.cpp)
 target_link_libraries(sopt-measure PUBLIC sopt-ir Threads::Threads)
 sopt_fp_flags(sopt-measure)
 

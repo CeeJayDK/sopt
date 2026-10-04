@@ -19,6 +19,7 @@
 #include "fx/variants.hpp"
 #include "measure/isa.hpp"
 #include "measure/backends.hpp"
+#include "measure/driverstats.hpp"
 #include "measure/sass.hpp"
 #include "measure/tools.hpp"
 #include "search/driver.hpp"
@@ -83,6 +84,10 @@ void usage() {
       "                    compilers' optimizers: SPIR-V (fxstat, $SOPT_FXSTAT; spirv-dis,\n"
       "                    $SOPT_SPIRV_DIS) and DXBC via Microsoft's fxc ($SOPT_FXC =\n"
       "                    sopt-fxc.exe, run with $SOPT_WINE, default wine, off Windows)\n"
+      "  --export-spirv DIR  write original and variants as the SPIR-V ReShade hands the driver\n"
+      "                    (fxstat, $SOPT_FXSTAT) to DIR, for ShaderInfo --batch DIR on a PC\n"
+      "  --driver-stats F  the driver statistics ShaderInfo --batch wrote (F, with the export's\n"
+      "                    manifest.txt next to it): Intel instruction counts as a measured vendor\n"
       "  --assumed         also write variants of regions whose input ranges are assumed\n"
       "  --no-accuracy-variants  do not keep candidates that are only more accurate (not cheaper)\n"
       "  --no-exact-rule   variants must stay within the budget of the original (default:\n"
@@ -178,7 +183,8 @@ int main(int argc, char** argv) {
   opt.maxAlternatives = 20;
   bool isa = false, sass = false, backends = false, allowAssumed = false, ask = false, symbolic = true,
        bufferInputs = true;
-  fs::path factsFile;
+  fs::path factsFile, exportSpirv;
+  std::vector<fs::path> driverStatsFiles;
   IsaConfig isaCfg;
   if (const char* v = std::getenv("SOPT_FXSTAT")) isaCfg.fxstat = v;
   if (const char* v = std::getenv("SOPT_RGA")) isaCfg.rga = v;
@@ -277,6 +283,8 @@ int main(int argc, char** argv) {
     else if (a == "--no-format-checks") formatChecks = false;
     else if (a == "--sass") sass = true;
     else if (a == "--backends") backends = true;
+    else if (a == "--export-spirv") exportSpirv = next();
+    else if (a == "--driver-stats") driverStatsFiles.push_back(next());
     else if (a == "--sm") sassCfg.sm = std::atoi(next());
     else if (a == "-h" || a == "--help") { usage(); return 0; }
     else if (a == "--version") { std::puts("sopt-fx " SOPT_VERSION); return 0; }
@@ -708,16 +716,78 @@ int main(int argc, char** argv) {
     std::fflush(stdout);
   });
 
+  // Driver statistics round trip (owner, 2026-10-04): export what ReShade hands the driver, read back
+  // the Intel driver's instruction counts (ShaderInfo --batch on the PC), matched by region and text.
+  auto regionInputs = [](const fx::RegionResult& rr) {
+    std::vector<InputDecl> ins = rr.region.prog.inputs;
+    for (size_t k = 0; k < ins.size(); ++k) ins[k].name = "sopt_in" + std::to_string(k);
+    return ins;
+  };
+  if (!exportSpirv.empty()) {
+    if (isaCfg.fxstat.empty()) {
+      std::fprintf(stderr, "--export-spirv needs fxstat ($SOPT_FXSTAT)\n");
+      return 1;
+    }
+    std::string manifest, err;
+    size_t shaders = 0;
+    for (const auto& rr : results) {
+      if (rr.variants.empty()) continue;
+      std::vector<const Expr*> exprs = {&rr.region.prog.target};
+      for (const auto& v : rr.variants) exprs.push_back(&v.expr);
+      std::string name = fs::path(rr.region.file).stem().string() + "_" + std::to_string(rr.region.line);
+      for (char& ch : name)
+        if (!std::isalnum(static_cast<unsigned char>(ch))) ch = '_';
+      const auto names = exportDriverShaders(exprs, regionInputs(rr), isaCfg.fxstat, exportSpirv, name, err);
+      for (size_t k = 0; k < names.size(); ++k) {
+        if (names[k].empty()) continue;
+        ++shaders;
+        manifest += names[k] + "\t" + driverKey(rr.region.file, rr.region.line, k ? rr.variants[k - 1].text : "orig") + "\n";
+      }
+    }
+    std::ofstream(exportSpirv / "manifest.txt", std::ios::binary) << manifest;
+    std::printf("%zu shaders exported to %s (for ShaderInfo --batch)%s%s\n", shaders, exportSpirv.string().c_str(),
+                err.empty() ? "" : "; first error: ", err.c_str());
+  }
+  bool intel = false;
+  for (const fs::path& file : driverStatsFiles) {
+    DriverStats ds;
+    std::string err;
+    if (!loadDriverStats(file, ds, err)) {
+      std::fprintf(stderr, "--driver-stats: %s\n", err.c_str());
+      return 1;
+    }
+    if (ds.vendor != 0x8086) {
+      std::printf("--driver-stats %s: %s is not an Intel GPU; only Intel counts are used so far\n", file.string().c_str(),
+                  ds.gpu.c_str());
+      continue;
+    }
+    size_t matched = 0;
+    auto lookup = [&](const fx::RegionResult& rr, const std::string& text) {
+      const auto it = ds.byKey.find(driverKey(rr.region.file, rr.region.line, text));
+      return it == ds.byKey.end() ? -1 : driverCost(ds, it->second);
+    };
+    for (auto& rr : results) {
+      if (rr.variants.empty()) continue;
+      rr.targetIntel = lookup(rr, "orig");
+      for (auto& v : rr.variants) matched += (v.intel = lookup(rr, v.text)) >= 0;
+    }
+    intel = true;
+    std::printf("Intel driver statistics (%s): %zu variants matched\n", ds.gpu.c_str(), matched);
+  }
+  info.intel = intel;
+
   // Measured machine code: a variant stays if some measured vendor gets faster (it may be
   // slower on another: the report shows both); equal or slower everywhere means no gain,
   // equal usually because the compiler already does it.
-  if (isa || sass) {
+  if (isa || sass || intel) {
     info.amd = isa;
     info.nv = sass;
     size_t n = 0, toMeasure = 0;
     for (const auto& rr : results) toMeasure += !rr.variants.empty();
-    console::section(con, std::string("Measuring machine code (") + (isa ? "AMD: fxstat + RGA" : "") +
-                              (isa && sass ? ", " : "") + (sass ? "NVIDIA: ptxas" : "") + ")");
+    std::string what = isa ? "AMD: fxstat + RGA" : "";
+    if (sass) what += std::string(what.empty() ? "" : ", ") + "NVIDIA: ptxas";
+    if (intel) what += std::string(what.empty() ? "" : ", ") + "Intel: driver statistics";
+    console::section(con, "Measuring machine code (" + what + ")");
     console::Progress measureBar(con, toMeasure);
     for (auto& rr : results) {
       if (rr.variants.empty()) continue;
@@ -750,7 +820,7 @@ int main(int argc, char** argv) {
       std::vector<fx::Variant> kept;
       for (auto& v : rr.variants) {
         bool better = false, measured = false, close = true;
-        for (auto [t, c] : {std::pair{rr.targetAmd, v.amd}, std::pair{rr.targetNv, v.nv}}) {
+        for (auto [t, c] : {std::pair{rr.targetAmd, v.amd}, std::pair{rr.targetNv, v.nv}, std::pair{rr.targetIntel, v.intel}}) {
           if (t < 0 || c < 0) continue;
           measured = true;
           better = better || c < t;
@@ -780,7 +850,7 @@ int main(int argc, char** argv) {
       // cost breaks ties.
       auto gain = [&](const fx::Variant& v) {
         double g = 0;
-        for (auto [t, c] : {std::pair{rr.targetAmd, v.amd}, std::pair{rr.targetNv, v.nv}})
+        for (auto [t, c] : {std::pair{rr.targetAmd, v.amd}, std::pair{rr.targetNv, v.nv}, std::pair{rr.targetIntel, v.intel}})
           if (t > 0 && c >= 0) g += double(t - c) / t;
         return g;
       };
@@ -792,9 +862,9 @@ int main(int argc, char** argv) {
       });
       rr.variants = std::move(kept);
       char line[512];
-      std::snprintf(line, sizeof(line), "measured %zu: %s:%u amd %d nv %d, %zu variants kept", ++n,
+      std::snprintf(line, sizeof(line), "measured %zu: %s:%u amd %d nv %d intel %d, %zu variants kept", ++n,
                     fs::path(rr.region.file).filename().string().c_str(), rr.region.line, rr.targetAmd,
-                    rr.targetNv, rr.variants.size());
+                    rr.targetNv, rr.targetIntel, rr.variants.size());
       measureBar.print(line);
       measureBar.step();
     }
@@ -838,7 +908,8 @@ int main(int argc, char** argv) {
         return accuracyRule(rr.region.prog.budget) && opt.exactRule ? v.worst.exactAbs : v.worst.maxAbs;
       };
       auto asGood = [&](const fx::Variant& k, const fx::Variant& v) {  // k at least as good as v
-        return k.cost <= v.cost && noWorse(k.amd, v.amd) && noWorse(k.nv, v.nv) && noWorse(k.spirv, v.spirv) &&
+        return k.cost <= v.cost && noWorse(k.amd, v.amd) && noWorse(k.nv, v.nv) && noWorse(k.intel, v.intel) &&
+               noWorse(k.spirv, v.spirv) &&
                noWorse(k.dxbc, v.dxbc) && noWorse(k.amdVgprs, v.amdVgprs) && noWorse(k.nvRegs, v.nvRegs) &&
                err(k) <= err(v) && (k.problems.empty() || !v.problems.empty()) &&
                (k.klass != Klass::LessAccurate || v.klass == Klass::LessAccurate);

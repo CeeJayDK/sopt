@@ -484,12 +484,12 @@ TEST(fx_vendor_auto) {
     v.klass = k == 2 ? Klass::LessAccurate : Klass::Within;
     rr.variants.push_back(v);
   }
-  CHECK(fx::vendorPick(rr, true) == 2 && fx::vendorPick(rr, false) == 1);
+  CHECK(fx::vendorPick(rr, fx::Vendor::Amd) == 2 && fx::vendorPick(rr, fx::Vendor::Nv) == 1);
   {
     // A variant with problem inputs is never picked.
     fx::RegionResult marked = rr;
     marked.variants[1].problems = "fails at d = 0.5 (NaN/inf at some)";
-    CHECK(fx::vendorPick(marked, true) == 0 && fx::vendorPick(marked, false) == 1);
+    CHECK(fx::vendorPick(marked, fx::Vendor::Amd) == 0 && fx::vendorPick(marked, fx::Vendor::Nv) == 1);
   }
   const fs::path out = fs::temp_directory_path() / "sopt_test_fx_vendor";
   std::error_code ec;
@@ -517,7 +517,7 @@ TEST(fx_vendor_auto) {
   rr.targetDxbc = 5;
   rr.variants[1].dxbc = 5;
   rr.variants[1].dxbcSame = true;
-  CHECK(fx::vendorPick(rr, true, true) == 0 && fx::vendorPick(rr, true, false) == 2);
+  CHECK(fx::vendorPick(rr, fx::Vendor::Amd, true) == 0 && fx::vendorPick(rr, fx::Vendor::Amd, false) == 2);
   CHECK(fx::writeVariants({rr}, out, errors).size() == 1);
   std::ifstream f2(out / "sopt_chain.fx");
   std::stringstream ss2;
@@ -936,7 +936,7 @@ TEST(fx_register_counts) {
   w.nv = 9;
   w.nvRegs = 12;
   w.fewerRegisters = w.notFaster = true;
-  CHECK(fx::vendorPick(rg, true) == 0 && fx::vendorPick(rg, false) == 0);
+  CHECK(fx::vendorPick(rg, fx::Vendor::Amd) == 0 && fx::vendorPick(rg, fx::Vendor::Nv) == 0);
   fs::remove_all(out, ec);
   fx::writeVariants({rg}, out, errors);
   std::ifstream g(out / "sopt_test.fx");
@@ -984,7 +984,7 @@ TEST(fx_precise_and_too_exact) {
   v.klass = Klass::Accurate;
   v.amd = 1;
   rr.variants.push_back(v);
-  CHECK(fx::vendorPick(rr, true) == 0);
+  CHECK(fx::vendorPick(rr, fx::Vendor::Amd) == 0);
   const fs::path out = fs::temp_directory_path() / "sopt_test_tooexact_out";
   std::error_code ec;
   fs::remove_all(out, ec);
