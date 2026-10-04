@@ -149,7 +149,7 @@ if(WIN32)
   add_executable(texbench tools/windows/texbench/texbench.cpp)
   set_target_properties(texbench PROPERTIES OUTPUT_NAME TexBench)
   target_compile_features(texbench PRIVATE cxx_std_17)
-  target_link_libraries(texbench PRIVATE d3d11 dxgi d3dcompiler)
+  target_link_libraries(texbench PRIVATE d3d11 dxgi d3dcompiler ole32 windowscodecs)
   target_compile_definitions(texbench PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
   # ShaderInfo: what the Vulkan drivers report about compiled shaders (statistics, disassembly, hardware
   # counters); tools/windows/shaderinfo. Vulkan loaded at run time.

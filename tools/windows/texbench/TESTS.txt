@@ -146,8 +146,8 @@ Pixel shader order: which pixels the GPU shades together (not a timing)
              were shaded together. The largest size where most runs are compact is printed below.
   Tile B     for squares of B x B pixels: 100% when the square got one unbroken run of numbers (the
              GPU finished it before moving on), lower when it was mixed with other squares.
-  Images (next to the CSV): texbench-<GPU>-order.bmp, the whole order from blue (first) to red
-  (last); texbench-<GPU>-order-zoom.bmp, the middle 64 x 64 pixels 8x enlarged, one color per block
+  Images (next to the CSV): texbench-<GPU>-order.png, the whole order from blue (first) to red
+  (last); texbench-<GPU>-order-zoom.png, the middle 64 x 64 pixels 8x enlarged, one color per block
   of the size found, black lines between blocks, darker lines between 2 x 2 quads.
   Speed: the same draw timed plain, with the store alone and with the counter and the store. The
   cost per pixel over the plain draw shows what one shared counter costs when every pixel uses it

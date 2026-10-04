@@ -984,7 +984,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   after the measurements, `--filter order`): one full-screen draw into 1024^2, each pixel InterlockedAdd on one
   counter and stores the number at its position (R32_UINT UAV, read back). Blocks: runs of N numbers (N = 4 ..
   256), share whose bounding box is exactly N pixels ("compact") + the most common shape; the largest N with >= 75%
-  compact = "pixels shaded together". Tiles: aligned B x B squares, B^2 / (max - min + 1). BMPs next to the CSV
+  compact = "pixels shaded together". Tiles: aligned B x B squares, B^2 / (max - min + 1). PNGs (WIC, owner) next to the CSV
   (order gradient; middle 64^2 8x with block colors and lines). CSV config "order".
   Results per section (owner, 2026-10-04: "hide the run time" by showing each section as it completes): benchkit
   Progress::start / pause (erases the bar, scale and blank line) / resume (redraws them filled to the current step);

@@ -34,6 +34,7 @@
 
 #include "../benchkit.hpp"
 #include <d3dcompiler.h>
+#include <wincodec.h>
 
 #include <chrono>
 #include <cstdint>
@@ -1084,35 +1085,37 @@ struct OrderResult {
   double plainMs = 0.0, storeMs = 0.0, orderMs = 0.0, storeUnits = 0.0, orderUnits = 0.0;
 };
 
-// 24-bit BMP, rows bottom-up, rgb[y][x] = 0xRRGGBB.
-void writeBmp(const std::string& path, UINT w, UINT h, const std::vector<uint32_t>& rgb) {
-  FILE* f = std::fopen(path.c_str(), "wb");
-  if (!f) return;
-  const UINT row = (w * 3 + 3) & ~3u, size = 54 + row * h;
-  uint8_t hd[54] = {'B', 'M'};
-  auto put32 = [&](int at, uint32_t v) {
-    for (int i = 0; i < 4; ++i) hd[at + i] = uint8_t(v >> (8 * i));
-  };
-  put32(2, size);
-  put32(10, 54);
-  put32(14, 40);
-  put32(18, w);
-  put32(22, h);
-  hd[26] = 1;
-  hd[28] = 24;
-  put32(34, row * h);
-  std::fwrite(hd, 1, 54, f);
-  std::vector<uint8_t> line(row, 0);
-  for (UINT y = h; y-- > 0;) {
-    for (UINT x = 0; x < w; ++x) {
-      const uint32_t c = rgb[size_t(y) * w + x];
-      line[x * 3 + 0] = uint8_t(c);
-      line[x * 3 + 1] = uint8_t(c >> 8);
-      line[x * 3 + 2] = uint8_t(c >> 16);
-    }
-    std::fwrite(line.data(), 1, row, f);
+// PNG through Windows' own encoder (WIC: no extra code in the exe; owner: PNG instead of BMP), rgb[y][x] =
+// 0xRRGGBB. Returns false when it could not be written.
+bool writePng(const std::string& path, UINT w, UINT h, const std::vector<uint32_t>& rgb) {
+  const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  IWICImagingFactory* factory = nullptr;
+  IWICStream* stream = nullptr;
+  IWICBitmapEncoder* encoder = nullptr;
+  IWICBitmapFrameEncode* frame = nullptr;
+  std::vector<uint8_t> bgr(size_t(w) * h * 3);
+  for (size_t i = 0; i < size_t(w) * h; ++i) {
+    bgr[i * 3 + 0] = uint8_t(rgb[i]);
+    bgr[i * 3 + 1] = uint8_t(rgb[i] >> 8);
+    bgr[i * 3 + 2] = uint8_t(rgb[i] >> 16);
   }
-  std::fclose(f);
+  const std::wstring wpath = std::filesystem::path(path).wstring();
+  WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
+  bool ok = SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) &&
+            SUCCEEDED(factory->CreateStream(&stream)) && SUCCEEDED(stream->InitializeFromFilename(wpath.c_str(), GENERIC_WRITE)) &&
+            SUCCEEDED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) &&
+            SUCCEEDED(encoder->Initialize(stream, WICBitmapEncoderNoCache)) &&
+            SUCCEEDED(encoder->CreateNewFrame(&frame, nullptr)) && SUCCEEDED(frame->Initialize(nullptr)) &&
+            SUCCEEDED(frame->SetSize(w, h)) && SUCCEEDED(frame->SetPixelFormat(&format)) &&
+            IsEqualGUID(format, GUID_WICPixelFormat24bppBGR) &&
+            SUCCEEDED(frame->WritePixels(h, w * 3, UINT(bgr.size()), bgr.data())) && SUCCEEDED(frame->Commit()) &&
+            SUCCEEDED(encoder->Commit());
+  release(frame);
+  release(encoder);
+  release(stream);
+  release(factory);
+  if (SUCCEEDED(co)) CoUninitialize();
+  return ok;
 }
 
 // t in [0, 1] -> blue, cyan, green, yellow, red.
@@ -1314,8 +1317,8 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
   // enlarged, one color per block of the size found, with lines between blocks.
   std::vector<uint32_t> img(size_t(n) * n);
   for (size_t i = 0; i < img.size(); ++i) img[i] = o[i] >= total ? 0 : gradient(double(o[i]) / double(total - 1));
-  res.image = imageBase + "-order.bmp";
-  writeBmp(res.image, n, n, img);
+  res.image = imageBase + "-order.png";
+  if (!writePng(res.image, n, n, img)) res.image = "(could not write " + res.image + ")";
   const UINT zs = 64, zf = 8, z0 = n / 2 - zs / 2, w = std::max(4u, res.together);
   auto group = [&](UINT x, UINT y) { return o[size_t(y) * n + x] >= total ? ~0u : o[size_t(y) * n + x] / w; };
   std::vector<uint32_t> zoom(size_t(zs * zf) * zs * zf);
@@ -1327,8 +1330,8 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
       const bool quad = (x % zf == 0 && sx % 2 == 0) || (y % zf == 0 && sy % 2 == 0);
       zoom[size_t(y) * zs * zf + x] = edge ? 0 : quad ? (hashColor(gi) >> 1) & 0x7f7f7fu : hashColor(gi);
     }
-  res.zoom = imageBase + "-order-zoom.bmp";
-  writeBmp(res.zoom, zs * zf, zs * zf, zoom);
+  res.zoom = imageBase + "-order-zoom.png";
+  if (!writePng(res.zoom, zs * zf, zs * zf, zoom)) res.zoom = "(could not write " + res.zoom + ")";
   return res;
 }
 
