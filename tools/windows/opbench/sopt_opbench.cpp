@@ -32,6 +32,11 @@
 // blocks (4 levels per cell from bright / dark color pairs), a gradient progress bar, an
 // Ops column; tests whose passes disagree are measured again (up to kMaxPasses) until most
 // readings agree.
+//
+// Version 5 (owner 2026-10-04: test everything ReShade FX and HLSL can do): the rest of the
+// intrinsics (hyperbolic, ldexp / frexp / modf, isnan / isinf, f16 conversions, refract,
+// faceforward, matrices, determinant), integer divide / modulo, int -> float, compare + select;
+// "(shorter is better)" under each section; the progress bar stays within 70 characters.
 
 #include "../benchkit.hpp"
 #include <d3dcompiler.h>
@@ -132,6 +137,15 @@ const Test kTests[] = {
     {"distance", "mad(x.yzx, c.x, c.y) - distance(x, c.zwz) * c.z", 0.5f, 1.0f, 0.3f, 0.2f, "mad3v",
      "3 sub, dot3, sqrt, plus one fma", "float3"},
     {"reflect", "mad(reflect(x, c.zwz), c.x, c.y)", 0.5f, 1.0f, 0.6f, 0.8f, "mad3v", "i - 2 * dot(i, n) * n", "float3"},
+    {"refract", "mad(refract(x, c.zwz, c.z), c.x, c.y)", 0.5f, 1.0f, 0.6f, 0.8f, "mad3v", "dot, sqrt, select ...", "float3"},
+    {"faceforward", "mad(faceforward(x, c.zwz, x.yzx), c.x, c.y)", 0.5f, 1.0f, 0.6f, 0.8f, "mad3v", "dot, compare, select",
+     "float3"},
+    {"matmul4", "mad(mul(float4x4(c, c.yzwx, c.zwxy, c.wxyz), x), 0.25, c.y)", 0.5f, 0.5f, 0.1f, 0.1f, "mad4v",
+     "float4x4 * float4: 4 dot4", "float4"},
+    {"transpose", "mad(mul(transpose(float4x4(c, c.yzwx, c.zwxy, c.wxyz)), x), 0.25, c.y)", 0.5f, 0.5f, 0.1f, 0.1f,
+     "matmul4", "the same with transpose: free?", "float4"},
+    {"det3", "mad(x, c.x, determinant(float3x3(x, c.zwz, c.wzw)) * c.w + c.y)", 0.5f, 0.5f, 0.2f, 0.3f, "mad3v",
+     "float3x3 determinant", "float3"},
     // Intrinsics fxc writes out as instruction sequences (sopt has no op for most of them yet).
     {"fmod", "mad(fmod(x, c.z), c.x, c.y)", 0.5f, 1.0f, 0.7f, 0.0f, "mad", "fxc: div, frac, mul, select"},
     {"smoothstep", "mad(smoothstep(c.z, c.w, x), c.x, c.y)", 0.5f, 1.0f, 0.5f, 2.5f, "mad", "fxc: add, mul_sat, mad, 2 mul"},
@@ -141,6 +155,19 @@ const Test kTests[] = {
     {"acos", "mad(acos(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul", "fxc: polynomial + sqrt"},
     {"tan", "mad(tan(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.4f, 0.0f, "mul", "fxc: sincos + div"},
     {"sincos", "mad(sin(x) + cos(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "add", "sin and cos of one value"},
+    // More intrinsics (version 5): the rest of ReShade FX's math.
+    {"cosh", "mad(cosh(x), c.x, c.y)", 0.25f, 0.0f, 0.0f, 0.0f, "mad", "fxc: 2 exp"},
+    {"sinh", "mad(sinh(x), c.x, c.y)", 0.3f, 0.5f, 0.0f, 0.0f, "mad", "fxc: 2 exp"},
+    {"tanh", "mad(tanh(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "fxc: exp, div"},
+    {"log10", "mad(log10(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "fxc: log2 + mul"},
+    {"radians", "mad(radians(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "a mul (also degrees)"},
+    {"ldexp", "mad(ldexp(x, x - c.z), c.x, c.y)", 0.5f, 0.3f, 2.0f, 0.0f, "sub", "x * exp2(e): exp2 + mul"},
+    {"frexp", "mad(frexpM(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "mantissa + exponent * 0.01"},
+    {"modf", "mad(modfS(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "fraction + integer part * 0.5"},
+    {"isnan", "mad(isnan(x) ? c.z : x, c.x, c.y)", 0.5f, 0.5f, 1.0f, 0.0f, "mad", "ne + movc (a compiler may drop it)"},
+    {"isinf", "mad(isinf(x) ? c.z : x, c.x, c.y)", 0.5f, 0.5f, 1.0f, 0.0f, "mad", "abs, eq + movc"},
+    {"f16round", "mad(f16tof32(f32tof16(x)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "f32tof16 + f16tof32"},
+    {"bitcast", "mad(asfloat(asint(x)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "asint / asfloat: free"},
     // Integer and bit operations (uint chains: x = (x ^ c.y) * c.x mixes, nothing reassociates)
     // and conversions between int and float.
     {"ixmul", "(x ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "mad", "base: xor + imul", "uint"},
@@ -155,6 +182,16 @@ const Test kTests[] = {
     {"popc", "((x + countbits(x)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "iadd", "countbits", "uint"},
     {"fbh", "((x + firstbithigh(x)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "iadd", "firstbithigh", "uint"},
     {"bitrev", "(reversebits(x) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "reversebits", "uint"},
+    {"fbl", "((x + firstbitlow(x)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "iadd", "firstbitlow", "uint"},
+    {"icmpsel", "((x > asuint(c.z) ? x : ~x) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "ult, not, movc", "uint"},
+    {"udiv", "((x / ((asuint(c.z) >> 24) | 1u)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul",
+     "unsigned divide (no instruction on most GPUs), plus shr, or", "uint"},
+    {"umod", "((x % ((asuint(c.z) >> 24) | 1u)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "unsigned modulo", "uint"},
+    {"idiv", "(asuint(asint(x) / (asint(asuint(c.z) >> 24) | 1)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul",
+     "signed divide", "uint"},
+    {"imod", "(asuint(asint(x) % (asint(asuint(c.z) >> 24) | 1)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul",
+     "signed modulo", "uint"},
+    {"itof", "(asuint(float(asint(x))) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "int -> float conversion", "uint"},
     {"utof", "(asuint(float(x)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "uint -> float conversion", "uint"},
     {"unitf", "(asuint(asfloat((x >> 9) | 0x3f800000u) * 1.5) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul",
      "uint -> [1, 2) by bits: ushr, or, plus a mul", "uint"},
@@ -200,6 +237,8 @@ std::string shaderSource(const Test& t, int chains) {
       // precise keeps fxc from folding (v + c) - c to v
       "float roundAdd(float v) { precise float t = v + 12582912.0; precise float r = t - 12582912.0; return r; }\n"
       "float floorAdd(float v) { precise float r = (v + 12582912.0) - 12582912.0; precise float f = r - saturate((r - v) * 1e38); return f; }\n"
+      "float frexpM(float v) { float e; float m = frexp(v, e); return m + e * 0.01; }\n"
+      "float modfS(float v) { float i; float f = modf(v, i); return f + i * 0.5; }\n"
       "float fracAdd(float v) { precise float d = v - ((v + 12582912.0) - 12582912.0); precise float f = d + saturate(d * -1e38); return f; }\n"
       "[numthreads(64, 1, 1)]\n"
       "void main(uint3 id : SV_DispatchThreadID)\n{\n";
@@ -348,10 +387,12 @@ const char* const kDisplayOrder[] = {
     "#Division and transcendentals", "divxy", "rcp", "rsqrt", "sqrt", "div", "exp2", "log2", "log", "exp", "cos", "sin",
     "rcpmax", "pow",
     "#Vector (float2 / float3 / float4)", "mad2v", "mad3v", "mad4v", "dot2", "dot3", "dot4", "cross", "length",
-    "distance", "normalize", "reflect",
+    "distance", "normalize", "reflect", "refract", "faceforward", "det3", "matmul4", "transpose",
     "#Written out by fxc", "smoothstep", "fmod", "sincos", "tan", "atan", "atan2", "asin", "acos",
+    "#More intrinsics", "bitcast", "radians", "log10", "isnan", "isinf", "modf", "frexp", "ldexp", "f16round", "tanh",
+    "sinh", "cosh",
     "#Integer and conversions", "bitor", "ixmul", "iadd", "iand", "imin", "ishr", "irot", "imul", "popc", "fbh",
-    "bitrev", "unitf", "utof", "ftou", "ftoitof",
+    "bitrev", "fbl", "icmpsel", "unitf", "utof", "itof", "ftou", "ftoitof", "udiv", "umod", "idiv", "imod",
     "#Half precision (min16float)", "mad16", "add16", "mul16", "rcp16", "sqrt16", "exp2_16"};
 
 

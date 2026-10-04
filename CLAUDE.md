@@ -900,6 +900,19 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   GB/s (texel bytes / (Ops x the reference fma's ns per step)); kFormats ordered by texel size; ddy_coarse and
   "Sample point" added to the pixel shader section; GPU names in vendor colors (benchkit vendorColor: NVIDIA
   bright green, AMD bright red, Intel bright blue).
+  Everything ReShade FX / HLSL can do (owner's go 2026-10-04, after a gap list against the parser's
+  intrinsics): OpBench + cosh / sinh / tanh / log10 / radians / ldexp / frexp / modf / isnan / isinf / f16round
+  / bitcast / refract / faceforward / det3 / matmul4 / transpose / fbl / icmpsel / udiv / umod / idiv / imod /
+  itof. TexBench "Texture functions" (offsets, gather G/B/A, Load mip 1, grad, aniso 2/4/16, trilinear in 5
+  formats, real 1D, 3D 1024x1024x2 (Tex::Vol), size queries with an x-dependent mip level (the plain query is
+  hoisted), address modes on kCoherentWide), "Color lookup tables" (Tex::Lut2D N slices side by side, 2 reads +
+  lerp, vs 3D N^3, N = 32 / 64, kLutColor from the pixel position), compute (storage stores per format via
+  Tex::Storage / Test::uav, formats without typed UAV store support skipped; groupshared read / write / stride 32
+  / barriers: fxc drops groupshared writes nothing reads, so computeSource reads GS at the end; 8 atomics on
+  groupshared and R32U storage, own address vs 64 threads on one (not a dispatch: TDR risk); local array
+  (indexable temp), const array (icb), select vs uniform / divergent [branch]), "Pass states" (Stage::Pass: 1-8
+  RGBA8 targets, clears, GenerateMips, heavy 32-sin shader vs stencil 50% / discard tiles / discard pixels).
+  Progress bars: at most benchkit::kMaxCells (70) cells (stepsPerCell).
   Owner's ideas (2026-10-04, not decided): expected costs per cost model built into
   OpBench / TexBench, telling the user when their card does not match its model ("your report is very
   interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs

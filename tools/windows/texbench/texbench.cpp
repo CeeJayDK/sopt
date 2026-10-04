@@ -24,6 +24,11 @@
 // target of each format, in GB/s, with noise, a smooth gradient and a flat color (render target
 // compression); blending by the hardware against the same math in a shader (ms per pass).
 //
+// Since 2026-10-04 (owner: "test everything ReShade and HLSL can do"): the remaining texture functions
+// (offsets, gathers, grad, fetch from mips, 1D / 3D textures, size queries, address modes), coherent color
+// LUTs (2D slices against 3D), compute (storage writes, groupshared memory, barriers, atomics, local arrays,
+// branches) and pass states (render targets, clears, mipmaps, stencil, discard).
+//
 // Each test is read at least twice and more often (up to 6 times) when its readings disagree; a test's
 // texture exists only while it is measured (large textures in 19 formats would not fit together).
 
@@ -134,8 +139,14 @@ std::vector<uint8_t> texelData(const Format& f, size_t texels, std::mt19937& rng
 // ---------------------------------------------------------------------------
 // Tests
 
-enum class Stage { Compute, Pixel, Write, Blend };
-enum class Tex { None, Plain, Mipped, Lut1D, Lut3D };
+// Pass state tests (full-screen passes into 3840 x 2160, ms per pass).
+enum { kPassTargets = 1, kPassClear, kPassMips, kPassHeavy, kPassStencil, kPassDiscardTiles, kPassDiscardPixels };
+
+enum class Stage { Compute, Pixel, Write, Blend, Pass };
+// Plain / Mipped: 2D size x size; Lut1D: 2D size x 1; Lut3D: 3D size^3; Tex1D: a real 1D texture;
+// Vol: 3D size x size x depth; Lut2D: 2D (size * size) x size (a 3D LUT as slices side by side).
+// Storage: a 2D size x size texture written by the compute shader (storage / RWTexture2D at u1).
+enum class Tex { None, Plain, Mipped, Lut1D, Lut3D, Tex1D, Vol, Lut2D, Storage };
 enum class Filter { Point, Linear, Trilinear, Aniso };
 
 struct Test {
@@ -149,6 +160,11 @@ struct Test {
   Tex tex = Tex::None;
   UINT size = 0;             // texture width (and height for 2D)
   Filter filter = Filter::Point;
+  D3D11_TEXTURE_ADDRESS_MODE address = D3D11_TEXTURE_ADDRESS_CLAMP;
+  UINT depth = 1;            // Vol: depth
+  int uav = 0;               // compute: storage at u1, 1 float4 (W), 2 uint4 (WU), 3 uint for atomics (WA)
+  bool groupshared = false;  // compute: groupshared float GS[2048] and uint GSI[64], filled before the loop
+  bool localArray = false;   // compute: a local float A[16] filled before the loop (dynamic indexing)
   bool intTex = false;       // integer format: read through Texture2D<uint4>
   float scaleX = 1.0f, scaleY = 1.0f;  // pixel shader: texture coordinate scale (mip level, anisotropy)
   int write = 0;             // render target write: 0 smooth gradient, 1 noise (incompressible), 2 flat color
@@ -156,6 +172,8 @@ struct Test {
   int blend = 0;             // blending test: 0 plain write, 1 add, 2 lerp (alpha), 3 multiply, 4 min
   bool shaderBlend = false;  // blending test: the shader reads the destination as a texture and does the math
   bool perByte = false;      // summary: show bytes per op (texel bytes / Ops)
+  int pass = 0;              // pass state test: kPass* below
+  int count = 1;             // pass state test: render targets
   std::string note;
 };
 
@@ -173,6 +191,14 @@ const char* const kUseRandom = "x = (t.x + uv.y) * c.z + c.w;";
 // texels in from the corner, so no read leaves the texture); the next place from the value read and
 // the place before it.
 const char* const kSpread = "float2 uv = P + ((frac(float2(x, x * 1.618034) * c.x + c.y) - 0.5) * scale + 256.0) * texel;";
+// Address modes: coordinates that run a little past the texture's edges.
+const char* const kCoherentWide = "float2 uv = P * 1.25 - 0.125 + frac(x * c.x + c.y) * texel;";
+// Coherent LUT colors: smooth over the screen like an image (from the pixel position), with a small jitter
+// from x so each read depends on the one before it.
+const char* const kLutColor = "float3 rgb = saturate(float3(P * size / 1024.0, 0.5) + (frac(x * c.x + c.y) - 0.5) * 0.02);";
+const char* const kUseLutColor = "x = (rgb.r + rgb.g) * c.z + c.w;";
+// A size query that cannot be hoisted out of the loop: its mip level comes from x.
+const char* const kSizeLevel = "uint lv = uint(x * c.x) & 1u;";
 const char* const kUseSpread = "x = (t.x + uv.x + uv.y) * c.z + c.w;";
 const char* const kUseSpreadBase = "x = (uv.x + uv.y + uv.x) * c.z + c.w;";
 const char* const kUseBase = "x = (uv.x + uv.y) * c.z + c.w;";
@@ -227,6 +253,10 @@ std::vector<Test> makeTests() {
   baseTest("addr.lut1d", kRandom1D, false);
   baseTest("addr.lut3d", kRandom3D, false);
   baseTest("addr.spread", kSpread, false, Stage::Compute, kUseSpreadBase);
+  baseTest("addr.wide", kCoherentWide, false);
+  baseTest("addr.lutcolor", kLutColor, false, Stage::Compute, kUseLutColor);
+  baseTest("addr.size", kSizeLevel, false, Stage::Compute,
+           "uint w = 1024u >> lv, h = 1024u >> lv, n = 11u - lv; x = mad(x, c.y, c.z + float(w + h + n) * 1e-4);");
 
   const std::string load = "float4 t = T.Load(int3(uv * size, 0));";
   const std::string loadInt = "uint4 tu = TU.Load(int3(uv * size, 0));";
@@ -257,6 +287,77 @@ std::vector<Test> makeTests() {
   texTest("aniso 8:1", acc, "addr.coherent", kCoherent,
           "float4 t = T.SampleGrad(S, uv, float2(texel.x * 8.0, 0.0), float2(0.0, texel.y));", rgba8, Tex::Mipped,
           1024, Filter::Aniso, false, "SampleGrad, footprint 8 x 1 texels, 16x anisotropic filtering");
+  // ReShade FX texture functions not covered above (coherent, RGBA8 1024 x 1024 with mipmaps).
+  const char* fns = "Texture functions: RGBA8 1024 x 1024 with mipmaps, coherent";
+  texTest("bilinear offset", fns, "addr.coherent", kCoherent, "float4 t = T.SampleLevel(S, uv, 0.0, int2(1, -1));", rgba8,
+          Tex::Mipped, 1024, Filter::Linear, false, "tex2Dlod / tex2D with an offset");
+  texTest("Load offset", fns, "addr.coherent", kCoherent, "float4 t = T.Load(int3(uv * size, 0), int2(1, -1));", rgba8,
+          Tex::Mipped, 1024, Filter::Point, false, "tex2Dfetch with an offset");
+  texTest("gather offset", fns, "addr.coherent", kCoherent, "float4 t = T.GatherRed(S, uv, int2(1, -1));", rgba8,
+          Tex::Mipped, 1024, Filter::Point, false, "tex2DgatherR with an offset");
+  for (const char* ch : {"Green", "Blue", "Alpha"})
+    texTest(std::string("gather ") + char(std::tolower(ch[0])) + (ch + 1), fns, "addr.coherent", kCoherent,
+            std::string("float4 t = T.Gather") + ch + "(S, uv);", rgba8, Tex::Mipped, 1024, Filter::Point, false,
+            std::string("tex2Dgather") + ch[0]);
+  texTest("Load mip 1", fns, "addr.coherent", kCoherent, "float4 t = T.Load(int3(uv * size * 0.5, 1));", rgba8, Tex::Mipped,
+          1024, Filter::Point, false, "tex2Dfetch from mip level 1");
+  texTest("grad 1:1", fns, "addr.coherent", kCoherent,
+          "float4 t = T.SampleGrad(S, uv, float2(texel.x, 0.0), float2(0.0, texel.y));", rgba8, Tex::Mipped, 1024,
+          Filter::Linear, false, "tex2Dgrad, gradients of one texel (mip 0)");
+  for (int n : {2, 4, 16})
+    texTest("aniso " + std::to_string(n) + ":1", fns, "addr.coherent", kCoherent,
+            "float4 t = T.SampleGrad(S, uv, float2(texel.x * " + std::to_string(n) + ".0, 0.0), float2(0.0, texel.y));",
+            rgba8, Tex::Mipped, 1024, Filter::Aniso, false,
+            "SampleGrad, footprint " + std::to_string(n) + " x 1 texels, 16x anisotropic filtering");
+  for (const char* fn : {"R8", "RGB10A2", "RG11B10F", "RGBA16F", "RGBA32F"})
+    texTest(std::string("trilinear ") + fn, fns, "addr.coherent", kCoherent, "float4 t = T.SampleLevel(S, uv, 0.5);",
+            formatByName(fn), Tex::Mipped, 1024, Filter::Trilinear, false, "between mip 0 and 1");
+  texTest("tex1D bilinear", fns, "addr.coherent", kCoherent, "float4 t = T1.SampleLevel(S, uv.x, 0.0);", rgba8, Tex::Tex1D,
+          1024, Filter::Linear, false, "a 1D texture of 1024 texels");
+  texTest("tex1Dfetch", fns, "addr.coherent", kCoherent, "float4 t = T1.Load(int2(uv.x * size.x, 0));", rgba8, Tex::Tex1D,
+          1024, Filter::Point, false, "a 1D texture of 1024 texels");
+  texTest("tex3D linear", fns, "addr.coherent", kCoherent, "float4 t = T3.SampleLevel(S, float3(uv, 0.5), 0.0);", rgba8,
+          Tex::Vol, 1024, Filter::Linear, false, "1024 x 1024 x 2, halfway between the slices: 8 texels");
+  v.back().depth = 2;
+  texTest("tex3Dfetch", fns, "addr.coherent", kCoherent, "float4 t = T3.Load(int4(uv * size, 0, 0));", rgba8, Tex::Vol,
+          1024, Filter::Point, false, "1024 x 1024 x 2");
+  v.back().depth = 2;
+  // Size queries: the mip level comes from x (the plain form is constant per draw and would be hoisted).
+  texTest("tex2Dsize", fns, "addr.size", kSizeLevel, "uint w, h, n; T.GetDimensions(lv, w, h, n);", rgba8, Tex::Mipped,
+          1024, Filter::Point, false, "GetDimensions with a mip level", "x = mad(x, c.y, c.z + float(w + h + n) * 1e-4);");
+  texTest("tex1Dsize", fns, "addr.size", kSizeLevel, "uint w, n; T1.GetDimensions(lv, w, n); uint h = w;", rgba8,
+          Tex::Tex1D, 1024, Filter::Point, false, "GetDimensions with a mip level",
+          "x = mad(x, c.y, c.z + float(w + h + n) * 1e-4);");
+  texTest("tex3Dsize", fns, "addr.size", kSizeLevel, "uint w, h, d, n; T3.GetDimensions(lv, w, h, d, n);", rgba8, Tex::Vol,
+          1024, Filter::Point, false, "GetDimensions with a mip level", "x = mad(x, c.y, c.z + float(w + h + n) * 1e-4);");
+  v.back().depth = 2;
+  // Address modes (bilinear, coordinates past the edges).
+  const std::pair<const char*, D3D11_TEXTURE_ADDRESS_MODE> modes[] = {
+      {"clamp", D3D11_TEXTURE_ADDRESS_CLAMP}, {"wrap", D3D11_TEXTURE_ADDRESS_WRAP},
+      {"mirror", D3D11_TEXTURE_ADDRESS_MIRROR}, {"border", D3D11_TEXTURE_ADDRESS_BORDER}};
+  for (const auto& m : modes) {
+    texTest(std::string("address ") + m.first, fns, "addr.wide", kCoherentWide, sample, rgba8, Tex::Mipped, 1024,
+            Filter::Linear, false, "bilinear, coordinates 12% past the edges");
+    v.back().address = m.second;
+  }
+
+  // Color lookup tables as image effects use them: neighbouring pixels have similar colors. The old way (a
+  // 2D texture of N slices side by side, two bilinear reads and a lerp, like ReShade's LUT.fx) against one
+  // read from a 3D texture. Cost = the whole lookup (coordinates, reads, blend) over the color itself.
+  const char* lutc = "Color lookup tables: coherent colors (like an image), RGBA8";
+  const std::string lut2d =
+      "float b = rgb.b * (size.x - 1.0); float s0 = floor(b); "
+      "float2 uv = float2((rgb.r * (size.x - 1.0) + 0.5 + s0 * size.x) / (size.x * size.x), (rgb.g * (size.x - 1.0) + 0.5) / size.x); "
+      "float4 t = lerp(T.SampleLevel(S, uv, 0.0), T.SampleLevel(S, uv + float2(1.0 / size.x, 0.0), 0.0), b - s0);";
+  const std::string lut3d = "float4 t = T3.SampleLevel(S, rgb * ((size.x - 1.0) / size.x) + 0.5 / size.x, 0.0);";
+  for (UINT n : {32u, 64u}) {
+    const std::string ns = std::to_string(n);
+    texTest("2D " + ns + " (2 reads)", lutc, "addr.lutcolor", kLutColor, lut2d, rgba8, Tex::Lut2D, n, Filter::Linear, false,
+            ns + " slices of " + ns + " x " + ns + " side by side, 2 bilinear reads + lerp", kUse);
+    texTest("3D " + ns + "^3", lutc, "addr.lutcolor", kLutColor, lut3d, rgba8, Tex::Lut3D, n, Filter::Linear, false,
+            "one read from a " + ns + "^3 3D texture", kUse);
+  }
+
   const char* lut = "Lookup tables and texture size: RGBA8, random reads, bilinear";
   texTest("LUT 256x1", lut, "addr.lut1d", kRandom1D, sample, rgba8, Tex::Lut1D, 256, Filter::Linear, false,
           "a 1D lookup table: stays in the cache");
@@ -305,6 +406,105 @@ std::vector<Test> makeTests() {
     v.back().perByte = true;
   }
 
+  // Compute: storage writes (tex2Dstore / RWTexture2D) per format, coherent (near the thread's pixel) and
+  // random; GB/s comparable with the render target writes below.
+  const char* stores = "Compute: storage writes (tex2Dstore) into 4096 x 4096";
+  for (const Format& f : kFormats) {
+    if (f.dxgi == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) continue;  // not a storage format
+    const bool i = f.kind == 'i';
+    const std::string store = i ? "WU[int2(uv * size)] = uint4(asuint(uv), 1u, 2u);" : "W[int2(uv * size)] = float4(uv, x, 1.0);";
+    for (bool random : {false, true}) {
+      texTest(std::string(f.name) + (random ? " store random" : " store"), stores, random ? "addr.random" : "addr.coherent",
+              random ? kRandom2D : kCoherent, store, &f, Tex::Storage, 4096, Filter::Point, false,
+              random ? "random places" : "near the thread's own pixel", kUseBase);
+      v.back().uav = i ? 2 : 1;
+      v.back().perByte = true;
+    }
+  }
+
+  // Compute: groupshared memory, barriers, atomics, local arrays and branches. Own constants: x stays near
+  // 0.5; gi / ai index groupshared memory / a local array from x and the thread's lane l (lane-varying).
+  auto cTest = [&](std::string name, std::string section, std::string base, std::string step, std::string note) {
+    Test t;
+    t.name = std::move(name);
+    t.section = std::move(section);
+    t.base = std::move(base);
+    t.step = std::move(step);
+    t.cx = 0.5f, t.cy = 0.25f, t.cz = 0.7f, t.cw = 0.3f;
+    t.note = std::move(note);
+    add(std::move(t));
+    return &v.back();
+  };
+  const std::string gsIdx = "uint gi = (l + uint(x * 64.0)) & 2047u;";
+  const std::string gsIdx32 = "uint gi = (l * 32u + uint(x * 64.0)) & 2047u;";
+  const std::string gsUse = " x = mad(x, c.x, c.y + v * 0.01);";
+  const std::string gsFake = " float v = asfloat((gi & 1023u) | 0x3f000000u);";
+  cTest("addr.gs", "", "mad", gsIdx + gsFake + gsUse, "groupshared index, a stand-in value")->groupshared = true;
+  cTest("addr.gs32", "", "mad", gsIdx32 + gsFake + gsUse, "groupshared index (stride 32), a stand-in value")->groupshared = true;
+  const char* gs = "Compute: groupshared memory and barriers";
+  cTest("gs read", gs, "addr.gs", gsIdx + " float v = GS[gi];" + gsUse, "neighbouring lanes, neighbouring words")->groupshared = true;
+  cTest("gs read stride 32", gs, "addr.gs32", gsIdx32 + " float v = GS[gi];" + gsUse,
+        "lanes 32 words apart: bank conflicts")->groupshared = true;
+  cTest("gs write", gs, "addr.gs", gsIdx + " GS[gi] = x;" + gsFake + gsUse, "")->groupshared = true;
+  cTest("gs write stride 32", gs, "addr.gs32", gsIdx32 + " GS[gi] = x;" + gsFake + gsUse, "bank conflicts")->groupshared = true;
+  cTest("gs write + read", gs, "addr.gs", gsIdx + " GS[gi] = x; float v = GS[gi ^ 1u];" + gsUse, "the neighbour's word")
+      ->groupshared = true;
+  cTest("barrier", gs, "gs write", gsIdx + " GS[gi] = x; GroupMemoryBarrierWithGroupSync();" + gsFake + gsUse,
+        "GroupMemoryBarrierWithGroupSync after a write")->groupshared = true;
+  cTest("groupMemoryBarrier", gs, "gs write", gsIdx + " GS[gi] = x; GroupMemoryBarrier();" + gsFake + gsUse,
+        "GroupMemoryBarrier after a write")->groupshared = true;
+  cTest("memoryBarrier", gs, "gs write", gsIdx + " GS[gi] = x; AllMemoryBarrier();" + gsFake + gsUse,
+        "AllMemoryBarrier after a write")->groupshared = true;
+
+  // Atomics: on groupshared memory and on storage (R32U 1024 x 1024), each thread on its own address and
+  // all threads (of the group / of the dispatch) on one address. The returned value feeds the chain.
+  const std::string atUse = " x = mad(x, c.x, c.y + float(o & 255u) * 1e-6);";
+  cTest("addr.atomic", "", "mad", "uint o = asuint(x) & 255u;" + atUse, "the atomic's stand-in");
+  const char* atomics = "Compute: atomics (each thread its own address / (one): 64 threads on one address)";
+  static const char* const kAtomics[] = {"Add", "And", "Or", "Xor", "Min", "Max", "Exchange", "CompareExchange"};
+  for (bool storage : {false, true})
+    for (const char* op : kAtomics)
+      for (bool one : {false, true}) {
+        // One address per group, not per dispatch: a million threads on one storage address could take
+        // seconds and trip the driver's timeout (TDR).
+        const std::string dest = storage ? (one ? "WA[int2(g % 1024u, g / 1024u)]" : "WA[int2(P * size)]") : (one ? "GSI[0]" : "GSI[l]");
+        const std::string call = std::strcmp(op, "CompareExchange") == 0
+                                     ? "InterlockedCompareExchange(" + dest + ", asuint(x) & 255u, 7u, o);"
+                                     : std::string("Interlocked") + op + "(" + dest + ", asuint(x) & 255u, o);";
+        Test* t = cTest(std::string(storage ? "" : "gs ") + "atomic" + op + (one ? " (one)" : ""), atomics, "addr.atomic",
+                        "uint o; " + call + atUse,
+                        std::string(storage ? "storage R32U" : "groupshared") +
+                            (one ? ", the group's 64 threads on one address" : ", each thread its own address"));
+        if (storage) {
+          t->uav = 3;
+          t->format = formatByName("R32U");
+          t->tex = Tex::Storage;
+          t->size = 1024;
+        } else {
+          t->groupshared = true;
+        }
+      }
+
+  // Local arrays indexed at run time (fxc: indexable temps, often scratch memory), a constant array (fxc:
+  // immediate constant buffer) and branches: uniform within a group (the condition from the group) against
+  // divergent (from the lane), and both sides computed with a select.
+  const std::string arIdx = "uint ai = (uint(x * 64.0) + l) & 15u;";
+  const std::string arUse = " x = mad(x, c.x, c.y + v * 0.01);";
+  cTest("addr.array", "", "mad", arIdx + " float v = asfloat(ai | 0x3f000000u);" + arUse, "array index, a stand-in value");
+  const char* flow = "Compute: local arrays and branches";
+  cTest("array read", flow, "addr.array", arIdx + " float v = A[ai];" + arUse, "float A[16], index differs per lane")->localArray = true;
+  cTest("array write + read", flow, "addr.array", arIdx + " A[ai] = x; float v = A[ai ^ 1u];" + arUse, "")->localArray = true;
+  cTest("const array read", flow, "addr.array", arIdx + " float v = K[ai];" + arUse, "static const float K[16]");
+  const std::string brUse = " x = mad(v, c.x, c.y);";
+  cTest("select (both)", flow, "mad", "bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v = sel ? sqrt(x) : rcp(x + 1.0);" + brUse,
+        "sqrt and rcp both computed, one picked");
+  cTest("branch uniform", flow, "mad",
+        "bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v; [branch] if (sel) v = sqrt(x); else v = rcp(x + 1.0);" + brUse,
+        "the same in a branch, one side per group");
+  cTest("branch divergent", flow, "mad",
+        "bool sel = ((asuint(c.w) ^ l) & 1u) != 0; float v; [branch] if (sel) v = sqrt(x); else v = rcp(x + 1.0);" + brUse,
+        "the same in a branch, both sides in every group");
+
   // Pixel shader: derivatives (quad operations) and sampling with automatic mip selection.
   const char* ps = "Pixel shader: derivatives and automatic mip selection";
   Test pmad = mad;
@@ -343,6 +543,8 @@ std::vector<Test> makeTests() {
   psSample("Sample bilinear", Filter::Linear, 1.0f, 1.0f, "Sample (automatic mip level 0), RGBA8 1024 x 1024");
   psSample("Sample trilinear", Filter::Trilinear, 1.5f, 1.5f, "1.5 texels per pixel: between mip 0 and 1");
   psSample("Sample aniso 4:1", Filter::Aniso, 1.0f, 4.0f, "4 x 1 texel footprint, 16x anisotropic filtering");
+  psSample("Sample offset", Filter::Linear, 1.0f, 1.0f, "tex2D with an offset, bilinear");
+  v.back().step = std::string(kCoherent) + " float4 t = T.Sample(S, uv, int2(1, -1)); " + kUse;
 
   // Render target writes: full-screen passes per format, noise, a smooth gradient and one flat color (the
   // same shader, only the data differs): GPUs compress render targets, so compressible output can beat
@@ -376,6 +578,31 @@ std::vector<Test> makeTests() {
         t.shaderBlend = shader;
         add(t);
       }
+
+  // Pass states: several render targets at once, clears, mipmap generation, and a heavy shader on all
+  // pixels against half of them masked by the stencil test or by discard (8 x 8 tiles or single pixels).
+  auto passTest = [&](std::string name, int kind, const char* fn, int count, std::string note) {
+    Test t;
+    t.name = std::move(name);
+    t.section = "Pass states: full-screen passes into 3840 x 2160";
+    t.stage = Stage::Pass;
+    t.pass = kind;
+    t.format = formatByName(fn);
+    t.count = count;
+    t.note = std::move(note);
+    add(t);
+  };
+  for (int n : {1, 2, 4, 8})
+    passTest(std::to_string(n) + (n == 1 ? " target" : " targets"), kPassTargets, "RGBA8", n,
+             "RGBA8 render targets written by one pass (RenderTarget0..)");
+  for (const char* fn : {"RGBA8", "RGBA16F"}) {
+    passTest(std::string("clear ") + fn, kPassClear, fn, 1, "ClearRenderTargets");
+    passTest(std::string("mipmaps ") + fn, kPassMips, fn, 1, "the mip chain of a 3840 x 2160 texture (MipLevels)");
+  }
+  passTest("heavy shader", kPassHeavy, "RGBA8", 1, "32 sin per pixel, every pixel");
+  passTest("heavy, stencil 50%", kPassStencil, "RGBA8", 1, "half the pixels (8 x 8 tiles) fail the stencil test");
+  passTest("heavy, discard 50% tiles", kPassDiscardTiles, "RGBA8", 1, "discard first in half the 8 x 8 tiles");
+  passTest("heavy, discard 50% pixels", kPassDiscardPixels, "RGBA8", 1, "discard first in every other pixel");
   return v;
 }
 
@@ -398,6 +625,7 @@ const char* const kHeader =
     "Texture2D<float4> T : register(t0);\n"
     "Texture2D<uint4> TU : register(t1);\n"
     "Texture3D<float4> T3 : register(t2);\n"
+    "Texture1D<float4> T1 : register(t3);\n"
     "SamplerState S : register(s0);\n";
 
 std::string chainBody(const Test& t, int chains, const char* indent) {
@@ -414,6 +642,11 @@ std::string chainBody(const Test& t, int chains, const char* indent) {
 
 std::string computeSource(const Test& t, int chains) {
   std::string s = kHeader;
+  if (t.uav == 1) s += "RWTexture2D<float4> W : register(u1);\n";
+  if (t.uav == 2) s += "RWTexture2D<uint4> WU : register(u1);\n";
+  if (t.uav == 3) s += "RWTexture2D<uint> WA : register(u1);\n";
+  if (t.groupshared) s += "groupshared float GS[2048];\ngroupshared uint GSI[64];\n";
+  s += "static const float K[16] = {0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.59, 0.60, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66};\n";
   // Thread groups of 64 as tiles of tileW x (64 / tileW) pixels, laid out over 1024 x 1024 pixels.
   const std::string w = std::to_string(t.tileW), h = std::to_string(64 / t.tileW), row = std::to_string(1024 / t.tileW);
   s += "RWStructuredBuffer<float> O : register(u0);\n"
@@ -421,11 +654,18 @@ std::string computeSource(const Test& t, int chains) {
        "  const uint g = id.x / 64u, l = id.x % 64u;\n"
        "  const float2 P = (float2((g % " + row + "u) * " + w + "u + l % " + w + "u, (g / " + row + "u) * " + h +
        "u + l / " + w + "u) + 0.5) * texel;\n";
+  if (t.groupshared)
+    s += "  for (uint k = l; k < 2048u; k += 64u) GS[k] = 0.5 + float(k) * 1e-4 + seed;\n"
+         "  GSI[l] = l;\n  GroupMemoryBarrierWithGroupSync();\n";
+  if (t.localArray) s += "  float A[16];\n  [unroll] for (uint k = 0; k < 16u; ++k) A[k] = 0.5 + float(k) * 0.01 + seed;\n";
   for (int k = 0; k < chains; ++k)
     s += "  float x" + std::to_string(k) + " = 0.3 + frac(id.x * 0.000123 + " + std::to_string(k) + " * 0.137) * seed;\n";
   s += chainBody(t, chains, "  ");
   s += "  O[id.x] = 0.0";
   for (int k = 0; k < chains; ++k) s += " + x" + std::to_string(k);
+  // Read groupshared memory once at the end: fxc drops groupshared writes (and their barriers) that
+  // nothing reads.
+  if (t.groupshared) s += " + GS[(l * 7u) & 2047u] + float(GSI[l] & 1u)";
   s += ";\n}\n";
   return s;
 }
@@ -484,6 +724,33 @@ std::string blendSource(int op, bool shader) {
   static const char* const kMath[] = {"", "s + d", "lerp(d, s, s.a)", "s * d", "min(s, d)"};
   return s + "  return " + kMath[op] + ";\n}\n";
 }
+
+// Pass state tests: noise into count targets, or the heavy shader (with discard for the discard tests).
+std::string passSource(const Test& t) {
+  std::string s =
+      "uint hash(uint v) { v ^= v >> 16; v *= 0x7feb352du; v ^= v >> 15; v *= 0x846ca68bu; v ^= v >> 16; return v; }\n"
+      "float4 noise(float4 pos) {\n"
+      "  uint k = uint(pos.y) * 4096u + uint(pos.x);\n"
+      "  uint4 n = uint4(hash(k), hash(k ^ 0x9e3779b9u), hash(k ^ 0x7f4a7c15u), hash(k ^ 0x94d049bbu));\n"
+      "  return asfloat((n >> 9) | 0x3f800000u) - 1.0;\n"
+      "}\n";
+  if (t.pass == kPassTargets) {
+    s += "struct Out {";
+    for (int k = 0; k < t.count; ++k) s += " float4 c" + std::to_string(k) + " : SV_Target" + std::to_string(k) + ";";
+    s += " };\nOut main(float4 pos : SV_Position) {\n  float4 v = noise(pos);\n  Out o;\n";
+    static const char* const kSw[] = {"xyzw", "yzwx", "zwxy", "wxyz", "wzyx", "zyxw", "yxwz", "xwzy"};
+    for (int k = 0; k < t.count; ++k) s += std::string("  o.c") + std::to_string(k) + " = v." + kSw[k] + ";\n";
+    return s + "  return o;\n}\n";
+  }
+  s += "float4 main(float4 pos : SV_Position) : SV_Target {\n";
+  if (t.pass == kPassDiscardTiles) s += "  if (((uint(pos.x) >> 3) ^ (uint(pos.y) >> 3)) & 1u) discard;\n";
+  if (t.pass == kPassDiscardPixels) s += "  if ((uint(pos.x) ^ uint(pos.y)) & 1u) discard;\n";
+  return s + "  float4 v = noise(pos);\n  [unroll] for (int k = 0; k < 32; ++k) v = sin(v * 1.7 + 0.3);\n  return v;\n}\n";
+}
+
+// Stencil test: marks half the pixels (8 x 8 tiles) in the stencil buffer.
+const char* const kStencilMark =
+    "void main(float4 pos : SV_Position) { if (((uint(pos.x) >> 3) ^ (uint(pos.y) >> 3)) & 1u) discard; }\n";
 
 // ---------------------------------------------------------------------------
 // GPU
@@ -548,8 +815,10 @@ std::string fileName(const std::string& test) {
 struct Bound {
   ID3D11Resource* tex = nullptr;
   ID3D11ShaderResourceView* srv = nullptr;
+  ID3D11UnorderedAccessView* uav = nullptr;
   ID3D11SamplerState* sampler = nullptr;
   void free() {
+    release(uav);
     release(srv);
     release(tex);
     release(sampler);
@@ -563,7 +832,8 @@ Bound bindResources(Gpu& g, const Test& t, std::mt19937& rng) {
               : t.filter == Filter::Linear    ? D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT
               : t.filter == Filter::Trilinear ? D3D11_FILTER_MIN_MAG_MIP_LINEAR
                                               : D3D11_FILTER_ANISOTROPIC;
-  sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+  sd.AddressU = sd.AddressV = sd.AddressW = t.address;
+  sd.BorderColor[0] = sd.BorderColor[1] = sd.BorderColor[2] = sd.BorderColor[3] = 0.5f;
   sd.MaxAnisotropy = t.filter == Filter::Aniso ? 16 : 1;
   sd.MaxLOD = D3D11_FLOAT32_MAX;
   sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
@@ -571,21 +841,48 @@ Bound bindResources(Gpu& g, const Test& t, std::mt19937& rng) {
   if (t.tex == Tex::None) return b;
 
   const Format& f = *t.format;
-  if (t.tex == Tex::Lut3D) {
+  if (t.tex == Tex::Storage) {
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width = td.Height = t.size;
+    td.MipLevels = td.ArraySize = 1;
+    td.Format = f.dxgi;
+    td.SampleDesc.Count = 1;
+    td.Usage = D3D11_USAGE_DEFAULT;
+    td.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    ID3D11Texture2D* tex = nullptr;
+    if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &tex))) fail("cannot create the storage texture for " + t.name);
+    b.tex = tex;
+    if (FAILED(g.dev->CreateUnorderedAccessView(b.tex, nullptr, &b.uav))) fail("cannot create the storage view for " + t.name);
+    return b;
+  }
+  if (t.tex == Tex::Tex1D) {
+    D3D11_TEXTURE1D_DESC td = {};
+    td.Width = t.size;
+    td.MipLevels = td.ArraySize = 1;
+    td.Format = f.dxgi;
+    td.Usage = D3D11_USAGE_IMMUTABLE;
+    td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    const auto data = texelData(f, t.size, rng);
+    D3D11_SUBRESOURCE_DATA init = {data.data(), 0, 0};
+    ID3D11Texture1D* tex = nullptr;
+    if (FAILED(g.dev->CreateTexture1D(&td, &init, &tex))) fail("cannot create the texture for " + t.name);
+    b.tex = tex;
+  } else if (t.tex == Tex::Lut3D || t.tex == Tex::Vol) {
     D3D11_TEXTURE3D_DESC td = {};
-    td.Width = td.Height = td.Depth = t.size;
+    td.Width = td.Height = t.size;
+    td.Depth = t.tex == Tex::Vol ? t.depth : t.size;
     td.MipLevels = 1;
     td.Format = f.dxgi;
     td.Usage = D3D11_USAGE_IMMUTABLE;
     td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    const auto data = texelData(f, size_t(t.size) * t.size * t.size, rng);
+    const auto data = texelData(f, size_t(t.size) * t.size * td.Depth, rng);
     D3D11_SUBRESOURCE_DATA init = {data.data(), t.size * UINT(f.bytes), t.size * t.size * UINT(f.bytes)};
     ID3D11Texture3D* tex = nullptr;
     if (FAILED(g.dev->CreateTexture3D(&td, &init, &tex))) fail("cannot create the texture for " + t.name);
     b.tex = tex;
   } else {
     D3D11_TEXTURE2D_DESC td = {};
-    td.Width = t.size;
+    td.Width = t.tex == Tex::Lut2D ? t.size * t.size : t.size;
     td.Height = t.tex == Tex::Lut1D ? 1 : t.size;
     td.MipLevels = t.tex == Tex::Mipped ? 0 : 1;
     td.ArraySize = 1;
@@ -649,15 +946,16 @@ struct Kernel {
 };
 
 void bind(Gpu& g, const Test& t, const Bound& b, const Kernel& k) {
-  ID3D11ShaderResourceView* views[3] = {nullptr, nullptr, nullptr};
-  if (b.srv) views[t.tex == Tex::Lut3D ? 2 : t.intTex ? 1 : 0] = b.srv;
+  ID3D11ShaderResourceView* views[4] = {nullptr, nullptr, nullptr, nullptr};
+  if (b.srv) views[t.tex == Tex::Lut3D || t.tex == Tex::Vol ? 2 : t.tex == Tex::Tex1D ? 3 : t.intTex ? 1 : 0] = b.srv;
   if (k.cs) {
     g.ctx->CSSetShader(k.cs, nullptr, 0);
-    g.ctx->CSSetShaderResources(0, 3, views);
+    g.ctx->CSSetUnorderedAccessViews(1, 1, &b.uav, nullptr);
+    g.ctx->CSSetShaderResources(0, 4, views);
     g.ctx->CSSetSamplers(0, 1, &b.sampler);
   } else {
     g.ctx->PSSetShader(k.ps, nullptr, 0);
-    g.ctx->PSSetShaderResources(0, 3, views);
+    g.ctx->PSSetShaderResources(0, 4, views);
     g.ctx->PSSetSamplers(0, 1, &b.sampler);
   }
 }
@@ -854,9 +1152,24 @@ int main(int argc, char** argv) {
       if (t.name == n) return &t;
     return nullptr;
   };
+  // Storage formats this GPU cannot write from a compute shader (typed UAV stores beyond D3D11's required
+  // formats are optional) are left out and listed.
+  std::string noStorage;
+  auto storageOk = [&](const Test& t) {
+    if (t.tex != Tex::Storage) return true;
+    UINT support = 0;
+    if (SUCCEEDED(g.dev->CheckFormatSupport(t.format->dxgi, &support)) &&
+        (support & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW))
+      return true;
+    if (noStorage.find(t.format->name) == std::string::npos)
+      noStorage += std::string(noStorage.empty() ? "" : ", ") + t.format->name;
+    return false;
+  };
   for (const Test& t : all)
-    if (filter.empty() || t.name.find(filter) != std::string::npos || t.section.empty() || t.name == "mad" || t.name == "ps.mad")
+    if ((filter.empty() || t.name.find(filter) != std::string::npos || t.section.empty() || t.name == "mad" || t.name == "ps.mad") &&
+        storageOk(t))
       tests.push_back(&t);
+  if (!noStorage.empty()) std::printf("Not supported as storage (compute writes) on this GPU, left out: %s\n", noStorage.c_str());
   for (bool added = true; added;) {
     added = false;
     for (const Test* t : std::vector<const Test*>(tests))
@@ -878,7 +1191,7 @@ int main(int argc, char** argv) {
   // Compile every compute / pixel test for its configurations.
   std::map<std::string, std::map<std::string, Kernel>> kernels;  // test -> config -> kernel
   for (const Test* t : tests) {
-    if (t->stage == Stage::Write || t->stage == Stage::Blend) continue;
+    if (t->stage == Stage::Write || t->stage == Stage::Blend || t->stage == Stage::Pass) continue;
     for (const Config& c : kConfigs) {
       if (t->stage == Stage::Pixel && std::strcmp(c.name, "lat") == 0) continue;
       Kernel k;
@@ -919,7 +1232,113 @@ int main(int argc, char** argv) {
   std::vector<double> refs;
   std::map<std::string, std::vector<double>> blendReadings;
   std::map<std::string, Consensus> blendMs;
+  std::map<std::string, std::vector<double>> passReadings;
+  std::map<std::string, Consensus> passMs;
   for (const Test* t : tests) {
+    if (t->stage == Stage::Pass) {
+      std::vector<ID3D11Texture2D*> rts;
+      std::vector<ID3D11RenderTargetView*> rtvs;
+      ID3D11ShaderResourceView* srv = nullptr;
+      ID3D11Texture2D* ds = nullptr;
+      ID3D11DepthStencilView* dsv = nullptr;
+      ID3D11DepthStencilState *dsMark = nullptr, *dsTest = nullptr;
+      ID3D11PixelShader *ps = nullptr, *psMark = nullptr;
+      const int count = t->pass == kPassTargets ? t->count : 1;
+      for (int k = 0; k < count; ++k) {
+        D3D11_TEXTURE2D_DESC td = {};
+        td.Width = kRtW;
+        td.Height = kRtH;
+        td.MipLevels = t->pass == kPassMips ? 0 : 1;
+        td.ArraySize = 1;
+        td.Format = t->format->dxgi;
+        td.SampleDesc.Count = 1;
+        td.BindFlags = D3D11_BIND_RENDER_TARGET | (t->pass == kPassMips ? D3D11_BIND_SHADER_RESOURCE : 0);
+        td.MiscFlags = t->pass == kPassMips ? D3D11_RESOURCE_MISC_GENERATE_MIPS : 0;
+        ID3D11Texture2D* rt = nullptr;
+        ID3D11RenderTargetView* rtv = nullptr;
+        if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &rt)) || FAILED(g.dev->CreateRenderTargetView(rt, nullptr, &rtv)))
+          fail("cannot create the render target for " + t->name);
+        rts.push_back(rt);
+        rtvs.push_back(rtv);
+      }
+      if (t->pass == kPassMips && FAILED(g.dev->CreateShaderResourceView(rts[0], nullptr, &srv)))
+        fail("cannot create the view for " + t->name);
+      auto makePs = [&](const std::string& src, ID3D11PixelShader** out) {
+        ID3DBlob* code = compile(src, t->name.c_str(), "ps_5_0");
+        if (FAILED(g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, out)))
+          fail("cannot create " + t->name);
+        code->Release();
+      };
+      if (t->pass != kPassClear && t->pass != kPassMips) makePs(passSource(*t), &ps);
+      D3D11_VIEWPORT vp = {0.0f, 0.0f, float(kRtW), float(kRtH), 0.0f, 1.0f};
+      g.ctx->RSSetViewports(1, &vp);
+      if (t->pass == kPassStencil) {
+        // The stencil buffer: 1 in half the 8 x 8 tiles, drawn once; the heavy pass then runs where it is 1.
+        D3D11_TEXTURE2D_DESC td = {};
+        td.Width = kRtW;
+        td.Height = kRtH;
+        td.MipLevels = td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        td.SampleDesc.Count = 1;
+        td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+        if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &ds)) || FAILED(g.dev->CreateDepthStencilView(ds, nullptr, &dsv)))
+          fail("cannot create the stencil buffer for " + t->name);
+        D3D11_DEPTH_STENCIL_DESC dd = {};
+        dd.DepthEnable = FALSE;
+        dd.StencilEnable = TRUE;
+        dd.StencilReadMask = dd.StencilWriteMask = 0xFF;
+        dd.FrontFace = {D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_REPLACE, D3D11_COMPARISON_ALWAYS};
+        dd.BackFace = dd.FrontFace;
+        if (FAILED(g.dev->CreateDepthStencilState(&dd, &dsMark))) fail("cannot create a stencil state");
+        dd.StencilWriteMask = 0;
+        dd.FrontFace = {D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_KEEP, D3D11_COMPARISON_EQUAL};
+        dd.BackFace = dd.FrontFace;
+        if (FAILED(g.dev->CreateDepthStencilState(&dd, &dsTest))) fail("cannot create a stencil state");
+        makePs(kStencilMark, &psMark);
+        g.ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_STENCIL, 1.0f, 0);
+        g.ctx->OMSetRenderTargets(0, nullptr, dsv);
+        g.ctx->OMSetDepthStencilState(dsMark, 1);
+        g.ctx->PSSetShader(psMark, nullptr, 0);
+        g.ctx->Draw(3, 0);
+        g.ctx->OMSetDepthStencilState(dsTest, 1);
+      }
+      if (t->pass != kPassMips) g.ctx->OMSetRenderTargets(UINT(rtvs.size()), rtvs.data(), dsv);
+      if (ps) g.ctx->PSSetShader(ps, nullptr, 0);
+      const float clearColor[4] = {0.1f, 0.2f, 0.3f, 1.0f};
+      auto unit = [&] {
+        if (t->pass == kPassClear) g.ctx->ClearRenderTargetView(rtvs[0], clearColor);
+        else if (t->pass == kPassMips) g.ctx->GenerateMips(srv);
+        else g.ctx->Draw(3, 0);
+      };
+      auto timeUnits = [&](UINT n) {
+        return g.timer.time(g.ctx, [&] {
+          for (UINT k = 0; k < n; ++k) unit();
+        });
+      };
+      UINT n = 1;
+      while (n < 4096 && timeUnits(n) < 2.0) n *= 2;
+      std::vector<double>& rd = passReadings[t->name];
+      for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
+        std::vector<double> runs;
+        for (int k = 0; k < reps * 3 && int(runs.size()) < reps; ++k)
+          if (const double m = timeUnits(n); m > 0.0) runs.push_back(m / n);
+        rd.push_back(median(runs));
+        progress.step();
+      }
+      passMs[t->name] = consensus(rd, 0.0);
+      g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
+      g.ctx->OMSetDepthStencilState(nullptr, 0);
+      release(ps);
+      release(psMark);
+      release(dsTest);
+      release(dsMark);
+      release(dsv);
+      release(ds);
+      release(srv);
+      for (auto*& v : rtvs) release(v);
+      for (auto*& r : rts) release(r);
+      continue;
+    }
     if (t->stage == Stage::Blend) {
       // A 3840 x 2160 target, its content (noise) in a second texture that restores it before every pass.
       D3D11_TEXTURE2D_DESC td = {};
@@ -1054,9 +1473,9 @@ int main(int argc, char** argv) {
       x.r.nsPerStep /= double(x.readings.size());
       x.units = consensus(x.readings);
     }
-    ID3D11ShaderResourceView* nullViews[3] = {nullptr, nullptr, nullptr};
-    g.ctx->CSSetShaderResources(0, 3, nullViews);
-    g.ctx->PSSetShaderResources(0, 3, nullViews);
+    ID3D11ShaderResourceView* nullViews[4] = {nullptr, nullptr, nullptr, nullptr};
+    g.ctx->CSSetShaderResources(0, 4, nullViews);
+    g.ctx->PSSetShaderResources(0, 4, nullViews);
     if (t->stage == Stage::Pixel) {
       ID3D11RenderTargetView* nullRtv = nullptr;
       g.ctx->OMSetRenderTargets(1, &nullRtv, nullptr);
@@ -1105,6 +1524,11 @@ int main(int argc, char** argv) {
                    t->section.c_str(), writeMs[t->name], writeUnits[t->name].value, writeReadings[t->name].size(),
                    writeUnits[t->name].ok ? "yes" : "no", readingsText(writeReadings[t->name]).c_str(), kRtW, kRtH);
   for (const Test* t : tests)
+    if (t->stage == Stage::Pass)
+      std::fprintf(csv, "pass,%s,\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"%s\"\n", t->name.c_str(),
+                   t->section.c_str(), passMs[t->name].value, passMs[t->name].value, passReadings[t->name].size(),
+                   passMs[t->name].ok ? "yes" : "no", readingsText(passReadings[t->name]).c_str(), kRtW, kRtH, t->note.c_str());
+  for (const Test* t : tests)
     if (t->stage == Stage::Blend)
       std::fprintf(csv, "blend,%s,\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"\"\n", t->name.c_str(),
                    t->section.c_str(), blendMs[t->name].value, blendMs[t->name].value, blendReadings[t->name].size(),
@@ -1131,7 +1555,8 @@ int main(int argc, char** argv) {
     rows = false;
   };
   for (const Test* t : tests) {
-    if (t->section.empty() || t->stage == Stage::Write || t->stage == Stage::Blend || !results["tput"].count(t->name))
+    if (t->section.empty() || t->stage == Stage::Write || t->stage == Stage::Blend || t->stage == Stage::Pass ||
+        !results["tput"].count(t->name))
       continue;
     if (t->section != section) {
       betterNote("shorter");
@@ -1235,6 +1660,18 @@ int main(int argc, char** argv) {
       std::printf("%s%s\n", head, line.c_str());
     }
     std::printf("  %s(lower is better)%s\n", st.c("\x1b[90m"), st.reset());
+  }
+  double maxP = 0.0;
+  for (const Test* t : tests)
+    if (t->stage == Stage::Pass) maxP = std::max(maxP, passMs[t->name].value);
+  if (maxP > 0.0) {
+    std::printf("\n  %sPass states: full-screen passes into 3840 x 2160%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"),
+                st.reset(), st.c("\x1b[90m"), "Test", "ms/pass", kBarWidth, "", st.reset());
+    for (const Test* t : tests)
+      if (t->stage == Stage::Pass)
+        std::printf("  %-26s %8.3f  %s\n", t->name.c_str(), passMs[t->name].value,
+                    bar(passMs[t->name].value, maxP, kBarWidth, st, kCyan).c_str());
+    std::printf("  %s(shorter is better)%s\n", st.c("\x1b[90m"), st.reset());
   }
   std::printf("\n  Cost = extra over the test's base in sopt units (4 = one fma, measured right before); Ops = Cost / 4;\n"
               "  dep / lat = the same cost with one chain per thread / one thread group. What each test measures:\n"

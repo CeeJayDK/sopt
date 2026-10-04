@@ -167,22 +167,29 @@ inline std::string bar(double v, double maxV, int width, const Style& st, Shade 
 // disagree run on past 100% in yellow.
 constexpr int kStepsPerCell = 6;
 
+// Steps per cell of the progress bar: at least kStepsPerCell, more for long runs so the bar stays within
+// kMaxCells (a console window's width).
+constexpr int kMaxCells = 70;
+inline int stepsPerCell(int planned) { return std::max(kStepsPerCell, (planned + kMaxCells - 1) / kMaxCells); }
+
 struct Progress {
   const Style* st;
   int planned = 0;
   int steps = 0;
   void step() {
     ++steps;
-    const int sub = (steps - 1) % kStepsPerCell;
+    const int spc = stepsPerCell(planned);
+    const int pos = (steps - 1) % spc;
+    const int sub = pos * kStepsPerCell / spc;  // the cell's fill level, 0 .. 5
     if (!st->vt) {
-      if (sub == kStepsPerCell - 1) std::printf(steps > planned ? "+" : "#");
+      if (pos == spc - 1) std::printf(steps > planned ? "+" : "#");
       return;
     }
     static const char* const kCell[6] = {"\x1b[90m▌", "\x1b[37m▌", "\x1b[97m▌",
                                          "\x1b[97;100m▌", "\x1b[97;47m▌", "\x1b[97m█"};
     static const char* const kExtra[6] = {"\x1b[33m▌", "\x1b[33m▌", "\x1b[93m▌",
                                           "\x1b[93;43m▌", "\x1b[93;43m▌", "\x1b[93m█"};
-    std::printf("%s%s\x1b[0m", sub == 0 ? "" : "\b", (steps > planned ? kExtra : kCell)[sub]);
+    std::printf("%s%s\x1b[0m", pos == 0 ? "" : "\b", (steps > planned ? kExtra : kCell)[sub]);
   }
 };
 
@@ -206,7 +213,8 @@ inline std::string scaleLine(int cells, bool quarters) {
 }
 
 inline std::string progressScale(int planned) {
-  const int cells = (planned + kStepsPerCell - 1) / kStepsPerCell;
+  const int spc = stepsPerCell(planned);
+  const int cells = (planned + spc - 1) / spc;
   if (cells < 8) return {};
   return scaleLine(cells, cells >= 24);  // room for the quarters
 }

@@ -97,6 +97,10 @@ Vector (float2 / float3 / float4)
   length, distance      dot, sqrt (distance: 3 subtracts first), plus one fma of the step.
   normalize             dot, rsqrt and 3 multiplies.
   reflect               i - 2 * dot(i, n) * n.
+  refract, faceforward  refraction (dot, sqrt, select) and faceforward (dot, compare, select).
+  det3                  determinant of a float3x3.
+  matmul4               mul(float4x4, float4): 4 dot products (16 fmas).
+  transpose             the same with transpose(): should cost nothing extra.
 
 Written out by fxc (no single instruction exists; fxc emits a sequence)
   smoothstep        subtract, mul_sat, mad, 2 multiplies.
@@ -105,6 +109,16 @@ Written out by fxc (no single instruction exists; fxc emits a sequence)
   tan               sin, cos and a divide.
   atan, atan2       polynomial approximations (atan2 adds quadrant fixes).
   asin, acos        polynomial with a sqrt.
+
+More intrinsics
+  bitcast           asint / asfloat: should be free.
+  radians           a multiply (degrees too).
+  log10             log2 and a multiply.
+  isnan, isinf      a compare and a select (a driver may drop isnan if it assumes no NaNs).
+  modf, frexp       fraction and integer part; mantissa and exponent.
+  ldexp             x * exp2(e).
+  f16round          f32tof16 + f16tof32: rounding a value through half precision.
+  tanh, sinh, cosh  written out with exp (and a divide for tanh).
 
 Integer and conversions (chains of uint values, x = (x ^ a) * b, with random 32-bit constants)
   bitor             one integer OR on a float value: is switching between float and int free?
@@ -115,10 +129,14 @@ Integer and conversions (chains of uint values, x = (x ^ a) * b, with random 32-
   imul              a second 32-bit multiply (slower than float on some cards).
   popc, fbh         countbits, firstbithigh.
   bitrev            reversebits.
+  fbl               firstbitlow.
+  icmpsel           unsigned compare and select.
   unitf             uint -> float in [1, 2) through the bits (shift, or): a fast random-number trick.
-  utof, ftou        uint -> float and float -> uint conversions.
+  utof, ftou        uint -> float and float -> uint conversions; itof: int -> float.
   ftoitof           float -> int, an integer or, int -> float (fxc writes float(int(x)) alone as
                     one truncation instruction, so the or keeps the conversions).
+  udiv, umod        unsigned divide / modulo by a small divisor (1 .. 255). Most GPUs have no
+  idiv, imod        integer divide instruction, so the driver writes a sequence; signed is longer.
 
 Half precision (min16float)
   mad16, add16, mul16, rcp16, sqrt16, exp2_16   the same steps in 16-bit floats. AMD RDNA and some
