@@ -1068,7 +1068,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   max(max()) -> v_max3_num_f32, saturate folds into the producing fma's clamp bit, saturate(x) * 2 stays a separate
   v_add (omod applies before clamp, so no omod over a saturate; sopt's amdFolds already excludes Saturate from
   takesOmod), GLSL sign -> 2 x (v_cmp + v_cndmask), integer mul + add -> v_mad_co_u64_u32; VK_AMD_gpa_interface yes.
-  RTX 4060 Ti (driver 616.56): statistics only, like the GTX 1660.
+  RTX 4060 Ti (Ada, driver 32.0.16.1656; docs/opbench/nvidia-rtx-4060-ti.csv, docs/texbench/): ShaderInfo statistics
+  only, like the GTX 1660; OpBench = RTX 4070 b within 0.05 on every shared test (nvidia-ampere holds), drift 3-15%,
+  all consensus; iadd 0.9 / iand 2.1 / imul 1.4, f16round 5.2; TexBench 77 s, 381 GTexels/s, 124 GPixels/s, 281 GB/s,
+  RGBA16F / RGBA32F / trilinear half rate (AMD RDNA 4: RGBA16F full); pixel order 4 x 8 warp blocks like Turing.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
