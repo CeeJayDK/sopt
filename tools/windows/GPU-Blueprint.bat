@@ -5,6 +5,8 @@ setlocal EnableExtensions
 rem Upload page for the reports (a Dropbox file request: anyone can upload, nobody can see the folder).
 set "UPLOAD=https://www.dropbox.com/request/jmwykzlbulwo8ltkyule"
 cd /d "%~dp0"
+rem The programs are in bin\ (owner, 2026-10-05: only the menu and the guide in the main folder).
+set "BIN=%~dp0bin\"
 rem ESC for colors (Windows 10 and later; older consoles show the codes as text); BEL (a raw 0x07 byte below) beeps.
 for /f %%e in ('echo prompt $E^| cmd') do set "E=%%e"
 set "BEL="
@@ -105,7 +107,7 @@ rem Another card: the list from OpBench, then its number.
 :pick
 cls
 echo.
-"%~dp0OpBench.exe" --list
+"%BIN%OpBench.exe" --list
 echo.
 set "card="
 set /p "card=  Number of the graphics card to measure (Enter = back to the menu): "
@@ -122,18 +124,18 @@ exit /b
 rem Every card: ShaderInfo once (it covers every Vulkan GPU), then OpBench and TexBench per card.
 :every
 call :one ShaderInfo.exe ""
-for /f "usebackq" %%i in (`call "%~dp0OpBench.exe" --adapters`) do (
+for /f "usebackq" %%i in (`call "%BIN%OpBench.exe" --adapters`) do (
   call :one OpBench.exe "--adapter %%i"
   call :one TexBench.exe "--adapter %%i"
 )
 goto :finish
 
 :one
-if exist "%~dp0%~1" goto oneRun
-echo   %E%[91m%~1 is missing next to GPU-Blueprint.bat%E%[0m
+if exist "%BIN%%~1" goto oneRun
+echo   %E%[91m%~1 is missing from the bin folder%E%[0m
 exit /b
 :oneRun
-"%~dp0%~1" %~2
+"%BIN%%~1" %~2
 exit /b
 
 rem After a run: zip the reports (not Reports\Shaders; Get-ChildItem leaves out the hidden marker), beep, then offer

@@ -25,19 +25,27 @@ DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host
 
 ## Contents
 
+Since 0.6.0 (owner, 2026-10-05) every Windows download has only its launcher and `README.html` in the main
+folder, the programs in `bin\` and the other pages / licenses in `Docs\` (`tools/windows/stage.ps1` stages all
+three for CI and the release). This one (`sopt-windows-tools`):
+
 | file | what |
 |---|---|
-| `sopt-host.exe` | a window with a fixed test image and a synthetic depth buffer, vsync off (DX11 or Vulkan) |
-| `sopt-timer.addon64` / `.addon32` | the ReShade add-on that times the techniques and runs the bench |
-| `run-bench.bat`, `run-bench.ps1` | the one-click bench above |
-| `sopt-fxc.exe` | Microsoft's fxc -O3 on one HLSL entry point (for `sopt-fx --backends`, see tools/fxc) |
-| `timings.py` | merges several CSVs into one Markdown table |
-| `ReShade64.dll`, `ReShade-LICENSE.md` | ReShade 6.8.0, full add-on support, unchanged (CI build) |
-| `OpBench.exe` | instruction costs on this GPU, for sopt's cost models (below) |
-| `TexBench.exe` | texture reads, derivatives and render target writes per format (below) |
-| `ShaderInfo.exe` | what each Vulkan GPU driver reports about the shaders it compiles: statistics, disassembly (where offered), hardware counters; writes `Reports\shaderinfo-<gpu>.txt` |
-| `GPU-Blueprint.bat` | the menu for the three programs (main card, another card, every card, one program alone); zips `Reports\` into `GPU-Blueprint-Reports.zip` after every run |
-| `README.html`, `Docs\` | the GPU Blueprint guide (hub page) and one page per program (sources: `tools/windows/docs/`) |
+| `run-bench.bat` | the one-click bench above |
+| `README.html` | the short guide (source: `tools/windows/docs/Tools.html`) |
+| `bin\sopt-host.exe` | a window with a fixed test image and a synthetic depth buffer, vsync off (DX11 or Vulkan) |
+| `bin\sopt-timer.addon64` / `.addon32` | the ReShade add-on that times the techniques and runs the bench |
+| `bin\run-bench.ps1` | the bench script (results, `run\`, the test package and a ReShade setup go next to `run-bench.bat`) |
+| `bin\sopt-fxc.exe` | Microsoft's fxc -O3 on one HLSL entry point (for `sopt-fx --backends`, see tools/fxc) |
+| `bin\timings.py` | merges several CSVs into one Markdown table |
+| `bin\ReShade64.dll`, `Docs\ReShade-LICENSE.md` | ReShade 6.8.0, full add-on support, unchanged (CI build) |
+
+GPU Blueprint (OpBench, TexBench, ShaderInfo, `GPU-Blueprint.bat`) is its own download (CI artifact `GPU-Blueprint`,
+release `GPU-Blueprint-<version>.zip`): `GPU-Blueprint.bat`, `README.html`, `bin\` with the three programs (their
+`Reports\` goes next to the batch file: benchkit `reportsDir` steps out of a folder named bin), `Docs\` with one
+page per program. SweetOpt (CI artifact `SweetOpt-windows`, release `SweetOpt-<version>-windows-x64.zip`):
+`SweetOpt.bat`, `README.html` (docs/sweetopt/README.html), `bin\sopt.exe`, `bin\sopt-fx.exe` (and the menu's
+`SweetOpt.ini`), `Docs\`.
 
 Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host),
 `tools/windows/opbench` (OpBench), `tools/windows/texbench` (TexBench), `tools/windows/shaderinfo` (ShaderInfo), `benchkit.hpp` (shared), `tools/windows/docs` (README.html, Docs\\*.html), this folder (scripts).

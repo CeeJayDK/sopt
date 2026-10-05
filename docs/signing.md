@@ -41,28 +41,25 @@ Foundation signs it for free. Their review is done by people and can take days.
   <zip-file>
     <zip-file path="SweetOpt-*-windows-x64.zip">
       <pe-file-set>
-        <include path="sopt.exe"/>
-        <include path="sopt-fx.exe"/>
+        <include path="bin/sopt.exe"/>
+        <include path="bin/sopt-fx.exe"/>
         <for-each><authenticode-sign/></for-each>
       </pe-file-set>
     </zip-file>
     <zip-file path="GPU-Blueprint-*.zip">
       <pe-file-set>
-        <include path="OpBench.exe"/>
-        <include path="TexBench.exe"/>
-        <include path="ShaderInfo.exe"/>
+        <include path="bin/OpBench.exe"/>
+        <include path="bin/TexBench.exe"/>
+        <include path="bin/ShaderInfo.exe"/>
         <for-each><authenticode-sign/></for-each>
       </pe-file-set>
     </zip-file>
     <zip-file path="sopt-windows-tools-*.zip">
       <pe-file-set>
-        <include path="OpBench.exe"/>
-        <include path="TexBench.exe"/>
-        <include path="ShaderInfo.exe"/>
-        <include path="sopt-host.exe"/>
-        <include path="sopt-fxc.exe"/>
-        <include path="sopt-timer.addon64"/>
-        <include path="sopt-timer.addon32"/>
+        <include path="bin/sopt-host.exe"/>
+        <include path="bin/sopt-fxc.exe"/>
+        <include path="bin/sopt-timer.addon64"/>
+        <include path="bin/sopt-timer.addon32"/>
         <for-each><authenticode-sign/></for-each>
       </pe-file-set>
     </zip-file>

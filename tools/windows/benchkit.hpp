@@ -121,7 +121,11 @@ inline Consensus consensus(std::vector<double> v, double absTol = 0.75) {
 inline std::filesystem::path reportsDir() {
   char exePath[MAX_PATH];
   GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-  const std::filesystem::path dir = std::filesystem::path(exePath).parent_path() / "Reports";
+  // The release zip keeps the programs in bin\ (owner, 2026-10-05: only the menu and the guide in the main folder);
+  // Reports\ goes next to GPU-Blueprint.bat then.
+  std::filesystem::path base = std::filesystem::path(exePath).parent_path();
+  if (_stricmp(base.filename().string().c_str(), "bin") == 0) base = base.parent_path();
+  const std::filesystem::path dir = base / "Reports";
   std::error_code ec;
   std::filesystem::create_directories(dir, ec);
   return dir;

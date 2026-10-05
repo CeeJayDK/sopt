@@ -1,6 +1,7 @@
 @echo off
 rem SweetOpt menu (owner, 2026-10-05: a menu helps users, as GPU-Blueprint.bat did): pick the shaders, then start
-rem sopt-fx with a number key. Settings are kept in SweetOpt.ini next to this file; results go to sopt-out\.
+rem sopt-fx with a number key. The programs and the settings (SweetOpt.ini) are in bin\ (owner, 2026-10-05: only the
+rem menu and the guide in the main folder); results go to sopt-out\.
 setlocal EnableExtensions
 cd /d "%~dp0"
 rem ESC for colors (Windows 10 and later; older consoles show the codes as text); BEL (a raw 0x07 byte below) beeps.
@@ -11,7 +12,7 @@ set "TARGET="
 set "SECONDS=5"
 set "MODEL=rdna3"
 set "MODELNAME=AMD RDNA 3 (Radeon RX 7000)"
-if exist "SweetOpt.ini" for /f "usebackq eol=# tokens=1,* delims==" %%a in ("SweetOpt.ini") do set "%%a=%%b"
+if exist "bin\SweetOpt.ini" for /f "usebackq eol=# tokens=1,* delims==" %%a in ("bin\SweetOpt.ini") do set "%%a=%%b"
 
 :menu
 cls
@@ -39,7 +40,7 @@ echo   %E%[1;93m6%E%[0m  Quick look: what SweetOpt would work on %E%[90m(seconds
 echo.
 echo   %E%[1;93m7%E%[0m  Open the results %E%[90m(sopt-out folder and sopt-report.md)%E%[0m
 echo   %E%[1;93m8%E%[0m  Edit value ranges %E%[90m(better results: sopt-facts.txt)%E%[0m
-echo   %E%[1;93m9%E%[0m  Open the quick start guide
+echo   %E%[1;93m9%E%[0m  Open the guide %E%[90m(README.html)%E%[0m
 echo   %E%[1;93m0%E%[0m  Quit
 echo.
 choice /c 1234567890 /n /m "  Press a number: "
@@ -53,7 +54,7 @@ if "%n%"=="5" call :start
 if "%n%"=="6" call :look
 if "%n%"=="7" call :results
 if "%n%"=="8" call :facts
-if "%n%"=="9" start "" notepad "%~dp0QUICKSTART.txt"
+if "%n%"=="9" start "" "%~dp0README.html"
 call :save
 goto menu
 
@@ -153,7 +154,7 @@ if "%WHAT%"=="" set "WHAT=%SHADERS%"
 set "FACTS="
 if exist "sopt-facts.txt" set FACTS=--facts "%~dp0sopt-facts.txt"
 cls
-"%~dp0sopt-fx.exe" -I "%SHADERS%" -o "%~dp0sopt-out" --time %SECONDS% --cost-model %MODEL% %FACTS% "%WHAT%"
+"%~dp0bin\sopt-fx.exe" -I "%SHADERS%" -o "%~dp0sopt-out" --time %SECONDS% --cost-model %MODEL% %FACTS% "%WHAT%"
 echo.
 if exist "sopt-out\sopt-report.md" echo   %E%[92mDone.%E%[0m The results are in the sopt-out folder: press 7 in the menu to open them.
 <nul set /p "=%BEL%"
@@ -166,7 +167,7 @@ if "%SHADERS%"=="" exit /b
 set "WHAT=%TARGET%"
 if "%WHAT%"=="" set "WHAT=%SHADERS%"
 cls
-"%~dp0sopt-fx.exe" -I "%SHADERS%" -o "%~dp0sopt-out" --list "%WHAT%"
+"%~dp0bin\sopt-fx.exe" -I "%SHADERS%" -o "%~dp0sopt-out" --list "%WHAT%"
 echo.
 pause
 exit /b
@@ -219,10 +220,11 @@ if defined PICKED set "PICKED=%PICKED:"=%"
 exit /b
 
 :save
->"SweetOpt.ini" echo # SweetOpt.bat settings
->>"SweetOpt.ini" echo SHADERS=%SHADERS%
->>"SweetOpt.ini" echo TARGET=%TARGET%
->>"SweetOpt.ini" echo SECONDS=%SECONDS%
->>"SweetOpt.ini" echo MODEL=%MODEL%
->>"SweetOpt.ini" echo MODELNAME=%MODELNAME%
+if not exist "bin" mkdir "bin"
+>"bin\SweetOpt.ini" echo # SweetOpt.bat settings
+>>"bin\SweetOpt.ini" echo SHADERS=%SHADERS%
+>>"bin\SweetOpt.ini" echo TARGET=%TARGET%
+>>"bin\SweetOpt.ini" echo SECONDS=%SECONDS%
+>>"bin\SweetOpt.ini" echo MODEL=%MODEL%
+>>"bin\SweetOpt.ini" echo MODELNAME=%MODELNAME%
 exit /b

@@ -1127,6 +1127,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   names. GPU Blueprint menu (owner): key 1 = every card, 2 main, 3 another; after a run it offers to send the reports
   (Y opens the upload page); key 9 blinks (ESC[5m) while the zip has not been sent (hidden marker Reports\.sent, made
   when the page is opened, deleted by the next run).
+  Download layout (owner, 2026-10-05: "only the menu and the readme start page" in the main folder):
+  tools/windows/stage.ps1 stages SweetOpt\ / GPU-Blueprint\ / tools\ for CI (artifacts SweetOpt-windows,
+  GPU-Blueprint, sopt-windows-tools) and release.yml (zips; Linux tarball the same: README.html, bin/, Docs/):
+  launcher + README.html, programs in bin\, Docs\ (pages, style.css, LICENSE.txt). SweetOpt's guide is
+  docs/sweetopt/README.html (QUICKSTART.txt removed), the bench tools' docs/Tools.html; the tools zip no longer
+  carries GPU Blueprint. benchkit reportsDir steps out of a folder named bin (Reports\ next to the batch file);
+  run-bench.ps1 in bin\ uses the parent for results / run / package / ReShade setup; SweetOpt.ini in bin\.
+  Signing config (docs/signing.md) uses bin/ paths.
   First upload (owner, 2026-10-05, Intel NUC Iris 540, OpBench / TexBench / ShaderInfo with the 0.6.0 build; docs/opbench/
   intel-iris-540-v6.csv, docs/texbench/intel-iris-540.csv, docs/shaderinfo/intel-iris-540.txt): file name "<uploader name> -
   GPU-Blueprint-Reports.zip"; the cloud container cannot download it (*.dropboxusercontent.com denied by the network policy),

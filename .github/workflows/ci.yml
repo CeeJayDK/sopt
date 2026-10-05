@@ -52,34 +52,27 @@ jobs:
           mkdir -p ../reshade-bin
           cp bin/x64/Release/ReShade64.dll ../reshade-bin/
           cp LICENSE.md ../reshade-bin/ReShade-LICENSE.md
-      - name: Stage Windows tools
-        # One flat folder: the artifact is extracted next to ReShade and the test package and
-        # run with run-bench.bat (tools/windows/README.md).
+      - name: Stage Windows downloads
+        # The release zips' layouts (tools/windows/stage.ps1): launcher + README.html, programs in bin\, Docs\.
         if: matrix.name == 'msvc'
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path dist/Docs | Out-Null
-          Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md dist/
-          Copy-Item build/Release/OpBench.exe, build/Release/TexBench.exe, build/Release/ShaderInfo.exe, tools/windows/GPU-Blueprint.bat, tools/windows/docs/README.html dist/
-          Copy-Item tools/windows/docs/OpBench.html, tools/windows/docs/TexBench.html, tools/windows/docs/ShaderInfo.html, tools/windows/docs/style.css dist/Docs/
+        run: tools/windows/stage.ps1 -Out stage
+      - name: Upload GPU Blueprint
+        if: matrix.name == 'msvc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: GPU-Blueprint
+          path: stage/GPU-Blueprint/
+      - name: Upload SweetOpt for Windows
+        if: matrix.name == 'msvc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SweetOpt-windows
+          path: stage/SweetOpt/
       - name: Upload Windows tools
-        # sopt-host, sopt-timer (M4 harness), the one-click bench, ReShade64.dll, OpBench, sopt-fxc
+        # sopt-host, sopt-timer (M4 harness), the one-click bench, ReShade64.dll, sopt-fxc
         if: matrix.name == 'msvc'
         uses: actions/upload-artifact@v4
         with:
           name: sopt-windows-tools
-          path: dist/
-      - name: Stage sopt for Windows
-        # sopt / sopt-fx with the menu batch file, as in the release zip
-        if: matrix.name == 'msvc'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path sopt-win | Out-Null
-          Copy-Item build/Release/sopt.exe, build/Release/sopt-fx.exe, tools/windows/SweetOpt.bat, LICENSE sopt-win/
-          Copy-Item docs/QUICKSTART.txt sopt-win/QUICKSTART.txt
-      - name: Upload sopt for Windows
-        if: matrix.name == 'msvc'
-        uses: actions/upload-artifact@v4
-        with:
-          name: sopt-windows
-          path: sopt-win/
+          path: stage/tools/

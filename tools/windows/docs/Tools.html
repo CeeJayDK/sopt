@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SweetOpt bench tools</title>
+<link rel="stylesheet" href="Docs/style.css">
+</head>
+<body>
+<main>
+<header class="top">
+  <h1>SweetOpt bench tools</h1>
+  <p>Measures the real speed of SweetOpt's variants: every original / variant pair of a test package, timed on the GPU in ReShade, on DX11 and Vulkan.</p>
+</header>
+
+<h2>How to run</h2>
+<ol>
+  <li>Extract this zip into a folder.</li>
+  <li>Extract the test package (<code>sopt-compare-*.zip</code>: a folder with <code>sopt-presets\</code> and <code>reshade-shaders\</code>) into the same folder.</li>
+  <li>Double-click <code>run-bench.bat</code>. A 4K window opens and closes by itself, first for DX11, then for Vulkan; each preset warms up, is timed for 300 frames and gets a screenshot.</li>
+  <li>Send the <code>results-&lt;date&gt;.zip</code> it writes next to <code>run-bench.bat</code>: the timings per API, the screenshots (the presets end in a Compare effect, so a black image means the original and the variant look the same), ReShade's logs and the GPU name.</li>
+</ol>
+<p>Nothing outside this folder is touched: the run uses its own folder (<code>run\</code>) with its own <code>ReShade.ini</code>, no ReShade installation and no game.</p>
+
+<h2>Options</h2>
+<p>From a command prompt: <code>run-bench.bat -Apis dx11 -Frames 600 -Width 2560 -Height 1440</code>.</p>
+<table>
+  <tr><td><code>-Apis</code></td><td><code>dx11</code>, <code>vulkan</code> or both (default)</td></tr>
+  <tr><td><code>-Frames</code></td><td>frames timed per preset (default 300)</td></tr>
+  <tr><td><code>-Width</code>, <code>-Height</code></td><td>window size (default 3840 x 2160)</td></tr>
+  <tr><td><code>-ReShade</code></td><td>another ReShade64.dll (with full add-on support); a <code>ReShade64.dll</code> or <code>ReShade_Setup_*_Addon.exe</code> next to <code>run-bench.bat</code> is used too</td></tr>
+  <tr><td><code>-Package</code></td><td>the test package folder, if it is somewhere else</td></tr>
+</table>
+
+<h2>What is in the bin folder</h2>
+<table>
+  <tr><td><code>sopt-host.exe</code></td><td>a window with a fixed test image and a synthetic depth buffer, vsync off (DX11 or Vulkan)</td></tr>
+  <tr><td><code>sopt-timer.addon64</code> / <code>.addon32</code></td><td>the ReShade add-on that times the techniques and runs the bench</td></tr>
+  <tr><td><code>run-bench.ps1</code></td><td>the bench script <code>run-bench.bat</code> starts</td></tr>
+  <tr><td><code>sopt-fxc.exe</code></td><td>Microsoft's fxc -O3 on one HLSL entry point (for <code>sopt-fx --backends</code>)</td></tr>
+  <tr><td><code>timings.py</code></td><td>merges several timing CSVs into one table</td></tr>
+  <tr><td><code>ReShade64.dll</code></td><td>ReShade 6.8.0 with full add-on support, built unchanged from crosire's source (license in <code>Docs\ReShade-LICENSE.md</code>)</td></tr>
+</table>
+<p>To measure what a graphics card's instructions and textures cost, use <strong>GPU Blueprint</strong> (its own download).</p>
+
+<footer>SweetOpt by CeeJay.dk. <a href="https://github.com/CeeJayDK/sopt">github.com/CeeJayDK/sopt</a></footer>
+</main>
+</body>
+</html>
