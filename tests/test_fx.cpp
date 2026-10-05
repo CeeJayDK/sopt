@@ -1005,3 +1005,30 @@ TEST(fx_precise_and_too_exact) {
   }
   fs::remove_all(out, ec);
 }
+
+TEST(fx_namespace) {
+  // Ns::Gain is read inside namespace Ns: its leaf (and so the variant text) is the plain name, as
+  // the source writes it; Other::Far keeps its namespace. Fact keys stay fully qualified.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_namespace.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) {
+    std::printf("  %s\n", err.c_str());
+    return;
+  }
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* r = regionOn(regions, 22);
+  CHECK(r != nullptr);
+  if (r) {
+    CHECK(inputNamed(*r, "Gain") >= 0);
+    CHECK(inputNamed(*r, "Other::Far") >= 0);
+    CHECK(inputNamed(*r, "Ns::Gain") < 0);
+    bool qualifiedKey = false;
+    for (const auto& f : r->facts) qualifiedKey = qualifiedKey || f.key == "sopt_namespace.fx global Ns::Gain";
+    CHECK(qualifiedKey);
+  }
+}
+

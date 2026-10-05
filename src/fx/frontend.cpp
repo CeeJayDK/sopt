@@ -737,7 +737,9 @@ class Extractor {
   Leaf& leafOf(const Value& v, size_t& vecStart);
   uint32_t applyVectorChain(uint32_t node, const std::vector<reshadefx::expression::operation>& chain,
                             size_t start, ExprBuilder& b, const Leaf* leaf);
-  std::string varText(uint32_t var) const;
+  // A variable's name as code writes it; relative = false keeps a uniform's full namespace (fact keys).
+  std::string varText(uint32_t var, bool relative = true) const;
+  std::string fnNs_;  // the current function's namespace as in unique names ("Ns__", "" at global scope)
 
   Range range(uint32_t valueId);
   Range varRange(uint32_t var, uint32_t seq, uint32_t block);
@@ -811,7 +813,7 @@ class Extractor {
   void mapFetches(const Statement& s, const std::string& text);
 };
 
-std::string Extractor::varText(uint32_t var) const {
+std::string Extractor::varText(uint32_t var, bool relative) const {
   const auto it = cg_.variables.find(var);
   if (it == cg_.variables.end()) throw Unsupported("not a variable");
   const Variable& v = it->second;
@@ -821,8 +823,21 @@ std::string Extractor::varText(uint32_t var) const {
     case Variable::Kind::Uniform: {
       if (v.name.rfind(kSymbolicPrefix, 0) == 0) return v.name.substr(std::strlen(kSymbolicPrefix));
       if (v.uniqueName == "V" + v.name) return v.name;
-      // "VNs__name" -> "Ns::name"
       std::string ns = v.uniqueName.substr(1, v.uniqueName.size() - 1 - v.name.size());
+      // A uniform of the function's own namespace (or an enclosing one) by its plain name, as the source
+      // writes it: a header included inside different namespaces (CobraFX's CobraUtility.fxh, COBRA_MSK and
+      // others) must not get one effect's namespace in its variant text. Unless a nearer uniform of the
+      // same name would take the plain name.
+      if (relative && fnNs_.rfind(ns, 0) == 0) {
+        bool shadowed = false;
+        for (const auto& [id, o] : cg_.variables)
+          if (&o != &v && o.kind == Variable::Kind::Uniform && o.name == v.name) {
+            const std::string ons = o.uniqueName.substr(1, o.uniqueName.size() - 1 - o.name.size());
+            shadowed = shadowed || (ons.size() > ns.size() && fnNs_.rfind(ons, 0) == 0);
+          }
+        if (!shadowed) return v.name;
+      }
+      // "VNs__name" -> "Ns::name"
       std::string out;
       for (size_t i = 0; i < ns.size(); ++i) {
         if (ns[i] == '_' && i + 1 < ns.size() && ns[i + 1] == '_') { out += "::"; ++i; }
@@ -1408,7 +1423,7 @@ std::string Extractor::varKey(uint32_t var) const {
   if (function.empty()) return {};
   if (isSymbolic(var)) return "macro global " + varText(var);  // preprocessor definition
   return pathFrom(v.loc.source).filename().string() + " " + function + " " +
-         (v.kind == Variable::Kind::Uniform ? varText(var) : v.name);
+         (v.kind == Variable::Kind::Uniform ? varText(var, false) : v.name);
 }
 
 // The analysed range, or the user's where the analysis has no fact.
@@ -2317,6 +2332,11 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
   for (const auto& fp : cg_.functions) {
     const Function& f = *fp;
     if (!reach.count(f.uniqueName)) continue;
+    // "FNs__name" -> "Ns__"
+    fnNs_.clear();
+    if (f.uniqueName.size() > f.name.size() + 1 &&
+        f.uniqueName.compare(f.uniqueName.size() - f.name.size(), f.name.size(), f.name) == 0)
+      fnNs_ = f.uniqueName.substr(1, f.uniqueName.size() - 1 - f.name.size());
     for (const Statement& s : f.stmts) {
       const auto val = cg_.values.find(s.value);
       if (val != cg_.values.end() &&
