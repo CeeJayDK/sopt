@@ -1225,6 +1225,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   the 1660, UHD 630 RGBA16F Load 11% slower; half-size downsample passes bilinear = 4 Loads (memory bound); blend fix
   confirmed (lerp / min now 0.41 ms like add, plain 0.32), blend state 2-3% faster than the shader on the 1660 except RGBA32F
   (~10% slower), UHD 630 +-10%. OpBench fma1 = mad on both (4.02 / 3.98). FINDINGS.md updated (measured vs *estimated*).
+  Release build check (owner, 2026-10-05, 0.6.0 from main; docs/opbench/*-v8.csv, docs/texbench/*-v9.csv, docs/shaderinfo/*-3.txt):
+  headers say 0.6.0, all tests consensus; UHD 630 = the previous run within 10% on every test, GTX 1660 too except 15 of 993
+  TexBench tests at 10-20% (71% reference drift); findings unchanged.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
