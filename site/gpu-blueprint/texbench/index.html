@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TexBench findings</title>
+<meta name="description" content="What texture reads, writes, blending and pass states cost on real GPUs, measured with GPU Blueprint's TexBench, and how each GPU orders its pixels.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body data-root="../../" data-page="texbench">
+<main class="wrap">
+  <section class="hero">
+    <div class="tag">gpu blueprint &middot; texbench</div>
+    <h1>What textures cost, and how GPUs order their pixels.</h1>
+    <p class="lead">Texture reads in every ReShade format and filter, lookup tables, caches, render target writes, blending and pass states, measured on real cards with GPU Blueprint's TexBench.</p>
+    <p class="unit"><strong>Costs are in fma units</strong> (1.0 = one fused multiply-add at full rate) on top of the shader math around each read, measured as throughput, so they compare directly with the <a href="../">cost models</a>. Writes are in GB/s (higher is better), blending and pass states in ms per full-screen pass at 3840 x 2160.</p>
+  </section>
+
+  <section>
+    <h2>Compare the cards</h2>
+    <p class="note">A few telling numbers side by side. Cost in fma units, lower is better.</p>
+    <div class="tablewrap"><table id="compare"></table></div>
+  </section>
+
+  <section>
+    <h2>One card in detail</h2>
+    <label class="select">card <select id="card"></select></label>
+    <div id="detail"></div>
+  </section>
+
+  <section>
+    <h2>Pixel shader order, every card</h2>
+    <p class="note">TexBench numbers every pixel of a full-screen draw in the order it ran. Colour runs from first (blue) to last (red); the close-up shows the blocks of pixels shaded together (one warp or wave).</p>
+    <div id="gallery" class="gallery"></div>
+  </section>
+</main>
+<script src="../../common.js"></script>
+<script src="texbench.js"></script>
+</body>
+</html>

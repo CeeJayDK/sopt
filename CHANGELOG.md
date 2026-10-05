@@ -7,12 +7,14 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 
 ### Web page
 - **GPU Blueprint online:** the cost models SweetOpt uses, per architecture and per operation, the cards measured and the pixel order pictures, rebuilt automatically as reports come in.
+- **Pages at ceejay.dk/sopt/:** SweetOpt (what it does, with the faster `sign()` per architecture), the rewrite library (every verified rewrite with its saving on each architecture), GPU Blueprint (every DirectX 11 architecture, the ones without a cost model yet greyed out) and the TexBench findings (formats x filters, caches, writes, blending, and every card's pixel order pictures).
 
 ### All downloads
 - **Tidy main folder:** each zip now has only its launcher (`SweetOpt.bat`, `GPU-Blueprint.bat`, `run-bench.bat`) and its guide (`README.html`) in the main folder; the programs are in `bin`, the other pages and the licenses in `Docs`.
 - **SweetOpt has an HTML guide** (`README.html`), replacing QUICKSTART.txt. The bench tools zip no longer includes GPU Blueprint (it has its own download).
 
 ### SweetOpt (was sopt)
+- **New cost model `intel-gen7.5`** (Intel HD Graphics 4600, Haswell), from a GPU Blueprint report: its math unit (rcp, sqrt, exp2, sin ...) costs about as much as an add, unlike Gen9's ~3x. In the menu as key J.
 - **New name:** sopt is now **SweetOpt**, the super sweet shader optimizer. The programs keep their short names `sopt-fx` and `sopt`, and variant files keep their `SOPT_*` switches; the download is `SweetOpt-<version>-windows-x64.zip`.
 - **Menu for Windows:** double-click `SweetOpt.bat`: choose the Shaders folder and what to optimize (folder and file dialogs, no typing of paths), the time per statement and the graphics card family, start, open the results, edit value ranges. It remembers the choices.
 

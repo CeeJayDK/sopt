@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Builds the GPU Blueprint web page (owner, 2026-10-05): the cost models SweetOpt uses, the cards behind them and
-the pixel order pictures, published with GitHub Pages by .github/workflows/pages.yml.
+"""Builds the SweetOpt / GPU Blueprint web pages (owner, 2026-10-05), published at ceejay.dk/sopt/ with GitHub Pages by
+.github/workflows/pages.yml: the SweetOpt start page, the rewrite library, the cost models with every DirectX 11
+architecture (measured or not yet) and the TexBench findings with the pixel order pictures.
 
-    build.py <models.json from `sopt --cost-models-json`> <output folder>
+    build.py <sopt --cost-models-json output> <sopt --library-json output> <output folder>
 
 Only hardware facts are published (card, vendor / device ID, driver version): no names of the people who ran the
 reports (GDPR). Reports that cannot be tied to a model (software renderers, cards without a model yet) are listed
@@ -28,6 +29,7 @@ NAME_BY_FILE = {
 NAME_BY_DEVICE = {
     "0x1681": "AMD Radeon 680M",
     "0x1636": "AMD Radeon Vega (Renoir)",
+    "0x164E": "AMD Radeon Graphics (Raphael)",
 }
 SKIP_DEVICES = {"0x008C"}  # Microsoft Basic Render Driver (software)
 
@@ -40,10 +42,11 @@ MODEL_RULES = [
     (r"GTX (9\d\d|8\d\dM)|Quadro M\d", "nvidia-maxwell"),
     (r"RX 9\d\d\d", "amd-rdna4"),
     (r"RX 7\d\d\d", "rdna3"),
-    (r"RX 6\d\d\d|Radeon 6[68]0M", "amd-rdna2"),
+    (r"RX 6\d\d\d|Radeon 6[68]0M|Raphael", "amd-rdna2"),
     (r"Vega", "amd-gcn5"),
     (r"HD [67]\d\d\dM?\b", "amd-terascale2"),
     (r"Iris\S* (Graphics )?5\d\d|U?HD Graphics 6\d\d|HD Graphics 5\d\d", "intel-gen9"),
+    (r"HD Graphics 4[2-6]\d\d|Iris\S* (Pro )?(Graphics )?5[12]00", "intel-gen7.5"),
 ]
 
 
@@ -79,10 +82,109 @@ def model_of(card):
     return None
 
 
+def library_data(library_path):
+    """The rules from `sopt --library-json`, with their comments and section headings from library/rewrites.txt."""
+    with open(library_path) as f:
+        lib = json.load(f)
+    lines = open(os.path.join(ROOT, "library", "rewrites.txt"), encoding="utf-8").read().splitlines()
+    heading_at = {}  # line number -> the comment block above it (after a blank line)
+    heading = ""
+    block = []
+    for i, line in enumerate(lines, 1):
+        if line.startswith("#"):
+            block.append(line.lstrip("#").strip())
+        elif not line.strip():
+            if block:
+                heading = " ".join(b for b in block if b)
+            block = []
+        else:
+            if block:
+                heading = " ".join(b for b in block if b)
+                block = []
+            heading_at[i] = heading
+    for r in lib["rules"]:
+        n = int(r["source"].rsplit(":", 1)[1])
+        raw = lines[n - 1]
+        r["line"] = n
+        r["comment"] = raw.split("#", 1)[1].strip() if "#" in raw else ""
+        r["where"] = r["text"].split(" where ", 1)[1].strip() if " where " in r["text"] else ""
+        r["section"] = heading_at.get(n, "")
+        del r["source"]
+    return lib
+
+
+TB_SKIP_CONFIGS = {"dep"}
+
+
+def texbench_data(out):
+    """The latest TexBench report per card (0.5.0 with the fixed pixel order test), grouped by section."""
+    best = {}
+    for path in sorted(glob.glob(os.path.join(ROOT, "docs", "texbench", "*.csv"))):
+        info = read_report(path)
+        lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+        rows = list(csv.reader(l for l in lines if l and not l.startswith("#")))
+        if not rows or rows[0][:3] != ["config", "test", "section"]:
+            continue
+        if sum(1 for r in rows if r and r[0] == "order") < 20:
+            continue  # before the pixel order fix
+        name = clean_name(NAME_BY_DEVICE.get(info.get("device", "")) or info.get("gpu", ""))
+        base = os.path.basename(path)[:-4]
+        m = re.search(r"-v(\d+)$", base)
+        rank = int(m.group(1)) if m else 0
+        if name not in best or rank > best[name][0]:
+            best[name] = (rank, path, base, info, rows, lines)
+    cards = []
+    for name, (rank, path, base, info, rows, lines) in sorted(best.items()):
+        hdr = {k: v for k, v in (re.match(r"# ([^:]+): (.*)", l).groups() for l in lines if re.match(r"# [^:]+: ", l))}
+        col = {c: i for i, c in enumerate(rows[0])}
+        sections = {}
+        order = []
+        for r in rows[1:]:
+            if len(r) < len(rows[0]) - 1:
+                continue
+            cfg, test, sec = r[0], r[1], r[2]
+            if cfg in TB_SKIP_CONFIGS or not sec:
+                continue
+            note = r[col["note"]] if "note" in col else ""
+            if cfg == "order":
+                order.append({"test": test, "value": r[col["units"]] or r[col["units_vs_base"]], "note": note})
+                continue
+            s = sections.setdefault(sec, {"title": sec, "kind": cfg if cfg in ("write", "blend", "pass") else "cost", "rows": {}})
+            row = s["rows"].setdefault(test, {"test": test, "note": note})
+            try:
+                if cfg in ("write", "blend", "pass"):
+                    row["value"] = float(r[col["units"]])
+                else:
+                    row[cfg] = float(r[col["units_vs_base"]]) / 4.0  # fma units
+            except ValueError:
+                pass
+        card = {
+            "name": name,
+            "driver": info.get("driver", ""),
+            "version": info.get("version", ""),
+            "runTime": hdr.get("run time", ""),
+            "scores": {k: hdr[k] for k in ("texture rate", "pixel fill rate", "memory bandwidth (writes)") if k in hdr},
+            "sections": [dict(s, rows=list(s["rows"].values())) for s in sections.values()],
+            "order": order,
+        }
+        img = os.path.join(ROOT, "docs", "texbench", base + "-order.png")
+        if os.path.exists(img):
+            shutil.copy(img, os.path.join(out, "img", base + "-order.png"))
+            card["orderImage"] = "img/" + base + "-order.png"
+            zoom = os.path.join(ROOT, "docs", "texbench", base + "-order-zoom.png")
+            if os.path.exists(zoom):
+                shutil.copy(zoom, os.path.join(out, "img", base + "-order-zoom.png"))
+                card["orderZoom"] = "img/" + base + "-order-zoom.png"
+        cards.append(card)
+    return {"cards": cards}
+
+
 def main():
-    models_path, out = sys.argv[1], sys.argv[2]
+    models_path, library_path, out = sys.argv[1], sys.argv[2], sys.argv[3]
     with open(models_path) as f:
         data = json.load(f)
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "architectures.json")) as f:
+        data["coverage"] = json.load(f)["vendors"]
     cards = {}  # card name -> {model, reports, drivers}
     for path in sorted(glob.glob(os.path.join(ROOT, "docs", "opbench", "*.csv"))):
         info = read_report(path)
@@ -99,26 +201,21 @@ def main():
     data["cards"] = sorted(cards.values(), key=lambda c: c["name"])
 
     os.makedirs(os.path.join(out, "img"), exist_ok=True)
-    images = []
-    for path in sorted(glob.glob(os.path.join(ROOT, "docs", "texbench", "*-order.png"))):
-        base = os.path.basename(path)[: -len("-order.png")]
-        csv_path = os.path.join(ROOT, "docs", "texbench", base + ".csv")
-        info = read_report(csv_path) if os.path.exists(csv_path) else {}
-        name = clean_name(NAME_BY_DEVICE.get(info.get("device", "")) or info.get("gpu") or base)
-        entry = {"card": name, "order": "img/" + base + "-order.png"}
-        shutil.copy(path, os.path.join(out, "img", base + "-order.png"))
-        zoom = os.path.join(ROOT, "docs", "texbench", base + "-order-zoom.png")
-        if os.path.exists(zoom):
-            shutil.copy(zoom, os.path.join(out, "img", base + "-order-zoom.png"))
-            entry["zoom"] = "img/" + base + "-order-zoom.png"
-        images.append(entry)
-    data["orderImages"] = images
+    os.makedirs(os.path.join(out, "data"), exist_ok=True)
+    tb = texbench_data(out)
+    lib = library_data(library_path)
 
-    for f in ("index.html", "app.js", "style.css"):
-        shutil.copy(os.path.join(ROOT, "site", f), os.path.join(out, f))
-    with open(os.path.join(out, "data.json"), "w") as f:
-        json.dump(data, f, indent=1)
-    print(f"{len(data['models'])} models, {len(data['cards'])} cards, {len(images)} pixel order pictures -> {out}")
+    # The page files (site/ as it is), then the data.
+    for dirpath, _, files in os.walk(os.path.join(ROOT, "site")):
+        rel = os.path.relpath(dirpath, os.path.join(ROOT, "site"))
+        os.makedirs(os.path.join(out, rel), exist_ok=True)
+        for f in files:
+            shutil.copy(os.path.join(dirpath, f), os.path.join(out, rel, f))
+    for name, obj in (("models", data), ("library", lib), ("texbench", tb)):
+        with open(os.path.join(out, "data", name + ".json"), "w") as f:
+            json.dump(obj, f, indent=1)
+    print(f"{len(data['models'])} models, {len(data['cards'])} cards, {len(lib['rules'])} library rules, "
+          f"{len(tb['cards'])} TexBench cards -> {out}")
 
 
 if __name__ == "__main__":

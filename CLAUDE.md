@@ -8,7 +8,7 @@ facts, budgets, variant .fx; owner's ReShade test passed on DX11 and Vulkan); pl
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 and the nvidia / intel models default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
-cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-maxwell`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `intel-gen7.5`, `nvidia-maxwell`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
 `nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3; plain HLSL SM5 pixel and compute shaders, ReShade FX compute shaders.
 
 ## Working with the owner
@@ -1135,10 +1135,19 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   data): `sopt --cost-models-json` (src/cli/main.cpp: the OpBench models + rdna3, quarter units, flags contraction /
   output modifier / max3 / minmax, vector helpers at float3), tools/site/build.py (cards per model from docs/opbench
   report headers: NAME_BY_FILE / NAME_BY_DEVICE fixes, MODEL_RULES regexes, Microsoft WARP skipped; pictures from
-  docs/texbench/*-order*.png), site/ (index.html, app.js, style.css: architecture chips, bars per op group in fma units
+  docs/texbench/*-order*.png), site/ (architecture chips, bars per op group in fma units
   with modifiers shown as free, one-operation comparison, card table, picture gallery; light / dark). .github/workflows/
   pages.yml builds it on GitHub (PRs: build only; main: deploy to GitHub Pages) and optimizes the PNGs losslessly (oxipng
-  -o max --zopfli, else zopflipng). Owner's one-time setup: Settings > Pages > Source: GitHub Actions, custom domain.
+  -o max --zopfli, else zopflipng). Owner's one-time setup: Settings > Pages > Source: GitHub Actions (the user site
+  CeeJayDK.github.io has the ceejay.dk domain, so this repo's site is ceejay.dk/sopt/).
+  Site pages (owner, 2026-10-05: every DX11 architecture with the missing ones greyed, a TexBench page, a SweetOpt page
+  and a library page, subdirectories): site/index.html (SweetOpt, sign() bars per model), library/ (`sopt --library-json`:
+  rules with [lhs, rhs] dagCost per published model; build.py adds sections / comments from library/rewrites.txt),
+  gpu-blueprint/ (tools/site/architectures.json: every DX11 architecture per vendor, model or null = wanted; coverage
+  grid), gpu-blueprint/texbench/ (data/texbench.json from the newest docs/texbench CSV per card with order rows; matrix
+  heat table, section bars, order picture gallery). Shared common.js (header / nav / footer, data loading) and style.css
+  in the ceejay.dk style (dark grid, JetBrains Mono / Inter, cyan / amber). Order pictures of 8 cards recovered from the
+  session's chat images (all taken after the order-test fix). build.py <models.json> <library.json> <out>.
   Download layout (owner, 2026-10-05: "only the menu and the readme start page" in the main folder):
   tools/windows/stage.ps1 stages SweetOpt\ / GPU-Blueprint\ / tools\ for CI (artifacts SweetOpt-windows,
   GPU-Blueprint, sopt-windows-tools) and release.yml (zips; Linux tarball the same: README.html, bin/, Docs/):
@@ -1161,6 +1170,21 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   fresh-session routine created from here gets no connectors / repo) downloads, checks and saves reports, then deletes
   everything in that folder. Owner allowed *.dropboxusercontent.com in the environment's network settings (2026-10-05):
   download_link + curl works (tested), whole zips incl. PNGs; Dropbox fetch stays the fallback.
+  OpBench / TexBench 0.5.0 batch (owner sent the CSVs in chat, 2026-10-05; no PNGs): all tests consensus in every report.
+  HD Graphics 4600 (Haswell, Gen7.5, 0x0416, driver 20.19.15.5171; docs/opbench|texbench/intel-hd-graphics-4600.csv): unlike Gen9
+  the math unit is cheap (rcp / rsqrt / sqrt / exp2 / log2 / sin / cos / log / div ~3.4-3.6 in tput, dep and lat alike = one op;
+  exp 6.8, pow 11.5), min / max / step 6.7-7.4, clamp 11.7, compare + select 7.3, lerp 6.9, sign 14.7, integer ops half rate
+  (iadd 6.5, imul 23), no omod, no max3 (5.0); new cost model `intel-gen7.5` (kIntelGen75, search order, SweetOpt.bat key J;
+  one card). TexBench: 9.1 GTexels/s, 2.3 GPixels/s, 23.6 GB/s; RGBA16F bilinear and trilinear = RGBA8 bilinear (~38), RGBA32F
+  467 (12x), aniso 16x 957; pixel order 4 x 4 (SIMD16). Raphael iGPU (Ryzen 7000, 0x164E, "AMD Radeon(TM) Graphics", driver
+  32.0.21043.10005; amd-radeon-raphael.csv) = RX 6950 XT / 680M within ~10% (one VALU op 2.72 vs 2.97, max3 1, omod2 / 4 free,
+  omod8 = control, mad16 -2.5): fourth RDNA 2 device, amd-rdna2 unchanged; TexBench 8 x 8 (wave64) pixel blocks. GTX 860M and
+  Quadro M5000M 0.5.0 (nvidia-gtx-860m-v5.csv, nvidia-quadro-m5000m-v5.csv) = their 0.4.0 runs within 0.05 (the 860M's sqrt
+  still 24, same driver); RTX 2060 0.5.0 (nvidia-rtx-2060-v5.csv) = its v4 stock run / GTX 1660 (iand 1.06, driver 32.0.16.2002);
+  RTX 4090 Laptop 0.5.0 (nvidia-rtx-4090-laptop-v5.csv, drift 168%, all consensus) = Ampere / Ada within ~3%. TexBench of the
+  four NVIDIA cards: 4 x 8 warp blocks; RGBA16F / RGBA32F / trilinear ~2.7x RGBA8 bilinear; the 4090 Laptop's scores (108
+  GTexels/s, 46 GB/s) are throttled (laptop power, 140% drift, 399 s run), not the card's real rates. Site: NAME_BY_DEVICE
+  0x164E, MODEL_RULES Raphael -> amd-rdna2, HD Graphics 42xx-46xx / Iris 5100 / 5200 -> intel-gen7.5.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
