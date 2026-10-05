@@ -1022,7 +1022,7 @@ int main(int argc, char** argv) {
   std::set<std::string> changed;
   for (const auto& r : results)
     if (!r.variants.empty()) changed.insert(r.region.file);
-  std::vector<fs::path> effectsOut;
+  std::vector<std::pair<fs::path, fs::path>> effectsOut;  // written effect, its original
   for (const auto& [p, srcs] : effectFiles) {
     bool uses = false;
     for (const auto& f : srcs) uses = uses || changed.count(f);
@@ -1034,15 +1034,18 @@ int main(int argc, char** argv) {
       if (ec) errors += "cannot copy " + p.string() + "\n";
       else files.push_back(dst);
     }
-    effectsOut.push_back(dst);
+    effectsOut.emplace_back(dst, p);
   }
 
   console::section(con, "Writing");
   // Every variant must still parse: SOPT_ALL = k selects variant k where it exists.
   size_t checks = 0, checkFailures = 0;
-  for (const auto& e : effectsOut) {
+  for (const auto& [e, original] : effectsOut) {
     for (size_t k = 0; k <= 2 * numVariants; ++k) {
       fx::LoadOptions lo = loadFor(e);
+      // The variant files are meant to lie over the original folder: headers and `#if exists` tests
+      // that are not in the output directory resolve there (SuperDepth3D's AXAA.fxh).
+      lo.includePaths.insert(lo.includePaths.begin(), original.parent_path());
       lo.macros.emplace_back("SOPT_ALL", std::to_string(k));
       std::string err;
       ++checks;
