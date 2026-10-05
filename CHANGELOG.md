@@ -3,6 +3,14 @@
 What is new in each release, newest first. The release workflow copies the section of the version it
 builds (`## <version>` up to the next `## `) into the release notes, so add to the top section as things land.
 
+## 0.6.0
+
+### GPU-Bench
+- **One batch file:** `GPU-Bench.bat` is now the only one, a menu that does it all. New: **another graphics card** (shows the cards, you type the number). The separate measure / shader-info batch files are gone.
+- **Reports folder:** everything to send goes to `Reports\` (shader dumps to `Reports\Shaders\`), and after every run `GPU-Bench-Reports.zip` holds the reports, ready to send.
+- **HTML guide:** `README.html` is the hub, with one page per program in `Docs\` (what every test measures, how to read the results), replacing the text files.
+- **Beep** when a run is done, before the "press a key" pause (it used to come after the key press).
+
 ## 0.5.0
 
 ### GPU-Bench (new: one zip for testers)

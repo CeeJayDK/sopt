@@ -15,8 +15,8 @@
 //   tput  8 independent chains per thread, 1M threads: throughput (the cost model's question)
 //   dep   1 chain per thread, 1M threads: dependent issue with full occupancy
 //   lat   1 chain, one thread group: latency of a dependent step, relative to mad's
-// Results go to the console and a CSV (default opbench-<gpu>.csv next to the exe); the DXBC
-// disassembly of every test goes to opbench-dxbc\ so a folded test can be spotted.
+// Results go to the console and a CSV (default Reports\opbench-<gpu>.csv next to the exe); the DXBC
+// disassembly of every test goes to Reports\Shaders\OpBench\ so a folded test can be spotted.
 //
 // Version 2: every test is measured twice (forward, then backward through the list) with a fresh
 // reference mad right before it, so a GPU clock change only affects the tests around it and shows
@@ -25,7 +25,7 @@
 //
 // Version 3 (0.2.0): vector chains (dot, cross, length, normalize), intrinsics fxc writes out
 // (atan, asin, tan, fmod, smoothstep, sincos), integer / bit operations and int <-> float
-// conversions on uint chains, half precision (min16float); summary in sections. TESTS.txt
+// conversions on uint chains, half precision (min16float); summary in sections. Docs/OpBench.html
 // describes every test.
 //
 // Version 4 (0.3.0, owner 2026-10-03): renamed OpBench; block graphics only from full and half
@@ -525,7 +525,7 @@ int main(int argc, char** argv) {
     };
     if (a == "--adapter") adapterIndex = std::atoi(next());
     else if (a == "--list") list = true;
-    else if (a == "--adapters") {  // hardware GPUs, each once (for measure-all-gpus.bat)
+    else if (a == "--adapters") {  // hardware GPUs, each once (for GPU-Bench.bat, every card)
       printUniqueAdapters();
       return 0;
     }
@@ -584,14 +584,12 @@ int main(int argc, char** argv) {
     g.ctx->CSSetUnorderedAccessViews(0, 1, &g.uav, nullptr);
   }
 
-  char exePath[MAX_PATH];
-  GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-  const std::filesystem::path here = std::filesystem::path(exePath).parent_path();
+  const std::filesystem::path reports = reportsDir();
   std::string safeName = gpuName;
   for (char& ch : safeName)
     if (!isalnum((unsigned char)ch)) ch = '_';
-  if (outPath.empty()) outPath = (here / ("opbench-" + safeName + ".csv")).string();
-  const std::filesystem::path dxbcDir = here / "opbench-dxbc";
+  if (outPath.empty()) outPath = (reports / ("opbench-" + safeName + ".csv")).string();
+  const std::filesystem::path dxbcDir = reports / "Shaders" / "OpBench";
   std::filesystem::create_directories(dxbcDir);
 
   // Compile every test for every configuration (chains differ).
@@ -900,7 +898,7 @@ int main(int argc, char** argv) {
               "  Graph   Longer bar = slower. Free operations have no bar; a full bar is 25 multiply-adds or more.\n"
               "\n"
               "  The numbers show how fast the GPU is when it is fully busy (as in a game).\n"
-              "  OpBench-TESTS.txt, next to this program, explains every test in plain words.\n",
+              "  Docs\\OpBench.html (README.html next to this program) explains every test in plain words.\n",
               st.c("\x1b[1;96m"), st.reset());
 
   bool warned = false;

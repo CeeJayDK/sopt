@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -108,6 +109,17 @@ inline Consensus consensus(std::vector<double> v, double absTol = 0.75) {
   return c;
 }
 
+// Where the programs write what testers send (owner, 2026-10-05: one folder instead of files next to
+// the programs): Reports\ next to the exe, created on first use; shader dumps go to Reports\Shaders\.
+inline std::filesystem::path reportsDir() {
+  char exePath[MAX_PATH];
+  GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+  const std::filesystem::path dir = std::filesystem::path(exePath).parent_path() / "Reports";
+  std::error_code ec;
+  std::filesystem::create_directories(dir, ec);
+  return dir;
+}
+
 // ---------------------------------------------------------------------------
 // Console output: ANSI colors and UTF-8 box / bar characters where the console supports virtual
 // terminal sequences (Windows 10+), plain ASCII otherwise.
@@ -120,6 +132,9 @@ struct Style {
 
 inline Style initConsole() {
   Style st;
+  // Keys pressed while the program ran are dropped at exit, so they do not reach the next prompt
+  // (GPU-Bench.bat's choice beeped at them after the run).
+  std::atexit([] { FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE)); });
   HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
   DWORD mode = 0;
   if (h != INVALID_HANDLE_VALUE && GetConsoleMode(h, &mode) &&
@@ -422,7 +437,7 @@ inline const char* vendorColor(const Style& st, UINT vendor) {
 
 // --adapters: the index of every hardware GPU, one per line, each GPU once (a driver can list the same GPU
 // twice, e.g. the NVIDIA card first because of NvOptimusEnablement and again at its own place: same LUID)
-// and without software adapters (Microsoft Basic Render Driver). measure-all-gpus.bat runs each index.
+// and without software adapters (Microsoft Basic Render Driver). GPU-Bench.bat (every card) runs each index.
 inline void printUniqueAdapters() {
   IDXGIFactory1* factory = nullptr;
   if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) fail("CreateDXGIFactory1 failed");

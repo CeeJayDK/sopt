@@ -319,7 +319,7 @@ the backend); Nsight Graphics on real hardware is the ground truth.
 ## Windows tools and releases
 
 Ready-built Windows tools are on the [Releases](https://github.com/CeeJayDK/sopt/releases) page:
-`OpBench-<version>.zip` (what GPU instructions cost on your card, see its README.txt) and
+`GPU-Bench-<version>.zip` (OpBench, TexBench and ShaderInfo: what your graphics card and driver really do; double-click GPU-Bench.bat) and
 `sopt-windows-tools-<version>.zip` (the benchmark harness, [tools/windows/README.md](tools/windows/README.md)).
 They are built from this repository by GitHub Actions (`.github/workflows/release.yml`).
 

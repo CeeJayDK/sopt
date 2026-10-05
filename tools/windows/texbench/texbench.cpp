@@ -1394,7 +1394,7 @@ int main(int argc, char** argv) {
     };
     if (a == "--adapter") adapterIndex = std::atoi(next());
     else if (a == "--list") list = true;
-    else if (a == "--adapters") {  // hardware GPUs, each once (for measure-all-gpus.bat)
+    else if (a == "--adapters") {  // hardware GPUs, each once (for GPU-Bench.bat, every card)
       printUniqueAdapters();
       return 0;
     }
@@ -1479,14 +1479,12 @@ int main(int argc, char** argv) {
     g.ctx->PSSetShaderResources(4, 2, g.noise);
   }
 
-  char exePath[MAX_PATH];
-  GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-  const std::filesystem::path here = std::filesystem::path(exePath).parent_path();
+  const std::filesystem::path reports = reportsDir();
   std::string safeName = ad.name;
   for (char& ch : safeName)
     if (!isalnum((unsigned char)ch)) ch = '_';
-  if (outPath.empty()) outPath = (here / ("texbench-" + safeName + ".csv")).string();
-  const std::filesystem::path dxbcDir = here / "texbench-dxbc";
+  if (outPath.empty()) outPath = (reports / ("texbench-" + safeName + ".csv")).string();
+  const std::filesystem::path dxbcDir = reports / "Shaders" / "TexBench";
   std::filesystem::create_directories(dxbcDir);
 
   // The selected tests and the bases they need.
@@ -2218,7 +2216,7 @@ int main(int argc, char** argv) {
               "  GB/s     Gigabytes per second: how much data is read or written (more is better).\n"
               "  ms/pass  Milliseconds for one full-screen pass at 3840 x 2160 (less is better).\n"
               "\n"
-              "  TexBench-TESTS.txt, next to this program, explains every test in plain words.\n",
+              "  Docs\\TexBench.html (README.html next to this program) explains every test in plain words.\n",
               st.c("\x1b[1;96m"), st.reset());
   if (drift > 5.0)
     std::printf("\n  %sWarning:%s the reference changed by %.0f%% during the run: the GPU clock moved.\n", st.c("\x1b[1;93m"),

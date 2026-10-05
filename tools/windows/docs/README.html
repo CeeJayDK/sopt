@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU-Bench</title>
+<link rel="stylesheet" href="Docs/style.css">
+</head>
+<body>
+<main>
+<header class="top">
+  <h1>GPU-Bench</h1>
+  <p>Measures what your graphics card and its driver really do, so sopt can pick the fastest shader code for each kind of card.</p>
+</header>
+
+<p>GPU-Bench is part of <a href="https://github.com/CeeJayDK/sopt">sopt</a>, a shader superoptimizer for ReShade effects (GPL-3.0) by CeeJay.dk. It has three small programs:</p>
+
+<div class="cards">
+  <div class="card"><h3><a href="Docs/OpBench.html">OpBench</a></h3><p>What math instructions cost: add, multiply, sqrt, sin, sign, integer and half precision math.</p></div>
+  <div class="card"><h3><a href="Docs/TexBench.html">TexBench</a></h3><p>What texture reads, render target writes, blending and pass states cost, for every texture format.</p></div>
+  <div class="card"><h3><a href="Docs/ShaderInfo.html">ShaderInfo</a></h3><p>What the graphics driver reports about the shaders it compiles.</p></div>
+</div>
+
+<h2>How to run</h2>
+<ol>
+  <li>Close games and other programs that use the graphics card. On a laptop, plug it in.</li>
+  <li>Double-click <code>GPU-Bench.bat</code>. A menu opens: press the number of what you want.</li>
+  <li>When it is done, send <code>GPU-Bench-Reports.zip</code> (next to <code>GPU-Bench.bat</code>). It holds every report in the <code>Reports</code> folder.</li>
+</ol>
+
+<table>
+  <tr><th>Key</th><th>What it does</th></tr>
+  <tr><td><kbd>1</kbd></td><td>Main graphics card: ShaderInfo, OpBench and TexBench, one after the other (about 5 to 15 minutes).</td></tr>
+  <tr><td><kbd>2</kbd></td><td>Another graphics card: shows the cards in the PC, you type the number of the one to measure, then the same as 1 for that card.</td></tr>
+  <tr><td><kbd>3</kbd></td><td>Every graphics card in the PC, one after the other (for example a laptop with built-in and dedicated graphics).</td></tr>
+  <tr><td><kbd>4</kbd> <kbd>5</kbd> <kbd>6</kbd></td><td>OpBench, TexBench or ShaderInfo alone, on the main graphics card.</td></tr>
+  <tr><td><kbd>7</kbd></td><td>Open the <code>Reports</code> folder.</td></tr>
+  <tr><td><kbd>8</kbd></td><td>Open this page.</td></tr>
+  <tr><td><kbd>0</kbd></td><td>Quit.</td></tr>
+</table>
+
+<p>The results appear section by section while the rest is measured, and OpBench and TexBench end with a score box. The window title shows the progress. A beep tells you when a run is done.</p>
+
+<h2>What it writes</h2>
+<table>
+  <tr><th>File</th><th>What</th></tr>
+  <tr><td><code>Reports\opbench-&lt;GPU&gt;.csv</code></td><td>OpBench's results</td></tr>
+  <tr><td><code>Reports\texbench-&lt;GPU&gt;.csv</code></td><td>TexBench's results</td></tr>
+  <tr><td><code>Reports\texbench-&lt;GPU&gt;-order*.png</code></td><td>pictures of the order in which the card shades pixels</td></tr>
+  <tr><td><code>Reports\shaderinfo-&lt;GPU&gt;.txt</code></td><td>what the driver reports about compiled shaders</td></tr>
+  <tr><td><code>Reports\Shaders\</code></td><td>the shader code of every test (not needed for reports)</td></tr>
+  <tr><td><code>GPU-Bench-Reports.zip</code></td><td>the files above (without the shader code) in one zip, made after every run</td></tr>
+</table>
+<p>Nothing is sent anywhere: the programs do not use the network. The files stay on your PC until you send them.</p>
+
+<h2>Send results and feedback</h2>
+<p>At <a href="https://github.com/CeeJayDK/sopt/issues">github.com/CeeJayDK/sopt/issues</a>, or to whoever asked you to run it.</p>
+
+<h2>Requirements</h2>
+<ul>
+  <li>Windows 10 or 11 and a graphics card with Direct3D 11 (ShaderInfo: a Vulkan driver, which every current NVIDIA, AMD and Intel driver has).</li>
+  <li>The Microsoft Visual C++ 2015-2022 redistributable (x64), which almost every gaming PC already has: <a href="https://aka.ms/vs/17/release/vc_redist.x64.exe">vc_redist.x64.exe</a>.</li>
+</ul>
+<p class="note">The programs are not code-signed yet, so Windows Defender or SmartScreen may warn about them. The download page lists their SHA-256 checksums.</p>
+
+<h2>Command line</h2>
+<p>Each program also runs on its own from a command prompt:</p>
+<table>
+  <tr><td><code>--list</code></td><td>show the graphics cards Windows reports, with their numbers (OpBench, TexBench)</td></tr>
+  <tr><td><code>--adapter N</code></td><td>measure card number N instead of the one with the most video memory</td></tr>
+  <tr><td><code>--filter text</code></td><td>only tests whose name contains <em>text</em> (quick checks)</td></tr>
+</table>
+<p>Details in each program's page: <a href="Docs/OpBench.html">OpBench</a>, <a href="Docs/TexBench.html">TexBench</a>, <a href="Docs/ShaderInfo.html">ShaderInfo</a>.</p>
+
+<footer>GPU-Bench, part of sopt by CeeJay.dk. <a href="https://github.com/CeeJayDK/sopt">github.com/CeeJayDK/sopt</a></footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShaderInfo</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../README.html">GPU-Bench</a> / ShaderInfo</nav>
+<header class="top">
+  <h1>ShaderInfo</h1>
+  <p>What your graphics driver reports about the shaders it compiles.</p>
+</header>
+
+<p>Graphics drivers turn shaders into the GPU's own instructions. Some drivers can report what they produced (instruction counts, registers, estimated cycles, sometimes the instructions themselves) and which hardware counters the GPU offers. ShaderInfo asks every Vulkan GPU in the PC and writes it all to a text file, so sopt can learn what the real drivers do with its shader variants.</p>
+
+<h2>How to run</h2>
+<p>From the GPU-Bench menu (<code>GPU-Bench.bat</code>): <kbd>1</kbd>, <kbd>2</kbd> and <kbd>3</kbd> run it first, <kbd>6</kbd> alone. It takes a few seconds and writes <code>Reports\shaderinfo-&lt;GPU&gt;.txt</code> for every Vulkan GPU.</p>
+
+<h3>Command line</h3>
+<table>
+  <tr><td><code>--batch folder</code></td><td>compile every <code>*.ps.spv</code> in the folder (<code>sopt-fx --export-spirv</code> writes them) and write the driver's statistics to <code>shaderinfo-batch-&lt;GPU&gt;.csv</code> in that folder</td></tr>
+  <tr><td><code>--spv file</code></td><td>also compile a compute shader of your own (SPIR-V, entry point main)</td></tr>
+  <tr><td><code>--all</code></td><td>include software renderers</td></tr>
+</table>
+
+<h2>What it reports</h2>
+<p>Where the driver offers it:</p>
+<table>
+  <tr><td><code>VK_KHR_pipeline_executable_properties</code></td><td>statistics of a compiled shader (instructions, registers, spills, ...) and sometimes its disassembly</td></tr>
+  <tr><td><code>VK_AMD_shader_info</code></td><td>AMD: registers and the disassembly</td></tr>
+  <tr><td><code>VK_KHR_performance_query</code></td><td>the hardware counters the GPU exposes (listed, not read)</td></tr>
+  <tr><td><code>VK_AMD_gpa_interface</code>, <code>VK_INTEL_performance_query</code></td><td>whether these vendor interfaces exist</td></tr>
+</table>
+<p>And every Vulkan extension the driver supports.</p>
+
+<h2>Requirements</h2>
+<p>A Vulkan driver (every current NVIDIA, AMD and Intel driver has one) and the Microsoft Visual C++ 2015-2022 redistributable (x64): <a href="https://aka.ms/vs/17/release/vc_redist.x64.exe">vc_redist.x64.exe</a>.</p>
+
+<footer>Nothing is sent anywhere; the file stays on your PC until you send it. Part of <a href="https://github.com/CeeJayDK/sopt">sopt</a> by CeeJay.dk (GPL-3.0).</footer>
+</main>
+</body>
+</html>

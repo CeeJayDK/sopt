@@ -7,7 +7,7 @@
 //   - VK_KHR_performance_query: the hardware counters the GPU exposes (listed only)
 //   - whether VK_AMD_gpa_interface / VK_INTEL_performance_query exist, and every device extension (in the file)
 // Two compute shaders (shaders_spv.h, from int.comp and float.comp) are compiled on every Vulkan GPU;
-// everything the driver returns goes to shaderinfo-<gpu>.txt next to the exe, a summary to the console.
+// everything the driver returns goes to Reports\shaderinfo-<gpu>.txt next to the exe, a summary to the console.
 //
 //   ShaderInfo [--spv file.spv] [--batch folder] [--all]
 //     --spv adds a compute shader of your own (entry point main); --batch compiles every *.ps.spv in the folder
@@ -355,9 +355,7 @@ int main(int argc, char** argv) {
       reinterpret_cast<PFN_vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR>(
           vkGetInstanceProcAddr(inst, "vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR"));
 
-  char exePath[MAX_PATH];
-  GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-  const std::filesystem::path here = std::filesystem::path(exePath).parent_path();
+  const std::filesystem::path here = reportsDir();
 
   uint32_t n = 0;
   vkEnumeratePhysicalDevices(inst, &n, nullptr);
