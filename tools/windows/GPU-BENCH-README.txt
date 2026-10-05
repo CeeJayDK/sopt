@@ -12,9 +12,11 @@ shader code for each kind of card:
 How to run
 ----------
 1. Close games and other programs that use the GPU. On a laptop, plug it in.
-2. Double-click measure-both.bat. It runs all three on your main graphics card (about 5-15 minutes)
-   and keeps the window open at the end. With more than one graphics card (for example a laptop with
-   built-in and dedicated graphics), use measure-all-gpus.bat instead: it measures every card.
+2. Double-click GPU-Bench.bat: a menu, press the number of what you want. Option 1 runs all three on
+   your main graphics card (about 5-15 minutes). With more than one graphics card (for example a laptop
+   with built-in and dedicated graphics), option 2 measures every card. The same without the menu:
+   measure-main-gpu.bat and measure-all-gpus.bat; one program alone: measure-gpu.bat (OpBench),
+   measure-textures.bat (TexBench), shader-info.bat (ShaderInfo).
 3. Send the files it writes next to the programs: shaderinfo-*.txt, opbench-*.csv, texbench-*.csv
    (and the texbench-*-order.png images if you like).
 

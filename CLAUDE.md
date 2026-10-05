@@ -1030,7 +1030,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   Owner (2026-10-04): if useful, driver shader statistics could also be a ReShade feature (not this project's scope;
   a ReShade add-on like sopt-timer would be the natural route).
   Release 0.5.0 (owner, 2026-10-05: "release tonight so people can use them while I sleep"; one zip for testers):
-  release.yml builds GPU-Bench-<v>.zip (OpBench, TexBench, ShaderInfo, measure-both / measure-all-gpus run ShaderInfo
+  release.yml builds GPU-Bench-<v>.zip (OpBench, TexBench, ShaderInfo, GPU-Bench.bat menu (owner: number keys, colors), measure-main-gpu
+  (renamed from measure-both, owner) / measure-all-gpus run ShaderInfo
   first, README.txt = tools/windows/GPU-BENCH-README.txt, <Program>-README / <Program>-TESTS) instead of the separate
   OpBench / TexBench zips; sopt and sopt-windows-tools zips unchanged. The footers name OpBench-TESTS.txt /
   TexBench-TESTS.txt. Process: PR merged to main, release.yml run manually on main = draft, owner publishes.

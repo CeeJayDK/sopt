@@ -36,7 +36,8 @@ DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host
 | `OpBench.exe`, `measure-gpu.bat` | instruction costs on this GPU, for sopt's cost models (below) |
 | `TexBench.exe`, `measure-textures.bat`, `TexBench-TESTS.txt` | texture reads, derivatives and render target writes per format (below) |
 | `ShaderInfo.exe`, `shader-info.bat` | what each Vulkan GPU driver reports about the shaders it compiles: statistics, disassembly (where offered), hardware counters; writes `shaderinfo-<gpu>.txt` (a test before building on it) |
-| `measure-both.bat` | runs OpBench, then TexBench, without stopping in between (pauses at the end) |
+| `GPU-Bench.bat` | a menu (number keys) for all of the batch files below |
+| `measure-main-gpu.bat` | ShaderInfo, then OpBench, then TexBench on the main graphics card, without stopping in between (pauses at the end) |
 | `measure-all-gpus.bat` | the same for every graphics card in the PC (each card once, no software renderer; `--adapters` lists them) |
 
 Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host),
@@ -208,7 +209,7 @@ section once its last test is measured. At the end: the GPU box, drift / consens
 The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics
 (`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases (since 0.5.0, owner: one zip for
 testers): `GPU-Bench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases with OpBench, TexBench and
-ShaderInfo, their batch files (measure-both.bat / measure-all-gpus.bat run ShaderInfo first), README.txt
+ShaderInfo, their batch files (measure-main-gpu.bat / measure-all-gpus.bat run ShaderInfo first), README.txt
 (GPU-BENCH-README.txt) and the programs' READMEs / TESTS files prefixed with their names.
 
 ## TexBench (texture costs)
