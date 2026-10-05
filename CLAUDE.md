@@ -1094,6 +1094,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   only, like the GTX 1660; OpBench = RTX 4070 b within 0.05 on every shared test (nvidia-ampere holds), drift 3-15%,
   all consensus; iadd 0.9 / iand 2.1 / imul 1.4, f16round 5.2; TexBench 77 s, 381 GTexels/s, 124 GPixels/s, 281 GB/s,
   RGBA16F / RGBA32F / trilinear half rate (AMD RDNA 4: RGBA16F full); pixel order 4 x 8 warp blocks like Turing.
+  GTX 1050 (GP107, driver 32.0.15.7652; docs/opbench/nvidia-gtx-1050.csv, docs/texbench/): = GTX 1060 / GT 1030 on every
+  tput test within 0.2 (third Pascal card: nvidia-pascal holds); no 16-bit min precision reported; TexBench 356 s, 69
+  GTexels/s, 27 GPixels/s, 61 GB/s, RGBA16F / RGBA32F / trilinear ~2.7x RGBA8; pixel order 4 x 8 warp blocks.
+  Vega 8 (Raven Ridge, GCN5, 0x15DD, driver 27.20.22002.57; amd-radeon-vega-8-raven.csv): = Renoir within ~1 unit
+  (transcendentals 7-8 vs 8.5; tput drift 99%, all consensus): amd-gcn5 holds; mad16 -2.7 (packed fp16, 2x). TexBench:
+  RGBA16F bilinear ~5x RGBA8 and RGBA32F ~13x (GCN filters wide formats slowly; RDNA 4 RGBA16F full rate); pixel order
+  8 x 8 (wave64), quadrants like RDNA 4. Score caveat (both GCN APUs): fp32 0.365 TFLOPS vs ~1.1 spec, because the
+  reference mad with two scalar constants is 2 instructions on GCN (an extra v_mov); fp16 1.1 is the real rate. Fix
+  (e.g. a score from a mad with one constant) needs the owner's go.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
