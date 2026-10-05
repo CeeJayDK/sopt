@@ -5,6 +5,9 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 
 ## 0.6.0
 
+### sopt / sopt-fx
+- **Menu for Windows:** double-click `sopt-menu.bat`: choose the Shaders folder and what to optimize (folder and file dialogs, no typing of paths), the time per statement and the graphics card family, start, open the results, edit value ranges. It remembers the choices.
+
 ### GPU-Bench
 - **One batch file:** `GPU-Bench.bat` is now the only one, a menu that does it all. New: **another graphics card** (shows the cards, you type the number). The separate measure / shader-info batch files are gone.
 - **Reports folder:** everything to send goes to `Reports\` (shader dumps to `Reports\Shaders\`), and after every run `GPU-Bench-Reports.zip` holds the reports, ready to send.

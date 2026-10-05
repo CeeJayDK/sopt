@@ -11,8 +11,13 @@ This is an early release: feedback is very welcome (see the end).
 
 1. Run sopt-fx on your shaders
 ------------------------------
-Open a command prompt in this folder and point sopt-fx at an effect file or a folder of
-effects, with -I for the folder that holds ReShade.fxh:
+Windows, the easy way: double-click sopt-menu.bat. Press 1 to choose your reshade-shaders\Shaders
+folder (the one with ReShade.fxh), 2 to choose what to optimize (everything, one folder such as
+SweetFX, or one effect), then 5 to start. 7 opens the results. The menu remembers your choices
+(sopt-menu.ini).
+
+Or from a command prompt in this folder: point sopt-fx at an effect file or a folder of effects,
+with -I for the folder that holds ReShade.fxh:
 
   Windows:
     sopt-fx -I "C:\Games\MyGame\reshade-shaders\Shaders" -o out "C:\Games\MyGame\reshade-shaders\Shaders\SweetFX"
@@ -67,7 +72,8 @@ performance statistics.
 sopt only rewrites a statement when it knows the range of every input (from ui_min / ui_max,
 texture formats, texture coordinates, ...). Inputs it could not work out are listed in
 out/sopt-facts.txt with a suggested range. Uncomment and correct the lines you know, then run
-again with --facts out/sopt-facts.txt (or answer the questions interactively with --ask).
+again with --facts out/sopt-facts.txt (or answer the questions interactively with --ask). In
+sopt-menu.bat: press 8, edit the file Notepad opens, save, and start again.
 
 
 5. The sopt tool (single expressions)
