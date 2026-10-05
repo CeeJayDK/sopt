@@ -1137,8 +1137,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   report headers: NAME_BY_FILE / NAME_BY_DEVICE fixes, MODEL_RULES regexes, Microsoft WARP skipped; pictures from
   docs/texbench/*-order*.png), site/ (architecture chips, bars per op group in fma units
   with modifiers shown as free, one-operation comparison, card table, picture gallery; light / dark). .github/workflows/
-  pages.yml builds it on GitHub (PRs: build only; main: deploy to GitHub Pages) and optimizes the PNGs losslessly (oxipng
-  -o max --zopfli, else zopflipng). Owner's one-time setup: Settings > Pages > Source: GitHub Actions (the user site
+  pages.yml builds it on GitHub (PRs: build only; main: deploy to GitHub Pages) with the PNGs as they are. PNG optimization
+  (owner, 2026-10-05: it held up the release, 20+ min; optimize in the background, never twice): optimize-pngs.yml (push of
+  docs/texbench/*.png to main, weekly, manual) runs oxipng -o max --zopfli (else zopflipng) on files whose SHA-256 is not in
+  docs/texbench/png-optimized.txt, commits them to main as github-actions[bot] about every 10 min and at the end, and starts
+  pages.yml after each commit (GITHUB_TOKEN pushes start no workflows, so no loop). Owner's one-time setup: Settings > Pages > Source: GitHub Actions (the user site
   CeeJayDK.github.io has the ceejay.dk domain, so this repo's site is ceejay.dk/sopt/).
   Site pages (owner, 2026-10-05: every DX11 architecture with the missing ones greyed, a TexBench page, a SweetOpt page
   and a library page, subdirectories): site/index.html (SweetOpt, sign() bars per model), library/ (`sopt --library-json`:
