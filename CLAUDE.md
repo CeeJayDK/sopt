@@ -1228,6 +1228,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   Release build check (owner, 2026-10-05, 0.6.0 from main; docs/opbench/*-v8.csv, docs/texbench/*-v9.csv, docs/shaderinfo/*-3.txt):
   headers say 0.6.0, all tests consensus; UHD 630 = the previous run within 10% on every test, GTX 1660 too except 15 of 993
   TexBench tests at 10-20% (71% reference drift); findings unchanged.
+  0.6.0 released 2026-10-05 (PR #15 merged, tag v0.6.0, title renamed to SweetOpt by the owner). Next test build: 0.6.1.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
