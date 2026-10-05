@@ -9,55 +9,84 @@ Cards so far (15): NVIDIA Maxwell (GTX 860M, Quadro M5000M), Pascal (GTX 1050), 
 (RX 9070 XT); Intel Gen7.5 (HD Graphics 4600), Gen9 (Iris 540, UHD 630). Laptop runs are often throttled: their
 absolute numbers are low, their ratios still match their desktop family.
 
-Points marked *preliminary* rest on tests that were not quite fair; TexBench 0.6.0 measures them properly, and they
-will be updated when its reports come in.
+TexBench 0.6.0 measures the comparisons directly (the same result read different ways, side by side). So far it has
+run on the GTX 1660 (Turing) and the UHD 630 (Gen9.5); for other cards the advice is *estimated* from single-read
+costs until their reports come in. The direct tests already corrected two estimates: several reads in a row do not cost
+the sum of single reads, so only the side-by-side tests decide.
 
 ## Do this, not that
 
 ### Averaging 2 × 2 texels (downsampling, box blurs): one bilinear read
 
-One bilinear read at the shared corner of four texels returns their average. It costs the same as one point read for
-formats of up to 32 bits per texel on every card tested, so it is up to 4 times cheaper than four reads and the math.
+One bilinear read at the shared corner of four texels returns their average. Measured directly:
 
-| | one bilinear | four reads |
-|---|---|---|
-| GTX 1660, RGBA8 | 9.9 | 39.5 |
-| Iris 540, RGBA8 | 8.7 | 34.9 |
-| RX 9070 XT, RGBA8 | 23.1 | 41.9 |
+| fma units | one bilinear | 3 gathers (RGB) | 4 Loads + math |
+|---|---|---|---|
+| GTX 1660, RGBA8 | 11.4 | 29.1 | 57.5 |
+| GTX 1660, RGBA16F | 22.1 | 50.7 | 58.1 |
+| GTX 1660, RGBA32F | 26.1 | 58.2 | 58.6 |
+| UHD 630, RGBA8 | 8.8 | 24.1 | 54.0 |
+| UHD 630, RGBA16F | 20.2 | 45.8 | 53.5 |
+| UHD 630, RGBA32F | 52.7 | 92.1 | 119.5 |
 
-For 64-bit formats (RGBA16F) bilinear filtering runs at half rate on NVIDIA and Intel Gen9, and still wins (about
-1.5×). **Exception: AMD GCN 5 (Vega)** filters wide formats slowly: four reads beat one bilinear for RGBA16F (24 vs 27)
-and clearly for RGBA32F (27 vs 69). RDNA 2 also prefers four reads for RGBA32F (26 vs 29).
+Two to six times cheaper than four reads, for every format. Four point samples cost the same as four Loads. *Estimated*
+exceptions: AMD GCN 5 (Vega) filters wide formats slowly, so four reads may win there for RGBA16F and RGBA32F, and RDNA 2
+for RGBA32F.
+
+As a whole half-size downsample pass (3840 × 2160 to 1920 × 1080) both ways take the same time on both cards (GTX 1660
+RGBA8 0.25 ms either way): a pass that only downsamples is limited by memory, so the cheaper read shows only when the
+pass does more work.
 
 ### A 1:1 copy: Load or point sample?
 
-- **AMD RDNA and NVIDIA Ada / Ampere: use Load (`tex2Dfetch`) for formats of up to 32 bits per texel.** It is much cheaper there
-  than a sample: RDNA 2 2.9 vs 7.1, RX 9070 XT 10.5 vs 22, RTX 4060 Ti 14.3 vs 20.
-- **But not for 64- and 128-bit formats on Ampere / Ada:** there Load is slower than a point sample (RTX 4060 Ti
-  RGBA16F 25.6 vs 20.1, RGBA32F 45.7 vs 22.5).
-- Everywhere else (NVIDIA Maxwell, Pascal, Turing; AMD GCN 5; Intel Gen7.5, Gen9) Load and point sample cost the same.
+- *Estimated:* **AMD RDNA and NVIDIA Ada / Ampere: use Load (`tex2Dfetch`) for formats of up to 32 bits per texel.**
+  A single Load is much cheaper there than a sample: RDNA 2 2.9 vs 7.1, RX 9070 XT 10.5 vs 22, RTX 4060 Ti 14.3 vs 20.
+- *Estimated:* **but not for 64- and 128-bit formats on Ampere / Ada:** there a Load is slower than a point sample (RTX
+  4060 Ti RGBA16F 25.6 vs 20.1, RGBA32F 45.7 vs 22.5).
+- Elsewhere (NVIDIA Maxwell, Pascal, Turing; AMD GCN 5; Intel Gen7.5, Gen9) a Load and a point sample cost the same.
 
-**What this means for ReShade's copy shader (our Load patch):** the biggest win is on AMD RDNA (the read costs less
-than half) and NVIDIA RTX 30 / 40 (about 30% less) with 8- and 10-bit back buffers; no change on GTX 900 / 10 / 16, RTX
-20, Vega and Intel; possibly a loss with HDR (RGBA16F scRGB) back buffers on RTX 30 / 40. A full-screen copy is mostly
-limited by memory bandwidth, so the gain shows as less shader time per pixel, not always as less frame time. TexBench
-0.6.0's copy passes (Sample against Load, per format) measure the whole pass.
+Measured as whole full-screen copy passes (3840 × 2160): the GTX 1660 copies in the same time with Sample and with Load
+in every format (RGBA8 0.42 ms, RGBA16F 0.85 ms); the UHD 630 too, except RGBA16F, where Load is 11% slower (5.65 vs
+5.09 ms).
 
-### Reading 2 × 2 texels each on their own (min / max / median filters, edge detection)
+**What this means for ReShade's copy shader (our Load patch):** no change on GTX 16 / RTX 20 and Intel Gen9 (measured),
+nor on GTX 900 / 10 and Vega (estimated); the expected win is on AMD RDNA and NVIDIA RTX 30 / 40 with 8- and 10-bit back
+buffers, and a possible loss with HDR (RGBA16F) back buffers on RTX 30 / 40 and Intel Gen9. A copy pass is limited by
+memory, so even there the gain is shader time, not necessarily frame time. Reports from RDNA and RTX 30 / 40 cards
+running TexBench 0.6.0 will settle it.
 
-- **8-bit formats (RGBA8) on NVIDIA Maxwell to Turing, Intel and AMD GCN: three gathers (`tex2DgatherR` / `G` / `B`)**
-  for the RGB of the four texels beat four reads by about 25% (GTX 1660: 29.6 vs 39.5).
-- **On AMD RDNA and NVIDIA Ada: four Loads** are cheaper than both (RDNA 2: 11.7 vs 21.3 for the gathers).
-- **64-bit and wider formats: four point reads or Loads,** never gathers: a gather is as slow as a bilinear read there
-  (GTX 1660 RGBA16F: three gathers 77, four points 40). Exception: Intel Gen7.5 (HD 4600), where gathers are faster for
-  every format.
+### Reading 2 × 2 texels each on their own (min / max / median filters, edge detection): three gathers
 
-### Trilinear or anisotropic 2x (*preliminary*)
+Measured directly (here: the maximum of the four texels' RGB):
 
-On NVIDIA (Maxwell to Ada), Intel Gen9 and AMD RDNA, anisotropic 2x costs the same as trilinear for formats of up to 32 bits per
-texel and is never blurrier, so prefer it. **Exceptions:** AMD GCN 5 (Vega 8: trilinear 13.9, aniso 2x 17.6) and
-Intel Gen7.5, where trilinear is about as cheap as bilinear (HD 4600: 9.7 vs 9.6) and aniso 2x costs 24.8. Not fair yet:
-the aniso test read a smaller mip level than the trilinear test.
+| fma units | 3 gathers | 4 Loads | 4 point samples |
+|---|---|---|---|
+| GTX 1660, RGBA8 | 28.7 | 57.9 | 58.1 |
+| GTX 1660, RGBA16F | 50.5 | 59.5 | 58.2 |
+| GTX 1660, RGBA32F | 58.1 | 58.5 | 63.4 |
+| UHD 630, RGBA8 | 23.8 | 53.6 | 52.4 |
+| UHD 630, RGBA16F | 45.5 | 53.2 | 52.0 |
+| UHD 630, RGBA32F | 93.9 | 118.2 | 120.3 |
+
+Three gathers (`tex2DgatherR` / `G` / `B`) are twice as fast as four reads for RGBA8 and still ahead for the wider
+formats on both cards. (The estimate from single reads said the opposite for 64-bit formats; the direct test wins.)
+*Estimated:* on AMD RDNA and NVIDIA Ada four Loads may be cheaper, since a single Load is so cheap there.
+
+### Trilinear or anisotropic 2x: the same cost only on round footprints
+
+Measured with the same gradients for both filters:
+
+| fma units | trilinear, round | aniso 2x, round | trilinear, 2:1 | aniso 2x, 2:1 |
+|---|---|---|---|---|
+| GTX 1660, RGBA8 | 26.0 | 26.0 | 25.8 | 58.0 |
+| GTX 1660, RGBA16F | 41.6 | 41.6 | 25.9 | 94.8 |
+| UHD 630, RGBA8 | 23.1 | 23.3 | 23.1 | 52.9 |
+| UHD 630, RGBA16F | 52.4 | 52.2 | 51.9 | 110.9 |
+
+Where the footprint is round, anisotropic 2x costs exactly what trilinear costs (it has nothing to add). Where the
+footprint is stretched, it takes its second tap: about 2× trilinear (up to 3.7× for RGBA16F on the GTX 1660) and a
+sharper result than trilinear's blur. So anisotropic filtering is not free: use it where the sharpness on surfaces seen
+at an angle is worth it. (The earlier "same cost" came from a test that read a smaller mip for the anisotropic case.)
 
 ### Color lookup tables: a 3D texture
 
@@ -91,20 +120,23 @@ the target as cleared instead of writing it. Clear instead of drawing a flat col
 
 ## Caches
 
-- Reads within about 4–8 texels around a pixel cost no more than reading the pixel's own texel on every card; from about
-  16 texels on they get slower. Measured in compute shaders so far; TexBench 0.6.0 repeats it in a pixel shader, to see
-  whether it follows each GPU's pixel order (4 × 8 pixel blocks on NVIDIA, 8 × 8 on AMD, 4 × 4 on Intel).
+- Reads within about 8 texels around a pixel cost no more than reading the pixel's own texel; from about 16 texels on
+  they get slower (every card). Pixel shader and compute shader measure the same within about 10% on the GTX 1660 and
+  UHD 630 (knee at 8–16 texels on both), so the pixel order (4 × 8 blocks on NVIDIA, 4 × 4 on Intel) makes no visible
+  difference at these spreads.
 - Rows and columns: on most cards reads spread 256 texels vertically cost more than the same spread horizontally
   (GTX 1050 3.6×, UHD 630 2.4×, RDNA 2 2.8×, GTX 1660 1.4×), so a separable blur's vertical pass is the dearer one.
   NVIDIA Ada is the reverse (RTX 4060 Ti: horizontal 1.4× vertical).
 
-## Blending (*preliminary*)
+## Blending: blend state or shader
 
-In the 0.5.0 test the blend source equalled the destination, which seems to have made lerp and min blending free on
-some cards (GTX 1660: exactly the time of no blending at all). Add and multiply were less affected:
+The 0.5.0 test was flawed (the blend source equalled the destination): lerp and min blending looked free on the GTX
+1660. With the fix they cost what add does (RGBA8: 0.41 ms against 0.32 ms without blending). Measured again:
 
-- **NVIDIA:** the blend state costs the same as reading the image in the shader and doing the math. RGBA32F blending
-  is slower than the shader (up to 1.75×).
-- **Intel Gen9 (Iris 540):** the blend state is clearly faster (3.3 vs 4.8 ms for an RGBA8 add); the UHD 630 showed no
-  difference.
-- **AMD RDNA 4 (RX 9070 XT):** the shader is faster (add and multiply blending up to 1.9× slower for RGBA16F).
+- **GTX 1660:** the blend state is 2–3% faster than reading the image in the shader and doing the math, for formats of up
+  to 64 bits per pixel; RGBA32F blending is about 10% slower than the shader.
+- **UHD 630:** within ±10% either way (RG11B10F blending about 10% faster, RGBA8 min blending 11% slower): no rule.
+
+So the choice rarely matters on these cards; avoid RGBA32F blending on NVIDIA. From the flawed 0.5.0 test (to be
+remeasured): Iris 540 showed the blend state clearly faster, the RX 9070 XT the shader (add and multiply up to 1.9× slower
+as blending for RGBA16F).

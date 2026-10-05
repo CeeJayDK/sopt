@@ -23,6 +23,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   from RGA / ACO only).
 - When asking the owner to do or download something, repeat the links/files in that message
   (resend packages, give the CI run link) so nothing has to be searched for in the thread.
+- Versions (owner, 2026-10-05): raise the last digit of `project(sopt VERSION ...)` in every build sent to the
+  owner or testers (0.5.0 -> 0.5.1 -> ...), so each report's header names the build that made it; the release
+  then sets the next minor version.
 - Do not implement your own improvisations or design changes without asking first.
   Implementing the agreed milestone plan is fine; flag anything beyond it.
 
@@ -1212,6 +1215,16 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   RGBA32F; Test::skipDep); "Copy and downsample passes" (copy Sample / Load, half bilinear / 4 Load; RGBA8 / RGB10A2 / RGBA16F
   / RGBA32F; kPassCopySample .. kPassDownLoad, printPass per section). Website redesign (owner: readability, colors, the grid
   background distracts): left to another agent.
+  First 0.6.0 TexBench runs (owner, 2026-10-05, GTX 1660 driver 32.0.16.1714 + UHD 630 31.0.101.2141; build of 988bdb3,
+  headers still say 0.5.0; docs/texbench/*-v8.csv, docs/opbench/*-v7.csv, docs/shaderinfo/*-2.txt): every new test ran, all
+  consensus. Measured: 2 x 2 average 1 bilinear 2-6x cheaper than 4 Loads (1660 RGBA8 11.4 vs 57.5) in every format, 3
+  gathers in between; 2 x 2 each (max): 3 gathers 2x faster than 4 reads for RGBA8, still ahead for RGBA16F / RGBA32F (the
+  single-read estimate said 4 reads for 64-bit: several reads do not add up, only side-by-side tests decide); point = Load;
+  trilinear = aniso 2x on round footprints, aniso 2x ~2x (RGBA16F 1660 3.7x) on 2:1 footprints (the old "same cost" was the
+  16:1 test's smaller mip); ps spread = compute spread within ~10% (knee 8-16 texels on both); copy passes Sample = Load on
+  the 1660, UHD 630 RGBA16F Load 11% slower; half-size downsample passes bilinear = 4 Loads (memory bound); blend fix
+  confirmed (lerp / min now 0.41 ms like add, plain 0.32), blend state 2-3% faster than the shader on the 1660 except RGBA32F
+  (~10% slower), UHD 630 +-10%. OpBench fma1 = mad on both (4.02 / 3.98). FINDINGS.md updated (measured vs *estimated*).
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
