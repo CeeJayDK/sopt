@@ -27,7 +27,7 @@
     ]},
     {"vendor": "Intel", "architectures": [
       {"name": "Gen7", "examples": "HD Graphics 2500 / 4000 (Ivy Bridge)", "model": null},
-      {"name": "Gen7.5", "examples": "HD Graphics 4600, Iris 5100 (Haswell)", "model": null},
+      {"name": "Gen7.5", "examples": "HD Graphics 4600, Iris 5100 (Haswell)", "model": "intel-gen7.5"},
       {"name": "Gen8", "examples": "HD Graphics 5500 / 6000, Iris 6100 (Broadwell)", "model": null},
       {"name": "Gen9 / Gen9.5", "examples": "HD / UHD Graphics 500 / 600, Iris 540 / 640 / 655", "model": "intel-gen9"},
       {"name": "Gen11", "examples": "Iris Plus G4 / G7 (Ice Lake)", "model": null},

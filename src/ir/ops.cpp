@@ -111,6 +111,19 @@ const CostModel kIntelGen9{"intel-gen9",
    4, 16, 20, 20, 1, 1},
   1, true};
 
+// Intel Gen7.5 (HD Graphics 4600, Haswell; docs/opbench/intel-hd-graphics-4600.csv, OpBench 0.5.0, clean: drift 0.6%;
+// one card), quarter units (4 = one fma, throughput). Unlike Gen9 the math unit is cheap: rcp / rsqrt / sqrt / exp2 /
+// log2 / sin / cos / log / div ~3.4-3.6 in tput, dep and lat alike (one op), exp 7 (mul + exp2), pow 11.5 (12); add / sub /
+// mul / mad / floor / frac / round / ceil one op; neg / abs / saturate free modifiers; min / max / step ~1.75 ops (6.7-7.4),
+// clamp 11.7 (12), compare + select 7.3 (compare 4 + select 3), lerp 7, sign 15. Integer ops are half rate (iadd 6.5, imul
+// 23). Contraction to fma; no omod (omod tests = the x3 control), no 3-operand min / max.
+const CostModel kIntelGen75{"intel-gen7.5",
+  {0, 0, 1, 1, 1, 4, 4, 15, 4,
+   4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 7, 7, 7, 12,
+   4, 4, 4, 4, 4, 4, 4, 7, 12, 3, 1,
+   4, 8, 12, 12, 1, 1},
+  1, true};
+
 // NVIDIA Turing (GTX 1660, TU116, sm_75), measured with sopt-opbench on the owner's PC (D3D11,
 // docs/opbench/nvidia-gtx-1660.csv), quarter units (4 = one fma, throughput). add/sub/mul/mad one
 // op; neg/abs/saturate free modifiers; the quarter-rate unit (rcp, rsqrt, sqrt, exp2, log2, sin,
@@ -277,6 +290,7 @@ const CostModel& costNvidiaTuring() { return kNvidiaTuring; }
 const CostModel& costNvidiaAmpere() { return kNvidiaAmpere; }
 const CostModel& costNvidiaBlackwell() { return kNvidiaBlackwell; }
 const CostModel& costIntelGen9() { return kIntelGen9; }
+const CostModel& costIntelGen75() { return kIntelGen75; }
 const CostModel& costAmdRdna2() { return kAmdRdna2; }
 const CostModel& costAmdRdna4() { return kAmdRdna4; }
 const CostModel& costAmdGcn5() { return kAmdGcn5; }
@@ -292,7 +306,7 @@ const CostModel kRdna3NoFolds = [] {
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kNvidia ||
                  &objective == &kNvidiaMaxwell || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
-                 &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kAmdRdna2 ||
+                 &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kAmdRdna2 ||
                  &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
              ? kSearch
              : objective;
@@ -311,6 +325,7 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kNvidiaAmpere.name) return &kNvidiaAmpere;
   if (name == kNvidiaBlackwell.name) return &kNvidiaBlackwell;
   if (name == kIntelGen9.name) return &kIntelGen9;
+  if (name == kIntelGen75.name) return &kIntelGen75;
   if (name == kAmdRdna2.name) return &kAmdRdna2;
   if (name == kAmdRdna4.name) return &kAmdRdna4;
   if (name == kAmdGcn5.name) return &kAmdGcn5;

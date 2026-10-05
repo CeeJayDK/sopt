@@ -115,6 +115,8 @@ const CostModel& costNvidiaAmpere();
 const CostModel& costNvidiaBlackwell();
 // intel-gen9: Intel Gen9 (Iris 540) from sopt-opbench timings, quarter units, math unit ~3x.
 const CostModel& costIntelGen9();
+// intel-gen7.5: Intel Gen7.5 (HD Graphics 4600, Haswell) from OpBench timings, quarter units, math unit ~1 op.
+const CostModel& costIntelGen75();
 // amd-rdna2 / amd-rdna4 / amd-gcn5 / amd-terascale2: AMD from sopt-opbench timings (680M + RX 6950 XT;
 // RX 9070 XT; Renoir Vega; HD 7400M), quarter units with one plain VALU instruction = 4.
 const CostModel& costAmdRdna2();

@@ -14,6 +14,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 - **SweetOpt has an HTML guide** (`README.html`), replacing QUICKSTART.txt. The bench tools zip no longer includes GPU Blueprint (it has its own download).
 
 ### SweetOpt (was sopt)
+- **New cost model `intel-gen7.5`** (Intel HD Graphics 4600, Haswell), from a GPU Blueprint report: its math unit (rcp, sqrt, exp2, sin ...) costs about as much as an add, unlike Gen9's ~3x. In the menu as key J.
 - **New name:** sopt is now **SweetOpt**, the super sweet shader optimizer. The programs keep their short names `sopt-fx` and `sopt`, and variant files keep their `SOPT_*` switches; the download is `SweetOpt-<version>-windows-x64.zip`.
 - **Menu for Windows:** double-click `SweetOpt.bat`: choose the Shaders folder and what to optimize (folder and file dialogs, no typing of paths), the time per statement and the graphics card family, start, open the results, edit value ranges. It remembers the choices.
 

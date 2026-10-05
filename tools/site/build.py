@@ -29,6 +29,7 @@ NAME_BY_FILE = {
 NAME_BY_DEVICE = {
     "0x1681": "AMD Radeon 680M",
     "0x1636": "AMD Radeon Vega (Renoir)",
+    "0x164E": "AMD Radeon Graphics (Raphael)",
 }
 SKIP_DEVICES = {"0x008C"}  # Microsoft Basic Render Driver (software)
 
@@ -41,10 +42,11 @@ MODEL_RULES = [
     (r"GTX (9\d\d|8\d\dM)|Quadro M\d", "nvidia-maxwell"),
     (r"RX 9\d\d\d", "amd-rdna4"),
     (r"RX 7\d\d\d", "rdna3"),
-    (r"RX 6\d\d\d|Radeon 6[68]0M", "amd-rdna2"),
+    (r"RX 6\d\d\d|Radeon 6[68]0M|Raphael", "amd-rdna2"),
     (r"Vega", "amd-gcn5"),
     (r"HD [67]\d\d\dM?\b", "amd-terascale2"),
     (r"Iris\S* (Graphics )?5\d\d|U?HD Graphics 6\d\d|HD Graphics 5\d\d", "intel-gen9"),
+    (r"HD Graphics 4[2-6]\d\d|Iris\S* (Pro )?(Graphics )?5[12]00", "intel-gen7.5"),
 ]
 
 

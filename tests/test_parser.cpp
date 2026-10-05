@@ -114,7 +114,7 @@ TEST(cost_contraction) {
   CHECK(dagCost(parseExpr("a * b + c", abcx()), costGeneric()) ==
         costGeneric()[Op::Mul] + costGeneric()[Op::Add]);
   // Every non-leaf op costs >= 1 in every model.
-  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costNvidia(), &costNvidiaMaxwell(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaAmpere(), &costNvidiaBlackwell(), &costIntelGen9(), &costAmdRdna2(), &costAmdRdna4(), &costAmdGcn5(), &costAmdTerascale2()})
+  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costNvidia(), &costNvidiaMaxwell(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaAmpere(), &costNvidiaBlackwell(), &costIntelGen9(), &costIntelGen75(), &costAmdRdna2(), &costAmdRdna4(), &costAmdGcn5(), &costAmdTerascale2()})
     for (size_t i = 2; i < static_cast<size_t>(Op::Count); ++i) CHECK(cm->cost[i] >= 1);
 }
 
