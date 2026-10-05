@@ -1047,6 +1047,16 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   first, README.txt = tools/windows/GPU-BENCH-README.txt, <Program>-README / <Program>-TESTS) instead of the separate
   OpBench / TexBench zips; sopt and sopt-windows-tools zips unchanged. The footers name OpBench-TESTS.txt /
   TexBench-TESTS.txt. Process: PR merged to main, release.yml run manually on main = draft, owner publishes.
+  0.5.0 released 2026-10-05 (PR #11 merged; final runs of both owner cards in docs/opbench/*-v6.csv and
+  docs/texbench/*-v7.csv: order test counter 1048576 via the structured buffer on both, NVIDIA 4 x 8 warp blocks,
+  Intel 4 x 4 (SIMD16); all tests consensus; fp16 = fp32 on the 1660). Release notes (owner): CHANGELOG.md, one
+  `## <version>` section per release (add to the top one as things land); release.yml copies that section into the
+  draft as "What's new" above the downloads list (this session cannot edit releases: the owner pastes otherwise).
+  Next version (owner, 2026-10-05): (1) TexBench matrix without dep (dep = tput within ~5% on both cards, saves
+  ~25-30 s; lat stays: 1660 latency ~3x the tput cost for small formats, Intel's format cost is tput only); dep stays
+  in OpBench; (2) headings "Cost, many in parallel" / "Cost, one dependent chain" / "Latency, one at a time" instead
+  of "Throughput" (the number is a cost, lower is better; CSV codes tput / dep / lat unchanged); (3) background
+  shader compiling per section.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):

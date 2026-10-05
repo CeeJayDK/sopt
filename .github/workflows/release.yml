@@ -151,6 +151,39 @@ jobs:
           path: release
       - name: Checksums
         run: cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+      - name: Release notes
+        env:
+          VERSION: ${{ needs.windows.outputs.version }}
+          SIGNED: ${{ needs.windows.outputs.signed }}
+        run: |
+          # The CHANGELOG.md section "## <version>" (up to the next "## ") becomes "What's new".
+          awk -v h="## $VERSION" '$0 == h { on = 1; next } on && /^## / { exit } on' src/CHANGELOG.md > whatsnew.md
+          if ! grep -q '[^[:space:]]' whatsnew.md; then
+            echo "::warning::CHANGELOG.md has no section '## $VERSION'"
+            echo "(no notes for this version in CHANGELOG.md)" > whatsnew.md
+          fi
+          if [ "$SIGNED" = yes ]; then signing="signed through SignPath Foundation."
+          else signing="not signed yet (SignPath application pending); Windows Defender may warn. Check the files against SHA256SUMS.txt."; fi
+          {
+            echo "sopt $VERSION."
+            echo
+            echo "## What's new"
+            cat whatsnew.md
+            echo
+            echo "## Downloads"
+            echo
+            echo "- \`sopt-$VERSION-windows-x64.zip\` / \`sopt-$VERSION-linux-x64.tar.gz\`: sopt-fx (finds cheaper, verified rewrites of the arithmetic in ReShade FX and HLSL pixel shaders, written next to the originals behind preprocessor switches) and sopt (single expressions). Early release: start with QUICKSTART.txt inside, and send feedback at https://github.com/CeeJayDK/sopt/issues. Windows needs the VC++ 2015-2022 redistributable (most gaming PCs have it)."
+            echo "- \`GPU-Bench-$VERSION.zip\`: measures your graphics card for sopt: OpBench (what math instructions cost), TexBench (texture reads, writes, blending) and ShaderInfo (what the driver reports about compiled shaders), each with a score at the end. Unzip, double-click \`GPU-Bench.bat\` (a menu) or \`measure-main-gpu.bat\` (or \`measure-all-gpus.bat\` with more than one graphics card) and send the files it writes (see README.txt inside)."
+            echo "- \`sopt-windows-tools-$VERSION.zip\`: the benchmark harness (sopt-host, sopt-timer add-on, run-bench.bat, ReShade64.dll 6.8.0), OpBench, TexBench and ShaderInfo, with measure-main-gpu.bat (ShaderInfo, OpBench, then TexBench) and measure-all-gpus.bat (all three, on every GPU in the PC)."
+            echo
+            echo "Code signing: $signing"
+          } > notes.md
+          cat notes.md
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -159,11 +192,4 @@ jobs:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', needs.windows.outputs.version) }}
           name: sopt ${{ needs.windows.outputs.version }}
           files: release/*
-          body: |
-            sopt ${{ needs.windows.outputs.version }}.
-
-            - `sopt-${{ needs.windows.outputs.version }}-windows-x64.zip` / `sopt-${{ needs.windows.outputs.version }}-linux-x64.tar.gz`: sopt-fx (finds cheaper, verified rewrites of the arithmetic in ReShade FX and HLSL pixel shaders, written next to the originals behind preprocessor switches) and sopt (single expressions). Early release: start with QUICKSTART.txt inside, and send feedback at https://github.com/CeeJayDK/sopt/issues. Windows needs the VC++ 2015-2022 redistributable (most gaming PCs have it).
-            - `GPU-Bench-${{ needs.windows.outputs.version }}.zip`: measures your graphics card for sopt: OpBench (what math instructions cost), TexBench (texture reads, writes, blending) and ShaderInfo (what the driver reports about compiled shaders), each with a score at the end. Unzip, double-click `GPU-Bench.bat` (a menu) or `measure-main-gpu.bat` (or `measure-all-gpus.bat` with more than one graphics card) and send the files it writes (see README.txt inside).
-            - `sopt-windows-tools-${{ needs.windows.outputs.version }}.zip`: the benchmark harness (sopt-host, sopt-timer add-on, run-bench.bat, ReShade64.dll 6.8.0), OpBench, TexBench and ShaderInfo, with measure-main-gpu.bat (OpBench, then TexBench) and measure-all-gpus.bat (both, on every GPU in the PC).
-
-            Code signing: ${{ needs.windows.outputs.signed == 'yes' && 'signed through SignPath Foundation.' || 'not signed yet (SignPath application pending); Windows Defender may warn. Check the files against SHA256SUMS.txt.' }}
+          body_path: notes.md
