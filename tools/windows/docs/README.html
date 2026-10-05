@@ -25,7 +25,7 @@
 <ol>
   <li>Close games and other programs that use the graphics card. On a laptop, plug it in.</li>
   <li>Double-click <code>GPU-Bench.bat</code>. A menu opens: press the number of what you want.</li>
-  <li>When it is done, send <code>GPU-Bench-Reports.zip</code> (next to <code>GPU-Bench.bat</code>). It holds every report in the <code>Reports</code> folder.</li>
+  <li>When it is done, press <kbd>9</kbd> to send the reports: it opens an upload page in your browser and shows <code>GPU-Bench-Reports.zip</code> (next to <code>GPU-Bench.bat</code>) in a folder; drag the zip onto the page.</li>
 </ol>
 
 <table>
@@ -36,6 +36,7 @@
   <tr><td><kbd>4</kbd> <kbd>5</kbd> <kbd>6</kbd></td><td>OpBench, TexBench or ShaderInfo alone, on the main graphics card.</td></tr>
   <tr><td><kbd>7</kbd></td><td>Open the <code>Reports</code> folder.</td></tr>
   <tr><td><kbd>8</kbd></td><td>Open this page.</td></tr>
+  <tr><td><kbd>9</kbd></td><td>Send the reports: asks first, then opens CeeJay's upload page (Dropbox) in your browser and shows the zip in a folder.</td></tr>
   <tr><td><kbd>0</kbd></td><td>Quit.</td></tr>
 </table>
 
@@ -51,10 +52,11 @@
   <tr><td><code>Reports\Shaders\</code></td><td>the shader code of every test (not needed for reports)</td></tr>
   <tr><td><code>GPU-Bench-Reports.zip</code></td><td>the files above (without the shader code) in one zip, made after every run</td></tr>
 </table>
-<p>Nothing is sent anywhere: the programs do not use the network. The files stay on your PC until you send them.</p>
+<p>Nothing is sent automatically: the programs do not use the network, and the menu only opens the upload page when you press <kbd>9</kbd>. The zip holds your graphics card's name, its driver version and the measurements, nothing else from your PC.</p>
 
 <h2>Send results and feedback</h2>
-<p>At <a href="https://github.com/CeeJayDK/sopt/issues">github.com/CeeJayDK/sopt/issues</a>, or to whoever asked you to run it.</p>
+<p>Reports: press <kbd>9</kbd> in the menu. The upload page is a Dropbox file request: you do not need a Dropbox account, it asks for a name and an email (any name will do), and uploaders cannot see each other's files. Uploads are read, saved with the project's results and then deleted from the upload folder.</p>
+<p>Feedback and problems: <a href="https://github.com/CeeJayDK/sopt/issues">github.com/CeeJayDK/sopt/issues</a>.</p>
 
 <h2>Requirements</h2>
 <ul>

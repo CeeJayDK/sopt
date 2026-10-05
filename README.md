@@ -339,6 +339,9 @@ tools zip is built unchanged from crosire's ReShade 6.8.0 source and is not sign
 ### Privacy
 
 This program will not transfer any information to other networked systems unless specifically
-requested by the user or the person installing or operating it. OpBench only writes
-`opbench-<GPU>.csv` and the folder `opbench-dxbc` next to itself; sopt-host and the sopt-timer
-add-on only write their CSV, log and screenshots into the run folder.
+requested by the user or the person installing or operating it. OpBench, TexBench and ShaderInfo
+only write into the `Reports` folder next to themselves, and GPU-Bench.bat zips that folder;
+sopt-host and the sopt-timer add-on only write their CSV, log and screenshots into the run
+folder. None of the programs use the network. GPU-Bench.bat's "Send the reports" option (only
+when the user picks it) opens a Dropbox upload page in the browser, where the user can upload the
+zip (graphics card name, driver version and measurements) by hand.
