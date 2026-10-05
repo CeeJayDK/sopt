@@ -1,0 +1,49 @@
+{
+  "_comment": "Every GPU architecture with Direct3D 11 (feature level 11_0 or newer) drivers on Windows, oldest first per vendor (owner, 2026-10-05: the goal is a cost model for all of them; the ones without one are shown greyed). model = the cost model that covers it (sopt --cost-models-json), null = not measured yet.",
+  "vendors": [
+    {"vendor": "NVIDIA", "architectures": [
+      {"name": "Fermi", "examples": "GeForce GTX 400 / 500", "model": null},
+      {"name": "Kepler", "examples": "GeForce GTX 600 / 700, GTX Titan", "model": null},
+      {"name": "Maxwell", "examples": "GeForce GTX 750 Ti, 900, 800M / 900M", "model": "nvidia-maxwell"},
+      {"name": "Pascal", "examples": "GeForce GT 1030, GTX 1050 - 1080", "model": "nvidia-pascal"},
+      {"name": "Volta", "examples": "Titan V", "model": null},
+      {"name": "Turing", "examples": "GeForce GTX 1650 / 1660, RTX 20", "model": "nvidia-turing"},
+      {"name": "Ampere", "examples": "GeForce RTX 30", "model": "nvidia-ampere"},
+      {"name": "Ada Lovelace", "examples": "GeForce RTX 40", "model": "nvidia-ampere"},
+      {"name": "Blackwell", "examples": "GeForce RTX 50", "model": "nvidia-blackwell"}
+    ]},
+    {"vendor": "AMD", "architectures": [
+      {"name": "TeraScale 2", "examples": "Radeon HD 5000, HD 6000 (VLIW5)", "model": "amd-terascale2"},
+      {"name": "TeraScale 3", "examples": "Radeon HD 6900, A-series APUs (Trinity, Richland)", "model": null},
+      {"name": "GCN 1", "examples": "Radeon HD 7000, R7 / R9 200 (Tahiti, Pitcairn)", "model": null},
+      {"name": "GCN 2", "examples": "Radeon R9 290, R7 260, Kaveri APUs", "model": null},
+      {"name": "GCN 3", "examples": "Radeon R9 285 / 380, Fury, Carrizo APUs", "model": null},
+      {"name": "GCN 4", "examples": "Radeon RX 400 / 500 (Polaris)", "model": null},
+      {"name": "GCN 5 (Vega)", "examples": "Radeon RX Vega, Radeon VII, Vega APUs", "model": "amd-gcn5"},
+      {"name": "RDNA 1", "examples": "Radeon RX 5000", "model": null},
+      {"name": "RDNA 2", "examples": "Radeon RX 6000, Radeon 680M, Steam Deck", "model": "amd-rdna2"},
+      {"name": "RDNA 3", "examples": "Radeon RX 7000, Radeon 780M / 890M", "model": "rdna3"},
+      {"name": "RDNA 4", "examples": "Radeon RX 9000", "model": "amd-rdna4"}
+    ]},
+    {"vendor": "Intel", "architectures": [
+      {"name": "Gen7", "examples": "HD Graphics 2500 / 4000 (Ivy Bridge)", "model": null},
+      {"name": "Gen7.5", "examples": "HD Graphics 4600, Iris 5100 (Haswell)", "model": null},
+      {"name": "Gen8", "examples": "HD Graphics 5500 / 6000, Iris 6100 (Broadwell)", "model": null},
+      {"name": "Gen9 / Gen9.5", "examples": "HD / UHD Graphics 500 / 600, Iris 540 / 640 / 655", "model": "intel-gen9"},
+      {"name": "Gen11", "examples": "Iris Plus G4 / G7 (Ice Lake)", "model": null},
+      {"name": "Xe-LP", "examples": "Iris Xe, UHD Graphics 700 (Tiger Lake - Raptor Lake)", "model": null},
+      {"name": "Xe-LPG", "examples": "Intel Arc Graphics in Meteor Lake / Arrow Lake", "model": null},
+      {"name": "Xe-HPG (Alchemist)", "examples": "Intel Arc A-series", "model": null},
+      {"name": "Xe2 (Battlemage)", "examples": "Intel Arc B-series, Arc 130V / 140V (Lunar Lake)", "model": null},
+      {"name": "Xe3", "examples": "Intel Arc B370 / B390 in Panther Lake", "model": null}
+    ]},
+    {"vendor": "Qualcomm", "architectures": [
+      {"name": "Adreno 6xx", "examples": "Snapdragon 7c / 8c / 8cx (Windows on Arm)", "model": null},
+      {"name": "Adreno X1", "examples": "Snapdragon X Elite / X Plus", "model": null},
+      {"name": "Adreno X2", "examples": "Snapdragon X2 Elite", "model": null}
+    ]},
+    {"vendor": "Moore Threads", "architectures": [
+      {"name": "MUSA", "examples": "MTT S70 / S80", "model": null}
+    ]}
+  ]
+}

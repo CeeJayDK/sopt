@@ -3,49 +3,67 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GPU Blueprint</title>
-<meta name="description" content="What shader operations cost on each GPU architecture: the measured cost models SweetOpt uses.">
+<title>SweetOpt</title>
+<meta name="description" content="SweetOpt, the super sweet shader optimizer: finds faster, verified ways to write the math in ReShade FX and HLSL shaders.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
-<header class="hero">
-  <div class="wrap">
-    <h1>GPU Blueprint</h1>
-    <p class="lead">What shader operations cost on each GPU architecture: the cost models <a href="https://github.com/CeeJayDK/sopt">SweetOpt</a> uses to find faster shader code, measured on real cards.</p>
-    <p class="unit"><strong>1.0 = one fma</strong> (a fused multiply-add at full rate), measured as throughput: many independent operations in parallel. Lower is better. Numbers are rounded to what the cost models use.</p>
-  </div>
-</header>
-
+<body data-root="" data-page="sweetopt">
 <main class="wrap">
-  <section id="models">
-    <h2>Architectures</h2>
-    <div id="picker" class="picker" role="tablist" aria-label="Architecture"></div>
-    <div id="model" class="panel"></div>
+  <section class="hero">
+    <div class="tag">sweetopt &middot; the super sweet shader optimizer</div>
+    <h1>Faster shader math, checked before you see it.</h1>
+    <p class="lead">SweetOpt reads ReShade FX and HLSL shaders, finds cheaper ways to write their arithmetic, verifies every one, and writes them next to the originals behind preprocessor switches, so you compare them in ReShade and choose.</p>
   </section>
 
-  <section id="compare">
-    <h2>One operation on every architecture</h2>
-    <label class="select">Operation <select id="op"></select></label>
-    <div id="opbars" class="panel"></div>
+  <section>
+    <h2>A taste: a faster sign()</h2>
+    <p class="note">HLSL's <code>sign(x)</code> compiles to two compares, an integer subtract and an integer-to-float conversion, and that conversion is slow on many GPUs. SweetOpt found a form with no conversion at all: one multiply-add with saturate, and one more multiply-add. It gives exactly the same result as <code>sign(x)</code> (checked on every float between &plusmn;4,194,304, with the GPUs' flushing of tiny values).</p>
+    <div class="example"><span class="old">sign(x)</span><br><span class="new">mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0)</span></div>
+    <div class="panel" id="signbars" style="margin-top:12px"></div>
+    <p class="note" style="margin-top:10px">Cost in fma units per architecture: grey = <code>sign(x)</code>, colour = the new form. On Turing <code>sign</code> is already cheap, so there SweetOpt keeps the original; its variant files can pick the fastest form per GPU vendor (<code>SOPT_AUTO</code>).</p>
   </section>
 
-  <section id="cards">
-    <h2>Cards measured</h2>
-    <p class="note">Every report comes from GPU Blueprint's OpBench run by a volunteer. Cards of the same architecture measure alike, so they share one cost model.</p>
-    <div class="tablewrap"><table id="cardtable"></table></div>
+  <section>
+    <h2>How it works</h2>
+    <div class="cards">
+      <div class="card"><h3>1. Find</h3><p>Every arithmetic statement in the shader becomes a small expression with the value ranges of its inputs (from <code>ui_min</code> / <code>ui_max</code>, texture formats, texture coordinates, and ranges you add).</p></div>
+      <div class="card"><h3>2. Search</h3><p>A superoptimizer tries every cheaper program, smallest first, plus a library of known rewrites, and ranks them with cost models measured on real GPUs.</p></div>
+      <div class="card"><h3>3. Verify</h3><p>Each candidate is checked against the original on millions of points, under the GPUs' approximate math, and often proven with interval arithmetic. Only what the output cannot tell apart (or what is closer to exact math) survives.</p></div>
+      <div class="card"><h3>4. Choose</h3><p>Variants are written next to the original behind switches like <code>SOPT_ALL</code>, with a report of each one's speed and accuracy. You test them in ReShade and keep what you like.</p></div>
+    </div>
   </section>
 
-  <section id="order">
-    <h2>Pixel shader order</h2>
-    <p class="note">How each GPU hands pixels to its shader cores: TexBench numbers every pixel of a full-screen draw in the order it ran. The colour runs from first (blue) to last (red); the close-up shows the blocks of pixels shaded together.</p>
-    <div id="gallery" class="gallery"></div>
+  <section>
+    <h2>Explore</h2>
+    <div class="cards">
+      <a class="card" href="library/"><h3>Rewrite library</h3><p>Every verified rewrite SweetOpt knows, with what it saves on each GPU architecture.</p><span class="go">open &rarr;</span></a>
+      <a class="card" href="gpu-blueprint/"><h3>GPU Blueprint</h3><p>The cost models: what each operation costs on every DirectX 11 GPU architecture, measured on real cards.</p><span class="go">open &rarr;</span></a>
+      <a class="card" href="gpu-blueprint/texbench/"><h3>TexBench findings</h3><p>Texture formats, filters, caches, writes and blending, and how each GPU orders its pixels.</p><span class="go">open &rarr;</span></a>
+      <a class="card" href="https://github.com/CeeJayDK/sopt/releases"><h3>Download</h3><p>SweetOpt for Windows and Linux (double-click <code>SweetOpt.bat</code>), and GPU Blueprint to measure your own card.</p><span class="go">releases &rarr;</span></a>
+    </div>
   </section>
 </main>
-
-<footer class="wrap">
-  <p>Measure your card: download <strong>GPU Blueprint</strong> from <a href="https://github.com/CeeJayDK/sopt/releases">the releases page</a>, run it and send the reports from its menu. Only the card, its driver version and the measurements are published.</p>
-  <p>GPU Blueprint and SweetOpt by CeeJay.dk &middot; <a href="https://github.com/CeeJayDK/sopt">github.com/CeeJayDK/sopt</a> &middot; <span id="version"></span></p>
-</footer>
-<script src="app.js"></script>
+<script src="common.js"></script>
+<script>
+Promise.all([loadJSON("library"), loadJSON("models")]).then(([lib, models]) => {
+  const rule = lib.rules.find((r) => r.lhs === "sign(x)" && r.rhs.startsWith("mad(saturate("));
+  if (!rule) return;
+  const rows = models.models.map((m) => ({ m, old: fma(rule.costs[m.name][0]), now: fma(rule.costs[m.name][1]) }))
+    .sort((a, b) => b.old - a.old);
+  const scale = Math.max(...rows.map((r) => r.old));
+  const label = (m) => {
+    const names = models.coverage.flatMap((v) => v.architectures).filter((a) => a.model === m.name).map((a) => a.name);
+    return `${m.vendor} ${names.join(" / ") || m.title}`;
+  };
+  const box = document.getElementById("signbars");
+  for (const { m, old, now } of rows) {
+    box.append(barRow(label(m), old, scale, "var(--line-bright)", { wide: true, label: num(old), title: `sign(x): ${num(old)} fma` }));
+    box.append(barRow("", now, scale, VENDOR_COLOR[m.vendor], { wide: true, label: num(now), title: `new form: ${num(now)} fma` }));
+  }
+});
+</script>
 </body>
 </html>

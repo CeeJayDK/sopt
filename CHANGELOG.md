@@ -7,6 +7,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 
 ### Web page
 - **GPU Blueprint online:** the cost models SweetOpt uses, per architecture and per operation, the cards measured and the pixel order pictures, rebuilt automatically as reports come in.
+- **Pages at ceejay.dk/sopt/:** SweetOpt (what it does, with the faster `sign()` per architecture), the rewrite library (every verified rewrite with its saving on each architecture), GPU Blueprint (every DirectX 11 architecture, the ones without a cost model yet greyed out) and the TexBench findings (formats x filters, caches, writes, blending, and every card's pixel order pictures).
 
 ### All downloads
 - **Tidy main folder:** each zip now has only its launcher (`SweetOpt.bat`, `GPU-Blueprint.bat`, `run-bench.bat`) and its guide (`README.html`) in the main folder; the programs are in `bin`, the other pages and the licenses in `Docs`.

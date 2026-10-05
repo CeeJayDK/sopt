@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SweetOpt rewrite library</title>
+<meta name="description" content="Verified faster ways to write common shader math, with what each saves on every GPU architecture.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-root="../" data-page="library">
+<main class="wrap">
+  <section class="hero">
+    <div class="tag">sweetopt &middot; rewrite library</div>
+    <h1>Faster ways to write common shader math.</h1>
+    <p class="lead">Every rewrite SweetOpt knows. Each one is checked: over its inputs' ranges the new form stays within a millionth of the original, or is closer to exact math, under every GPU's approximate math. SweetOpt applies them before its own search and checks the result again in each shader.</p>
+    <p class="unit">Savings are in fma units (1.0 = one fused multiply-add) from the <a href="../gpu-blueprint/">cost models</a>. Some rewrites only hold on the ranges listed under <em>where</em>; a few rely on float rounding and must be marked <code>precise</code> in the shader (SweetOpt does that).</p>
+  </section>
+
+  <section>
+    <div style="display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center">
+      <label class="select">architecture <select id="arch"></select></label>
+      <label class="select">search <input type="search" id="q" placeholder="sign, pow, lerp ..."></label>
+      <label class="select"><input type="checkbox" id="faster" checked> only rewrites that are faster here</label>
+    </div>
+    <p class="note" id="count"></p>
+    <div id="rules"></div>
+  </section>
+</main>
+<script src="../common.js"></script>
+<script src="library.js"></script>
+</body>
+</html>

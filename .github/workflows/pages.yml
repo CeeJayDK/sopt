@@ -1,8 +1,10 @@
-# GPU Blueprint web page (owner, 2026-10-05): the cost models SweetOpt uses, the cards behind them and the pixel
-# order pictures, published with GitHub Pages. Runs on GitHub's servers by itself: on every change to main that
-# touches the models, the reports or the page (pull requests only build it, as a check). PNGs are optimized losslessly
+# SweetOpt / GPU Blueprint web pages (owner, 2026-10-05; ceejay.dk/sopt/): SweetOpt, the rewrite library, the cost
+# models with the cards behind them, and the TexBench findings with the pixel order pictures, published with GitHub Pages.
+# Runs on GitHub's servers by itself: on every change to main that touches the models, the library, the reports or
+# the page (pull requests only build it, as a check). PNGs are optimized losslessly
 # at maximum effort (oxipng, or zopflipng where oxipng is missing) in the published copy.
-# One-time setup by the repository owner: Settings > Pages > Source: GitHub Actions (and a custom domain there).
+# One-time setup by the repository owner: Settings > Pages > Source: GitHub Actions (the user site CeeJayDK.github.io
+# carries the ceejay.dk domain, so this project appears at ceejay.dk/sopt/).
 name: pages
 on:
   push:
@@ -12,6 +14,7 @@ on:
       - "tools/site/**"
       - "docs/opbench/**"
       - "docs/texbench/**"
+      - "library/**"
       - "src/ir/ops.cpp"
       - "src/cli/main.cpp"
       - ".github/workflows/pages.yml"
@@ -40,13 +43,14 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q oxipng || sudo apt-get install -y -q zopfli
-      - name: Cost models
+      - name: Cost models and library
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --target sopt --parallel
           build/sopt --cost-models-json > models.json
+          build/sopt --library-json > library.json
       - name: Page
-        run: python3 tools/site/build.py models.json _site
+        run: python3 tools/site/build.py models.json library.json _site
       - name: Optimize PNGs (lossless, maximum effort)
         run: |
           shopt -s nullglob

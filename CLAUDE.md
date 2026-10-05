@@ -1135,10 +1135,19 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   data): `sopt --cost-models-json` (src/cli/main.cpp: the OpBench models + rdna3, quarter units, flags contraction /
   output modifier / max3 / minmax, vector helpers at float3), tools/site/build.py (cards per model from docs/opbench
   report headers: NAME_BY_FILE / NAME_BY_DEVICE fixes, MODEL_RULES regexes, Microsoft WARP skipped; pictures from
-  docs/texbench/*-order*.png), site/ (index.html, app.js, style.css: architecture chips, bars per op group in fma units
+  docs/texbench/*-order*.png), site/ (architecture chips, bars per op group in fma units
   with modifiers shown as free, one-operation comparison, card table, picture gallery; light / dark). .github/workflows/
   pages.yml builds it on GitHub (PRs: build only; main: deploy to GitHub Pages) and optimizes the PNGs losslessly (oxipng
-  -o max --zopfli, else zopflipng). Owner's one-time setup: Settings > Pages > Source: GitHub Actions, custom domain.
+  -o max --zopfli, else zopflipng). Owner's one-time setup: Settings > Pages > Source: GitHub Actions (the user site
+  CeeJayDK.github.io has the ceejay.dk domain, so this repo's site is ceejay.dk/sopt/).
+  Site pages (owner, 2026-10-05: every DX11 architecture with the missing ones greyed, a TexBench page, a SweetOpt page
+  and a library page, subdirectories): site/index.html (SweetOpt, sign() bars per model), library/ (`sopt --library-json`:
+  rules with [lhs, rhs] dagCost per published model; build.py adds sections / comments from library/rewrites.txt),
+  gpu-blueprint/ (tools/site/architectures.json: every DX11 architecture per vendor, model or null = wanted; coverage
+  grid), gpu-blueprint/texbench/ (data/texbench.json from the newest docs/texbench CSV per card with order rows; matrix
+  heat table, section bars, order picture gallery). Shared common.js (header / nav / footer, data loading) and style.css
+  in the ceejay.dk style (dark grid, JetBrains Mono / Inter, cyan / amber). Order pictures of 8 cards recovered from the
+  session's chat images (all taken after the order-test fix). build.py <models.json> <library.json> <out>.
   Download layout (owner, 2026-10-05: "only the menu and the readme start page" in the main folder):
   tools/windows/stage.ps1 stages SweetOpt\ / GPU-Blueprint\ / tools\ for CI (artifacts SweetOpt-windows,
   GPU-Blueprint, sopt-windows-tools) and release.yml (zips; Linux tarball the same: README.html, bin/, Docs/):

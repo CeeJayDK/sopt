@@ -29,6 +29,7 @@ void usage() {
       "usage: sopt <file.sopt> [options]   (sopt " SOPT_VERSION ")\n"
       "  --version         print the version\n"
       "  --cost-models-json  print the measured cost models as JSON (for the GPU Blueprint web page)\n"
+      "  --library-json    print the rewrite library with costs per model as JSON (for the web page)\n"
       "  --top N           show at most N alternatives (default 20)\n"
       "  --max-cost C      search up to cost C (default: target cost - 1)\n"
       "  --tests N         fingerprint test points (default 32)\n"
@@ -118,14 +119,14 @@ const char* budgetText(const Budget& b, char* buf, size_t n) {
 // "the cleaned rounded numbers we use for the cost model", published so developers can check them). Costs are in
 // quarter units (4 = one fma); vector helpers are given for float3. Which cards back each model comes from the
 // reports in docs/opbench (tools/site/build.py), not from here.
-void printCostModelsJson() {
-  struct Entry {
-    const CostModel* m;
-    const char* vendor;
-    const char* title;
-    const char* basis;
-  };
-  const Entry models[] = {
+struct ModelEntry {
+  const CostModel* m;
+  const char* vendor;
+  const char* title;
+  const char* basis;
+};
+std::vector<ModelEntry> publishedModels() {
+  return {
       {&costNvidiaBlackwell(), "NVIDIA", "Blackwell", "OpBench"},
       {&costNvidiaAmpere(), "NVIDIA", "Ampere / Ada", "OpBench"},
       {&costNvidiaTuring(), "NVIDIA", "Turing", "OpBench"},
@@ -138,6 +139,40 @@ void printCostModelsJson() {
       {&costAmdTerascale2(), "AMD", "TeraScale 2", "OpBench"},
       {&costIntelGen9(), "Intel", "Gen9 / Gen9.5", "OpBench"},
   };
+}
+
+std::string jsonString(const std::string& s) {
+  std::string r = "\"";
+  for (char c : s) {
+    if (c == '"' || c == '\\') r += '\\';
+    if (static_cast<unsigned char>(c) >= 0x20) r += c;
+  }
+  return r + "\"";
+}
+
+// --library-json: every rule of the built-in rewrite library with the cost of its pattern and its replacement in
+// each published model (for the SweetOpt web page; tools/site/build.py adds the comments from library/rewrites.txt).
+void printLibraryJson() {
+  const Library& lib = defaultLibrary();
+  const std::vector<ModelEntry> models = publishedModels();
+  std::printf("{\n  \"version\": \"%s\",\n  \"rules\": [\n", SOPT_VERSION);
+  for (size_t i = 0; i < lib.rules.size(); ++i) {
+    const RewriteRule& r = lib.rules[i];
+    std::printf("    {\"source\": %s, \"text\": %s, \"lhs\": %s, \"rhs\": %s, \"costs\": {", jsonString(r.source).c_str(),
+                jsonString(r.text).c_str(), jsonString(toString(r.lhs, r.vars)).c_str(),
+                jsonString(toString(r.rhs, r.vars)).c_str());
+    for (size_t k = 0; k < models.size(); ++k) {
+      const CostModel& m = *models[k].m;
+      std::printf("%s\"%.*s\": [%u, %u]", k ? ", " : "", int(m.name.size()), m.name.data(), dagCost(r.lhs, m, r.vars),
+                  dagCost(r.rhs, m, r.vars));
+    }
+    std::printf("}}%s\n", i + 1 < lib.rules.size() ? "," : "");
+  }
+  std::printf("  ]\n}\n");
+}
+
+void printCostModelsJson() {
+  const std::vector<ModelEntry> models = publishedModels();
   struct Item {
     Op op;
     unsigned width;
@@ -158,8 +193,8 @@ void printCostModelsJson() {
       {Op::Normalize, 3, "normalize3"},  {Op::Distance, 3, "distance3"},
   };
   std::printf("{\n  \"version\": \"%s\",\n  \"unit\": \"quarter units: 4 = one fma\",\n  \"models\": [\n", SOPT_VERSION);
-  for (size_t i = 0; i < std::size(models); ++i) {
-    const Entry& e = models[i];
+  for (size_t i = 0; i < models.size(); ++i) {
+    const ModelEntry& e = models[i];
     const CostModel& m = *e.m;
     std::printf("    {\"name\": \"%.*s\", \"vendor\": \"%s\", \"title\": \"%s\", \"basis\": \"%s\",\n",
                 int(m.name.size()), m.name.data(), e.vendor, e.title, e.basis);
@@ -169,7 +204,7 @@ void printCostModelsJson() {
     std::printf("     \"costs\": {");
     for (size_t k = 0; k < std::size(items); ++k)
       std::printf("%s\"%s\": %u", k ? ", " : "", items[k].name, m.opCost(items[k].op, items[k].width));
-    std::printf("}}%s\n", i + 1 < std::size(models) ? "," : "");
+    std::printf("}}%s\n", i + 1 < models.size() ? "," : "");
   }
   std::printf("  ]\n}\n");
 }
@@ -183,6 +218,10 @@ int main(int argc, char** argv) {
   }
   if (argc == 2 && std::string(argv[1]) == "--cost-models-json") {
     printCostModelsJson();
+    return 0;
+  }
+  if (argc == 2 && std::string(argv[1]) == "--library-json") {
+    printLibraryJson();
     return 0;
   }
   if (argc < 2) {

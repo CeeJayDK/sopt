@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Blueprint</title>
+<meta name="description" content="What shader operations cost on each GPU architecture: the measured cost models SweetOpt uses, for every DirectX 11 architecture.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-root="../" data-page="blueprint">
+<main class="wrap">
+  <section class="hero">
+    <div class="tag">gpu blueprint &middot; cost models</div>
+    <h1>What shader math costs, per GPU architecture.</h1>
+    <p class="lead">The cost models SweetOpt uses to find faster shader code, measured on real cards with GPU Blueprint's OpBench. The goal: every architecture that runs DirectX 11.</p>
+    <p class="unit"><strong>1.0 = one fma</strong> (a fused multiply-add at full rate), measured as throughput: many independent operations in parallel. Lower is better. Numbers are rounded to what the cost models use. Texture costs are on the <a href="texbench/">TexBench page</a>.</p>
+  </section>
+
+  <section>
+    <h2>Architectures</h2>
+    <p class="note">Greyed-out architectures have no cost model yet. If you have one of those cards, running GPU Blueprint and sending the report puts it on the map.</p>
+    <div id="picker" class="picker" role="tablist" aria-label="Architecture"></div>
+    <div id="model"></div>
+  </section>
+
+  <section>
+    <h2>One operation on every architecture</h2>
+    <label class="select">operation <select id="op"></select></label>
+    <div id="opbars" class="panel"></div>
+  </section>
+
+  <section>
+    <h2>Coverage</h2>
+    <p class="note" id="covnote"></p>
+    <div id="coverage"></div>
+  </section>
+
+  <section>
+    <h2>Cards measured</h2>
+    <p class="note">Cards of the same architecture measure alike, so they share one cost model.</p>
+    <div class="tablewrap"><table id="cardtable"></table></div>
+  </section>
+
+  <section>
+    <h2>Measure your card</h2>
+    <p class="note">Download <strong>GPU Blueprint</strong> from <a href="https://github.com/CeeJayDK/sopt/releases">the releases page</a>, unzip it and double-click <code>GPU-Blueprint.bat</code>. When it is done it offers to send the reports. Only the card, its driver version and the measurements are published.</p>
+  </section>
+</main>
+<script src="../common.js"></script>
+<script src="blueprint.js"></script>
+</body>
+</html>
