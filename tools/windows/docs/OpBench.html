@@ -37,11 +37,11 @@
 
 <h3>Three ways of running</h3>
 <table>
-  <tr><td>Throughput</td><td>8 independent chains per thread, about a million threads. How many of an instruction the GPU finishes per second. This is the number sopt uses, and the summary shows it.</td></tr>
-  <tr><td>Dependent chains</td><td>1 chain per thread, about a million threads. Every step waits for the one before it, and the GPU hides the waiting by switching between threads.</td></tr>
-  <tr><td>Latency</td><td>1 chain, one group of 64 threads. How long one step takes until its result is ready, since nothing can hide the wait.</td></tr>
+  <tr><td>Cost, many in parallel <code>tput</code></td><td>8 independent chains per thread, about a million threads: what an instruction costs when the GPU is fully busy, as in a game. This is the number sopt uses, and the summary shows it.</td></tr>
+  <tr><td>Cost, one dependent chain <code>dep</code></td><td>1 chain per thread, about a million threads. Every step waits for the one before it, and the GPU hides the waiting by switching between threads.</td></tr>
+  <tr><td>Latency, one at a time <code>lat</code></td><td>1 chain, one group of 64 threads. How long one step takes until its result is ready, since nothing can hide the wait.</td></tr>
 </table>
-<p>All three are in the CSV.</p>
+<p>All three are in the CSV (its codes <code>tput</code>, <code>dep</code>, <code>lat</code>). Every number is a cost: lower is better.</p>
 
 <h2>The tests</h2>
 

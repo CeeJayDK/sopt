@@ -31,9 +31,9 @@
 
 <h3>Three ways (compute shaders), as in OpBench</h3>
 <table>
-  <tr><td><code>tput</code></td><td>8 chains per thread, 1M threads: the GPU can overlap reads of different chains and threads. The ballpark for a read inside a real shader.</td></tr>
-  <tr><td><code>dep</code></td><td>1 chain per thread, 1M threads: only other threads hide the waiting.</td></tr>
-  <tr><td><code>lat</code></td><td>1 chain, one group of 64 threads: nothing hides it; close to the raw latency of a read.</td></tr>
+  <tr><td>Cost, many in parallel <code>tput</code></td><td>8 chains per thread, 1M threads: the GPU can overlap reads of different chains and threads. The ballpark for a read inside a real shader.</td></tr>
+  <tr><td>Cost, one dependent chain <code>dep</code></td><td>1 chain per thread, 1M threads: only other threads hide the waiting. Not run for the formats &times; filtering table (it matched the first on every card tested).</td></tr>
+  <tr><td>Latency, one at a time <code>lat</code></td><td>1 chain, one group of 64 threads: nothing hides it; close to the raw latency of a read.</td></tr>
 </table>
 
 <h2>The tests</h2>

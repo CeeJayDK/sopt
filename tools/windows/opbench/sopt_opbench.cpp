@@ -313,11 +313,11 @@ struct Config {
   const char* what;   // what it shows
 };
 Config kConfigs[] = {
-    {"tput", 8, kGroupsFull, "Throughput",
+    {"tput", 8, kGroupsFull, "Cost, many in parallel",
      "how many of each instruction the GPU finishes per second (the number sopt's cost models use)"},
-    {"dep", 1, kGroupsFull, "Dependent chains",
+    {"dep", 1, kGroupsFull, "Cost, one dependent chain",
      "every step waits for the one before it; the GPU hides the wait by switching between threads"},
-    {"lat", 1, 1, "Latency", "how long one step takes until its result is ready (one group of threads, nothing to hide it)"}};
+    {"lat", 1, 1, "Latency, one at a time", "how long one step takes until its result is ready (one group of threads, nothing to hide it)"}};
 
 std::string shaderSource(const Test& t, int chains) {
   std::string s =
@@ -683,9 +683,9 @@ int main(int argc, char** argv) {
 
   std::printf("%zu tests, each measured in three ways:\n", tests.size());
   for (const Config& c : kConfigs)
-    std::printf("  %s%-17s%s %s\n", st.c("\x1b[1;96m"), c.title, st.reset(), c.what);
+    std::printf("  %s%-26s%s %s\n", st.c("\x1b[1;96m"), c.title, st.reset(), c.what);
   std::printf("Each is measured twice (forward, then backward through its section) and more often when its two\n"
-              "readings disagree. Only the throughput is shown; the CSV has all three. The results appear section\n"
+              "readings disagree. Only the first is shown (lower is better); the CSV has all three. The results appear section\n"
               "by section while the rest is measured.\n"
               "Warming up the GPU for 2 seconds so its clock settles ...");
   {

@@ -899,9 +899,18 @@ struct Config {
   UINT groups;
   const char* title;
 };
-Config kConfigs[] = {{"tput", 8, kGroupsFull, "Throughput"},
-                     {"dep", 1, kGroupsFull, "Dependent chains"},
-                     {"lat", 1, 1, "Latency"}};
+Config kConfigs[] = {{"tput", 8, kGroupsFull, "Cost, many in parallel"},
+                     {"dep", 1, kGroupsFull, "Cost, one dependent chain"},
+                     {"lat", 1, 1, "Latency, one at a time"}};
+
+// Which configurations a test runs in: pixel shader tests have no lat (a draw is never one group), and the
+// formats x filtering matrix has no dep (owner, 2026-10-05: dep equalled tput within ~5% on every matrix
+// test on the GTX 1660 and UHD 630, while lat showed latencies tput does not; saves ~25-30 s per run).
+bool runsIn(const Test& t, const Config& c) {
+  if (t.stage == Stage::Pixel && std::strcmp(c.name, "lat") == 0) return false;
+  if (t.matrix >= 0 && std::strcmp(c.name, "dep") == 0) return false;
+  return true;
+}
 
 // A compiled test for one configuration.
 struct Kernel {
@@ -1525,7 +1534,13 @@ int main(int argc, char** argv) {
   std::stable_sort(tests.begin(), tests.end(), [](const Test* a, const Test* b) { return a->section.empty() && !b->section.empty(); });
 
   size_t planned = 0;
-  for (const Test* t : tests) planned += t->stage == Stage::Compute ? 2 * 3 : t->stage == Stage::Pixel ? 2 * 2 : 2;
+  for (const Test* t : tests) {
+    if (t->stage != Stage::Compute && t->stage != Stage::Pixel) {
+      planned += 2;
+      continue;
+    }
+    for (const Config& c : kConfigs) planned += runsIn(*t, c) ? 2 : 0;
+  }
   std::printf("\n%zu tests, each read at least twice (more often when the readings disagree), each against the\n"
               "reference mad measured right before it.\n",
               tests.size());
@@ -1540,7 +1555,7 @@ int main(int argc, char** argv) {
   for (const Test* t : tests) {
     if (t->stage == Stage::Write || t->stage == Stage::Blend || t->stage == Stage::Pass) continue;
     for (const Config& c : kConfigs) {
-      if (t->stage == Stage::Pixel && std::strcmp(c.name, "lat") == 0) continue;
+      if (!runsIn(*t, c)) continue;
       Kernel k;
       if (t->stage == Stage::Compute) {
         ID3DBlob* code = compile(computeSource(*t, c.chains), t->name.c_str(), "cs_5_0",
@@ -1646,7 +1661,7 @@ int main(int argc, char** argv) {
     for (const Test* t : tests)
       if (t->section == sec && results["tput"].count(t->name)) maxV = std::max(maxV, results["tput"][t->name].vsBase), bytes |= t->perByte;
     std::printf("\n  %s%s%s\n  %s%-*s %7s  %-*s  %6s %6s %6s%s%s\n", st.c("\x1b[1;96m"), sec.c_str(), st.reset(),
-                st.c("\x1b[90m"), nameW, "Test", "Cost", kBarWidth, "(throughput)", "Ops", "dep", "lat",
+                st.c("\x1b[90m"), nameW, "Test", "Cost", kBarWidth, kBarWidth >= 18 ? "(many in parallel)" : "(parallel)", "Ops", "dep", "lat",
                 bytes ? "    GB/s" : "", st.reset());
     for (const Test* t : tests) {
       if (t->section != sec || !results["tput"].count(t->name)) continue;
