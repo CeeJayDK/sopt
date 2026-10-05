@@ -1125,7 +1125,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   GPU-Blueprint-<v>.zip, GPU-Blueprint-Reports.zip; OpBench / TexBench / ShaderInfo keep their names); sopt is now
   SweetOpt (owner: one name, "the super sweet shader optimizer" as the tagline): title boxes, --version ("sopt-fx
   (SweetOpt) <v>"), SweetOpt.bat / SweetOpt.ini (was sopt-menu), SweetOpt-<v>-windows-x64.zip / -linux-x64.tar.gz, docs,
-  version resources (ProductName per target: SweetOpt / GPU Blueprint). Kept on purpose: program names sopt / sopt-fx,
+  version resources (ProductName per target: SweetOpt / GPU Blueprint), release titles "SweetOpt <v>" (owner, from 0.6.0). Kept on purpose: program names sopt / sopt-fx,
   SOPT_* switches, output files (sopt-out, sopt-report.md, sopt-facts.txt, sopt-found.txt), the repo name, CI artifact
   names. GPU Blueprint menu (owner): key 1 = every card, 2 main, 3 another; after a run it offers to send the reports
   (Y opens the upload page); key 9 blinks (ESC[5m) while the zip has not been sent (hidden marker Reports\.sent, made
