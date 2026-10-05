@@ -1145,7 +1145,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   separate service from his Google Drive): file request "GPU Blueprint reports" (id jmwykzlbulwo8ltkyule,
   https://www.dropbox.com/request/jmwykzlbulwo8ltkyule) into /Uploads/GPU Blueprint (one /Uploads/<project> folder per
   project); GPU-Blueprint.bat key 9 (only when picked, asks first) opens the page and shows the zip in Explorer.
-  Planned: a scheduled task that downloads, checks and saves reports, then deletes everything in that folder.
+  Scheduled task "GPU Blueprint report intake" (trig_01RggLdp3vQTNdxhpVXZhXFa, every 6 h, fires into this session: a
+  fresh-session routine created from here gets no connectors / repo) downloads, checks and saves reports, then deletes
+  everything in that folder. Owner allowed *.dropboxusercontent.com in the environment's network settings (2026-10-05):
+  download_link + curl works (tested), whole zips incl. PNGs; Dropbox fetch stays the fallback.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
