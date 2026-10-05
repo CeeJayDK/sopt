@@ -12,6 +12,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 `nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3; plain HLSL SM5 pixel and compute shaders, ReShade FX compute shaders.
 
 ## Working with the owner
+- No personal data in the repository (owner, 2026-10-05: GDPR): no names, handles or other details of testers or
+  other people next to reports, results or notes; a report is described by its hardware and driver only.
 - Owner's principle (2026-09-26): fewer instructions at equal measured speed are still
   better (less power; faster once the bottleneck moves). Timings (M4 harness) inform, they
   do not veto such variants. ReShade's own performance statistics need a look too (owner is
@@ -306,10 +308,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   includes): 188 regions, 4 with gains (MXAO, SOLARIS), many search-limit hits; it found
   the chain-from-declaration bug (variant lost the declaration). OtisFX parses fully
   since includes ignore letter case off Windows (owner: ReShade assumes Windows). Test packages: unique file name per package, steps inside
-  TESTING.txt AND in the chat message. Owner (2026-09-25): Marty McFly
-  (martymcmodding) and originalcodr are interested; add their repos to future test
-  runs, iMMERSE especially (heavy, complex code: stress test), also METEOR. CorgiFX
-  (originalnicodr): 9 effects, 148 regions, 4 variants all on assumed ranges.
+  TESTING.txt AND in the chat message. Owner (2026-09-25): add iMMERSE, METEOR
+  and CorgiFX to future test runs, iMMERSE especially (heavy, complex code: stress test). CorgiFX: 9 effects, 148 regions, 4 variants all on assumed ranges.
   Rerun 2026-09-25 (all 12 packages): 45 regions with variants, all variant files
   re-parse, no written variant has problem inputs. Flair.fx:599-602 and BeforeAfter.fx:93-95
   dropped out versus the day before with identical code (commit 53f0285 rebuilt gives the
@@ -633,7 +633,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   practically identical (Blackwell: MUFU and floor / ceil / round / frac ~23, add 3.4, min / max / step
   3.3, clamp / select ~8, lerp ~8, sign 18, pow 50); RTX 3050 (Ampere) close except min / max 4.5,
   clamp / select ~10, sign 28; Intel UHD 630 (Gen9.5, owner's iGPU) = Iris 540 within ~0.5 (intel-gen9 holds
-  for Gen9.5); RTX 2070 = Turing; RTX 4070 (Ada, ray_st) is unreliable: its mad base ran slow (neg / abs
+  for Gen9.5); RTX 2070 = Turing; RTX 4070 (Ada) is unreliable: its mad base ran slow (neg / abs
   came out -1.8, mul -1.4) and exp2 / log2 / sin / exp doubled while cos did not, i.e. the GPU clock changed
   during the run; rescaled to neg it matches the RTX 3050 (min 4.5, clamp 9.9, floor / rcp 23.6, sign 31).
   Rerun with locked clocks (2 runs, nvidia-rtx-4070-locked*.csv): tput = RTX 3050 within ~0.6 on every
@@ -847,7 +847,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   every tput test (only length / atan / atan2 0.6-1.2 lower): third RDNA 2 device, amd-rdna2 unchanged. omod2 /
   omodhalf / omod4 0.0 (free), omod8 / omod0.25 / omod0.125 = the x3 control (tput 1.2, lat 3.1): exactly AMD's
   output modifier set (x2, x4, x0.5), as CostModel::amdFolds assumes. trunc = round = floor (one op, 2.97).
-  One tester, two cards, stock and undervolted (OpBench 0.4.0, 2026-10-04; nvidia-rtx-4090-laptop-v4-stock / -undervolt,
+  Two cards, stock and undervolted (OpBench 0.4.0, 2026-10-04; nvidia-rtx-4090-laptop-v4-stock / -undervolt,
   nvidia-rtx-2060-stock / -undervolt): reference drift 13-128% in every run, yet every test reached consensus (the
   fresh reference per reading works) and undervolting changes no cost. RTX 4090 Laptop = RTX 4070 (Ada / nvidia-ampere)
   within 15% on every tput test (MUFU 23.7, add 3.5, min 4.5, clamp 9.9, sign 27.4-28.2, pow 52): the earlier v1 hybrid
@@ -1069,7 +1069,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   "Cost, one dependent chain" / "Latency, one at a time". Background compiling: benchkit BackgroundJobs (Win32
   worker thread below normal priority; fail() on it throws via gWorker and the main thread reports the error at
   wait()), OpBench one job per section (Group), TexBench one per test, in measuring order; CompileCounter
-  removed. sopt-menu.bat (owner: the GPU-Bench menu helped a dyslexic developer friend; sopt and sopt-fx have
+  removed. sopt-menu.bat (owner: a menu helps users; sopt and sopt-fx have
   many options): folder / file dialogs (PowerShell WinForms, typed path as fallback), time 5 / 20 / 60 s, cost
   model by family, start, --list quick look, open results, value ranges (sopt-facts.txt next to the menu, used
   via --facts once it exists); settings in sopt-menu.ini; in the sopt release zip and CI artifact sopt-windows.
@@ -1188,7 +1188,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   log / exp / pow / sqrt compositions (log(exp(x)) -> x, pow(exp2(x), y) -> exp2(x * y), sqrt(pow(x, y)) ...). Order model (owner): test whether preferring cheap ops really
   finds cheaper candidates sooner (bench 2026-09: search order 38 found, rdna3 order 37, generic 36) and count
   which ops the found variants use (sopt-found.txt), once the library / found list is bigger.
-  OpBench trunc test (Pascal's suggestion, 2026-10-03: "trunc drops something rather than deciding by sign,
+  OpBench trunc test (a tester's suggestion, 2026-10-03: "trunc drops something rather than deciding by sign,
   could be faster"): added; fxc writes it as round_z, the same rounding family as floor / ceil / round.
 - Too exact (owner, 2026-10-03: rules that are exact in real math but differ from float math "could be fine
   or in fact better for the effect - something for the user to decide"): Klass::Accurate is labeled "too
