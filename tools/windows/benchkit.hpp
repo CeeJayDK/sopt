@@ -403,7 +403,10 @@ inline const char* vendorColor(const Style& st, UINT vendor) {
 inline void printUniqueAdapters() {
   IDXGIFactory1* factory = nullptr;
   if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) fail("CreateDXGIFactory1 failed");
-  std::vector<LUID> seen;
+  // The same GPU can be listed twice (the high-performance GPU again at the front, owner's GTX 1660: 0 1 2), not
+  // always with the same LUID: also the same vendor, device, subsystem, revision and video memory count as one
+  // (two identical cards in one PC are then measured once).
+  std::vector<DXGI_ADAPTER_DESC1> seen;
   for (UINT k = 0;; ++k) {
     IDXGIAdapter1* ad = nullptr;
     if (factory->EnumAdapters1(k, &ad) == DXGI_ERROR_NOT_FOUND) break;
@@ -411,10 +414,14 @@ inline void printUniqueAdapters() {
     ad->GetDesc1(&d);
     ad->Release();
     if (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
+    if (d.VendorId == 0x1414 && d.DeviceId == 0x8c) continue;  // Microsoft Basic Render Driver
     bool dup = false;
-    for (const LUID& l : seen) dup |= l.LowPart == d.AdapterLuid.LowPart && l.HighPart == d.AdapterLuid.HighPart;
+    for (const DXGI_ADAPTER_DESC1& e : seen)
+      dup |= (e.AdapterLuid.LowPart == d.AdapterLuid.LowPart && e.AdapterLuid.HighPart == d.AdapterLuid.HighPart) ||
+             (e.VendorId == d.VendorId && e.DeviceId == d.DeviceId && e.SubSysId == d.SubSysId && e.Revision == d.Revision &&
+              e.DedicatedVideoMemory == d.DedicatedVideoMemory);
     if (dup) continue;
-    seen.push_back(d.AdapterLuid);
+    seen.push_back(d);
     std::printf("%u\n", k);
   }
   factory->Release();

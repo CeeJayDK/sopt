@@ -978,7 +978,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   pixel from a 128 x 128 noise texture (TN RGBA32F / TNU RGBA32U at t4 / t5, bound once) for writes, blending
   and pass states. discard per pixel cost 3x there (2.98 vs 0.83 ms).
   measure-all-gpus.bat (owner): OpBench + TexBench for every GPU in the PC, each once (`--adapters` prints the
-  hardware adapter indices, one per LUID, no software adapter; the batch loops over them with
+  hardware adapter indices, one per LUID and per vendor / device / subsystem / revision / memory (owner: the GTX 1660
+  was listed twice with different LUIDs, so --adapters printed 0 1 2), no software adapter; the batch loops over them with
   for /f "usebackq" ... (`call "%~dp0OpBench.exe" --adapters`)); checked under Wine (cmd).
   Pixel shader order (owner's go 2026-10-04: atomics show how the GPU schedules pixels; runOrder, not a timing,
   after the measurements, `--filter order`): one full-screen draw into 1024^2, each pixel InterlockedAdd on one
