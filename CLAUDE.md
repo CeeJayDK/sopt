@@ -1137,8 +1137,19 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   report headers: NAME_BY_FILE / NAME_BY_DEVICE fixes, MODEL_RULES regexes, Microsoft WARP skipped; pictures from
   docs/texbench/*-order*.png), site/ (architecture chips, bars per op group in fma units
   with modifiers shown as free, one-operation comparison, card table, picture gallery; light / dark). .github/workflows/
-  pages.yml builds it on GitHub (PRs: build only; main: deploy to GitHub Pages) and optimizes the PNGs losslessly (oxipng
-  -o max --zopfli, else zopflipng). Owner's one-time setup: Settings > Pages > Source: GitHub Actions (the user site
+  pages.yml builds it on GitHub (PRs: build only; main: deploy to GitHub Pages) with the PNGs as they are. PNG optimization
+  (owner, 2026-10-05: it held up the release, 20+ min; optimize in the background, never twice, ECT, file and image
+  fingerprints): optimize-pngs.yml (push of docs/texbench/*.png to main, weekly, manual) runs tools/site/optimize_pngs.py:
+  docs/texbench/png-optimized.txt lists <git blob id> <SHA-256 of the RGBA pixels + size> <name>; a file whose blob is
+  listed is done; one showing an image already optimized gets that file back from git history (fetch-depth 0); the rest
+  go through ECT (v0.9.5, built and cached on the runner, ECT_LEVEL in the workflow, provisionally 5); every result must
+  keep the original's pixels (Pillow), else the original stays. Commits to main as github-actions[bot] about every 10 min
+  and at the end, then starts pages.yml (GITHUB_TOKEN pushes start no workflows, so no loop). Benchmark on the 18 order
+  PNGs (476 KB, 4 threads): oxipng -o 2 21.9% 4.6 s, -o 4 26.6% 11 s, -o 6 / max 26.9% 23 s, -o 2 --zopfli 27.9% 166 s;
+  zopflipng -m 26.8% 305 s; optipng -o7 17.7% 83 s; ECT -3 24.2% 7 s, -4 27.9% 10 s, -5 28.1% 14 s, -6 28.2% 22 s, -8
+  28.3% 76 s, -9 29.1% 109 s, -9 --allfilters 30.4% 1800 s. The owner's css-ig.net PNG benchmark (pingo's author, 1354
+  files): oxipng -ao4 ~99% of -Zao6 at 7% of the time; pingo -s4 -l best overall (Windows); ECT best on gradients /
+  screenshots, poor on palettes (not our case); zopflipng slowest and behind. Owner's one-time setup: Settings > Pages > Source: GitHub Actions (the user site
   CeeJayDK.github.io has the ceejay.dk domain, so this repo's site is ceejay.dk/sopt/).
   Site pages (owner, 2026-10-05: every DX11 architecture with the missing ones greyed, a TexBench page, a SweetOpt page
   and a library page, subdirectories): site/index.html (SweetOpt, sign() bars per model), library/ (`sopt --library-json`:
@@ -1185,6 +1196,22 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   four NVIDIA cards: 4 x 8 warp blocks; RGBA16F / RGBA32F / trilinear ~2.7x RGBA8 bilinear; the 4090 Laptop's scores (108
   GTexels/s, 46 GB/s) are throttled (laptop power, 140% drift, 399 s run), not the card's real rates. Site: NAME_BY_DEVICE
   0x164E, MODEL_RULES Raphael -> amd-rdna2, HD Graphics 42xx-46xx / Iris 5100 / 5200 -> intel-gen7.5.
+  TexBench findings (owner, 2026-10-05: "do this, not that" conclusions, universal and per family, in the repo and on
+  the website; specific tests to verify them): docs/texbench/FINDINGS.md (the website's TexBench page renders it:
+  build.py markdown_html -> data/texbench-findings.html). From 15 cards: one bilinear read for a 2 x 2 average (= one point
+  read up to 32-bit texels; GCN 5 and RDNA 2 RGBA32F, GCN 5 RGBA16F: 4 reads win); Load cheaper than Sample on RDNA and Ada /
+  Ampere for <= 32-bit texels but slower for 64 / 128-bit on Ampere / Ada (the ReShade copy Load patch: biggest win RDNA and
+  RTX 30 / 40 with 8 / 10-bit back buffers, neutral elsewhere, maybe a loss with scRGB on RTX 30 / 40); 3 gathers beat 4 reads
+  for RGBA8 RGB on Maxwell-Turing / Intel / GCN, not on RDNA / Ada, never for 64-bit (except HD 4600); 3D LUT >= 2D slices;
+  stencil / tile discard halve a heavy pass, per-pixel discard saves nothing; ddx_fine half the cost of ddx on NVIDIA; clears
+  free; Intel Gen9 filters sRGB / RGB10A2 / RG11B10F at ~1/3 rate. Test fixes for 0.6.0 (owner's go): blend source noise
+  shifted + swizzled (restore pass and blended pass wrote the same noise: lerp / min blend measured free on the GTX 1660);
+  "Trilinear vs anisotropic 2x" on the same SampleGrad footprints (1:1 at level 0.5, 2:1; the matrix's aniso columns use 16:1,
+  a smaller mip); "Cache use, pixel shader" (ps spread N, Test::psPixel: P = the pixel's own texel); "Do this, not that: 2 x 2
+  texels" (avg: 1 bilinear / 4 Load / 4 point / 3 gathers; each (max): 4 Load / 4 point / 3 gathers; RGBA8 / RGBA16F /
+  RGBA32F; Test::skipDep); "Copy and downsample passes" (copy Sample / Load, half bilinear / 4 Load; RGBA8 / RGB10A2 / RGBA16F
+  / RGBA32F; kPassCopySample .. kPassDownLoad, printPass per section). Website redesign (owner: readability, colors, the grid
+  background distracts): left to another agent.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):

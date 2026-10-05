@@ -14,6 +14,7 @@ import glob
 import json
 import os
 import re
+import html
 import shutil
 import sys
 
@@ -179,6 +180,59 @@ def texbench_data(out):
     return {"cards": cards}
 
 
+def markdown_html(text):
+    """The Markdown subset docs/texbench/FINDINGS.md uses: headings, paragraphs, bullet lists, tables, **bold**,
+    *italic*, `code`. The first heading is left out (the page has its own title)."""
+    def inline(t):
+        t = html.escape(t, quote=False)
+        t = re.sub(r"`([^`]+)`", r"<code>\1</code>", t)
+        t = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", t)
+        t = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", t)
+        return t
+    out, para, items, rows = [], [], [], []
+    def flush():
+        if para:
+            out.append("<p>" + inline(" ".join(para)) + "</p>")
+            para.clear()
+        if items:
+            out.append("<ul>" + "".join("<li>" + inline(i) + "</li>" for i in items) + "</ul>")
+            items.clear()
+        if rows:
+            cells = [[c.strip() for c in r.strip("|").split("|")] for r in rows if not re.match(r"^\|[-| ]+\|$", r)]
+            head, body = cells[0], cells[1:]
+            out.append('<div class="tablewrap"><table><thead><tr>' + "".join("<th>" + inline(c) + "</th>" for c in head) +
+                       "</tr></thead><tbody>" + "".join("<tr>" + "".join("<td>" + inline(c) + "</td>" for c in r) + "</tr>" for r in body) +
+                       "</tbody></table></div>")
+            rows.clear()
+    first = True
+    for line in text.splitlines():
+        m = re.match(r"^(#{1,4}) (.*)", line)
+        if m:
+            flush()
+            if not first:
+                n = len(m.group(1)) + 1
+                out.append(f"<h{n}>{inline(m.group(2))}</h{n}>")
+            first = False
+        elif line.startswith("|"):
+            if para or items:
+                flush()
+            rows.append(line)
+        elif line.startswith("- "):
+            if para or rows:
+                flush()
+            items.append(line[2:])
+        elif line.startswith("  ") and items:
+            items[-1] += " " + line.strip()
+        elif not line.strip():
+            flush()
+        else:
+            if items or rows:
+                flush()
+            para.append(line.strip())
+    flush()
+    return "\n".join(out)
+
+
 def main():
     models_path, library_path, out = sys.argv[1], sys.argv[2], sys.argv[3]
     with open(models_path) as f:
@@ -214,6 +268,10 @@ def main():
     for name, obj in (("models", data), ("library", lib), ("texbench", tb)):
         with open(os.path.join(out, "data", name + ".json"), "w") as f:
             json.dump(obj, f, indent=1)
+    findings = os.path.join(ROOT, "docs", "texbench", "FINDINGS.md")
+    if os.path.exists(findings):
+        with open(findings, encoding="utf-8") as f, open(os.path.join(out, "data", "texbench-findings.html"), "w", encoding="utf-8") as o:
+            o.write(markdown_html(f.read()))
     print(f"{len(data['models'])} models, {len(data['cards'])} cards, {len(lib['rules'])} library rules, "
           f"{len(tb['cards'])} TexBench cards -> {out}")
 

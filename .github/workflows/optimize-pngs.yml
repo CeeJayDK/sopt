@@ -1,0 +1,67 @@
+# Lossless PNG optimization for the web pages (owner, 2026-10-05: do not hold up the page release; optimize in the
+# background so the published pictures are replaced by optimized ones gradually; never optimize a file twice; ECT).
+# The pages workflow publishes the pictures as they are. This workflow runs tools/site/optimize_pngs.py: pictures not
+# done yet (file fingerprint = git blob id not in docs/texbench/png-optimized.txt) are optimized with ECT, or, when the
+# same image (pixel fingerprint) was optimized before, get that earlier file back from git history; every result is
+# checked to have the original's pixels. It commits to main in batches (about every 10 minutes and at the end) and
+# starts the pages workflow after each push. Commits made with GITHUB_TOKEN start no workflows, so this cannot loop.
+name: optimize-pngs
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/texbench/*.png"
+  schedule:
+    - cron: "17 3 * * 1"  # weekly safety net (picks up anything a cancelled run left)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: optimize-pngs
+  cancel-in-progress: false
+
+env:
+  ECT_VERSION: v0.9.5
+  ECT_LEVEL: "5"  # provisional (owner: -9 is overkill; the level is decided after the benchmark)
+
+jobs:
+  optimize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0  # earlier optimized files are restored from history
+      - name: Pictures not optimized yet
+        id: todo
+        run: echo "count=$(python3 tools/site/optimize_pngs.py --count)" | tee -a "$GITHUB_OUTPUT"
+      - name: Pillow
+        if: steps.todo.outputs.count != '0'
+        run: sudo apt-get update -q && sudo apt-get install -y -q python3-pil
+      - name: ECT from cache
+        if: steps.todo.outputs.count != '0'
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ect-bin
+          key: ect-${{ env.ECT_VERSION }}-ubuntu-24.04
+      - name: Build ECT
+        if: steps.todo.outputs.count != '0' && steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git clone -q --depth 1 --branch "$ECT_VERSION" --recursive https://github.com/fhanau/Efficient-Compression-Tool ect-src
+          cmake -S ect-src/src -B ect-src/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build ect-src/build --parallel
+          mkdir -p ect-bin && cp ect-src/build/ect ect-bin/
+          rm -rf ect-src
+      - name: Optimize, commit in batches, republish
+        if: steps.todo.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          python3 tools/site/optimize_pngs.py --ect ect-bin/ect --level "$ECT_LEVEL" --publish

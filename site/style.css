@@ -144,3 +144,13 @@ footer.site p { margin: 4px 0; max-width: 90ch; }
   .vendor > span { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* findings (rendered from docs/texbench/FINDINGS.md) */
+.findings { max-width: 80ch; }
+.findings h3 { font-size: 18px; margin: 34px 0 6px; }
+.findings h4 { font-size: 15.5px; margin: 24px 0 6px; color: #fff; }
+.findings p, .findings li { color: var(--text-dim); line-height: 1.65; }
+.findings strong { color: var(--text); }
+.findings ul { padding-left: 20px; }
+.findings li { margin: 4px 0; }
+.findings .tablewrap { margin: 10px 0; max-width: 520px; }
