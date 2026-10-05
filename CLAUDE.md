@@ -1126,7 +1126,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   SOPT_* switches, output files (sopt-out, sopt-report.md, sopt-facts.txt, sopt-found.txt), the repo name, CI artifact
   names. GPU Blueprint menu (owner): key 1 = every card, 2 main, 3 another; after a run it offers to send the reports
   (Y opens the upload page); key 9 blinks (ESC[5m) while the zip has not been sent (hidden marker Reports\.sent, made
-  when the page is opened, deleted by the next run). Report uploads (owner: Dropbox, a
+  when the page is opened, deleted by the next run).
+  First upload (owner, 2026-10-05, Intel NUC Iris 540, OpBench / TexBench / ShaderInfo with the 0.6.0 build; docs/opbench/
+  intel-iris-540-v6.csv, docs/texbench/intel-iris-540.csv, docs/shaderinfo/intel-iris-540.txt): file name "<uploader name> -
+  GPU-Blueprint-Reports.zip"; the cloud container cannot download it (*.dropboxusercontent.com denied by the network policy),
+  but the Dropbox connector's fetch returns the zip's text files concatenated, each after a line with its file name (PNGs
+  only as names): enough for the CSVs / txt. OpBench = the v1 Iris 540 run within 0.9 (add 7.96, rcp 16.1, sign 22.3 units
+  incl. the base), all consensus; fma1 = mad (4.0, one constant costs nothing extra on Intel); TexBench 412 s, 10.7
+  GTexels/s, 6.8 GPixels/s, 22.8 GB/s, pixel order 4 x 4 (SIMD16) like the UHD 630. Report uploads (owner: Dropbox, a
   separate service from his Google Drive): file request "GPU Blueprint reports" (id jmwykzlbulwo8ltkyule,
   https://www.dropbox.com/request/jmwykzlbulwo8ltkyule) into /Uploads/GPU Blueprint (one /Uploads/<project> folder per
   project); GPU-Blueprint.bat key 9 (only when picked, asks first) opens the page and shows the zip in Explorer.
