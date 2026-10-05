@@ -1196,6 +1196,22 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   four NVIDIA cards: 4 x 8 warp blocks; RGBA16F / RGBA32F / trilinear ~2.7x RGBA8 bilinear; the 4090 Laptop's scores (108
   GTexels/s, 46 GB/s) are throttled (laptop power, 140% drift, 399 s run), not the card's real rates. Site: NAME_BY_DEVICE
   0x164E, MODEL_RULES Raphael -> amd-rdna2, HD Graphics 42xx-46xx / Iris 5100 / 5200 -> intel-gen7.5.
+  TexBench findings (owner, 2026-10-05: "do this, not that" conclusions, universal and per family, in the repo and on
+  the website; specific tests to verify them): docs/texbench/FINDINGS.md (the website's TexBench page renders it:
+  build.py markdown_html -> data/texbench-findings.html). From 15 cards: one bilinear read for a 2 x 2 average (= one point
+  read up to 32-bit texels; GCN 5 and RDNA 2 RGBA32F, GCN 5 RGBA16F: 4 reads win); Load cheaper than Sample on RDNA and Ada /
+  Ampere for <= 32-bit texels but slower for 64 / 128-bit on Ampere / Ada (the ReShade copy Load patch: biggest win RDNA and
+  RTX 30 / 40 with 8 / 10-bit back buffers, neutral elsewhere, maybe a loss with scRGB on RTX 30 / 40); 3 gathers beat 4 reads
+  for RGBA8 RGB on Maxwell-Turing / Intel / GCN, not on RDNA / Ada, never for 64-bit (except HD 4600); 3D LUT >= 2D slices;
+  stencil / tile discard halve a heavy pass, per-pixel discard saves nothing; ddx_fine half the cost of ddx on NVIDIA; clears
+  free; Intel Gen9 filters sRGB / RGB10A2 / RG11B10F at ~1/3 rate. Test fixes for 0.6.0 (owner's go): blend source noise
+  shifted + swizzled (restore pass and blended pass wrote the same noise: lerp / min blend measured free on the GTX 1660);
+  "Trilinear vs anisotropic 2x" on the same SampleGrad footprints (1:1 at level 0.5, 2:1; the matrix's aniso columns use 16:1,
+  a smaller mip); "Cache use, pixel shader" (ps spread N, Test::psPixel: P = the pixel's own texel); "Do this, not that: 2 x 2
+  texels" (avg: 1 bilinear / 4 Load / 4 point / 3 gathers; each (max): 4 Load / 4 point / 3 gathers; RGBA8 / RGBA16F /
+  RGBA32F; Test::skipDep); "Copy and downsample passes" (copy Sample / Load, half bilinear / 4 Load; RGBA8 / RGB10A2 / RGBA16F
+  / RGBA32F; kPassCopySample .. kPassDownLoad, printPass per section). Website redesign (owner: readability, colors, the grid
+  background distracts): left to another agent.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):

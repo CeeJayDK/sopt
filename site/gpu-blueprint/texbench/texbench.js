@@ -78,6 +78,10 @@ function sectionPanel(sec, color) {
       title: (r.note ? r.note + " · " : "") + (r.lat != null ? `latency ${num(r.lat)} fma` : "") })));
 }
 
+fetch(ROOT + "data/texbench-findings.html").then((r) => (r.ok ? r.text() : "")).then((h) => {
+  document.getElementById("findings").innerHTML = h || '<p class="note">No findings yet.</p>';
+});
+
 loadJSON("texbench").then((data) => {
   const cards = data.cards;
   // Comparison table.

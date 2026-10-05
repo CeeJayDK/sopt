@@ -154,7 +154,8 @@ std::vector<uint8_t> texelData(const Format& f, size_t texels, std::mt19937& rng
 const char* const kMatrixCols[] = {"Load", "point", "bilinear", "gather", "trilinear", "aniso 2x", "aniso 4x", "aniso 8x", "aniso 16x"};
 
 // Pass state tests (full-screen passes into 3840 x 2160, ms per pass).
-enum { kPassTargets = 1, kPassClear, kPassMips, kPassHeavy, kPassStencil, kPassDiscardTiles, kPassDiscardPixels };
+enum { kPassTargets = 1, kPassClear, kPassMips, kPassHeavy, kPassStencil, kPassDiscardTiles, kPassDiscardPixels,
+       kPassCopySample, kPassCopyLoad, kPassDownBilinear, kPassDownLoad };
 
 enum class Stage { Compute, Pixel, Write, Blend, Pass };
 // Plain / Mipped: 2D size x size; Lut1D: 2D size x 1; Lut3D: 3D size^3; Tex1D: a real 1D texture;
@@ -189,6 +190,8 @@ struct Test {
   int matrix = -1;           // formats x filtering: the column (kMatrixCols), shown as one table
   UINT needs = 0;            // D3D11_FORMAT_SUPPORT bits the format must have (else the test is left out)
   int count = 1;             // pass state test: render targets
+  bool skipDep = false;      // runs in tput and lat only (dep equals tput for reads: see runsIn)
+  bool psPixel = false;      // pixel shader: P is the pixel's own texel (1:1), scale is free for the step
   std::string note;
 };
 
@@ -359,6 +362,65 @@ std::vector<Test> makeTests() {
     v.back().address = m.second;
   }
 
+  // Trilinear against anisotropic 2x on the same footprints (owner, 2026-10-05): the matrix's aniso columns
+  // use a 16:1 footprint, so their reads come from a smaller mip than trilinear's. Here both filters get the
+  // same gradients: 1:1 at mip level 0.5 (trilinear between mips 0 and 1; aniso 2x has nothing to add) and
+  // 2:1 (trilinear blurs to level 1.5, aniso 2x takes two taps at level 0.5: sharper).
+  const char* triAniso = "Trilinear vs anisotropic 2x: the same footprint (SampleGrad), 1024 x 1024 with mipmaps";
+  for (const char* fn : {"RGBA8", "RGBA16F", "RGBA32F"}) {
+    const Format* f = formatByName(fn);
+    const std::pair<const char*, const char*> fps[] = {
+        {"1:1", "float4 t = T.SampleGrad(S, uv, float2(texel.x * 1.4142, 0.0), float2(0.0, texel.y * 1.4142));"},
+        {"2:1", "float4 t = T.SampleGrad(S, uv, float2(texel.x * 2.8284, 0.0), float2(0.0, texel.y * 1.4142));"}};
+    for (const auto& fp : fps)
+      for (bool aniso : {false, true}) {
+        texTest(std::string(fn) + (aniso ? " aniso 2x " : " trilinear ") + fp.first, triAniso, "addr.coherent", kCoherent,
+                fp.second, f, Tex::Mipped, 1024, aniso ? Filter::Aniso : Filter::Trilinear, false,
+                std::string(fp.first) + " footprint" + (aniso ? ", MaxAnisotropy 2" : ""));
+        v.back().maxAniso = 2;
+        v.back().skipDep = true;
+        v.back().needs = D3D11_FORMAT_SUPPORT_SHADER_SAMPLE | D3D11_FORMAT_SUPPORT_MIP_AUTOGEN;
+      }
+  }
+
+  // Do this, not that (owner, 2026-10-05: the same result read different ways, to decide between them): a 2 x 2
+  // average as one bilinear read at the texels' shared corner, 4 Loads or 4 point samples + math, or 3 gathers
+  // (RGB only); and the 4 texels each on their own (here their maximum: a min / max / median filter) as 4
+  // Loads, 4 point samples or 3 gathers (RGB only).
+  const char* dtnt = "Do this, not that: 2 x 2 texels read different ways, 1024 x 1024";
+  const std::string load4 =
+      "int2 p = int2(uv * size); float4 a = T.Load(int3(p, 0)), b = T.Load(int3(p, 0), int2(1, 0)), "
+      "d = T.Load(int3(p, 0), int2(0, 1)), e = T.Load(int3(p, 0), int2(1, 1));";
+  const std::string point4 =
+      "float2 q = (floor(uv * size) + 0.5) * texel; float4 a = T.SampleLevel(S, q, 0.0), "
+      "b = T.SampleLevel(S, q, 0.0, int2(1, 0)), d = T.SampleLevel(S, q, 0.0, int2(0, 1)), e = T.SampleLevel(S, q, 0.0, int2(1, 1));";
+  const std::string gather3 =
+      "float2 q = (floor(uv * size) + 1.0) * texel; float4 r = T.GatherRed(S, q), gn = T.GatherGreen(S, q), bl = T.GatherBlue(S, q);";
+  const std::string avg4 = " float4 t = (a + b + d + e) * 0.25;";
+  const std::string max4 = " float4 t = float4(max(max(a.rgb, b.rgb), max(d.rgb, e.rgb)), 1.0);";
+  for (const char* fn : {"RGBA8", "RGBA16F", "RGBA32F"}) {
+    const Format* f = formatByName(fn);
+    const std::string n = fn;
+    auto dt = [&](const std::string& name, const std::string& read, Filter filter, UINT needs, const char* note) {
+      texTest(n + " " + name, dtnt, "addr.coherent", kCoherent, read, f, Tex::Mipped, 1024, filter, false, note);
+      v.back().skipDep = true;
+      v.back().needs = needs | D3D11_FORMAT_SUPPORT_MIP_AUTOGEN;
+    };
+    const UINT smp = D3D11_FORMAT_SUPPORT_SHADER_SAMPLE, gat = D3D11_FORMAT_SUPPORT_SHADER_GATHER;
+    dt("avg: 1 bilinear", "float2 q = (floor(uv * size) + 1.0) * texel; float4 t = T.SampleLevel(S, q, 0.0);", Filter::Linear,
+       smp, "average of 2 x 2 texels: one bilinear read at their shared corner");
+    dt("avg: 4 Load", load4 + avg4, Filter::Point, 0, "average of 2 x 2 texels: 4 Loads + math");
+    dt("avg: 4 point", point4 + avg4, Filter::Point, smp, "average of 2 x 2 texels: 4 point samples + math");
+    dt("avg: 3 gathers", gather3 + " float4 t = float4(dot(r, 0.25), dot(gn, 0.25), dot(bl, 0.25), 1.0);", Filter::Point, gat,
+       "average of 2 x 2 texels, RGB: GatherRed / Green / Blue");
+    dt("each: 4 Load", load4 + max4, Filter::Point, 0, "2 x 2 texels each on their own (their max), RGB: 4 Loads");
+    dt("each: 4 point", point4 + max4, Filter::Point, smp, "2 x 2 texels each on their own (their max), RGB: 4 point samples");
+    dt("each: 3 gathers",
+       gather3 + " float4 t = float4(max(max(r.x, r.y), max(r.z, r.w)), max(max(gn.x, gn.y), max(gn.z, gn.w)), "
+                 "max(max(bl.x, bl.y), max(bl.z, bl.w)), 1.0);",
+       Filter::Point, gat, "2 x 2 texels each on their own (their max), RGB: GatherRed / Green / Blue");
+  }
+
   // Color lookup tables as image effects use them: neighbouring pixels have similar colors. The old way (a
   // 2D texture of N slices side by side, two bilinear reads and a lerp, like ReShade's LUT.fx) against one
   // read from a 3D texture. Cost = the whole lookup (coordinates, reads, blend) over the color itself.
@@ -520,6 +582,30 @@ std::vector<Test> makeTests() {
   psSample("Sample offset", Filter::Linear, 1.0f, 1.0f, "tex2D with an offset, bilinear");
   v.back().step = std::string(kCoherent) + " float4 t = T.Sample(S, uv, int2(1, -1)); " + kUse;
 
+  // Cache use in the pixel shader (owner, 2026-10-05: does the spread at which reads get slower follow the
+  // pixel order pictures?): each pixel reads at random within N x N texels around its own texel, RGBA8 2048 x
+  // 2048, 1024 x 1024 pixels (the compute shader version above measures thread groups, not the pixel order).
+  baseTest("ps.addr.spread", kSpread, false, Stage::Pixel, kUseSpreadBase);
+  v.back().base = "ps.mad";
+  v.back().psPixel = true;
+  const char* psCache = "Cache use, pixel shader: RGBA8 2048 x 2048 (Load), reads around each pixel's own texel";
+  for (int n : {1, 2, 4, 8, 16, 32, 64, 128, 256}) {
+    Test t;
+    t.name = "ps spread " + std::to_string(n);
+    t.section = psCache;
+    t.stage = Stage::Pixel;
+    t.base = "ps.addr.spread";
+    t.step = std::string(kSpread) + " " + load + " " + kUseSpread;
+    t.cx = tx, t.cy = ty, t.cz = tz, t.cw = tw;
+    t.format = rgba8;
+    t.tex = Tex::Plain;
+    t.size = 2048;
+    t.scaleX = t.scaleY = float(n);
+    t.psPixel = true;
+    t.note = "random within " + std::to_string(n) + " x " + std::to_string(n) + " texels around the pixel";
+    add(t);
+  }
+
   // Render target writes: full-screen passes per format, noise, a smooth gradient and one flat color (the
   // same shader, only the data differs): GPUs compress render targets, so compressible output can beat
   // the memory bandwidth.
@@ -577,6 +663,18 @@ std::vector<Test> makeTests() {
   passTest("heavy, stencil 50%", kPassStencil, "RGBA8", 1, "half the pixels (8 x 8 tiles) fail the stencil test");
   passTest("heavy, discard 50% tiles", kPassDiscardTiles, "RGBA8", 1, "discard first in half the 8 x 8 tiles");
   passTest("heavy, discard 50% pixels", kPassDiscardPixels, "RGBA8", 1, "discard first in every other pixel");
+  // Copy and downsample passes (owner, 2026-10-05: ReShade's internal copy shader now uses Load instead of
+  // Sample; where does it win, and the half-size downsample as one bilinear read against 4 Loads).
+  for (const char* fn : {"RGBA8", "RGB10A2", "RGBA16F", "RGBA32F"}) {
+    auto cp = [&](std::string name, int kind, std::string note) {
+      passTest(std::move(name), kind, fn, 1, std::move(note));
+      v.back().section = "Copy and downsample passes: from a 3840 x 2160 texture";
+    };
+    cp(std::string("copy Sample ") + fn, kPassCopySample, "full-size copy, point Sample");
+    cp(std::string("copy Load ") + fn, kPassCopyLoad, "full-size copy, Load");
+    cp(std::string("half bilinear ") + fn, kPassDownBilinear, "1920 x 1080 average of 2 x 2: one bilinear read");
+    cp(std::string("half 4 Load ") + fn, kPassDownLoad, "1920 x 1080 average of 2 x 2: 4 Loads + math");
+  }
   return v;
 }
 
@@ -642,8 +740,8 @@ const char* const kVertexShader =
 
 std::string pixelSource(const Test& t, int chains) {
   std::string s = kHeader;
-  s += "float4 main(float4 pos : SV_Position) : SV_Target\n{\n"
-       "  const float2 P = pos.xy * texel * scale;\n";
+  s += "float4 main(float4 pos : SV_Position) : SV_Target\n{\n";
+  s += (t.psPixel ? "  const float2 P = pos.xy * texel;\n" : "  const float2 P = pos.xy * texel * scale;\n");
   for (int k = 0; k < chains; ++k)
     s += "  float x" + std::to_string(k) + " = 0.3 + frac(pos.x * 0.000123 + pos.y * 0.0371 + " + std::to_string(k) +
          " * 0.137) * seed;\n";
@@ -681,11 +779,13 @@ std::string writeSource(bool integer) {
 }
 
 // Blending: the source color is noise (alpha too); the shader version reads the destination from T and
-// does the blend's math itself.
-std::string blendSource(int op, bool shader) {
+// does the blend's math itself. The restore pass writes noise(pos); the blended passes write a different
+// noise (shifted and swizzled): with the same noise source and destination were equal at every pixel,
+// and lerp / min blending measured as free on the GTX 1660 (owner, 2026-10-05).
+std::string blendSource(int op, bool shader, bool restore = false) {
   std::string s = std::string(kHeader) + kNoise +
-                  "float4 main(float4 pos : SV_Position) : SV_Target {\n"
-                  "  float4 s = noise(pos);\n";
+                  "float4 main(float4 pos : SV_Position) : SV_Target {\n" +
+                  (restore ? "  float4 s = noise(pos);\n" : "  float4 s = noise(pos + float4(61.0, 23.0, 0.0, 0.0)).yzwx;\n");
   if (!shader || op == 0) return s + "  return s;\n}\n";
   s += "  float4 d = T.Load(int3(pos.xy, 0));\n";
   static const char* const kMath[] = {"", "s + d", "lerp(d, s, s.a)", "s * d", "min(s, d)"};
@@ -694,6 +794,16 @@ std::string blendSource(int op, bool shader) {
 
 // Pass state tests: noise into count targets, or the heavy shader (with discard for the discard tests).
 std::string passSource(const Test& t) {
+  // Copy and downsample passes read the 3840 x 2160 source texture T (t0) with the sampler S (s0).
+  const std::string src = "Texture2D<float4> T : register(t0);\nSamplerState S : register(s0);\n"
+                          "float4 main(float4 pos : SV_Position) : SV_Target {\n";
+  if (t.pass == kPassCopySample) return src + "  return T.Sample(S, pos.xy * float2(1.0 / 3840.0, 1.0 / 2160.0));\n}\n";
+  if (t.pass == kPassCopyLoad) return src + "  return T.Load(int3(pos.xy, 0));\n}\n";
+  if (t.pass == kPassDownBilinear) return src + "  return T.Sample(S, pos.xy * float2(1.0 / 1920.0, 1.0 / 1080.0));\n}\n";
+  if (t.pass == kPassDownLoad)
+    return src + "  int2 p = int2(pos.xy) * 2;\n"
+                 "  return (T.Load(int3(p, 0)) + T.Load(int3(p, 0), int2(1, 0)) + T.Load(int3(p, 0), int2(0, 1)) +\n"
+                 "          T.Load(int3(p, 0), int2(1, 1))) * 0.25;\n}\n";
   std::string s = kNoise;
   if (t.pass == kPassTargets) {
     s += "struct Out {";
@@ -908,7 +1018,7 @@ Config kConfigs[] = {{"tput", 8, kGroupsFull, "Cost, many in parallel"},
 // test on the GTX 1660 and UHD 630, while lat showed latencies tput does not; saves ~25-30 s per run).
 bool runsIn(const Test& t, const Config& c) {
   if (t.stage == Stage::Pixel && std::strcmp(c.name, "lat") == 0) return false;
-  if (t.matrix >= 0 && std::strcmp(c.name, "dep") == 0) return false;
+  if ((t.matrix >= 0 || t.skipDep) && std::strcmp(c.name, "dep") == 0) return false;
   return true;
 }
 
@@ -1769,14 +1879,14 @@ int main(int argc, char** argv) {
     }
     std::printf("%*s%s(lower is better)%s\n", 2 + 10 + 1, "", st.c("\x1b[90m"), st.reset());
   };
-  auto printPass = [&] {
+  auto printPass = [&](const std::string& sec) {
     double maxP = 0.0;
     for (const Test* t : tests)
-      if (t->stage == Stage::Pass) maxP = std::max(maxP, passMs[t->name].value);
-    std::printf("\n  %sPass states: full-screen passes into 3840 x 2160%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"),
+      if (t->stage == Stage::Pass && t->section == sec) maxP = std::max(maxP, passMs[t->name].value);
+    std::printf("\n  %s%s%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"), sec.c_str(),
                 st.reset(), st.c("\x1b[90m"), "Test", "ms/pass", kBarWidth, "", st.reset());
     for (const Test* t : tests)
-      if (t->stage == Stage::Pass)
+      if (t->stage == Stage::Pass && t->section == sec)
         std::printf("  %-26s %8.3f  %s\n", t->name.c_str(), passMs[t->name].value,
                     bar(passMs[t->name].value, maxP, kBarWidth, st, kCyan).c_str());
     std::printf("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
@@ -1788,7 +1898,7 @@ int main(int argc, char** argv) {
     if (first->matrix >= 0) printMatrix(sec);
     else if (first->stage == Stage::Write) printWrites();
     else if (first->stage == Stage::Blend) printBlend();
-    else if (first->stage == Stage::Pass) printPass();
+    else if (first->stage == Stage::Pass) printPass(sec);
     else printTable(sec);
   };
   // Tests left per section: the section is shown when its count reaches 0.
@@ -1935,8 +2045,35 @@ int main(int argc, char** argv) {
         code->Release();
       };
       if (t->pass != kPassClear && t->pass != kPassMips) makePs(passSource(*t), &ps);
-      D3D11_VIEWPORT vp = {0.0f, 0.0f, float(kRtW), float(kRtH), 0.0f, 1.0f};
+      const bool copyPass = t->pass >= kPassCopySample;
+      const bool half = t->pass == kPassDownBilinear || t->pass == kPassDownLoad;
+      D3D11_VIEWPORT vp = {0.0f, 0.0f, float(half ? kRtW / 2 : kRtW), float(half ? kRtH / 2 : kRtH), 0.0f, 1.0f};
       g.ctx->RSSetViewports(1, &vp);
+      ID3D11Texture2D* source = nullptr;
+      ID3D11ShaderResourceView* sourceView = nullptr;
+      ID3D11SamplerState* sampler = nullptr;
+      if (copyPass) {
+        // The source: random texels of the format, 3840 x 2160; point sampler for the copy, bilinear for the downsample.
+        D3D11_TEXTURE2D_DESC td = {};
+        td.Width = kRtW;
+        td.Height = kRtH;
+        td.MipLevels = td.ArraySize = 1;
+        td.Format = t->format->dxgi;
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_IMMUTABLE;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        const auto data = texelData(*t->format, size_t(kRtW) * kRtH, rng);
+        D3D11_SUBRESOURCE_DATA init = {data.data(), kRtW * UINT(t->format->bytes), 0};
+        if (FAILED(g.dev->CreateTexture2D(&td, &init, &source)) || FAILED(g.dev->CreateShaderResourceView(source, nullptr, &sourceView)))
+          fail("cannot create the source texture for " + t->name);
+        D3D11_SAMPLER_DESC sd = {};
+        sd.Filter = t->pass == kPassDownBilinear ? D3D11_FILTER_MIN_MAG_MIP_LINEAR : D3D11_FILTER_MIN_MAG_MIP_POINT;
+        sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sd.MaxLOD = D3D11_FLOAT32_MAX;
+        if (FAILED(g.dev->CreateSamplerState(&sd, &sampler))) fail("cannot create the sampler for " + t->name);
+        g.ctx->PSSetShaderResources(0, 1, &sourceView);
+        g.ctx->PSSetSamplers(0, 1, &sampler);
+      }
       if (t->pass == kPassStencil) {
         // The stencil buffer: 1 in half the 8 x 8 tiles, drawn once; the heavy pass then runs where it is 1.
         D3D11_TEXTURE2D_DESC td = {};
@@ -2001,6 +2138,13 @@ int main(int argc, char** argv) {
       passMs[t->name] = consensus(rd, 0.0);
       g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
       g.ctx->OMSetDepthStencilState(nullptr, 0);
+      if (copyPass) {
+        ID3D11ShaderResourceView* nullView = nullptr;
+        g.ctx->PSSetShaderResources(0, 1, &nullView);
+      }
+      release(sampler);
+      release(sourceView);
+      release(source);
       release(ps);
       release(psMark);
       release(dsTest);
@@ -2057,7 +2201,7 @@ int main(int argc, char** argv) {
       ID3D11PixelShader* ps = nullptr;
       g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &ps);
       code->Release();
-      code = compile(blendSource(0, false), "restore", "ps_5_0");
+      code = compile(blendSource(0, false, true), "restore", "ps_5_0");
       ID3D11PixelShader* restore = nullptr;
       g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &restore);
       code->Release();

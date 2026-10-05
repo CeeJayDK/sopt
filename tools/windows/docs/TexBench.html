@@ -66,6 +66,22 @@
   <tr><td>address clamp / wrap / mirror / border</td><td>bilinear with coordinates 12% past the edges.</td></tr>
 </table>
 
+<h3>Trilinear vs anisotropic 2x</h3>
+<p>RGBA8, RGBA16F and RGBA32F, 1024 &times; 1024 with mipmaps. The matrix's aniso columns use a 16:1 footprint, so they read from a smaller mip than trilinear does. Here both filters get the same gradients (<code>tex2Dgrad</code>):</p>
+<table>
+  <tr><td>trilinear 1:1, aniso 2x 1:1</td><td>a round footprint at mip level 0.5: trilinear blends mips 0 and 1; aniso 2x has nothing extra to do.</td></tr>
+  <tr><td>trilinear 2:1, aniso 2x 2:1</td><td>a 2:1 footprint: trilinear blurs to level 1.5, aniso 2x takes two taps at level 0.5 (sharper).</td></tr>
+</table>
+
+<h3>Do this, not that: 2 &times; 2 texels</h3>
+<p>RGBA8, RGBA16F and RGBA32F, 1024 &times; 1024. The same result read different ways, to choose between them:</p>
+<table>
+  <tr><td>avg: 1 bilinear</td><td>the average of 2 &times; 2 texels as one bilinear read at their shared corner.</td></tr>
+  <tr><td>avg: 4 Load, avg: 4 point</td><td>the same average from 4 <code>tex2Dfetch</code> or 4 point samples and the math.</td></tr>
+  <tr><td>avg: 3 gathers</td><td>the RGB average from <code>tex2DgatherR</code> / <code>G</code> / <code>B</code>.</td></tr>
+  <tr><td>each: 4 Load, 4 point, 3 gathers</td><td>the 4 texels each on their own (here their maximum, as in a min / max / median filter): 4 fetches, 4 point samples, or 3 gathers (RGB).</td></tr>
+</table>
+
 <h3>Color lookup tables</h3>
 <p>Coherent colors (like an image), RGBA8. N = 32 and 64. The colors change smoothly over the screen, so neighbouring pixels read neighbouring LUT entries. Cost = the whole lookup (coordinates, reads, blend).</p>
 <table>
@@ -93,6 +109,8 @@
 </table>
 <p><strong>Texel size:</strong> R8, RGBA8, RGBA16F, RGBA32F random reads (Load) from 1024 &times; 1024: the same texel count in 1, 4, 8 and 16 MB. Shows whether bigger texels fill the caches sooner.</p>
 
+<p><strong>Pixel shader:</strong> the spread tests again in a pixel shader (1024 &times; 1024 pixels, one texel per pixel), so they follow the GPU's pixel order (see Pixel shader order) instead of the compute thread groups.</p>
+
 <h3>Compute: storage writes and atomics</h3>
 <table>
   <tr><td>&lt;format&gt; store</td><td>a compute shader writes (<code>tex2Dstore</code>) near its own pixel into 1024 &times; 1024, like a post-processing pass.</td></tr>
@@ -115,7 +133,7 @@
 <p>Full-screen passes into 3840 &times; 2160. Each format as a render target, in GB/s, written three times by the same pixel shader: noise (which cannot be compressed), a smooth gradient and one flat color. GPUs compress render targets, so compressible output can be written faster than the memory bandwidth allows; the two Gain columns (smooth / noise, flat / noise) show how well this card compresses each format. The passes alternate between two targets: some GPUs (NVIDIA among them) keep back to back full-screen draws into one target in an on-chip cache, so only the last one would reach memory. Small formats (R8, R16) are usually limited by the pixel rate (ROPs), not by memory.</p>
 
 <h3>Blending</h3>
-<p>Full-screen passes into 3840 &times; 2160 (ms per pass). ReShade passes can blend their output into the target (BlendEnable, BlendOp, SrcBlend, DestBlend) instead of reading the image in the shader. For RGBA8, RGB10A2, RG11B10F, RGBA16F and RGBA32F: a plain write, then four common blends, each done by the blend hardware ("blend") and by a shader that reads the target's content as a texture and does the same math ("shader"): add (ONE, ONE: e.g. bloom), lerp (SRCALPHA, INVSRCALPHA: mixing with the image), multiply (DESTCOLOR, ZERO) and min (BlendOp MIN). The faster of each pair is shown in green. Before each pass a plain draw restores the target's content; those draws are timed alone right before and subtracted. Two targets take turns, as for the writes.</p>
+<p>Full-screen passes into 3840 &times; 2160 (ms per pass). ReShade passes can blend their output into the target (BlendEnable, BlendOp, SrcBlend, DestBlend) instead of reading the image in the shader. For RGBA8, RGB10A2, RG11B10F, RGBA16F and RGBA32F: a plain write, then four common blends, each done by the blend hardware ("blend") and by a shader that reads the target's content as a texture and does the same math ("shader"): add (ONE, ONE: e.g. bloom), lerp (SRCALPHA, INVSRCALPHA: mixing with the image), multiply (DESTCOLOR, ZERO) and min (BlendOp MIN). The faster of each pair is shown in green. Before each pass a plain draw restores the target's content (noise); those draws are timed alone right before and subtracted. The blended passes write a different noise, so source and destination differ at every pixel. Two targets take turns, as for the writes.</p>
 
 <h3>Pass states</h3>
 <p>Full-screen passes into 3840 &times; 2160 (ms per pass).</p>
@@ -127,6 +145,13 @@
   <tr><td>heavy, stencil 50%</td><td>half the pixels (8 &times; 8 tiles) fail the stencil test (StencilEnable).</td></tr>
   <tr><td>heavy, discard 50% tiles</td><td>discard first in half the 8 &times; 8 tiles.</td></tr>
   <tr><td>heavy, discard 50% pixels</td><td>discard first in every other pixel: GPUs shade 2 &times; 2 pixel quads, so this usually saves nothing.</td></tr>
+</table>
+
+<h3>Copy and downsample passes</h3>
+<p>Full-screen passes from a 3840 &times; 2160 texture (ms per pass), RGBA8, RGB10A2, RGBA16F (the HDR back buffer format) and RGBA32F:</p>
+<table>
+  <tr><td>copy Sample, copy Load</td><td>a full-size copy with a point sample against <code>tex2Dfetch</code> (ReShade's internal copy shader uses Load since our patch).</td></tr>
+  <tr><td>half bilinear, half 4 Load</td><td>a half-size (1920 &times; 1080) average of each 2 &times; 2 block: one bilinear read at the block's center against 4 fetches and the math.</td></tr>
 </table>
 
 <h3>Pixel shader order</h3>

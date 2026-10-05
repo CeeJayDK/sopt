@@ -29,6 +29,8 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 - **Results start sooner:** OpBench and TexBench compile the shaders in the background, section by section, while the previous section is measured (no compiling pause at the start).
 - **Clearer headings:** the three ways of measuring are called "Cost, many in parallel", "Cost, one dependent chain" and "Latency, one at a time" (every number is a cost: lower is better).
 - **fp32 score on AMD GCN:** a new test, `fma1` (one fma with a single constant), gives the score its real rate where the reference fma's two constants cost a second instruction (Radeon Vega APUs showed about a third of their fp32 rate).
+- **TexBench: "do this, not that" tests:** the same result read different ways, to choose between them: a 2 × 2 average as one bilinear read, 4 fetches, 4 point samples or 3 gathers; 2 × 2 texels each on their own as 4 fetches, 4 point samples or 3 gathers; full-screen copies with Sample against Load, and half-size downsamples as one bilinear read against 4 fetches (RGBA8, RGB10A2, RGBA16F, RGBA32F).
+- **TexBench: fairer comparisons:** trilinear and anisotropic 2x on the same footprints; the cache spread test also in a pixel shader (it follows the pixel order); the blend test's source no longer equals the destination (lerp and min blending looked free on some cards because of it).
 - **TexBench is shorter:** the formats × filtering table no longer runs the dependent-chain mode (it matched the first mode on every card tested), about 25-30 seconds less.
 
 ## 0.5.0
