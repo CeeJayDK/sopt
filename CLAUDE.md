@@ -1057,6 +1057,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   in OpBench; (2) headings "Cost, many in parallel" / "Cost, one dependent chain" / "Latency, one at a time" instead
   of "Throughput" (the number is a cost, lower is better; CSV codes tput / dep / lat unchanged); (3) background
   shader compiling per section.
+  First community 0.5.0 reports (2026-10-05): RX 9070 XT (RDNA 4; docs/opbench/amd-radeon-rx-9070-xt-v5.csv,
+  docs/texbench/amd-radeon-rx-9070-xt.csv, docs/shaderinfo/): all tests consensus despite 57% / 97% reference drift;
+  = its v1 run within ~5% (MUFU 24.6 vs 26: v1 drift); omod2 / omod4 / omodhalf free, omod8 / 0.25 = control (AMD's
+  set, as on RDNA 2); iadd / iand ~8 (2 dual-issue mads), imul 28.5; fp16 50 vs fp32 45 TFLOPS (packed fp16 ~ the
+  fp32 dual-issue rate). TexBench (75 s run): 784 GTexels/s, 205 GPixels/s, 655 GB/s; RGBA16F bilinear full rate
+  (= RGBA8, NVIDIA half rate), RGBA32F / trilinear half, aniso 16x ~24x; pixel order: 8 x 8 blocks of 64 (wave64
+  pixel shaders), the 1024^2 target shaded as four 512^2 quadrants in parallel. ShaderInfo: the AMD Windows driver
+  (LLPC 2.0.395) gives VK_AMD_shader_info + executable properties with full RDNA 4 ISA disassembly (VGPRs / SGPRs):
+  max(max()) -> v_max3_num_f32, saturate folds into the producing fma's clamp bit, saturate(x) * 2 stays a separate
+  v_add (omod applies before clamp, so no omod over a saturate; sopt's amdFolds already excludes Saturate from
+  takesOmod), GLSL sign -> 2 x (v_cmp + v_cndmask), integer mul + add -> v_mad_co_u64_u32; VK_AMD_gpa_interface yes.
+  RTX 4060 Ti (driver 616.56): statistics only, like the GTX 1660.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
