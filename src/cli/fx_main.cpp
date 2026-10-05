@@ -287,7 +287,7 @@ int main(int argc, char** argv) {
     else if (a == "--driver-stats") driverStatsFiles.push_back(next());
     else if (a == "--sm") sassCfg.sm = std::atoi(next());
     else if (a == "-h" || a == "--help") { usage(); return 0; }
-    else if (a == "--version") { std::puts("sopt-fx " SOPT_VERSION); return 0; }
+    else if (a == "--version") { std::puts("sopt-fx (SweetOpt) " SOPT_VERSION); return 0; }
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     else collect(a, inputs);
   }
@@ -310,7 +310,7 @@ int main(int argc, char** argv) {
   ropt.userRanges = &userRanges;
 
   const console::Style con = console::init();
-  console::titleBox(con, std::string("sopt-fx ") + SOPT_VERSION + "  -  by CeeJay.dk");
+  console::titleBox(con, std::string("SweetOpt ") + SOPT_VERSION + "  -  the super sweet shader optimizer  -  by CeeJay.dk");
   console::section(con, "Reading " + std::to_string(inputs.size()) + " effect file" + (inputs.size() == 1 ? "" : "s"));
 
   // Front end: every effect twice (two resolutions, see extractRegions).
@@ -1022,7 +1022,7 @@ int main(int argc, char** argv) {
   std::set<std::string> changed;
   for (const auto& r : results)
     if (!r.variants.empty()) changed.insert(r.region.file);
-  std::vector<fs::path> effectsOut;
+  std::vector<std::pair<fs::path, fs::path>> effectsOut;  // written effect, its original
   for (const auto& [p, srcs] : effectFiles) {
     bool uses = false;
     for (const auto& f : srcs) uses = uses || changed.count(f);
@@ -1034,15 +1034,18 @@ int main(int argc, char** argv) {
       if (ec) errors += "cannot copy " + p.string() + "\n";
       else files.push_back(dst);
     }
-    effectsOut.push_back(dst);
+    effectsOut.emplace_back(dst, p);
   }
 
   console::section(con, "Writing");
   // Every variant must still parse: SOPT_ALL = k selects variant k where it exists.
   size_t checks = 0, checkFailures = 0;
-  for (const auto& e : effectsOut) {
+  for (const auto& [e, original] : effectsOut) {
     for (size_t k = 0; k <= 2 * numVariants; ++k) {
       fx::LoadOptions lo = loadFor(e);
+      // The variant files are meant to lie over the original folder: headers and `#if exists` tests
+      // that are not in the output directory resolve there (SuperDepth3D's AXAA.fxh).
+      lo.includePaths.insert(lo.includePaths.begin(), original.parent_path());
       lo.macros.emplace_back("SOPT_ALL", std::to_string(k));
       std::string err;
       ++checks;

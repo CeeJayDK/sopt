@@ -17,7 +17,11 @@ param(
   [int]$Frames = 300
 )
 $ErrorActionPreference = "Stop"
-$here = $PSScriptRoot
+# The release zip keeps the programs in bin\ next to run-bench.bat (owner, 2026-10-05: only the launcher and the
+# guide in the main folder); results, the run folder, the test package and a ReShade setup go in the main folder.
+$bin = $PSScriptRoot
+$here = $bin
+if ((Split-Path -Leaf $bin) -ieq "bin") { $here = Split-Path -Parent $bin }
 
 function Fail($msg) {
   Write-Host ""
@@ -27,12 +31,15 @@ function Fail($msg) {
 
 # --- the pieces -------------------------------------------------------------------------
 foreach ($f in @("sopt-host.exe", "sopt-timer.addon64")) {
-  if (-not (Test-Path (Join-Path $here $f))) { Fail "$f is missing next to this script." }
+  if (-not (Test-Path (Join-Path $bin $f))) { Fail "$f is missing from $bin." }
 }
 
 if (-not $ReShade) {
-  $dll = Join-Path $here "ReShade64.dll"
-  if (Test-Path $dll) {
+  $dll = Join-Path $bin "ReShade64.dll"
+  $mine = Join-Path $here "ReShade64.dll"
+  if (Test-Path $mine) {
+    $ReShade = $mine
+  } elseif (Test-Path $dll) {
     $ReShade = $dll
   } else {
     # The ReShade setup is an executable with a zip archive appended: take the DLL out of it.
@@ -50,7 +57,7 @@ if (-not $ReShade) {
 }
 if (-not $ReShade -or -not (Test-Path $ReShade)) {
   Fail ("ReShade64.dll not found. Put ReShade64.dll (ReShade with full add-on support) or the " +
-        "ReShade_Setup_..._Addon.exe installer from https://reshade.me next to this script.")
+        "ReShade_Setup_..._Addon.exe installer from https://reshade.me next to run-bench.bat.")
 }
 
 if (-not $Package) {
@@ -59,7 +66,7 @@ if (-not $Package) {
     if ((Test-Path (Join-Path $c "sopt-presets")) -and (Test-Path (Join-Path $c "reshade-shaders"))) { $Package = $c; break }
   }
 }
-if (-not $Package) { Fail "No test package found: extract the sopt-compare-*.zip next to this script." }
+if (-not $Package) { Fail "No test package found: extract the sopt-compare-*.zip next to run-bench.bat." }
 $presets = Get-ChildItem -Path (Join-Path $Package "sopt-presets") -Filter "sopt-*.ini" | Sort-Object Name
 if ($presets.Count -eq 0) { Fail "The test package has no sopt-*.ini presets." }
 
@@ -69,8 +76,8 @@ $results = Join-Path $here "results-$stamp"
 $shots = Join-Path $results "screenshots"
 $run = Join-Path $here "run"
 New-Item -ItemType Directory -Force -Path $results, $shots, $run | Out-Null
-Copy-Item (Join-Path $here "sopt-host.exe") $run -Force
-Copy-Item (Join-Path $here "sopt-timer.addon64") $run -Force
+Copy-Item (Join-Path $bin "sopt-host.exe") $run -Force
+Copy-Item (Join-Path $bin "sopt-timer.addon64") $run -Force
 Copy-Item $ReShade (Join-Path $run "ReShade64.dll") -Force
 
 $shaders = Join-Path $Package "reshade-shaders\Shaders"

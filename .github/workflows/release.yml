@@ -66,24 +66,12 @@ jobs:
         shell: pwsh
         run: |
           $v = '${{ steps.version.outputs.version }}'
-          New-Item -ItemType Directory -Force -Path sopt, gpubench, tools, unsigned | Out-Null
-          Copy-Item build/Release/sopt.exe, build/Release/sopt-fx.exe, LICENSE sopt/
-          Copy-Item docs/QUICKSTART.txt sopt/QUICKSTART.txt
-          Compress-Archive -Path sopt/* -DestinationPath "unsigned/sopt-$v-windows-x64.zip"
-          # GPU-Bench (owner, 2026-10-05: one zip for testers): OpBench, TexBench and ShaderInfo with their batch files
-          Copy-Item build/Release/OpBench.exe, build/Release/TexBench.exe, build/Release/ShaderInfo.exe, tools/windows/GPU-Bench.bat, tools/windows/measure-main-gpu.bat, tools/windows/measure-all-gpus.bat, tools/windows/measure-gpu.bat, tools/windows/measure-textures.bat, tools/windows/shader-info.bat gpubench/
-          Copy-Item tools/windows/GPU-BENCH-README.txt gpubench/README.txt
-          Copy-Item tools/windows/opbench/README.txt gpubench/OpBench-README.txt
-          Copy-Item tools/windows/opbench/TESTS.txt gpubench/OpBench-TESTS.txt
-          Copy-Item tools/windows/texbench/README.txt gpubench/TexBench-README.txt
-          Copy-Item tools/windows/texbench/TESTS.txt gpubench/TexBench-TESTS.txt
-          Copy-Item tools/windows/shaderinfo/README.txt gpubench/ShaderInfo-README.txt
-          Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, build/Release/OpBench.exe, tools/windows/measure-gpu.bat, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md tools/
-          Copy-Item build/Release/TexBench.exe, tools/windows/measure-textures.bat, tools/windows/measure-main-gpu.bat, tools/windows/measure-all-gpus.bat, build/Release/ShaderInfo.exe, tools/windows/shader-info.bat tools/
-          Copy-Item tools/windows/texbench/TESTS.txt tools/TexBench-TESTS.txt
-          Copy-Item tools/windows/opbench/TESTS.txt tools/OpBench-TESTS.txt
-          Compress-Archive -Path gpubench/* -DestinationPath "unsigned/GPU-Bench-$v.zip"
-          Compress-Archive -Path tools/* -DestinationPath "unsigned/sopt-windows-tools-$v.zip"
+          # Layouts in tools/windows/stage.ps1 (owner, 2026-10-05): launcher + README.html, programs in bin\, Docs\.
+          tools/windows/stage.ps1 -Out stage
+          New-Item -ItemType Directory -Force -Path unsigned | Out-Null
+          Compress-Archive -Path stage/SweetOpt/* -DestinationPath "unsigned/SweetOpt-$v-windows-x64.zip"
+          Compress-Archive -Path stage/GPU-Blueprint/* -DestinationPath "unsigned/GPU-Blueprint-$v.zip"
+          Compress-Archive -Path stage/tools/* -DestinationPath "unsigned/sopt-windows-tools-$v.zip"
       - name: Upload unsigned
         id: upload
         uses: actions/upload-artifact@v4
@@ -129,11 +117,13 @@ jobs:
         run: |
           v=$(sed -n 's/^project(sopt VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; fi
-          d=sopt-$v-linux-x64
-          mkdir -p $d release
-          cp build/sopt build/sopt-fx LICENSE $d/
-          cp docs/QUICKSTART.txt $d/QUICKSTART.txt
-          ./$d/sopt --version && ./$d/sopt-fx --version
+          d=SweetOpt-$v-linux-x64
+          mkdir -p $d/bin $d/Docs release
+          cp build/sopt build/sopt-fx $d/bin/
+          cp docs/sweetopt/README.html $d/README.html
+          cp tools/windows/docs/style.css $d/Docs/
+          cp LICENSE $d/Docs/LICENSE.txt
+          ./$d/bin/sopt --version && ./$d/bin/sopt-fx --version
           tar czf release/$d.tar.gz $d
       - name: Upload release files
         uses: actions/upload-artifact@v4
@@ -151,6 +141,39 @@ jobs:
           path: release
       - name: Checksums
         run: cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+      - name: Release notes
+        env:
+          VERSION: ${{ needs.windows.outputs.version }}
+          SIGNED: ${{ needs.windows.outputs.signed }}
+        run: |
+          # The CHANGELOG.md section "## <version>" (up to the next "## ") becomes "What's new".
+          awk -v h="## $VERSION" '$0 == h { on = 1; next } on && /^## / { exit } on' src/CHANGELOG.md > whatsnew.md
+          if ! grep -q '[^[:space:]]' whatsnew.md; then
+            echo "::warning::CHANGELOG.md has no section '## $VERSION'"
+            echo "(no notes for this version in CHANGELOG.md)" > whatsnew.md
+          fi
+          if [ "$SIGNED" = yes ]; then signing="signed through SignPath Foundation."
+          else signing="not signed yet (SignPath application pending); Windows Defender may warn. Check the files against SHA256SUMS.txt."; fi
+          {
+            echo "sopt $VERSION."
+            echo
+            echo "## What's new"
+            cat whatsnew.md
+            echo
+            echo "## Downloads"
+            echo
+            echo "- \`SweetOpt-$VERSION-windows-x64.zip\` / \`SweetOpt-$VERSION-linux-x64.tar.gz\`: SweetOpt, the super sweet shader optimizer: sopt-fx (finds cheaper, verified rewrites of the arithmetic in ReShade FX and HLSL pixel shaders, written next to the originals behind preprocessor switches) and sopt (single expressions); on Windows, double-click SweetOpt.bat. Early release: start with README.html inside, and send feedback at https://github.com/CeeJayDK/sopt/issues. Windows needs the VC++ 2015-2022 redistributable (most gaming PCs have it)."
+            echo "- \`GPU-Blueprint-$VERSION.zip\`: measures your graphics card for SweetOpt: OpBench (what math instructions cost), TexBench (texture reads, writes, blending) and ShaderInfo (what the driver reports about compiled shaders), each with a score at the end. Unzip, double-click \`GPU-Blueprint.bat\` (a menu); when a run is done it offers to send the reports (README.html inside explains everything)."
+            echo "- \`sopt-windows-tools-$VERSION.zip\`: the benchmark harness that times SweetOpt's variants in ReShade (run-bench.bat, sopt-host, sopt-timer add-on, ReShade64.dll 6.8.0)."
+            echo
+            echo "Code signing: $signing"
+          } > notes.md
+          cat notes.md
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -159,11 +182,4 @@ jobs:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', needs.windows.outputs.version) }}
           name: sopt ${{ needs.windows.outputs.version }}
           files: release/*
-          body: |
-            sopt ${{ needs.windows.outputs.version }}.
-
-            - `sopt-${{ needs.windows.outputs.version }}-windows-x64.zip` / `sopt-${{ needs.windows.outputs.version }}-linux-x64.tar.gz`: sopt-fx (finds cheaper, verified rewrites of the arithmetic in ReShade FX and HLSL pixel shaders, written next to the originals behind preprocessor switches) and sopt (single expressions). Early release: start with QUICKSTART.txt inside, and send feedback at https://github.com/CeeJayDK/sopt/issues. Windows needs the VC++ 2015-2022 redistributable (most gaming PCs have it).
-            - `GPU-Bench-${{ needs.windows.outputs.version }}.zip`: measures your graphics card for sopt: OpBench (what math instructions cost), TexBench (texture reads, writes, blending) and ShaderInfo (what the driver reports about compiled shaders), each with a score at the end. Unzip, double-click `GPU-Bench.bat` (a menu) or `measure-main-gpu.bat` (or `measure-all-gpus.bat` with more than one graphics card) and send the files it writes (see README.txt inside).
-            - `sopt-windows-tools-${{ needs.windows.outputs.version }}.zip`: the benchmark harness (sopt-host, sopt-timer add-on, run-bench.bat, ReShade64.dll 6.8.0), OpBench, TexBench and ShaderInfo, with measure-main-gpu.bat (OpBench, then TexBench) and measure-all-gpus.bat (both, on every GPU in the PC).
-
-            Code signing: ${{ needs.windows.outputs.signed == 'yes' && 'signed through SignPath Foundation.' || 'not signed yet (SignPath application pending); Windows Defender may warn. Check the files against SHA256SUMS.txt.' }}
+          body_path: notes.md

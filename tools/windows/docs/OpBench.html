@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpBench</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../README.html">GPU Blueprint</a> / OpBench</nav>
+<header class="top">
+  <h1>OpBench</h1>
+  <p>What GPU instructions cost on your graphics card.</p>
+</header>
+
+<h2>How to run</h2>
+<p>From the GPU Blueprint menu (<code>GPU-Blueprint.bat</code>): <kbd>1</kbd> to <kbd>3</kbd> run it with the other programs, <kbd>4</kbd> alone. It takes a few minutes and writes <code>Reports\opbench-&lt;GPU&gt;.csv</code>.</p>
+<p>Laptops with two graphics cards: OpBench asks the NVIDIA / AMD driver for the fast card. On older AMD laptops, set <code>OpBench.exe</code> to "High Performance" in the Switchable Graphics settings if it still runs on the built-in graphics. Windows may keep showing the built-in card's name even then.</p>
+
+<h3>Command line</h3>
+<table>
+  <tr><td><code>--list</code></td><td>show the graphics cards Windows reports, with their numbers</td></tr>
+  <tr><td><code>--adapter N</code></td><td>measure card number N instead of the one with the most video memory</td></tr>
+  <tr><td><code>--filter text</code></td><td>only tests whose name contains <em>text</em> (quick checks)</td></tr>
+</table>
+
+<h2>Why</h2>
+<p>sopt rewrites small pieces of shader math into cheaper forms that give the same result. Which form is cheaper depends on the GPU. A <code>sign()</code> costs one instruction on one card and seven on another, and some cards apply <code>saturate()</code> or <code>* 2</code> for free. OpBench measures these costs on real cards. The results become sopt's cost models, one per GPU family (for example NVIDIA Turing, NVIDIA Blackwell, AMD RDNA, Intel Gen9).</p>
+
+<h2>How a test works</h2>
+<p>Each test is one small step, repeated thousands of times in a chain inside a compute shader (Direct3D 11):</p>
+<pre>x = mad(f(x), c.x, c.y)</pre>
+<p><em>f</em> is the operation under test, and the mad (multiply-add) keeps <em>x</em> in a sane range. The constants <em>c</em> change at every step, so neither Microsoft's shader compiler nor the GPU driver can fold the chain away. The shader code of every test, with fxc's DXBC output, is written to <code>Reports\Shaders\OpBench\</code> so folded tests can be spotted.</p>
+<p>The reference test is the bare step <code>x = mad(x, c.x, c.y)</code>: one fma (fused multiply-add) per step. Every time is divided by the reference's time and multiplied by 4, so <strong>one fma = 4 units</strong>. A test's cost is its time minus the time of its base test. The base is the same step without the operation under test, usually the reference itself. So "Cost 4" means the operation costs as much as one more fma, and "Cost 0" means it is free (the GPU folds it into a neighbouring instruction).</p>
+<p>Before every test the reference is measured again. A GPU clock change (boost, temperature, power saving) then affects the reference and the test alike, instead of making the test look cheaper or dearer. Every test runs twice: forward through its section, then backward, so slow drift cancels out. When the two readings of a test disagree (by more than 0.75 units or 15%), it is measured again, like a third sensor: two readings show that one is wrong, three or more show which one. This repeats until more than half of the readings agree (at most 6 passes); the result is the mean of the agreeing readings. A test without such a majority is marked "no consensus".</p>
+
+<h3>Three ways of running</h3>
+<table>
+  <tr><td>Cost, many in parallel <code>tput</code></td><td>8 independent chains per thread, about a million threads: what an instruction costs when the GPU is fully busy, as in a game. This is the number sopt uses, and the summary shows it.</td></tr>
+  <tr><td>Cost, one dependent chain <code>dep</code></td><td>1 chain per thread, about a million threads. Every step waits for the one before it, and the GPU hides the waiting by switching between threads.</td></tr>
+  <tr><td>Latency, one at a time <code>lat</code></td><td>1 chain, one group of 64 threads. How long one step takes until its result is ready, since nothing can hide the wait.</td></tr>
+</table>
+<p>All three are in the CSV (its codes <code>tput</code>, <code>dep</code>, <code>lat</code>). Every number is a cost: lower is better.</p>
+
+<h2>The tests</h2>
+
+<h3>Modifiers and folds</h3>
+<p>Often free: the GPU applies them inside another instruction.</p>
+<table>
+  <tr><td><code>neg</code>, <code>abs</code>, <code>negabs</code></td><td><code>-x</code>, <code>abs(x)</code>, <code>-abs(x)</code> feeding the mad: source modifiers, usually free.</td></tr>
+  <tr><td><code>saturate</code></td><td>clamp to [0, 1] on the previous mad's result: an output modifier.</td></tr>
+  <tr><td><code>satmad</code></td><td><code>saturate(mad(...))</code>: the same, measured against two mads.</td></tr>
+  <tr><td><code>mul</code></td><td><code>x * c</code> before the mad: some drivers merge it into the mad.</td></tr>
+  <tr><td><code>omod2</code>, <code>omodhalf</code></td><td><code>rcp(x) * 2</code> and <code>* 0.5</code>: AMD can scale a result by 2, 4 or 0.5 for free.</td></tr>
+  <tr><td><code>omod4</code></td><td><code>rcp(x) * 4</code>: AMD's third output modifier scale.</td></tr>
+  <tr><td><code>omod8</code>, <code>omod0.25</code>, <code>omod0.125</code></td><td><code>rcp(x) * 8</code>, <code>* 0.25</code>, <code>* 0.125</code>: scales that DX9-era GPUs applied for free (_x8, _d4, _d8). Expected to cost a multiply on current GPUs: measured to know.</td></tr>
+  <tr><td><code>omod3</code></td><td><code>rcp(x) * 3</code>: the control (3 is no output modifier scale).</td></tr>
+</table>
+
+<h3>Basic arithmetic</h3>
+<table>
+  <tr><td><code>min</code>, <code>max</code>, <code>step</code></td><td>min / max / compare; NVIDIA Turing runs one of them beside an fma.</td></tr>
+  <tr><td><code>add</code>, <code>sub</code></td><td>one add.</td></tr>
+  <tr><td><code>fma1</code></td><td><code>mad(x, x, c)</code>: one fma with a single constant. On AMD GCN the reference's two constants cost a second instruction, so this is the true fp32 rate there (the score uses whichever is faster).</td></tr>
+  <tr><td><code>mad2</code>, <code>contract</code></td><td>a second mad, and <code>x * a + b</code> written out (compiled to one fma?).</td></tr>
+  <tr><td><code>max3</code>, <code>minmax</code></td><td><code>max(max())</code>, <code>min(max())</code>: AMD has 3-operand instructions for these.</td></tr>
+  <tr><td><code>clamp</code></td><td><code>clamp(x, a, b)</code>: AMD v_med3 does it in one instruction, others need two.</td></tr>
+  <tr><td><code>select</code></td><td><code>x &lt; a ? b : x</code>: compare + select.</td></tr>
+  <tr><td><code>lerp</code></td><td><code>lerp(a, x, t)</code>: fxc writes it as add + mad.</td></tr>
+</table>
+
+<h3>Rounding and sign</h3>
+<table>
+  <tr><td><code>floor</code>, <code>ceil</code>, <code>round</code>, <code>trunc</code>, <code>frac</code></td><td>the rounding instructions (quarter rate on some NVIDIA cards). <code>trunc</code> drops the fraction (round toward zero) instead of rounding by sign.</td></tr>
+  <tr><td><code>roundadd</code>, <code>flooradd</code>, <code>fracadd</code></td><td>round / floor / frac built from adds with a magic constant (1.5 &times; 2<sup>23</sup>), for cards where the rounding instructions are slow.</td></tr>
+  <tr><td><code>sign</code></td><td>HLSL <code>sign()</code>: fxc writes compare, compare, int subtract, int &rarr; float.</td></tr>
+  <tr><td><code>signsel2</code>, <code>signbits</code>, <code>signsat</code>, <code>signmad</code>, <code>signclamp</code>, <code>signsel</code></td><td>other ways to get -1 / 0 / +1 (<code>signsel2</code> and <code>signbits</code> give +1 at 0; <code>signbits</code> copies the sign bit onto 1.0 with two integer instructions), without the int &rarr; float conversion that makes <code>sign()</code> slow on newer NVIDIA cards.</td></tr>
+</table>
+
+<h3>Division and transcendentals</h3>
+<table>
+  <tr><td><code>rcp</code>, <code>rsqrt</code>, <code>sqrt</code>, <code>exp2</code>, <code>log2</code>, <code>sin</code>, <code>cos</code></td><td>the special-function unit (1/4 or 1/8 rate on most cards).</td></tr>
+  <tr><td><code>div</code>, <code>divxy</code></td><td><code>c / x</code> and <code>x / y</code> (rcp + mul).</td></tr>
+  <tr><td><code>exp</code>, <code>log</code></td><td>fxc: exp2 / log2 with a multiply.</td></tr>
+  <tr><td><code>pow</code></td><td>fxc: log2, mul, exp2.</td></tr>
+  <tr><td><code>rcpmax</code></td><td><code>max(rcp(x), c)</code>: the base for the omod tests.</td></tr>
+</table>
+
+<h3>Vector (float2 / float3 / float4)</h3>
+<table>
+  <tr><td><code>mad2v</code>, <code>mad3v</code>, <code>mad4v</code></td><td>the reference on 2, 3 and 4 components (2, 3, 4 fmas).</td></tr>
+  <tr><td><code>dot2</code>, <code>dot3</code>, <code>dot4</code></td><td>dot products. fxc writes one dp2 / dp3 / dp4 instruction, but GPUs since about 2010 have no such instruction: the driver splits it into mul + fmas. These show whether that is so (old VLIW cards did have a real dot).</td></tr>
+  <tr><td><code>cross</code></td><td>cross product: 3 mul + 3 fma.</td></tr>
+  <tr><td><code>length</code>, <code>distance</code></td><td>dot, sqrt (distance: 3 subtracts first), plus one fma of the step.</td></tr>
+  <tr><td><code>normalize</code></td><td>dot, rsqrt and 3 multiplies.</td></tr>
+  <tr><td><code>reflect</code></td><td><code>i - 2 * dot(i, n) * n</code>.</td></tr>
+  <tr><td><code>refract</code>, <code>faceforward</code></td><td>refraction (dot, sqrt, select) and faceforward (dot, compare, select).</td></tr>
+  <tr><td><code>det3</code></td><td>determinant of a float3x3.</td></tr>
+  <tr><td><code>matmul4</code></td><td><code>mul(float4x4, float4)</code>: 4 dot products (16 fmas).</td></tr>
+  <tr><td><code>transpose</code></td><td>the same with <code>transpose()</code>: should cost nothing extra.</td></tr>
+</table>
+
+<h3>Written out by fxc</h3>
+<p>No single instruction exists; fxc emits a sequence.</p>
+<table>
+  <tr><td><code>smoothstep</code></td><td>subtract, mul_sat, mad, 2 multiplies.</td></tr>
+  <tr><td><code>fmod</code></td><td>divide, frac, compare, select, multiply.</td></tr>
+  <tr><td><code>sincos</code></td><td>sin and cos of the same value (some GPUs share the work).</td></tr>
+  <tr><td><code>tan</code></td><td>sin, cos and a divide.</td></tr>
+  <tr><td><code>atan</code>, <code>atan2</code></td><td>polynomial approximations (atan2 adds quadrant fixes).</td></tr>
+  <tr><td><code>asin</code>, <code>acos</code></td><td>polynomial with a sqrt.</td></tr>
+</table>
+
+<h3>More intrinsics</h3>
+<table>
+  <tr><td><code>bitcast</code></td><td><code>asint</code> / <code>asfloat</code>: should be free.</td></tr>
+  <tr><td><code>radians</code></td><td>a multiply (degrees too).</td></tr>
+  <tr><td><code>log10</code></td><td>log2 and a multiply.</td></tr>
+  <tr><td><code>isnan</code>, <code>isinf</code></td><td>a compare and a select (a driver may drop isnan if it assumes no NaNs).</td></tr>
+  <tr><td><code>modf</code>, <code>frexp</code></td><td>fraction and integer part; mantissa and exponent.</td></tr>
+  <tr><td><code>ldexp</code></td><td><code>x * exp2(e)</code>.</td></tr>
+  <tr><td><code>f16round</code></td><td><code>f32tof16</code> + <code>f16tof32</code>: rounding a value through half precision.</td></tr>
+  <tr><td><code>tanh</code>, <code>sinh</code>, <code>cosh</code></td><td>written out with exp (and a divide for tanh).</td></tr>
+</table>
+
+<h3>Integer and conversions</h3>
+<p>Chains of uint values, <code>x = (x ^ a) * b</code>, with random 32-bit constants.</p>
+<table>
+  <tr><td><code>bitor</code></td><td>one integer OR on a float value: is switching between float and int free?</td></tr>
+  <tr><td><code>ixmul</code></td><td>the integer base step: xor + 32-bit multiply.</td></tr>
+  <tr><td><code>iadd</code>, <code>iand</code>, <code>imin</code></td><td>one more add / and / unsigned min (NVIDIA can merge and + xor into one LOP3).</td></tr>
+  <tr><td><code>ishr</code></td><td><code>x ^ (x &gt;&gt; 13)</code>: shift + xor.</td></tr>
+  <tr><td><code>irot</code></td><td>rotate by 7: shl, shr, or, or one funnel shift / align instruction.</td></tr>
+  <tr><td><code>imul</code></td><td>a second 32-bit multiply (slower than float on some cards).</td></tr>
+  <tr><td><code>popc</code>, <code>fbh</code></td><td><code>countbits</code>, <code>firstbithigh</code>.</td></tr>
+  <tr><td><code>bitrev</code></td><td><code>reversebits</code>.</td></tr>
+  <tr><td><code>fbl</code></td><td><code>firstbitlow</code>.</td></tr>
+  <tr><td><code>icmpsel</code></td><td>unsigned compare and select.</td></tr>
+  <tr><td><code>unitf</code></td><td>uint &rarr; float in [1, 2) through the bits (shift, or): a fast random-number trick.</td></tr>
+  <tr><td><code>utof</code>, <code>ftou</code>, <code>itof</code></td><td>uint &rarr; float and float &rarr; uint conversions; int &rarr; float.</td></tr>
+  <tr><td><code>ftoitof</code></td><td>float &rarr; int, an integer or, int &rarr; float (fxc writes <code>float(int(x))</code> alone as one truncation instruction, so the or keeps the conversions).</td></tr>
+  <tr><td><code>udiv</code>, <code>umod</code>, <code>idiv</code>, <code>imod</code></td><td>unsigned / signed divide and modulo by a small divisor (1 .. 255). Most GPUs have no integer divide instruction, so the driver writes a sequence; signed is longer.</td></tr>
+</table>
+
+<h3>Half precision (min16float)</h3>
+<table>
+  <tr><td><code>mad16</code>, <code>add16</code>, <code>mul16</code>, <code>rcp16</code>, <code>sqrt16</code>, <code>exp2_16</code></td><td>the same steps in 16-bit floats. AMD RDNA and some other cards run these at twice the rate (two per instruction). Drivers may run min16float at 32 bits instead. The summary and the CSV header say which.</td></tr>
+</table>
+
+<h3>Compute: groupshared memory and barriers</h3>
+<table>
+  <tr><td><code>gsread</code>, <code>gswrite</code>, <code>gswriteread</code></td><td>groupshared memory (fast on-chip memory shared by a thread group).</td></tr>
+  <tr><td><code>gsread32</code>, <code>gswrite32</code></td><td>lanes 32 words apart: they hit the same memory bank (bank conflicts).</td></tr>
+  <tr><td><code>barrier</code>, <code>groupbarrier</code>, <code>membarrier</code></td><td><code>barrier()</code> / <code>groupMemoryBarrier()</code> / <code>memoryBarrier()</code> after a write.</td></tr>
+</table>
+
+<h3>Compute: groupshared atomics</h3>
+<table>
+  <tr><td><code>aAdd</code>, <code>aAnd</code>, <code>aOr</code>, <code>aXor</code>, <code>aMin</code>, <code>aMax</code>, <code>aXchg</code>, <code>aCmpXchg</code></td><td><code>atomicAdd</code> ... <code>atomicCompareExchange</code>, each thread on its own address; with "1" (<code>aAdd1</code> ...): the group's 64 threads on one address.</td></tr>
+</table>
+
+<h3>Compute: local arrays and branches</h3>
+<table>
+  <tr><td><code>arrayread</code>, <code>arraywrite</code></td><td>a local <code>float A[16]</code> indexed at run time (the index differs per thread). fxc puts such arrays in indexable temps, which some GPUs keep in slow memory.</td></tr>
+  <tr><td><code>constarray</code></td><td>a <code>static const float K[16]</code> indexed at run time.</td></tr>
+  <tr><td><code>selectboth</code></td><td>4 sin and 4 cos both computed, one result picked.</td></tr>
+  <tr><td><code>branchuni</code></td><td>the same as a branch; all threads of a group take the same side.</td></tr>
+  <tr><td><code>branchdiv</code></td><td>the same as a branch; neighbouring threads take different sides, so every group runs both.</td></tr>
+</table>
+
+<h3>Parallel issue: an fma and X together</h3>
+<table>
+  <tr><td><code>fma+int</code>, <code>fma+minmax</code>, <code>fma+cvt</code>, <code>fma+rcp</code>, <code>fma+half</code></td><td>half of the chains run mad, the other half run X (integer xor + add, min + max, uint &rarr; float, rcp, an fp16 fma); <code>int1</code> ... <code>half1</code> measure X alone. Cost = one fma and one X together; the comment gives it as a percentage of the two one after the other (4 + X alone). Below ~85% they run at the same time: separate units or slots (old AMD VLIW cards, NVIDIA's integer pipe beside the float pipe, a second FP32 pipe, AMD dual issue).</td></tr>
+  <tr><td><code>fma+fma</code></td><td>control: the same fma on both halves (should be ~100%).</td></tr>
+</table>
+
+<h2>Reading the CSV</h2>
+<p>Lines starting with <code>#</code> describe the card, driver, OpBench version and how much the reference moved (drift) in each mode. Then one row per mode and test:</p>
+<table>
+  <tr><td><code>units</code></td><td>the test's time in units (4 = one fma): the mean of its agreeing readings</td></tr>
+  <tr><td><code>units_vs_base</code></td><td>minus its base test: the cost shown in the summary</td></tr>
+  <tr><td><code>vs_base_fwd</code>, <code>vs_base_bwd</code></td><td>the same for the forward and the backward pass alone</td></tr>
+  <tr><td><code>passes</code>, <code>consensus</code>, <code>readings</code></td><td>how many passes the test needed, whether most readings agreed, and every reading (units, ';'-separated)</td></tr>
+  <tr><td><code>step</code>, <code>note</code></td><td>the HLSL step, and what it is about</td></tr>
+</table>
+<p>The CSV is written again after every section, so a run stopped early still leaves its results.</p>
+
+<h2>The score</h2>
+<table>
+  <tr><td>fp32</td><td>TFLOPS from the reference multiply-add or <code>fma1</code>, whichever is faster (2 floating point operations each).</td></tr>
+  <tr><td>fp16 (min16float)</td><td>TFLOPS of the half precision multiply-add ("runs at fp32" when the driver does not run min16float at 16 bits).</td></tr>
+  <tr><td>Special functions</td><td>rcp per second (Gops/s); sqrt, exp2, sin and the like usually run at the same rate.</td></tr>
+</table>
+<p>The fp32 number is the one GPU spec lists give ("processing power"); measured ones are usually a bit lower, or higher when the GPU boosts above its listed clock.</p>
+
+<footer>OpBench writes only <code>Reports\opbench-&lt;GPU&gt;.csv</code> and <code>Reports\Shaders\OpBench\</code>. It does not use the network. Part of <a href="https://github.com/CeeJayDK/sopt">sopt</a> by CeeJay.dk (GPL-3.0).</footer>
+</main>
+</body>
+</html>

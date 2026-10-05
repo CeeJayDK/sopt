@@ -12,6 +12,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 `nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3; plain HLSL SM5 pixel and compute shaders, ReShade FX compute shaders.
 
 ## Working with the owner
+- No personal data in the repository (owner, 2026-10-05: GDPR): no names, handles or other details of testers or
+  other people next to reports, results or notes; a report is described by its hardware and driver only.
 - Owner's principle (2026-09-26): fewer instructions at equal measured speed are still
   better (less power; faster once the bottleneck moves). Timings (M4 harness) inform, they
   do not veto such variants. ReShade's own performance statistics need a look too (owner is
@@ -306,10 +308,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   includes): 188 regions, 4 with gains (MXAO, SOLARIS), many search-limit hits; it found
   the chain-from-declaration bug (variant lost the declaration). OtisFX parses fully
   since includes ignore letter case off Windows (owner: ReShade assumes Windows). Test packages: unique file name per package, steps inside
-  TESTING.txt AND in the chat message. Owner (2026-09-25): Marty McFly
-  (martymcmodding) and originalcodr are interested; add their repos to future test
-  runs, iMMERSE especially (heavy, complex code: stress test), also METEOR. CorgiFX
-  (originalnicodr): 9 effects, 148 regions, 4 variants all on assumed ranges.
+  TESTING.txt AND in the chat message. Owner (2026-09-25): add iMMERSE, METEOR
+  and CorgiFX to future test runs, iMMERSE especially (heavy, complex code: stress test). CorgiFX: 9 effects, 148 regions, 4 variants all on assumed ranges.
   Rerun 2026-09-25 (all 12 packages): 45 regions with variants, all variant files
   re-parse, no written variant has problem inputs. Flair.fx:599-602 and BeforeAfter.fx:93-95
   dropped out versus the day before with identical code (commit 53f0285 rebuilt gives the
@@ -633,7 +633,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   practically identical (Blackwell: MUFU and floor / ceil / round / frac ~23, add 3.4, min / max / step
   3.3, clamp / select ~8, lerp ~8, sign 18, pow 50); RTX 3050 (Ampere) close except min / max 4.5,
   clamp / select ~10, sign 28; Intel UHD 630 (Gen9.5, owner's iGPU) = Iris 540 within ~0.5 (intel-gen9 holds
-  for Gen9.5); RTX 2070 = Turing; RTX 4070 (Ada, ray_st) is unreliable: its mad base ran slow (neg / abs
+  for Gen9.5); RTX 2070 = Turing; RTX 4070 (Ada) is unreliable: its mad base ran slow (neg / abs
   came out -1.8, mul -1.4) and exp2 / log2 / sin / exp doubled while cos did not, i.e. the GPU clock changed
   during the run; rescaled to neg it matches the RTX 3050 (min 4.5, clamp 9.9, floor / rcp 23.6, sign 31).
   Rerun with locked clocks (2 runs, nvidia-rtx-4070-locked*.csv): tput = RTX 3050 within ~0.6 on every
@@ -847,7 +847,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   every tput test (only length / atan / atan2 0.6-1.2 lower): third RDNA 2 device, amd-rdna2 unchanged. omod2 /
   omodhalf / omod4 0.0 (free), omod8 / omod0.25 / omod0.125 = the x3 control (tput 1.2, lat 3.1): exactly AMD's
   output modifier set (x2, x4, x0.5), as CostModel::amdFolds assumes. trunc = round = floor (one op, 2.97).
-  One tester, two cards, stock and undervolted (OpBench 0.4.0, 2026-10-04; nvidia-rtx-4090-laptop-v4-stock / -undervolt,
+  Two cards, stock and undervolted (OpBench 0.4.0, 2026-10-04; nvidia-rtx-4090-laptop-v4-stock / -undervolt,
   nvidia-rtx-2060-stock / -undervolt): reference drift 13-128% in every run, yet every test reached consensus (the
   fresh reference per reading works) and undervolting changes no cost. RTX 4090 Laptop = RTX 4070 (Ada / nvidia-ampere)
   within 15% on every tput test (MUFU 23.7, add 3.5, min 4.5, clamp 9.9, sign 27.4-28.2, pow 52): the earlier v1 hybrid
@@ -1047,6 +1047,120 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   first, README.txt = tools/windows/GPU-BENCH-README.txt, <Program>-README / <Program>-TESTS) instead of the separate
   OpBench / TexBench zips; sopt and sopt-windows-tools zips unchanged. The footers name OpBench-TESTS.txt /
   TexBench-TESTS.txt. Process: PR merged to main, release.yml run manually on main = draft, owner publishes.
+  0.5.0 released 2026-10-05 (PR #11 merged; final runs of both owner cards in docs/opbench/*-v6.csv and
+  docs/texbench/*-v7.csv: order test counter 1048576 via the structured buffer on both, NVIDIA 4 x 8 warp blocks,
+  Intel 4 x 4 (SIMD16); all tests consensus; fp16 = fp32 on the 1660). Release notes (owner): CHANGELOG.md, one
+  `## <version>` section per release (add to the top one as things land); release.yml copies that section into the
+  draft as "What's new" above the downloads list (this session cannot edit releases: the owner pastes otherwise).
+  Next version (owner, 2026-10-05): (1) TexBench matrix without dep (dep = tput within ~5% on both cards, saves
+  ~25-30 s; lat stays: 1660 latency ~3x the tput cost for small formats, Intel's format cost is tput only); dep stays
+  in OpBench; (2) headings "Cost, many in parallel" / "Cost, one dependent chain" / "Latency, one at a time" instead
+  of "Throughput" (the number is a cost, lower is better; CSV codes tput / dep / lat unchanged); (3) background
+  shader compiling per section.
+  Next version work (owner, 2026-10-05, "time to work on the next version"; CHANGELOG.md ## 0.6.0, bump
+  project(VERSION) at release): testers' notes: GPU-Bench.bat is the only batch file (menu: main card, another
+  card picked from OpBench --list, every card, one program, open Reports, open README.html); the programs write
+  to Reports\ (benchkit reportsDir; dumps Reports\Shaders\<Program>\), the menu zips Reports\*.* (files only)
+  into GPU-Bench-Reports.zip with PowerShell Compress-Archive after every run; docs as HTML (owner: a hub in the
+  main folder, the rest in Docs\): tools/windows/docs/README.html -> zip root, OpBench / TexBench / ShaderInfo
+  .html + style.css -> Docs\ (the txt READMEs / TESTS and measure-*.bat / shader-info.bat are gone); beep (raw
+  BEL byte in the .bat) before the final pause; the programs flush console input at exit (keys typed during a
+  run made choice beep afterwards). TexBench matrix without dep (runsIn), headings "Cost, many in parallel" /
+  "Cost, one dependent chain" / "Latency, one at a time". Background compiling: benchkit BackgroundJobs (Win32
+  worker thread below normal priority; fail() on it throws via gWorker and the main thread reports the error at
+  wait()), OpBench one job per section (Group), TexBench one per test, in measuring order; CompileCounter
+  removed. sopt-menu.bat (owner: a menu helps users; sopt and sopt-fx have
+  many options): folder / file dialogs (PowerShell WinForms, typed path as fallback), time 5 / 20 / 60 s, cost
+  model by family, start, --list quick look, open results, value ranges (sopt-facts.txt next to the menu, used
+  via --facts once it exists); settings in sopt-menu.ini; in the sopt release zip and CI artifact sopt-windows.
+  Checked under Wine (cmd: the menu's run / zip / beep paths, sopt-menu look + start + settings round trip;
+  OpBench / TexBench with background compiling; lavapipe too slow for TexBench texture tests past 60 s).
+  Owner (2026-10-05, not now): prune sopt / sopt-fx options some day ("lets discuss this one day"). Not
+  decided: AMD driver ISA (ShaderInfo on the RX 9070 XT) as a measured vendor in sopt like Intel's counts.
+  Testers: Windows Defender quarantined sopt-fx.exe 0.5.0 on the owner's PC (submitted to Microsoft); owner
+  will apply for SignPath (steps in docs/signing.md).
+  First community 0.5.0 reports (2026-10-05): RX 9070 XT (RDNA 4; docs/opbench/amd-radeon-rx-9070-xt-v5.csv,
+  docs/texbench/amd-radeon-rx-9070-xt.csv, docs/shaderinfo/): all tests consensus despite 57% / 97% reference drift;
+  = its v1 run within ~5% (MUFU 24.6 vs 26: v1 drift); omod2 / omod4 / omodhalf free, omod8 / 0.25 = control (AMD's
+  set, as on RDNA 2); iadd / iand ~8 (2 dual-issue mads), imul 28.5; fp16 50 vs fp32 45 TFLOPS (packed fp16 ~ the
+  fp32 dual-issue rate). TexBench (75 s run): 784 GTexels/s, 205 GPixels/s, 655 GB/s; RGBA16F bilinear full rate
+  (= RGBA8, NVIDIA half rate), RGBA32F / trilinear half, aniso 16x ~24x; pixel order: 8 x 8 blocks of 64 (wave64
+  pixel shaders), the 1024^2 target shaded as four 512^2 quadrants in parallel. ShaderInfo: the AMD Windows driver
+  (LLPC 2.0.395) gives VK_AMD_shader_info + executable properties with full RDNA 4 ISA disassembly (VGPRs / SGPRs):
+  max(max()) -> v_max3_num_f32, saturate folds into the producing fma's clamp bit, saturate(x) * 2 stays a separate
+  v_add (omod applies before clamp, so no omod over a saturate; sopt's amdFolds already excludes Saturate from
+  takesOmod), GLSL sign -> 2 x (v_cmp + v_cndmask), integer mul + add -> v_mad_co_u64_u32; VK_AMD_gpa_interface yes.
+  RTX 4060 Ti (Ada, driver 32.0.16.1656; docs/opbench/nvidia-rtx-4060-ti.csv, docs/texbench/): ShaderInfo statistics
+  only, like the GTX 1660; OpBench = RTX 4070 b within 0.05 on every shared test (nvidia-ampere holds), drift 3-15%,
+  all consensus; iadd 0.9 / iand 2.1 / imul 1.4, f16round 5.2; TexBench 77 s, 381 GTexels/s, 124 GPixels/s, 281 GB/s,
+  RGBA16F / RGBA32F / trilinear half rate (AMD RDNA 4: RGBA16F full); pixel order 4 x 8 warp blocks like Turing.
+  GTX 1050 (GP107, driver 32.0.15.7652; docs/opbench/nvidia-gtx-1050.csv, docs/texbench/): = GTX 1060 / GT 1030 on every
+  tput test within 0.2 (third Pascal card: nvidia-pascal holds); no 16-bit min precision reported; TexBench 356 s, 69
+  GTexels/s, 27 GPixels/s, 61 GB/s, RGBA16F / RGBA32F / trilinear ~2.7x RGBA8; pixel order 4 x 8 warp blocks.
+  Vega 8 (Raven Ridge, GCN5, 0x15DD, driver 27.20.22002.57; amd-radeon-vega-8-raven.csv): = Renoir within ~1 unit
+  (transcendentals 7-8 vs 8.5; tput drift 99%, all consensus): amd-gcn5 holds; mad16 -2.7 (packed fp16, 2x). TexBench:
+  RGBA16F bilinear ~5x RGBA8 and RGBA32F ~13x (GCN filters wide formats slowly; RDNA 4 RGBA16F full rate); pixel order
+  8 x 8 (wave64), quadrants like RDNA 4. Score caveat (both GCN APUs): fp32 0.365 TFLOPS vs ~1.1 spec, because the
+  reference mad with two scalar constants is 2 instructions on GCN (an extra v_mov); fp16 1.1 is the real rate. Fix
+  (e.g. a score from a mad with one constant) needs the owner's go.
+  GTX 1660 Ti (TU116, driver 32.0.16.1714; docs/opbench/nvidia-gtx-1660-ti-v5.csv, texbench, shaderinfo): OpBench 0.5.0 =
+  the owner's GTX 1660 v6 within 0.8 on every simple test (long composites like udiv / matmul4 / refract 2-10% lower),
+  all consensus at 37% drift: nvidia-turing holds; fp32 4.96 / fp16 4.94 TFLOPS; TexBench 259 s, 189 GTexels/s, 68
+  GPixels/s, 244 GB/s (GDDR6; the 1660's GDDR5 154); ShaderInfo statistics only; pixel order 4 x 8 warp blocks.
+  fp32 score test (owner's go, 2026-10-05, for 0.6.0): OpBench `fma1` = mad(x, x, c.x) (one constant; x converges to
+  -0.37); score fp32 = the faster of the reference and fma1 (fp16 / rcp stay relative to the reference). Lavapipe
+  under Wine shows fma1 absurdly slow next to an absurdly fast reference (its timings are meaningless); real cards to
+  confirm (GCN should show fma1 ~2, NVIDIA ~4).
+  OpBench first compile batch (owner, 2026-10-05: sources are already written / compiled per section; make the first
+  batch small): job 0 = the reference mad alone, so the warm-up starts at once and section 1 compiles during it.
+  RTX 3050 Laptop (0x25A2, driver 32.0.16.1088; docs/opbench|texbench|shaderinfo/nvidia-rtx-3050-laptop.*): unreliable
+  like the other laptops (drift 160-240%; add 6.0, sub readings 4.2-7.5, min 9.8, 5 tests without consensus), only the
+  MUFU ops match Ampere (rcp 23.5); TexBench 479 s, pixel order 4 x 8 warp blocks; ShaderInfo statistics only. Its
+  Iris Xe (Gen12 / Xe-LP, driver 101.7084, docs/shaderinfo/intel-iris-xe.txt; OpBench / TexBench not run): Instruction
+  Count (57 / 74) but no Cycle Count (the UHD 630's driver gives one), 181 performance query counters.
+  Names (owner, 2026-10-05): the benchmark suite GPU-Bench is now GPU Blueprint (GPU-Blueprint.bat,
+  GPU-Blueprint-<v>.zip, GPU-Blueprint-Reports.zip; OpBench / TexBench / ShaderInfo keep their names); sopt is now
+  SweetOpt (owner: one name, "the super sweet shader optimizer" as the tagline): title boxes, --version ("sopt-fx
+  (SweetOpt) <v>"), SweetOpt.bat / SweetOpt.ini (was sopt-menu), SweetOpt-<v>-windows-x64.zip / -linux-x64.tar.gz, docs,
+  version resources (ProductName per target: SweetOpt / GPU Blueprint). Kept on purpose: program names sopt / sopt-fx,
+  SOPT_* switches, output files (sopt-out, sopt-report.md, sopt-facts.txt, sopt-found.txt), the repo name, CI artifact
+  names. GPU Blueprint menu (owner): key 1 = every card, 2 main, 3 another; after a run it offers to send the reports
+  (Y opens the upload page); key 9 blinks (ESC[5m) while the zip has not been sent (hidden marker Reports\.sent, made
+  when the page is opened, deleted by the next run).
+  Reports zip name (owner, 2026-10-05: after the cards, "less verbose"): bin\zip-reports.ps1 makes Reports-<models>.zip
+  from the report file names without brand words (GTX-1660, UHD-630, Iris-Xe, RX-9070-XT, RTX-3050-Laptop; all brand
+  words -> AMD-Radeon), several cards joined by '+', one zip only (older Reports*.zip removed); the menu finds it with
+  `for %%z in (Reports*.zip)` (Wine's cmd does not expand a quoted wildcard). Dropbox prefixes the uploader name.
+  Web page (owner, 2026-10-05: the rounded cost model numbers online for developers, the pixel order pictures, no personal
+  data): `sopt --cost-models-json` (src/cli/main.cpp: the OpBench models + rdna3, quarter units, flags contraction /
+  output modifier / max3 / minmax, vector helpers at float3), tools/site/build.py (cards per model from docs/opbench
+  report headers: NAME_BY_FILE / NAME_BY_DEVICE fixes, MODEL_RULES regexes, Microsoft WARP skipped; pictures from
+  docs/texbench/*-order*.png), site/ (index.html, app.js, style.css: architecture chips, bars per op group in fma units
+  with modifiers shown as free, one-operation comparison, card table, picture gallery; light / dark). .github/workflows/
+  pages.yml builds it on GitHub (PRs: build only; main: deploy to GitHub Pages) and optimizes the PNGs losslessly (oxipng
+  -o max --zopfli, else zopflipng). Owner's one-time setup: Settings > Pages > Source: GitHub Actions, custom domain.
+  Download layout (owner, 2026-10-05: "only the menu and the readme start page" in the main folder):
+  tools/windows/stage.ps1 stages SweetOpt\ / GPU-Blueprint\ / tools\ for CI (artifacts SweetOpt-windows,
+  GPU-Blueprint, sopt-windows-tools) and release.yml (zips; Linux tarball the same: README.html, bin/, Docs/):
+  launcher + README.html, programs in bin\, Docs\ (pages, style.css, LICENSE.txt). SweetOpt's guide is
+  docs/sweetopt/README.html (QUICKSTART.txt removed), the bench tools' docs/Tools.html; the tools zip no longer
+  carries GPU Blueprint. benchkit reportsDir steps out of a folder named bin (Reports\ next to the batch file);
+  run-bench.ps1 in bin\ uses the parent for results / run / package / ReShade setup; SweetOpt.ini in bin\.
+  Signing config (docs/signing.md) uses bin/ paths.
+  First upload (owner, 2026-10-05, Intel NUC Iris 540, OpBench / TexBench / ShaderInfo with the 0.6.0 build; docs/opbench/
+  intel-iris-540-v6.csv, docs/texbench/intel-iris-540.csv, docs/shaderinfo/intel-iris-540.txt): file name "<uploader name> -
+  GPU-Blueprint-Reports.zip"; the cloud container cannot download it (*.dropboxusercontent.com denied by the network policy),
+  but the Dropbox connector's fetch returns the zip's text files concatenated, each after a line with its file name (PNGs
+  only as names): enough for the CSVs / txt. OpBench = the v1 Iris 540 run within 0.9 (add 7.96, rcp 16.1, sign 22.3 units
+  incl. the base), all consensus; fma1 = mad (4.0, one constant costs nothing extra on Intel); TexBench 412 s, 10.7
+  GTexels/s, 6.8 GPixels/s, 22.8 GB/s, pixel order 4 x 4 (SIMD16) like the UHD 630. Report uploads (owner: Dropbox, a
+  separate service from his Google Drive): file request "GPU Blueprint reports" (id jmwykzlbulwo8ltkyule,
+  https://www.dropbox.com/request/jmwykzlbulwo8ltkyule) into /Uploads/GPU Blueprint (one /Uploads/<project> folder per
+  project); GPU-Blueprint.bat key 9 (only when picked, asks first) opens the page and shows the zip in Explorer.
+  Scheduled task "GPU Blueprint report intake" (trig_01RggLdp3vQTNdxhpVXZhXFa, every 6 h, fires into this session: a
+  fresh-session routine created from here gets no connectors / repo) downloads, checks and saves reports, then deletes
+  everything in that folder. Owner allowed *.dropboxusercontent.com in the environment's network settings (2026-10-05):
+  download_link + curl works (tested), whole zips incl. PNGs; Dropbox fetch stays the fallback.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
@@ -1082,7 +1196,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   log / exp / pow / sqrt compositions (log(exp(x)) -> x, pow(exp2(x), y) -> exp2(x * y), sqrt(pow(x, y)) ...). Order model (owner): test whether preferring cheap ops really
   finds cheaper candidates sooner (bench 2026-09: search order 38 found, rdna3 order 37, generic 36) and count
   which ops the found variants use (sopt-found.txt), once the library / found list is bigger.
-  OpBench trunc test (Pascal's suggestion, 2026-10-03: "trunc drops something rather than deciding by sign,
+  OpBench trunc test (a tester's suggestion, 2026-10-03: "trunc drops something rather than deciding by sign,
   could be faster"): added; fxc writes it as round_z, the same rounding family as floor / ceil / round.
 - Too exact (owner, 2026-10-03: rules that are exact in real math but differ from float math "could be fine
   or in fact better for the effect - something for the user to decide"): Klass::Accurate is labeled "too

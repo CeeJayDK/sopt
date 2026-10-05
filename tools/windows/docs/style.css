@@ -1,0 +1,41 @@
+/* GPU Blueprint documentation (README.html and Docs/*.html). */
+:root {
+  --bg: #fbfbfa; --fg: #1d1f23; --muted: #5d6470; --line: #dfe2e6; --card: #ffffff;
+  --accent: #0b7285; --code-bg: #eef1f4; --warn: #9a5b00;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171a; --fg: #e4e6ea; --muted: #9aa2ad; --line: #2c3036; --card: #1c1f23;
+    --accent: #4fc3d9; --code-bg: #23272c; --warn: #f0b35a;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+header.top { border-bottom: 1px solid var(--line); margin-bottom: 24px; padding-bottom: 12px; }
+header.top h1 { margin: 0; font-size: 28px; }
+header.top p { margin: 4px 0 0; color: var(--muted); }
+nav.crumbs { font-size: 14px; margin-bottom: 8px; }
+h2 { margin-top: 36px; font-size: 21px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+h3 { margin-top: 24px; font-size: 17px; }
+a { color: var(--accent); }
+code, pre, kbd { font-family: Consolas, "Cascadia Mono", monospace; font-size: 14px; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--card); }
+table { border-collapse: collapse; width: 100%; margin: 8px 0 16px; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; }
+td:first-child { white-space: nowrap; }
+td:first-child code { white-space: nowrap; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+.card h3 { margin: 0 0 4px; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+.note { border-left: 3px solid var(--warn); padding: 4px 12px; color: var(--muted); }
+ol li, ul li { margin: 4px 0; }
+footer { margin-top: 48px; color: var(--muted); font-size: 14px; }
+@media (max-width: 600px) { td:first-child { white-space: normal; } }

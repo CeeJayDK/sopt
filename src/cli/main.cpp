@@ -28,6 +28,7 @@ void usage() {
   std::puts(
       "usage: sopt <file.sopt> [options]   (sopt " SOPT_VERSION ")\n"
       "  --version         print the version\n"
+      "  --cost-models-json  print the measured cost models as JSON (for the GPU Blueprint web page)\n"
       "  --top N           show at most N alternatives (default 20)\n"
       "  --max-cost C      search up to cost C (default: target cost - 1)\n"
       "  --tests N         fingerprint test points (default 32)\n"
@@ -113,11 +114,75 @@ const char* budgetText(const Budget& b, char* buf, size_t n) {
   return "?";
 }
 
+// --cost-models-json: the measured cost models as JSON for the GPU Blueprint web page (owner, 2026-10-05:
+// "the cleaned rounded numbers we use for the cost model", published so developers can check them). Costs are in
+// quarter units (4 = one fma); vector helpers are given for float3. Which cards back each model comes from the
+// reports in docs/opbench (tools/site/build.py), not from here.
+void printCostModelsJson() {
+  struct Entry {
+    const CostModel* m;
+    const char* vendor;
+    const char* title;
+    const char* basis;
+  };
+  const Entry models[] = {
+      {&costNvidiaBlackwell(), "NVIDIA", "Blackwell", "OpBench"},
+      {&costNvidiaAmpere(), "NVIDIA", "Ampere / Ada", "OpBench"},
+      {&costNvidiaTuring(), "NVIDIA", "Turing", "OpBench"},
+      {&costNvidiaPascal(), "NVIDIA", "Pascal", "OpBench"},
+      {&costNvidiaMaxwell(), "NVIDIA", "Maxwell", "OpBench"},
+      {&costAmdRdna4(), "AMD", "RDNA 4", "OpBench"},
+      {&costRdna3(), "AMD", "RDNA 3", "AMD's compiler (RGA, gfx1100), not yet measured with OpBench"},
+      {&costAmdRdna2(), "AMD", "RDNA 2", "OpBench"},
+      {&costAmdGcn5(), "AMD", "GCN 5 (Vega)", "OpBench"},
+      {&costAmdTerascale2(), "AMD", "TeraScale 2", "OpBench"},
+      {&costIntelGen9(), "Intel", "Gen9 / Gen9.5", "OpBench"},
+  };
+  struct Item {
+    Op op;
+    unsigned width;
+    const char* name;
+  };
+  const Item items[] = {
+      {Op::Neg, 1, "neg"},          {Op::Abs, 1, "abs"},         {Op::Saturate, 1, "saturate"},
+      {Op::Add, 1, "add"},          {Op::Sub, 1, "sub"},         {Op::Mul, 1, "mul"},
+      {Op::Mad, 1, "mad"},          {Op::Min, 1, "min"},         {Op::Max, 1, "max"},
+      {Op::Clamp, 1, "clamp"},      {Op::Lt, 1, "compare"},      {Op::Select, 1, "select"},
+      {Op::Step, 1, "step"},        {Op::Lerp, 1, "lerp"},       {Op::Floor, 1, "floor"},
+      {Op::Ceil, 1, "ceil"},        {Op::Round, 1, "round"},     {Op::Frac, 1, "frac"},
+      {Op::Sign, 1, "sign"},        {Op::Rcp, 1, "rcp"},         {Op::Div, 1, "div"},
+      {Op::Sqrt, 1, "sqrt"},        {Op::Rsqrt, 1, "rsqrt"},     {Op::Exp2, 1, "exp2"},
+      {Op::Log2, 1, "log2"},        {Op::Exp, 1, "exp"},         {Op::Log, 1, "log"},
+      {Op::Sin, 1, "sin"},          {Op::Cos, 1, "cos"},         {Op::Pow, 1, "pow"},
+      {Op::Smoothstep, 1, "smoothstep"}, {Op::Dot, 3, "dot3"},   {Op::Length, 3, "length3"},
+      {Op::Normalize, 3, "normalize3"},  {Op::Distance, 3, "distance3"},
+  };
+  std::printf("{\n  \"version\": \"%s\",\n  \"unit\": \"quarter units: 4 = one fma\",\n  \"models\": [\n", SOPT_VERSION);
+  for (size_t i = 0; i < std::size(models); ++i) {
+    const Entry& e = models[i];
+    const CostModel& m = *e.m;
+    std::printf("    {\"name\": \"%.*s\", \"vendor\": \"%s\", \"title\": \"%s\", \"basis\": \"%s\",\n",
+                int(m.name.size()), m.name.data(), e.vendor, e.title, e.basis);
+    std::printf("     \"contraction\": %s, \"outputModifier\": %s, \"max3\": %s, \"minmax\": %s,\n",
+                m.fusedAdd ? "true" : "false", m.amdFolds ? "true" : "false", m.amdFolds ? "true" : "false",
+                m.amdFolds && !m.sameMinMaxOnly ? "true" : "false");
+    std::printf("     \"costs\": {");
+    for (size_t k = 0; k < std::size(items); ++k)
+      std::printf("%s\"%s\": %u", k ? ", " : "", items[k].name, m.opCost(items[k].op, items[k].width));
+    std::printf("}}%s\n", i + 1 < std::size(models) ? "," : "");
+  }
+  std::printf("  ]\n}\n");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "--version") {
-    std::puts("sopt " SOPT_VERSION);
+    std::puts("sopt (SweetOpt) " SOPT_VERSION);
+    return 0;
+  }
+  if (argc == 2 && std::string(argv[1]) == "--cost-models-json") {
+    printCostModelsJson();
     return 0;
   }
   if (argc < 2) {
@@ -220,13 +285,13 @@ int main(int argc, char** argv) {
     else if (a == "--sm") sassCfg.sm = static_cast<int>(std::strtol(next(), nullptr, 10));
     else if (a == "--sass-keep") sassCfg.keepDir = next();
     else if (a == "-h" || a == "--help") { usage(); return 0; }
-    else if (a == "--version") { std::puts("sopt " SOPT_VERSION); return 0; }
+    else if (a == "--version") { std::puts("sopt (SweetOpt) " SOPT_VERSION); return 0; }
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     else path = a;
   }
   if (noAmdFolds) opt.search.model = withoutAmdFolds(opt.search.model);
   const console::Style con = console::init();
-  console::titleBox(con, std::string("sopt ") + SOPT_VERSION + "  -  by CeeJay.dk");
+  console::titleBox(con, std::string("SweetOpt ") + SOPT_VERSION + "  -  the super sweet shader optimizer  -  by CeeJay.dk");
   if (checkLibrary) {
     // Every rule checked on its own (see checkRule); exit code 1 if any fails.
     try {

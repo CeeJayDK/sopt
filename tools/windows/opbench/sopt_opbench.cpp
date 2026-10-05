@@ -15,8 +15,8 @@
 //   tput  8 independent chains per thread, 1M threads: throughput (the cost model's question)
 //   dep   1 chain per thread, 1M threads: dependent issue with full occupancy
 //   lat   1 chain, one thread group: latency of a dependent step, relative to mad's
-// Results go to the console and a CSV (default opbench-<gpu>.csv next to the exe); the DXBC
-// disassembly of every test goes to opbench-dxbc\ so a folded test can be spotted.
+// Results go to the console and a CSV (default Reports\opbench-<gpu>.csv next to the exe); the DXBC
+// disassembly of every test goes to Reports\Shaders\OpBench\ so a folded test can be spotted.
 //
 // Version 2: every test is measured twice (forward, then backward through the list) with a fresh
 // reference mad right before it, so a GPU clock change only affects the tests around it and shows
@@ -25,7 +25,7 @@
 //
 // Version 3 (0.2.0): vector chains (dot, cross, length, normalize), intrinsics fxc writes out
 // (atan, asin, tan, fmod, smoothstep, sincos), integer / bit operations and int <-> float
-// conversions on uint chains, half precision (min16float); summary in sections. TESTS.txt
+// conversions on uint chains, half precision (min16float); summary in sections. Docs/OpBench.html
 // describes every test.
 //
 // Version 4 (0.3.0, owner 2026-10-03): renamed OpBench; block graphics only from full and half
@@ -78,6 +78,9 @@ const Test kTests[] = {
     {"add", "mad(x + c.z, c.x, c.y)", 0.5f, 0.5f, 0.1f, 0.0f, "mad", ""},
     {"sub", "mad(c.z - x, c.x, c.y)", 0.5f, 1.0f, 2.0f, 0.0f, "mad", ""},
     {"mul", "mad(x * c.z, c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.0f, "mad", ""},
+    // One fma with a single constant (x stays near the fixed point -0.37): the fp32 score's rate on GPUs where
+    // the reference's two constants cost a second instruction (GCN's constant bus: an extra v_mov).
+    {"fma1", "mad(x, x, c.x)", -0.5f, 0.0f, 0.0f, 0.0f, nullptr, "one fma, one constant: the fp32 score where it is faster"},
     {"mad2", "mad(mad(x, c.z, c.w), c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.1f, "mad", "a second mad"},
     {"min", "mad(min(x, c.z), c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.0f, "mad", ""},
     {"max", "mad(max(x, c.z), c.x, c.y)", 0.5f, 0.5f, 0.8f, 0.0f, "mad", ""},
@@ -313,11 +316,11 @@ struct Config {
   const char* what;   // what it shows
 };
 Config kConfigs[] = {
-    {"tput", 8, kGroupsFull, "Throughput",
+    {"tput", 8, kGroupsFull, "Cost, many in parallel",
      "how many of each instruction the GPU finishes per second (the number sopt's cost models use)"},
-    {"dep", 1, kGroupsFull, "Dependent chains",
+    {"dep", 1, kGroupsFull, "Cost, one dependent chain",
      "every step waits for the one before it; the GPU hides the wait by switching between threads"},
-    {"lat", 1, 1, "Latency", "how long one step takes until its result is ready (one group of threads, nothing to hide it)"}};
+    {"lat", 1, 1, "Latency, one at a time", "how long one step takes until its result is ready (one group of threads, nothing to hide it)"}};
 
 std::string shaderSource(const Test& t, int chains) {
   std::string s =
@@ -483,7 +486,7 @@ struct Measured {
 const char* const kDisplayOrder[] = {
     "#Modifiers and folds", "neg", "abs", "negabs", "saturate", "satmad", "mul", "omod2", "omodhalf", "omod4",
     "omod8", "omod0.25", "omod0.125", "omod3",
-    "#Basic arithmetic", "min", "max", "step", "add", "sub", "mad2", "contract", "max3", "minmax", "clamp", "select",
+    "#Basic arithmetic", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
     "lerp",
     "#Rounding and sign", "floor", "ceil", "round", "trunc", "frac", "roundadd", "flooradd", "fracadd", "signsel2", "signbits",
     "signsat", "signmad", "signclamp", "signsel", "sign",
@@ -525,7 +528,7 @@ int main(int argc, char** argv) {
     };
     if (a == "--adapter") adapterIndex = std::atoi(next());
     else if (a == "--list") list = true;
-    else if (a == "--adapters") {  // hardware GPUs, each once (for measure-all-gpus.bat)
+    else if (a == "--adapters") {  // hardware GPUs, each once (for GPU-Blueprint.bat, every card)
       printUniqueAdapters();
       return 0;
     }
@@ -584,14 +587,12 @@ int main(int argc, char** argv) {
     g.ctx->CSSetUnorderedAccessViews(0, 1, &g.uav, nullptr);
   }
 
-  char exePath[MAX_PATH];
-  GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-  const std::filesystem::path here = std::filesystem::path(exePath).parent_path();
+  const std::filesystem::path reports = reportsDir();
   std::string safeName = gpuName;
   for (char& ch : safeName)
     if (!isalnum((unsigned char)ch)) ch = '_';
-  if (outPath.empty()) outPath = (here / ("opbench-" + safeName + ".csv")).string();
-  const std::filesystem::path dxbcDir = here / "opbench-dxbc";
+  if (outPath.empty()) outPath = (reports / ("opbench-" + safeName + ".csv")).string();
+  const std::filesystem::path dxbcDir = reports / "Shaders" / "OpBench";
   std::filesystem::create_directories(dxbcDir);
 
   // Compile every test for every configuration (chains differ).
@@ -611,12 +612,14 @@ int main(int argc, char** argv) {
           }
   }
 
+  // Shaders compile in the background, section by section in measuring order (owner, 2026-10-05: results
+  // start sooner); each section waits for its own. The map is filled with every key first, so the worker only
+  // writes values.
   std::map<std::string, std::map<std::string, ID3D11ComputeShader*>> shaders;
-  std::printf("\n");
-  CompileCounter compiling{&st, std::size(kConfigs) * tests.size()};
-  compiling.start();
   for (const Config& c : kConfigs)
-    for (const Test* t : tests) {
+    for (const Test* t : tests) shaders[c.name][t->name] = nullptr;
+  auto compileTest = [&](const Test* t) {
+    for (const Config& c : kConfigs) {
       const std::string src = shaderSource(*t, c.chains);
       ID3DBlob* code = nullptr;
       ID3DBlob* err = nullptr;
@@ -640,9 +643,8 @@ int main(int argc, char** argv) {
         fail(std::string("cannot create test ") + t->name);
       code->Release();
       shaders[c.name][t->name] = cs;
-      compiling.step();
     }
-  compiling.finish();
+  };
 
   const Test* madTest = nullptr;
   for (const Test* t : tests)
@@ -683,11 +685,24 @@ int main(int argc, char** argv) {
   groups.emplace_back();
   for (const Test* t : tests) assign(groups.back(), t, assign);
 
+  // Job 0 is the reference alone, so the warm-up starts as soon as it is compiled and the first section
+  // compiles during the warm-up (owner, 2026-10-05: a small first batch).
+  std::vector<std::function<void()>> jobList;
+  jobList.push_back([&compileTest, madTest] { compileTest(madTest); });
+  for (const Group& gr : groups)
+    jobList.push_back([&compileTest, &gr, madTest] {
+      for (const Test* t : gr.run)
+        if (t != madTest) compileTest(t);
+    });
+  std::printf("\n");
+  BackgroundJobs compiling(std::move(jobList));
+  compiling.wait(0);  // the reference, for the warm-up
+
   std::printf("%zu tests, each measured in three ways:\n", tests.size());
   for (const Config& c : kConfigs)
-    std::printf("  %s%-17s%s %s\n", st.c("\x1b[1;96m"), c.title, st.reset(), c.what);
+    std::printf("  %s%-26s%s %s\n", st.c("\x1b[1;96m"), c.title, st.reset(), c.what);
   std::printf("Each is measured twice (forward, then backward through its section) and more often when its two\n"
-              "readings disagree. Only the throughput is shown; the CSV has all three. The results appear section\n"
+              "readings disagree. Only the first is shown (lower is better); the CSV has all three. The results appear section\n"
               "by section while the rest is measured.\n"
               "Warming up the GPU for 2 seconds so its clock settles ...");
   {
@@ -756,7 +771,7 @@ int main(int argc, char** argv) {
   std::map<std::string, std::map<std::string, UINT>> iters;   // config -> test -> run length
   std::map<std::string, std::map<std::string, Result>> sums;  // config -> test -> summed readings
   // Score (owner: a number to show others, in the units GPU spec lists use): fp32 TFLOPS from the reference
-  // fma, fp16 TFLOPS from mad16 (min16float; 0 when the driver runs it at 32 bits), special functions from
+  // fma or the one-constant fma1, whichever is faster, fp16 TFLOPS from mad16 (min16float; 0 when the driver runs it at 32 bits), special functions from
   // the rcp step's time (one rcp per step; the fma beside it runs in parallel where the GPU can).
   auto driftOf = [&](const char* cname) {
     const std::vector<double>& v = mads[cname];
@@ -778,8 +793,12 @@ int main(int argc, char** argv) {
     auto units = [&](const char* name) {
       return results["tput"].count(name) && !results["tput"][name].readings.empty() ? results["tput"][name].units.value : 0.0;
     };
-    if (half16 && units("mad16") > 0.0) sc.fp16 = sc.fp32 * 4.0 / units("mad16");
-    if (units("rcp") > 0.0) sc.special = sc.fp32 * 1000.0 / 2.0 * 4.0 / units("rcp");  // G fma/s * 4 / cost
+    const double ref = sc.fp32;  // the reference's rate: fp16 and rcp are relative to it
+    if (half16 && units("mad16") > 0.0) sc.fp16 = ref * 4.0 / units("mad16");
+    if (units("rcp") > 0.0) sc.special = ref * 1000.0 / 2.0 * 4.0 / units("rcp");  // G fma/s * 4 / cost
+    // fp32: the faster of the two fma forms (owner, 2026-10-05: GCN APUs showed a third of their rate, the
+    // reference's second constant costing an instruction there).
+    if (units("fma1") > 0.0) sc.fp32 = std::max(sc.fp32, ref * 4.0 / units("fma1"));
     return sc;
   };
   // CSV: the GPU once in header lines, then one row per configuration and test. Written again whenever a
@@ -817,7 +836,9 @@ int main(int argc, char** argv) {
   };
   Progress progress{&st, 2 * static_cast<int>(tests.size() * std::size(kConfigs))};  // passes 1 and 2
   progress.start();
-  for (const Group& gr : groups) {
+  for (size_t gi = 0; gi < groups.size(); ++gi) {
+    const Group& gr = groups[gi];
+    compiling.wait(gi + 1);
     for (const Config& c : kConfigs) {
       std::map<std::string, UINT>& it = iters[c.name];
       if (!it.count("mad")) it["mad"] = calibrate(g, shaders[c.name]["mad"], *madTest, c);
@@ -885,11 +906,10 @@ int main(int argc, char** argv) {
 
 
   // Summary: banner and the GPU (the sections are shown above).
-  const double fmaRate = 1.0 / madNs["tput"];  // per ns
   std::printf("\n");
   printBox(st, std::string("OpBench ") + SOPT_VERSION + "  -  " + gpuName);
   std::printf("  driver %s, vendor 0x%04X, device 0x%04X, %.1f TFLOPS fp32 (measured)\n", driver.c_str(), desc.VendorId,
-              desc.DeviceId, fmaRate * 2.0 / 1000.0);
+              desc.DeviceId, score().fp32);
   std::printf("  min16float runs at %s\n", half16 ? "16 bits" : "32 bits on this driver (the half precision tests measure fp32)");
   // How to read the summary, for people who are not programmers (owner's wording review, 2026-10-04).
   std::printf("\n  %sHow to read this%s\n"
@@ -900,7 +920,7 @@ int main(int argc, char** argv) {
               "  Graph   Longer bar = slower. Free operations have no bar; a full bar is 25 multiply-adds or more.\n"
               "\n"
               "  The numbers show how fast the GPU is when it is fully busy (as in a game).\n"
-              "  OpBench-TESTS.txt, next to this program, explains every test in plain words.\n",
+              "  Docs\\OpBench.html (README.html next to this program) explains every test in plain words.\n",
               st.c("\x1b[1;96m"), st.reset());
 
   bool warned = false;

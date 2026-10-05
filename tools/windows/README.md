@@ -25,23 +25,30 @@ DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host
 
 ## Contents
 
+Since 0.6.0 (owner, 2026-10-05) every Windows download has only its launcher and `README.html` in the main
+folder, the programs in `bin\` and the other pages / licenses in `Docs\` (`tools/windows/stage.ps1` stages all
+three for CI and the release). This one (`sopt-windows-tools`):
+
 | file | what |
 |---|---|
-| `sopt-host.exe` | a window with a fixed test image and a synthetic depth buffer, vsync off (DX11 or Vulkan) |
-| `sopt-timer.addon64` / `.addon32` | the ReShade add-on that times the techniques and runs the bench |
-| `run-bench.bat`, `run-bench.ps1` | the one-click bench above |
-| `sopt-fxc.exe` | Microsoft's fxc -O3 on one HLSL entry point (for `sopt-fx --backends`, see tools/fxc) |
-| `timings.py` | merges several CSVs into one Markdown table |
-| `ReShade64.dll`, `ReShade-LICENSE.md` | ReShade 6.8.0, full add-on support, unchanged (CI build) |
-| `OpBench.exe`, `measure-gpu.bat` | instruction costs on this GPU, for sopt's cost models (below) |
-| `TexBench.exe`, `measure-textures.bat`, `TexBench-TESTS.txt` | texture reads, derivatives and render target writes per format (below) |
-| `ShaderInfo.exe`, `shader-info.bat` | what each Vulkan GPU driver reports about the shaders it compiles: statistics, disassembly (where offered), hardware counters; writes `shaderinfo-<gpu>.txt` (a test before building on it) |
-| `GPU-Bench.bat` | a menu (number keys) for all of the batch files below |
-| `measure-main-gpu.bat` | ShaderInfo, then OpBench, then TexBench on the main graphics card, without stopping in between (pauses at the end) |
-| `measure-all-gpus.bat` | the same for every graphics card in the PC (each card once, no software renderer; `--adapters` lists them) |
+| `run-bench.bat` | the one-click bench above |
+| `README.html` | the short guide (source: `tools/windows/docs/Tools.html`) |
+| `bin\sopt-host.exe` | a window with a fixed test image and a synthetic depth buffer, vsync off (DX11 or Vulkan) |
+| `bin\sopt-timer.addon64` / `.addon32` | the ReShade add-on that times the techniques and runs the bench |
+| `bin\run-bench.ps1` | the bench script (results, `run\`, the test package and a ReShade setup go next to `run-bench.bat`) |
+| `bin\sopt-fxc.exe` | Microsoft's fxc -O3 on one HLSL entry point (for `sopt-fx --backends`, see tools/fxc) |
+| `bin\timings.py` | merges several CSVs into one Markdown table |
+| `bin\ReShade64.dll`, `Docs\ReShade-LICENSE.md` | ReShade 6.8.0, full add-on support, unchanged (CI build) |
+
+GPU Blueprint (OpBench, TexBench, ShaderInfo, `GPU-Blueprint.bat`) is its own download (CI artifact `GPU-Blueprint`,
+release `GPU-Blueprint-<version>.zip`): `GPU-Blueprint.bat`, `README.html`, `bin\` with the three programs (their
+`Reports\` goes next to the batch file: benchkit `reportsDir` steps out of a folder named bin), `Docs\` with one
+page per program. SweetOpt (CI artifact `SweetOpt-windows`, release `SweetOpt-<version>-windows-x64.zip`):
+`SweetOpt.bat`, `README.html` (docs/sweetopt/README.html), `bin\sopt.exe`, `bin\sopt-fx.exe` (and the menu's
+`SweetOpt.ini`), `Docs\`.
 
 Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host),
-`tools/windows/opbench` (OpBench), `tools/windows/texbench` (TexBench), `benchkit.hpp` (shared by both), this folder (scripts).
+`tools/windows/opbench` (OpBench), `tools/windows/texbench` (TexBench), `tools/windows/shaderinfo` (ShaderInfo), `benchkit.hpp` (shared), `tools/windows/docs` (README.html, Docs\\*.html), this folder (scripts).
 
 # sopt-timer and sopt-host (details)
 
@@ -146,10 +153,10 @@ vertex buffer.
 
 ## OpBench (instruction costs; sopt-opbench until 0.2.0)
 
-`measure-gpu.bat` (or `OpBench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
+`GPU-Blueprint.bat` (or `OpBench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
 measures what single instructions and instruction patterns cost on this PC's GPU, to calibrate
 sopt's cost models (rdna3, nvidia). No ReShade or game needed; close GPU-heavy programs first.
-It takes a few minutes and writes `opbench-<gpu>.csv` (send that) and `opbench-dxbc\` (the HLSL
+It takes a few minutes and writes `Reports\opbench-<gpu>.csv` (send that) and `Reports\Shaders\OpBench\` (the HLSL
 and DXBC of every test).
 It needs the Microsoft Visual C++ 2015-2022 redistributable (x64), which almost every gaming PC already
 has: https://aka.ms/vs/17/release/vc_redist.x64.exe
@@ -180,7 +187,7 @@ fmas), `uint` (integer / bit ops and int <-> float conversions; random odd 32-bi
 `(x ^ a) * b`) or `min16float` (half precision; the CSV header and the summary say whether the driver
 runs it at 16 bits); scalar tests of intrinsics fxc writes out (smoothstep, fmod, sincos, tan, atan,
 atan2, asin, acos). The other GPUs are listed right after the `GPU:` line, the three modes are
-explained as they start, and the summary has sections. `opbench/TESTS.txt` (in the zip) describes
+explained as they start, and the summary has sections. `Docs\OpBench.html` (in the zip) describes
 every test.
 
 Version 4 (0.3.0, owner 2026-10-03): renamed OpBench (`OpBench.exe`, zip `OpBench-<version>.zip`).
@@ -208,14 +215,15 @@ below; graphs on a fixed scale (a full bar = 100 = 25 mads, longer costs fill it
 section once its last test is measured. At the end: the GPU box, drift / consensus warnings, the footer.
 The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics
 (`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases (since 0.5.0, owner: one zip for
-testers): `GPU-Bench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases with OpBench, TexBench and
-ShaderInfo, their batch files (measure-main-gpu.bat / measure-all-gpus.bat run ShaderInfo first), README.txt
-(GPU-BENCH-README.txt) and the programs' READMEs / TESTS files prefixed with their names.
+testers): `GPU-Blueprint-<version>.zip` (GPU-Bench before 0.6.0) on https://github.com/CeeJayDK/sopt/releases with OpBench, TexBench and
+ShaderInfo and GPU-Blueprint.bat. Since 0.6.0 (testers' notes, owner 2026-10-05): one batch file (the menu, with
+"another graphics card"), reports in `Reports\` and zipped into `Reports-<cards>.zip` (bin\zip-reports.ps1: the card models, e.g. Reports-GTX-1660+UHD-630.zip) after every run, the
+guide as HTML (README.html, a hub, and `Docs\<Program>.html`), a beep when a run ends (before the pause).
 
 ## TexBench (texture costs)
 
-`measure-textures.bat` (or `TexBench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
-writes `texbench-<gpu>.csv` and `texbench-dxbc\` next to the exe. Owner's idea (2026-10-04): ballpark
+`GPU-Blueprint.bat` (or `TexBench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
+writes `Reports\texbench-<gpu>.csv` and `Reports\Shaders\TexBench\` next to the exe. Owner's idea (2026-10-04): ballpark
 costs of texture operations next to math (when a lookup table beats computing), and every format ReShade
 supports measured instead of assumed; a separate program because it about doubles OpBench's run time.
 Same method as OpBench (chains, a fresh reference mad before every reading, extra readings until they
@@ -226,7 +234,7 @@ coherent reads (bilinear, 1024 x 1024, each thread within one texel of its pixel
 anisotropic via SampleGrad); a 1D LUT (256 x 1), a 3D LUT (32^3) and random reads from 512^2 to 8192^2;
 pixel shader derivatives (ddx / ddy, fine / coarse, fwidth) and Sample with automatic mip selection
 (bilinear, trilinear, 4:1 anisotropic); render target writes per format (GB/s, 3840 x 2160).
-`tools/windows/texbench/TESTS.txt` explains each test. Releases: in `GPU-Bench-<version>.zip`.
+`tools/windows/docs/TexBench.html` explains each test. Releases: in `GPU-Blueprint-<version>.zip`.
 
 ## ReShade's own statistics (6.8.0 source, `runtime.cpp` / `runtime_gui.cpp`)
 

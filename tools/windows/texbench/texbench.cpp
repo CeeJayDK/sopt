@@ -899,9 +899,18 @@ struct Config {
   UINT groups;
   const char* title;
 };
-Config kConfigs[] = {{"tput", 8, kGroupsFull, "Throughput"},
-                     {"dep", 1, kGroupsFull, "Dependent chains"},
-                     {"lat", 1, 1, "Latency"}};
+Config kConfigs[] = {{"tput", 8, kGroupsFull, "Cost, many in parallel"},
+                     {"dep", 1, kGroupsFull, "Cost, one dependent chain"},
+                     {"lat", 1, 1, "Latency, one at a time"}};
+
+// Which configurations a test runs in: pixel shader tests have no lat (a draw is never one group), and the
+// formats x filtering matrix has no dep (owner, 2026-10-05: dep equalled tput within ~5% on every matrix
+// test on the GTX 1660 and UHD 630, while lat showed latencies tput does not; saves ~25-30 s per run).
+bool runsIn(const Test& t, const Config& c) {
+  if (t.stage == Stage::Pixel && std::strcmp(c.name, "lat") == 0) return false;
+  if (t.matrix >= 0 && std::strcmp(c.name, "dep") == 0) return false;
+  return true;
+}
 
 // A compiled test for one configuration.
 struct Kernel {
@@ -1394,7 +1403,7 @@ int main(int argc, char** argv) {
     };
     if (a == "--adapter") adapterIndex = std::atoi(next());
     else if (a == "--list") list = true;
-    else if (a == "--adapters") {  // hardware GPUs, each once (for measure-all-gpus.bat)
+    else if (a == "--adapters") {  // hardware GPUs, each once (for GPU-Blueprint.bat, every card)
       printUniqueAdapters();
       return 0;
     }
@@ -1479,14 +1488,12 @@ int main(int argc, char** argv) {
     g.ctx->PSSetShaderResources(4, 2, g.noise);
   }
 
-  char exePath[MAX_PATH];
-  GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-  const std::filesystem::path here = std::filesystem::path(exePath).parent_path();
+  const std::filesystem::path reports = reportsDir();
   std::string safeName = ad.name;
   for (char& ch : safeName)
     if (!isalnum((unsigned char)ch)) ch = '_';
-  if (outPath.empty()) outPath = (here / ("texbench-" + safeName + ".csv")).string();
-  const std::filesystem::path dxbcDir = here / "texbench-dxbc";
+  if (outPath.empty()) outPath = (reports / ("texbench-" + safeName + ".csv")).string();
+  const std::filesystem::path dxbcDir = reports / "Shaders" / "TexBench";
   std::filesystem::create_directories(dxbcDir);
 
   // The selected tests and the bases they need.
@@ -1527,44 +1534,57 @@ int main(int argc, char** argv) {
   std::stable_sort(tests.begin(), tests.end(), [](const Test* a, const Test* b) { return a->section.empty() && !b->section.empty(); });
 
   size_t planned = 0;
-  for (const Test* t : tests) planned += t->stage == Stage::Compute ? 2 * 3 : t->stage == Stage::Pixel ? 2 * 2 : 2;
+  for (const Test* t : tests) {
+    if (t->stage != Stage::Compute && t->stage != Stage::Pixel) {
+      planned += 2;
+      continue;
+    }
+    for (const Config& c : kConfigs) planned += runsIn(*t, c) ? 2 : 0;
+  }
   std::printf("\n%zu tests, each read at least twice (more often when the readings disagree), each against the\n"
               "reference mad measured right before it.\n",
               tests.size());
-  CompileCounter compiling{&st};
-  for (const Test* t : tests)
-    if (t->stage == Stage::Compute || t->stage == Stage::Pixel) compiling.total += t->stage == Stage::Compute ? 3 : 2;
-  compiling.start();
   std::mt19937 rng(12345);
 
-  // Compile every compute / pixel test for its configurations.
+  // Shaders compile in the background, test by test in measuring order (owner, 2026-10-05: results start
+  // sooner); measuring a test waits for its own. The map gets every key first, so the worker only writes values.
   std::map<std::string, std::map<std::string, Kernel>> kernels;  // test -> config -> kernel
+  std::vector<std::function<void()>> jobList;
   for (const Test* t : tests) {
-    if (t->stage == Stage::Write || t->stage == Stage::Blend || t->stage == Stage::Pass) continue;
-    for (const Config& c : kConfigs) {
-      if (t->stage == Stage::Pixel && std::strcmp(c.name, "lat") == 0) continue;
-      Kernel k;
-      if (t->stage == Stage::Compute) {
-        ID3DBlob* code = compile(computeSource(*t, c.chains), t->name.c_str(), "cs_5_0",
-                                 c.chains == 8 ? dxbcDir / fileName(t->name) : std::filesystem::path());
-        if (FAILED(g.dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &k.cs)))
-          fail("cannot create " + t->name);
-        code->Release();
-      } else {
-        ID3DBlob* code = compile(pixelSource(*t, c.chains), t->name.c_str(), "ps_5_0",
-                                 c.chains == 8 ? dxbcDir / fileName(t->name) : std::filesystem::path());
-        if (FAILED(g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &k.ps)))
-          fail("cannot create " + t->name);
-        code->Release();
-      }
-      kernels[t->name][c.name] = k;
-      compiling.step();
+    if (t->stage == Stage::Write || t->stage == Stage::Blend || t->stage == Stage::Pass) {
+      jobList.push_back([] {});
+      continue;
     }
+    for (const Config& c : kConfigs)
+      if (runsIn(*t, c)) kernels[t->name][c.name] = Kernel{};
+    std::map<std::string, Kernel>& slots = kernels[t->name];
+    jobList.push_back([t, &slots, &g, &dxbcDir] {
+      for (const Config& c : kConfigs) {
+        if (!runsIn(*t, c)) continue;
+        Kernel k;
+        if (t->stage == Stage::Compute) {
+          ID3DBlob* code = compile(computeSource(*t, c.chains), t->name.c_str(), "cs_5_0",
+                                   c.chains == 8 ? dxbcDir / fileName(t->name) : std::filesystem::path());
+          if (FAILED(g.dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &k.cs)))
+            fail("cannot create " + t->name);
+          code->Release();
+        } else {
+          ID3DBlob* code = compile(pixelSource(*t, c.chains), t->name.c_str(), "ps_5_0",
+                                   c.chains == 8 ? dxbcDir / fileName(t->name) : std::filesystem::path());
+          if (FAILED(g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &k.ps)))
+            fail("cannot create " + t->name);
+          code->Release();
+        }
+        slots[c.name] = k;
+      }
+    });
   }
-  compiling.finish();
+  BackgroundJobs compiling(std::move(jobList));
+  auto jobOf = [&](const Test* t) { return size_t(std::find(tests.begin(), tests.end(), t) - tests.begin()); };
   if (!tests.empty()) {
     std::printf("Warming up the GPU for 2 seconds ...");
     // Warm up with the compute reference.
+    compiling.wait(jobOf(byName("mad")));
     Bound none = bindResources(g, *byName("mad"), rng);
     const Kernel& k = kernels["mad"]["tput"];
     bind(g, *byName("mad"), none, k);
@@ -1648,7 +1668,7 @@ int main(int argc, char** argv) {
     for (const Test* t : tests)
       if (t->section == sec && results["tput"].count(t->name)) maxV = std::max(maxV, results["tput"][t->name].vsBase), bytes |= t->perByte;
     std::printf("\n  %s%s%s\n  %s%-*s %7s  %-*s  %6s %6s %6s%s%s\n", st.c("\x1b[1;96m"), sec.c_str(), st.reset(),
-                st.c("\x1b[90m"), nameW, "Test", "Cost", kBarWidth, "(throughput)", "Ops", "dep", "lat",
+                st.c("\x1b[90m"), nameW, "Test", "Cost", kBarWidth, kBarWidth >= 18 ? "(many in parallel)" : "(parallel)", "Ops", "dep", "lat",
                 bytes ? "    GB/s" : "", st.reset());
     for (const Test* t : tests) {
       if (t->section != sec || !results["tput"].count(t->name)) continue;
@@ -2145,6 +2165,7 @@ int main(int argc, char** argv) {
   for (const Test* t : tests) {
     lap(t);
     gCurrent = t->name;
+    compiling.wait(jobOf(t));
     measure(t);
     // Costs over the bases (bases come first, so they are known).
     for (auto& [cname, byTest] : results)
@@ -2218,7 +2239,7 @@ int main(int argc, char** argv) {
               "  GB/s     Gigabytes per second: how much data is read or written (more is better).\n"
               "  ms/pass  Milliseconds for one full-screen pass at 3840 x 2160 (less is better).\n"
               "\n"
-              "  TexBench-TESTS.txt, next to this program, explains every test in plain words.\n",
+              "  Docs\\TexBench.html (README.html next to this program) explains every test in plain words.\n",
               st.c("\x1b[1;96m"), st.reset());
   if (drift > 5.0)
     std::printf("\n  %sWarning:%s the reference changed by %.0f%% during the run: the GPU clock moved.\n", st.c("\x1b[1;93m"),

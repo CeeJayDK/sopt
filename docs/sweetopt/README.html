@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SweetOpt</title>
+<link rel="stylesheet" href="Docs/style.css">
+</head>
+<body>
+<main>
+<header class="top">
+  <h1>SweetOpt</h1>
+  <p>The super sweet shader optimizer: finds faster ways to write the math in ReShade shaders, checks every one, and lets you choose.</p>
+</header>
+
+<p>SweetOpt looks for cheaper ways to write the arithmetic in ReShade FX (and plain HLSL) pixel and compute shaders. Every rewrite it offers is checked to give the same result as the original, within what the output can show (an 8-bit back buffer hides small differences), and it is written next to the original behind a preprocessor switch, so you can compare them in ReShade and choose.</p>
+<p class="note">This is an early release: feedback is very welcome (see the end).</p>
+
+<h2>1. Run it on your shaders</h2>
+<p>Windows, the easy way: double-click <code>SweetOpt.bat</code>. A menu opens:</p>
+<table>
+  <tr><th>Key</th><th>What it does</th></tr>
+  <tr><td><kbd>1</kbd></td><td>Choose your <code>reshade-shaders\Shaders</code> folder (the one with <code>ReShade.fxh</code>).</td></tr>
+  <tr><td><kbd>2</kbd></td><td>Choose what to optimize: everything, one folder (such as SweetFX) or one effect.</td></tr>
+  <tr><td><kbd>3</kbd></td><td>The time per statement: 5, 20 or 60 seconds (more time can find more).</td></tr>
+  <tr><td><kbd>4</kbd></td><td>Your graphics card family (what counts as faster).</td></tr>
+  <tr><td><kbd>5</kbd></td><td><strong>Start.</strong></td></tr>
+  <tr><td><kbd>6</kbd></td><td>Quick look: which statements SweetOpt would work on (seconds, no search).</td></tr>
+  <tr><td><kbd>7</kbd></td><td>Open the results (the <code>sopt-out</code> folder and <code>sopt-report.md</code>).</td></tr>
+  <tr><td><kbd>8</kbd></td><td>Edit value ranges (see 4).</td></tr>
+  <tr><td><kbd>9</kbd></td><td>Open this page.</td></tr>
+</table>
+<p>The menu remembers your choices. All CPU cores are used.</p>
+
+<p>From a command prompt, the programs are in the <code>bin</code> folder: point <code>sopt-fx</code> at an effect file or a folder of effects, with <code>-I</code> for the folder that holds <code>ReShade.fxh</code>:</p>
+<pre>Windows:  bin\sopt-fx -I "C:\Games\MyGame\reshade-shaders\Shaders" -o out "C:\Games\MyGame\reshade-shaders\Shaders\SweetFX"
+Linux:    bin/sopt-fx -I ~/reshade-shaders/Shaders -o out ~/reshade-shaders/Shaders/SweetFX</pre>
+<p>It searches every arithmetic statement, 5 seconds each by default (<code>--time 20</code> for more). Plain HLSL works too: <code>.hlsl</code> / <code>.hlsli</code> files are read as SM5 pixel shaders, or compute shaders when the entry point has <code>[numthreads]</code> (<code>--entry NAME</code>, default <code>main</code>).</p>
+
+<h2>2. Read the results</h2>
+<table>
+  <tr><th>File</th><th>What</th></tr>
+  <tr><td><code>sopt-report.md</code></td><td>every statement with cheaper variants: the original, each variant, its cost, its accuracy class and its error (any Markdown viewer or a text editor)</td></tr>
+  <tr><td><code>*.fx</code> / <code>*.fxh</code></td><td>copies of the changed files, each changed statement written as <code>#if SOPT_&lt;file&gt;_&lt;line&gt; == 1</code> &hellip; variant 1 &hellip; <code>#else</code> &hellip; the original &hellip; <code>#endif</code></td></tr>
+  <tr><td><code>sopt-facts.txt</code></td><td>inputs whose value range SweetOpt could not work out (see 4)</td></tr>
+  <tr><td><code>sopt-found.txt</code></td><td>every rewrite found, as rules (material for SweetOpt's rewrite library)</td></tr>
+</table>
+<p>Accuracy classes: <strong>bit-exact</strong>, <strong>8-bit identical</strong>, <strong>within budget</strong>, <strong>too exact</strong> (closer to exact math than the original: differs from it only where the original rounds), <strong>less accurate</strong> (listed with its error so you can judge it).</p>
+
+<h2>3. Try the variants in ReShade</h2>
+<p>Use a copy of your game's <code>reshade-shaders</code> folder (or put the results folder first in ReShade's effect search path), so the originals stay untouched. Then set preprocessor definitions in ReShade's UI:</p>
+<table>
+  <tr><td><code>SOPT_ALL = 1</code></td><td>variant 1 of every statement (2, 3: the next ones)</td></tr>
+  <tr><td><code>SOPT_&lt;file&gt;_&lt;line&gt;</code></td><td>one statement on its own (0 = the original)</td></tr>
+  <tr><td><code>SOPT_TOO_EXACT = 0</code></td><td>turns off the "too exact" variants (in case an effect relies on rounding)</td></tr>
+  <tr><td><code>SOPT_AUTO = 1</code></td><td>per GPU vendor, the variant measured fastest (only in files made with <code>--isa</code> / <code>--sass</code>, which need extra tools)</td></tr>
+</table>
+<p>Compare the image with <code>SOPT_ALL = 0</code> and <code>1</code> (SweetFX's Compare.fx helps), and look at the performance statistics.</p>
+
+<h2>4. Better results with value ranges (optional)</h2>
+<p>SweetOpt only rewrites a statement when it knows the range of every input (from <code>ui_min</code> / <code>ui_max</code>, texture formats, texture coordinates, &hellip;). Inputs it could not work out are listed in <code>sopt-facts.txt</code> with a suggested range. In the menu, press <kbd>8</kbd>, remove the <code>#</code> in front of the lines you know, correct the ranges, save, and start again. From the command line: <code>--facts sopt-facts.txt</code> (or <code>--ask</code> to answer interactively).</p>
+
+<h2>5. Single expressions: sopt</h2>
+<p><code>sopt</code> optimizes one expression described in a small text file, e.g. <code>screen.sopt</code>:</p>
+<pre>input a : float in [0, 1] grid 255
+input b : float in [0, 1] grid 255
+output r = 1.0 - (1.0 - a) * (1.0 - b)
+budget r : color8</pre>
+<p><code>bin\sopt screen.sopt</code> lists the cheaper forms it found and verified. <code>--help</code> lists the options of both programs (cost models for other GPUs: <code>--cost-model amd-rdna2</code>, <code>nvidia-turing</code>, <code>intel-gen9</code>, &hellip;).</p>
+
+<h2>Requirements</h2>
+<ul>
+  <li>Windows 10 or 11 (x64) with the Microsoft Visual C++ 2015-2022 redistributable, which almost every gaming PC already has: <a href="https://aka.ms/vs/17/release/vc_redist.x64.exe">vc_redist.x64.exe</a>. Or Linux x64.</li>
+</ul>
+<p class="note">The programs are not code-signed yet, so Windows Defender or SmartScreen may warn about them. The download page lists their SHA-256 checksums.</p>
+
+<h2>Feedback</h2>
+<p>Problems, wrong variants, crashes and ideas: <a href="https://github.com/CeeJayDK/sopt/issues">github.com/CeeJayDK/sopt/issues</a> (say which version, <code>bin\sopt-fx --version</code>, and include the shader or the statement if you can).</p>
+
+<footer>SweetOpt by CeeJay.dk, free software under the GNU GPL v3 (<code>Docs\LICENSE.txt</code>). <a href="https://github.com/CeeJayDK/sopt">github.com/CeeJayDK/sopt</a></footer>
+</main>
+</body>
+</html>

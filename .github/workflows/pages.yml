@@ -1,0 +1,74 @@
+# GPU Blueprint web page (owner, 2026-10-05): the cost models SweetOpt uses, the cards behind them and the pixel
+# order pictures, published with GitHub Pages. Runs on GitHub's servers by itself: on every change to main that
+# touches the models, the reports or the page (pull requests only build it, as a check). PNGs are optimized losslessly
+# at maximum effort (oxipng, or zopflipng where oxipng is missing) in the published copy.
+# One-time setup by the repository owner: Settings > Pages > Source: GitHub Actions (and a custom domain there).
+name: pages
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "tools/site/**"
+      - "docs/opbench/**"
+      - "docs/texbench/**"
+      - "src/ir/ops.cpp"
+      - "src/cli/main.cpp"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    paths:
+      - "site/**"
+      - "tools/site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q oxipng || sudo apt-get install -y -q zopfli
+      - name: Cost models
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target sopt --parallel
+          build/sopt --cost-models-json > models.json
+      - name: Page
+        run: python3 tools/site/build.py models.json _site
+      - name: Optimize PNGs (lossless, maximum effort)
+        run: |
+          shopt -s nullglob
+          files=(_site/img/*.png)
+          if [ ${#files[@]} -eq 0 ]; then exit 0; fi
+          du -cb "${files[@]}" | tail -1
+          if command -v oxipng >/dev/null; then
+            oxipng -o max --zopfli --strip safe "${files[@]}"
+          else
+            for f in "${files[@]}"; do zopflipng -y -m --iterations=100 "$f" "$f"; done
+          fi
+          du -cb "${files[@]}" | tail -1
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
