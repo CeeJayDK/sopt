@@ -31,7 +31,7 @@ fma). Every test runs twice, forward and backward through its section, with a fr
 before it; a test whose two readings disagree is measured again until most readings agree (up to
 6 times), so a GPU clock change costs a little time instead of giving wrong numbers.
 
-TESTS.txt explains what each test measures and why.
+OpBench-TESTS.txt explains what each test measures and why.
 
 It writes only opbench-<GPU>.csv and the folder opbench-dxbc (the shader code of each test) next
 to itself. It does not use the network.

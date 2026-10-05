@@ -2172,7 +2172,7 @@ int main(int argc, char** argv) {
               "  GB/s     Gigabytes per second: how much data is read or written (more is better).\n"
               "  ms/pass  Milliseconds for one full-screen pass at 3840 x 2160 (less is better).\n"
               "\n"
-              "  TESTS.txt, next to this program, explains every test in plain words.\n",
+              "  TexBench-TESTS.txt, next to this program, explains every test in plain words.\n",
               st.c("\x1b[1;96m"), st.reset());
   if (drift > 5.0)
     std::printf("\n  %sWarning:%s the reference changed by %.0f%% during the run: the GPU clock moved.\n", st.c("\x1b[1;93m"),

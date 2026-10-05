@@ -206,9 +206,10 @@ backward within the section) and prints each section's table as soon as it is do
 below; graphs on a fixed scale (a full bar = 100 = 25 mads, longer costs fill it). TexBench prints each
 section once its last test is measured. At the end: the GPU box, drift / consensus warnings, the footer.
 The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics
-(`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases: the
-`OpBench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases (exe, measure-gpu.bat,
-README.txt).
+(`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases (since 0.5.0, owner: one zip for
+testers): `GPU-Bench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases with OpBench, TexBench and
+ShaderInfo, their batch files (measure-both.bat / measure-all-gpus.bat run ShaderInfo first), README.txt
+(GPU-BENCH-README.txt) and the programs' READMEs / TESTS files prefixed with their names.
 
 ## TexBench (texture costs)
 
@@ -224,7 +225,7 @@ coherent reads (bilinear, 1024 x 1024, each thread within one texel of its pixel
 anisotropic via SampleGrad); a 1D LUT (256 x 1), a 3D LUT (32^3) and random reads from 512^2 to 8192^2;
 pixel shader derivatives (ddx / ddy, fine / coarse, fwidth) and Sample with automatic mip selection
 (bilinear, trilinear, 4:1 anisotropic); render target writes per format (GB/s, 3840 x 2160).
-`tools/windows/texbench/TESTS.txt` explains each test. Releases: `TexBench-<version>.zip`.
+`tools/windows/texbench/TESTS.txt` explains each test. Releases: in `GPU-Bench-<version>.zip`.
 
 ## ReShade's own statistics (6.8.0 source, `runtime.cpp` / `runtime_gui.cpp`)
 

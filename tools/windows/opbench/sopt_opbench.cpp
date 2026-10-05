@@ -897,7 +897,7 @@ int main(int argc, char** argv) {
               "  Graph   Longer bar = slower. Free operations have no bar; a full bar is 25 multiply-adds or more.\n"
               "\n"
               "  The numbers show how fast the GPU is when it is fully busy (as in a game).\n"
-              "  TESTS.txt, next to this program, explains every test in plain words.\n",
+              "  OpBench-TESTS.txt, next to this program, explains every test in plain words.\n",
               st.c("\x1b[1;96m"), st.reset());
 
   bool warned = false;

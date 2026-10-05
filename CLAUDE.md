@@ -1029,6 +1029,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   drivers; using them in sopt is a design decision for the owner.
   Owner (2026-10-04): if useful, driver shader statistics could also be a ReShade feature (not this project's scope;
   a ReShade add-on like sopt-timer would be the natural route).
+  Release 0.5.0 (owner, 2026-10-05: "release tonight so people can use them while I sleep"; one zip for testers):
+  release.yml builds GPU-Bench-<v>.zip (OpBench, TexBench, ShaderInfo, measure-both / measure-all-gpus run ShaderInfo
+  first, README.txt = tools/windows/GPU-BENCH-README.txt, <Program>-README / <Program>-TESTS) instead of the separate
+  OpBench / TexBench zips; sopt and sopt-windows-tools zips unchanged. The footers name OpBench-TESTS.txt /
+  TexBench-TESTS.txt. Process: PR merged to main, release.yml run manually on main = draft, owner publishes.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):

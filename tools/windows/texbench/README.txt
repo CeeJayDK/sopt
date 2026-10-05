@@ -28,7 +28,7 @@ one texture read (or derivative) in long chains, where every read's coordinate d
 result of the one before, and its cost is reported relative to one multiply-add (4 = one fma).
 Each test is read at least twice against a fresh reference and more often when the readings
 disagree. Texture reads depend a lot on caches and memory, so read the numbers as ballpark
-figures; TESTS.txt explains every test.
+figures; TexBench-TESTS.txt explains every test.
 
 It writes only texbench-<GPU>.csv and the folder texbench-dxbc (the shader code of each test)
 next to itself. It does not use the network.
