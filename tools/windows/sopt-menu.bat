@@ -1,5 +1,5 @@
 @echo off
-rem sopt menu (owner, 2026-10-05: a menu helps users, as GPU-Bench.bat did): pick the shaders, then start
+rem sopt menu (owner, 2026-10-05: a menu helps users, as GPU-Blueprint.bat did): pick the shaders, then start
 rem sopt-fx with a number key. Settings are kept in sopt-menu.ini next to this file; results go to sopt-out\.
 setlocal EnableExtensions
 cd /d "%~dp0"

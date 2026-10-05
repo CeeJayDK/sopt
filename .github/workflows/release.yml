@@ -66,18 +66,18 @@ jobs:
         shell: pwsh
         run: |
           $v = '${{ steps.version.outputs.version }}'
-          New-Item -ItemType Directory -Force -Path sopt, gpubench, tools, unsigned | Out-Null
+          New-Item -ItemType Directory -Force -Path sopt, gpublueprint, tools, unsigned | Out-Null
           Copy-Item build/Release/sopt.exe, build/Release/sopt-fx.exe, tools/windows/sopt-menu.bat, LICENSE sopt/
           Copy-Item docs/QUICKSTART.txt sopt/QUICKSTART.txt
           Compress-Archive -Path sopt/* -DestinationPath "unsigned/sopt-$v-windows-x64.zip"
-          # GPU-Bench (owner, 2026-10-05): the three programs, one menu batch file, README.html (the hub) and Docs\
-          New-Item -ItemType Directory -Force -Path gpubench/Docs, tools/Docs | Out-Null
-          Copy-Item build/Release/OpBench.exe, build/Release/TexBench.exe, build/Release/ShaderInfo.exe, tools/windows/GPU-Bench.bat, tools/windows/docs/README.html gpubench/
-          Copy-Item tools/windows/docs/OpBench.html, tools/windows/docs/TexBench.html, tools/windows/docs/ShaderInfo.html, tools/windows/docs/style.css gpubench/Docs/
+          # GPU Blueprint (owner, 2026-10-05): the three programs, one menu batch file, README.html (the hub) and Docs\
+          New-Item -ItemType Directory -Force -Path gpublueprint/Docs, tools/Docs | Out-Null
+          Copy-Item build/Release/OpBench.exe, build/Release/TexBench.exe, build/Release/ShaderInfo.exe, tools/windows/GPU-Blueprint.bat, tools/windows/docs/README.html gpublueprint/
+          Copy-Item tools/windows/docs/OpBench.html, tools/windows/docs/TexBench.html, tools/windows/docs/ShaderInfo.html, tools/windows/docs/style.css gpublueprint/Docs/
           Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md tools/
-          Copy-Item build/Release/OpBench.exe, build/Release/TexBench.exe, build/Release/ShaderInfo.exe, tools/windows/GPU-Bench.bat, tools/windows/docs/README.html tools/
+          Copy-Item build/Release/OpBench.exe, build/Release/TexBench.exe, build/Release/ShaderInfo.exe, tools/windows/GPU-Blueprint.bat, tools/windows/docs/README.html tools/
           Copy-Item tools/windows/docs/OpBench.html, tools/windows/docs/TexBench.html, tools/windows/docs/ShaderInfo.html, tools/windows/docs/style.css tools/Docs/
-          Compress-Archive -Path gpubench/* -DestinationPath "unsigned/GPU-Bench-$v.zip"
+          Compress-Archive -Path gpublueprint/* -DestinationPath "unsigned/GPU-Blueprint-$v.zip"
           Compress-Archive -Path tools/* -DestinationPath "unsigned/sopt-windows-tools-$v.zip"
       - name: Upload unsigned
         id: upload
@@ -173,8 +173,8 @@ jobs:
             echo "## Downloads"
             echo
             echo "- \`sopt-$VERSION-windows-x64.zip\` / \`sopt-$VERSION-linux-x64.tar.gz\`: sopt-fx (finds cheaper, verified rewrites of the arithmetic in ReShade FX and HLSL pixel shaders, written next to the originals behind preprocessor switches) and sopt (single expressions); on Windows, double-click sopt-menu.bat. Early release: start with QUICKSTART.txt inside, and send feedback at https://github.com/CeeJayDK/sopt/issues. Windows needs the VC++ 2015-2022 redistributable (most gaming PCs have it)."
-            echo "- \`GPU-Bench-$VERSION.zip\`: measures your graphics card for sopt: OpBench (what math instructions cost), TexBench (texture reads, writes, blending) and ShaderInfo (what the driver reports about compiled shaders), each with a score at the end. Unzip, double-click \`GPU-Bench.bat\` (a menu) and send \`GPU-Bench-Reports.zip\` when it is done (README.html inside explains everything)."
-            echo "- \`sopt-windows-tools-$VERSION.zip\`: the benchmark harness (sopt-host, sopt-timer add-on, run-bench.bat, ReShade64.dll 6.8.0), and GPU-Bench (OpBench, TexBench, ShaderInfo with the GPU-Bench.bat menu)."
+            echo "- \`GPU-Blueprint-$VERSION.zip\`: measures your graphics card for sopt: OpBench (what math instructions cost), TexBench (texture reads, writes, blending) and ShaderInfo (what the driver reports about compiled shaders), each with a score at the end. Unzip, double-click \`GPU-Blueprint.bat\` (a menu) and press 9 in it to send the reports when it is done (README.html inside explains everything)."
+            echo "- \`sopt-windows-tools-$VERSION.zip\`: the benchmark harness (sopt-host, sopt-timer add-on, run-bench.bat, ReShade64.dll 6.8.0), and GPU Blueprint (OpBench, TexBench, ShaderInfo with the GPU-Blueprint.bat menu)."
             echo
             echo "Code signing: $signing"
           } > notes.md

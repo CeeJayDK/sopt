@@ -36,8 +36,8 @@ DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host
 | `OpBench.exe` | instruction costs on this GPU, for sopt's cost models (below) |
 | `TexBench.exe` | texture reads, derivatives and render target writes per format (below) |
 | `ShaderInfo.exe` | what each Vulkan GPU driver reports about the shaders it compiles: statistics, disassembly (where offered), hardware counters; writes `Reports\shaderinfo-<gpu>.txt` |
-| `GPU-Bench.bat` | the menu for the three programs (main card, another card, every card, one program alone); zips `Reports\` into `GPU-Bench-Reports.zip` after every run |
-| `README.html`, `Docs\` | the GPU-Bench guide (hub page) and one page per program (sources: `tools/windows/docs/`) |
+| `GPU-Blueprint.bat` | the menu for the three programs (main card, another card, every card, one program alone); zips `Reports\` into `GPU-Blueprint-Reports.zip` after every run |
+| `README.html`, `Docs\` | the GPU Blueprint guide (hub page) and one page per program (sources: `tools/windows/docs/`) |
 
 Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host),
 `tools/windows/opbench` (OpBench), `tools/windows/texbench` (TexBench), `tools/windows/shaderinfo` (ShaderInfo), `benchkit.hpp` (shared), `tools/windows/docs` (README.html, Docs\\*.html), this folder (scripts).
@@ -145,7 +145,7 @@ vertex buffer.
 
 ## OpBench (instruction costs; sopt-opbench until 0.2.0)
 
-`GPU-Bench.bat` (or `OpBench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
+`GPU-Blueprint.bat` (or `OpBench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
 measures what single instructions and instruction patterns cost on this PC's GPU, to calibrate
 sopt's cost models (rdna3, nvidia). No ReShade or game needed; close GPU-heavy programs first.
 It takes a few minutes and writes `Reports\opbench-<gpu>.csv` (send that) and `Reports\Shaders\OpBench\` (the HLSL
@@ -207,14 +207,14 @@ below; graphs on a fixed scale (a full bar = 100 = 25 mads, longer costs fill it
 section once its last test is measured. At the end: the GPU box, drift / consensus warnings, the footer.
 The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics
 (`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases (since 0.5.0, owner: one zip for
-testers): `GPU-Bench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases with OpBench, TexBench and
-ShaderInfo and GPU-Bench.bat. Since 0.6.0 (testers' notes, owner 2026-10-05): one batch file (the menu, with
-"another graphics card"), reports in `Reports\` and zipped into `GPU-Bench-Reports.zip` after every run, the
+testers): `GPU-Blueprint-<version>.zip` (GPU-Bench before 0.6.0) on https://github.com/CeeJayDK/sopt/releases with OpBench, TexBench and
+ShaderInfo and GPU-Blueprint.bat. Since 0.6.0 (testers' notes, owner 2026-10-05): one batch file (the menu, with
+"another graphics card"), reports in `Reports\` and zipped into `GPU-Blueprint-Reports.zip` after every run, the
 guide as HTML (README.html, a hub, and `Docs\<Program>.html`), a beep when a run ends (before the pause).
 
 ## TexBench (texture costs)
 
-`GPU-Bench.bat` (or `TexBench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
+`GPU-Blueprint.bat` (or `TexBench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
 writes `Reports\texbench-<gpu>.csv` and `Reports\Shaders\TexBench\` next to the exe. Owner's idea (2026-10-04): ballpark
 costs of texture operations next to math (when a lookup table beats computing), and every format ReShade
 supports measured instead of assumed; a separate program because it about doubles OpBench's run time.
@@ -226,7 +226,7 @@ coherent reads (bilinear, 1024 x 1024, each thread within one texel of its pixel
 anisotropic via SampleGrad); a 1D LUT (256 x 1), a 3D LUT (32^3) and random reads from 512^2 to 8192^2;
 pixel shader derivatives (ddx / ddy, fine / coarse, fwidth) and Sample with automatic mip selection
 (bilinear, trilinear, 4:1 anisotropic); render target writes per format (GB/s, 3840 x 2160).
-`tools/windows/docs/TexBench.html` explains each test. Releases: in `GPU-Bench-<version>.zip`.
+`tools/windows/docs/TexBench.html` explains each test. Releases: in `GPU-Blueprint-<version>.zip`.
 
 ## ReShade's own statistics (6.8.0 source, `runtime.cpp` / `runtime_gui.cpp`)
 

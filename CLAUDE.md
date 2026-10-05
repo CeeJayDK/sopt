@@ -1118,6 +1118,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   MUFU ops match Ampere (rcp 23.5); TexBench 479 s, pixel order 4 x 8 warp blocks; ShaderInfo statistics only. Its
   Iris Xe (Gen12 / Xe-LP, driver 101.7084, docs/shaderinfo/intel-iris-xe.txt; OpBench / TexBench not run): Instruction
   Count (57 / 74) but no Cycle Count (the UHD 630's driver gives one), 181 performance query counters.
+  Names (owner, 2026-10-05): the benchmark suite GPU-Bench is now GPU Blueprint (GPU-Blueprint.bat,
+  GPU-Blueprint-<v>.zip, GPU-Blueprint-Reports.zip; OpBench / TexBench / ShaderInfo keep their names); sopt becomes
+  SweetOpt (long name Super Sweet Optimizer, under discussion) - not renamed yet. Report uploads (owner: Dropbox, a
+  separate service from his Google Drive): file request "GPU Blueprint reports" (id jmwykzlbulwo8ltkyule,
+  https://www.dropbox.com/request/jmwykzlbulwo8ltkyule) into /Uploads/GPU Blueprint (one /Uploads/<project> folder per
+  project); GPU-Blueprint.bat key 9 (only when picked, asks first) opens the page and shows the zip in Explorer.
+  Planned: a scheduled task that downloads, checks and saves reports, then deletes everything in that folder.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):

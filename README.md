@@ -319,7 +319,7 @@ the backend); Nsight Graphics on real hardware is the ground truth.
 ## Windows tools and releases
 
 Ready-built Windows tools are on the [Releases](https://github.com/CeeJayDK/sopt/releases) page:
-`GPU-Bench-<version>.zip` (OpBench, TexBench and ShaderInfo: what your graphics card and driver really do; double-click GPU-Bench.bat) and
+`GPU-Blueprint-<version>.zip` (OpBench, TexBench and ShaderInfo: what your graphics card and driver really do; double-click GPU-Blueprint.bat) and
 `sopt-windows-tools-<version>.zip` (the benchmark harness, [tools/windows/README.md](tools/windows/README.md)).
 They are built from this repository by GitHub Actions (`.github/workflows/release.yml`).
 
@@ -340,8 +340,8 @@ tools zip is built unchanged from crosire's ReShade 6.8.0 source and is not sign
 
 This program will not transfer any information to other networked systems unless specifically
 requested by the user or the person installing or operating it. OpBench, TexBench and ShaderInfo
-only write into the `Reports` folder next to themselves, and GPU-Bench.bat zips that folder;
+only write into the `Reports` folder next to themselves, and GPU-Blueprint.bat zips that folder;
 sopt-host and the sopt-timer add-on only write their CSV, log and screenshots into the run
-folder. None of the programs use the network. GPU-Bench.bat's "Send the reports" option (only
+folder. None of the programs use the network. GPU-Blueprint.bat's "Send the reports" option (only
 when the user picks it) opens a Dropbox upload page in the browser, where the user can upload the
 zip (graphics card name, driver version and measurements) by hand.

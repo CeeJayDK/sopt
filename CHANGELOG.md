@@ -8,9 +8,10 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 ### sopt / sopt-fx
 - **Menu for Windows:** double-click `sopt-menu.bat`: choose the Shaders folder and what to optimize (folder and file dialogs, no typing of paths), the time per statement and the graphics card family, start, open the results, edit value ranges. It remembers the choices.
 
-### GPU-Bench
-- **One batch file:** `GPU-Bench.bat` is now the only one, a menu that does it all. New: **another graphics card** (shows the cards, you type the number). The separate measure / shader-info batch files are gone.
-- **Reports folder:** everything to send goes to `Reports\` (shader dumps to `Reports\Shaders\`), and after every run `GPU-Bench-Reports.zip` holds the reports, ready to send.
+### GPU Blueprint (was GPU-Bench)
+- **New name:** GPU-Bench is now **GPU Blueprint** (`GPU-Blueprint.bat`, `GPU-Blueprint-<version>.zip`): it maps out what each part of a graphics card costs. OpBench, TexBench and ShaderInfo keep their names.
+- **One batch file:** `GPU-Blueprint.bat` is now the only one, a menu that does it all. New: **another graphics card** (shows the cards, you type the number). The separate measure / shader-info batch files are gone.
+- **Reports folder:** everything to send goes to `Reports\` (shader dumps to `Reports\Shaders\`), and after every run `GPU-Blueprint-Reports.zip` holds the reports, ready to send.
 - **HTML guide:** `README.html` is the hub, with one page per program in `Docs\` (what every test measures, how to read the results), replacing the text files.
 - **Send the reports** (menu key 9, only when you pick it): opens CeeJay's upload page (a Dropbox file request, no account needed) and shows the zip, ready to drag onto the page.
 - **Beep** when a run is done, before the "press a key" pause (it used to come after the key press).

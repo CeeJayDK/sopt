@@ -8,7 +8,7 @@ Foundation signs it for free. Their review is done by people and can take days.
 - `.github/workflows/release.yml`: a tag `v*` (or a manual run, which makes a draft release)
   builds sopt / sopt-fx (Windows and Linux) and the Windows tools, signs the Windows files when
   the SignPath secret exists, and attaches `sopt-<v>-windows-x64.zip`, `sopt-<v>-linux-x64.tar.gz`,
-  `GPU-Bench-<v>.zip`, `sopt-windows-tools-<v>.zip` and `SHA256SUMS.txt` to a GitHub Release.
+  `GPU-Blueprint-<v>.zip`, `sopt-windows-tools-<v>.zip` and `SHA256SUMS.txt` to a GitHub Release.
 - Version info (name, publisher CeeJay.dk, version) and a manifest on the executables
   (`tools/windows/version.rc.in`, `tools/windows/app.manifest`).
 - README.md: the code signing policy and privacy sections SignPath asks for.
@@ -46,7 +46,7 @@ Foundation signs it for free. Their review is done by people and can take days.
         <for-each><authenticode-sign/></for-each>
       </pe-file-set>
     </zip-file>
-    <zip-file path="GPU-Bench-*.zip">
+    <zip-file path="GPU-Blueprint-*.zip">
       <pe-file-set>
         <include path="OpBench.exe"/>
         <include path="TexBench.exe"/>

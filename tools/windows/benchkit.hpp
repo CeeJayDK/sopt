@@ -140,7 +140,7 @@ struct Style {
 inline Style initConsole() {
   Style st;
   // Keys pressed while the program ran are dropped at exit, so they do not reach the next prompt
-  // (GPU-Bench.bat's choice beeped at them after the run).
+  // (GPU-Blueprint.bat's choice beeped at them after the run).
   std::atexit([] { FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE)); });
   HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
   DWORD mode = 0;
@@ -495,7 +495,7 @@ inline const char* vendorColor(const Style& st, UINT vendor) {
 
 // --adapters: the index of every hardware GPU, one per line, each GPU once (a driver can list the same GPU
 // twice, e.g. the NVIDIA card first because of NvOptimusEnablement and again at its own place: same LUID)
-// and without software adapters (Microsoft Basic Render Driver). GPU-Bench.bat (every card) runs each index.
+// and without software adapters (Microsoft Basic Render Driver). GPU-Blueprint.bat (every card) runs each index.
 inline void printUniqueAdapters() {
   IDXGIFactory1* factory = nullptr;
   if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) fail("CreateDXGIFactory1 failed");

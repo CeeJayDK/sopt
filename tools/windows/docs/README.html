@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GPU-Bench</title>
+<title>GPU Blueprint</title>
 <link rel="stylesheet" href="Docs/style.css">
 </head>
 <body>
 <main>
 <header class="top">
-  <h1>GPU-Bench</h1>
+  <h1>GPU Blueprint</h1>
   <p>Measures what your graphics card and its driver really do, so sopt can pick the fastest shader code for each kind of card.</p>
 </header>
 
-<p>GPU-Bench is part of <a href="https://github.com/CeeJayDK/sopt">sopt</a>, a shader superoptimizer for ReShade effects (GPL-3.0) by CeeJay.dk. It has three small programs:</p>
+<p>GPU Blueprint is part of <a href="https://github.com/CeeJayDK/sopt">sopt</a>, a shader superoptimizer for ReShade effects (GPL-3.0) by CeeJay.dk. It has three small programs:</p>
 
 <div class="cards">
   <div class="card"><h3><a href="Docs/OpBench.html">OpBench</a></h3><p>What math instructions cost: add, multiply, sqrt, sin, sign, integer and half precision math.</p></div>
@@ -24,8 +24,8 @@
 <h2>How to run</h2>
 <ol>
   <li>Close games and other programs that use the graphics card. On a laptop, plug it in.</li>
-  <li>Double-click <code>GPU-Bench.bat</code>. A menu opens: press the number of what you want.</li>
-  <li>When it is done, press <kbd>9</kbd> to send the reports: it opens an upload page in your browser and shows <code>GPU-Bench-Reports.zip</code> (next to <code>GPU-Bench.bat</code>) in a folder; drag the zip onto the page.</li>
+  <li>Double-click <code>GPU-Blueprint.bat</code>. A menu opens: press the number of what you want.</li>
+  <li>When it is done, press <kbd>9</kbd> to send the reports: it opens an upload page in your browser and shows <code>GPU-Blueprint-Reports.zip</code> (next to <code>GPU-Blueprint.bat</code>) in a folder; drag the zip onto the page.</li>
 </ol>
 
 <table>
@@ -50,7 +50,7 @@
   <tr><td><code>Reports\texbench-&lt;GPU&gt;-order*.png</code></td><td>pictures of the order in which the card shades pixels</td></tr>
   <tr><td><code>Reports\shaderinfo-&lt;GPU&gt;.txt</code></td><td>what the driver reports about compiled shaders</td></tr>
   <tr><td><code>Reports\Shaders\</code></td><td>the shader code of every test (not needed for reports)</td></tr>
-  <tr><td><code>GPU-Bench-Reports.zip</code></td><td>the files above (without the shader code) in one zip, made after every run</td></tr>
+  <tr><td><code>GPU-Blueprint-Reports.zip</code></td><td>the files above (without the shader code) in one zip, made after every run</td></tr>
 </table>
 <p>Nothing is sent automatically: the programs do not use the network, and the menu only opens the upload page when you press <kbd>9</kbd>. The zip holds your graphics card's name, its driver version and the measurements, nothing else from your PC.</p>
 
@@ -74,7 +74,7 @@
 </table>
 <p>Details in each program's page: <a href="Docs/OpBench.html">OpBench</a>, <a href="Docs/TexBench.html">TexBench</a>, <a href="Docs/ShaderInfo.html">ShaderInfo</a>.</p>
 
-<footer>GPU-Bench, part of sopt by CeeJay.dk. <a href="https://github.com/CeeJayDK/sopt">github.com/CeeJayDK/sopt</a></footer>
+<footer>GPU Blueprint, part of sopt by CeeJay.dk. <a href="https://github.com/CeeJayDK/sopt">github.com/CeeJayDK/sopt</a></footer>
 </main>
 </body>
 </html>

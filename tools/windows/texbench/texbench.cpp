@@ -1403,7 +1403,7 @@ int main(int argc, char** argv) {
     };
     if (a == "--adapter") adapterIndex = std::atoi(next());
     else if (a == "--list") list = true;
-    else if (a == "--adapters") {  // hardware GPUs, each once (for GPU-Bench.bat, every card)
+    else if (a == "--adapters") {  // hardware GPUs, each once (for GPU-Blueprint.bat, every card)
       printUniqueAdapters();
       return 0;
     }
