@@ -1111,6 +1111,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   -0.37); score fp32 = the faster of the reference and fma1 (fp16 / rcp stay relative to the reference). Lavapipe
   under Wine shows fma1 absurdly slow next to an absurdly fast reference (its timings are meaningless); real cards to
   confirm (GCN should show fma1 ~2, NVIDIA ~4).
+  OpBench first compile batch (owner, 2026-10-05: sources are already written / compiled per section; make the first
+  batch small): job 0 = the reference mad alone, so the warm-up starts at once and section 1 compiles during it.
+  RTX 3050 Laptop (0x25A2, driver 32.0.16.1088; docs/opbench|texbench|shaderinfo/nvidia-rtx-3050-laptop.*): unreliable
+  like the other laptops (drift 160-240%; add 6.0, sub readings 4.2-7.5, min 9.8, 5 tests without consensus), only the
+  MUFU ops match Ampere (rcp 23.5); TexBench 479 s, pixel order 4 x 8 warp blocks; ShaderInfo statistics only. Its
+  Iris Xe (Gen12 / Xe-LP, driver 101.7084, docs/shaderinfo/intel-iris-xe.txt; OpBench / TexBench not run): Instruction
+  Count (57 / 74) but no Cycle Count (the UHD 630's driver gives one), 181 performance query counters.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):

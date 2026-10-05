@@ -685,10 +685,14 @@ int main(int argc, char** argv) {
   groups.emplace_back();
   for (const Test* t : tests) assign(groups.back(), t, assign);
 
+  // Job 0 is the reference alone, so the warm-up starts as soon as it is compiled and the first section
+  // compiles during the warm-up (owner, 2026-10-05: a small first batch).
   std::vector<std::function<void()>> jobList;
+  jobList.push_back([&compileTest, madTest] { compileTest(madTest); });
   for (const Group& gr : groups)
-    jobList.push_back([&compileTest, &gr] {
-      for (const Test* t : gr.run) compileTest(t);
+    jobList.push_back([&compileTest, &gr, madTest] {
+      for (const Test* t : gr.run)
+        if (t != madTest) compileTest(t);
     });
   std::printf("\n");
   BackgroundJobs compiling(std::move(jobList));
@@ -834,7 +838,7 @@ int main(int argc, char** argv) {
   progress.start();
   for (size_t gi = 0; gi < groups.size(); ++gi) {
     const Group& gr = groups[gi];
-    compiling.wait(gi);
+    compiling.wait(gi + 1);
     for (const Config& c : kConfigs) {
       std::map<std::string, UINT>& it = iters[c.name];
       if (!it.count("mad")) it["mad"] = calibrate(g, shaders[c.name]["mad"], *madTest, c);
