@@ -217,7 +217,7 @@ The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchabl
 (`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases (since 0.5.0, owner: one zip for
 testers): `GPU-Blueprint-<version>.zip` (GPU-Bench before 0.6.0) on https://github.com/CeeJayDK/sopt/releases with OpBench, TexBench and
 ShaderInfo and GPU-Blueprint.bat. Since 0.6.0 (testers' notes, owner 2026-10-05): one batch file (the menu, with
-"another graphics card"), reports in `Reports\` and zipped into `GPU-Blueprint-Reports.zip` after every run, the
+"another graphics card"), reports in `Reports\` and zipped into `Reports-<cards>.zip` (bin\zip-reports.ps1: the card models, e.g. Reports-GTX-1660+UHD-630.zip) after every run, the
 guide as HTML (README.html, a hub, and `Docs\<Program>.html`), a beep when a run ends (before the pause).
 
 ## TexBench (texture costs)

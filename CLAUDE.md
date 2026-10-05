@@ -1127,6 +1127,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   names. GPU Blueprint menu (owner): key 1 = every card, 2 main, 3 another; after a run it offers to send the reports
   (Y opens the upload page); key 9 blinks (ESC[5m) while the zip has not been sent (hidden marker Reports\.sent, made
   when the page is opened, deleted by the next run).
+  Reports zip name (owner, 2026-10-05: after the cards, "less verbose"): bin\zip-reports.ps1 makes Reports-<models>.zip
+  from the report file names without brand words (GTX-1660, UHD-630, Iris-Xe, RX-9070-XT, RTX-3050-Laptop; all brand
+  words -> AMD-Radeon), several cards joined by '+', one zip only (older Reports*.zip removed); the menu finds it with
+  `for %%z in (Reports*.zip)` (Wine's cmd does not expand a quoted wildcard). Dropbox prefixes the uploader name.
   Download layout (owner, 2026-10-05: "only the menu and the readme start page" in the main folder):
   tools/windows/stage.ps1 stages SweetOpt\ / GPU-Blueprint\ / tools\ for CI (artifacts SweetOpt-windows,
   GPU-Blueprint, sopt-windows-tools) and release.yml (zips; Linux tarball the same: README.html, bin/, Docs/):

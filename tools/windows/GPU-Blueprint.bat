@@ -1,6 +1,7 @@
 @echo off
 rem GPU Blueprint (owner, 2026-10-05): one batch file with a menu; pick what to measure with a number key.
-rem Reports go to Reports\, and after every run GPU-Blueprint-Reports.zip holds them (without the shader dumps).
+rem Reports go to Reports\, and after every run Reports-<cards>.zip holds them (without the shader dumps;
+rem bin\zip-reports.ps1 names it after the graphics cards in the reports, owner 2026-10-05).
 setlocal EnableExtensions
 rem Upload page for the reports (a Dropbox file request: anyone can upload, nobody can see the folder).
 set "UPLOAD=https://www.dropbox.com/request/jmwykzlbulwo8ltkyule"
@@ -11,6 +12,8 @@ rem ESC for colors (Windows 10 and later; older consoles show the codes as text)
 for /f %%e in ('echo prompt $E^| cmd') do set "E=%%e"
 set "BEL="
 :menu
+set "ZIP="
+for %%z in (Reports*.zip) do set "ZIP=%%~nxz"
 cls
 echo.
 echo   %E%[96m=====================================================%E%[0m
@@ -29,7 +32,7 @@ echo.
 echo   %E%[1;93m7%E%[0m  Open the Reports folder
 echo   %E%[1;93m8%E%[0m  Open the guide %E%[90m(README.html)%E%[0m
 rem New reports not sent yet (the zip without the hidden marker Reports\.sent): key 9 blinks (owner, 2026-10-05).
-if exist "GPU-Blueprint-Reports.zip" if not exist "Reports\.sent" goto menuNew
+if defined ZIP if not exist "Reports\.sent" goto menuNew
 echo   %E%[1;93m9%E%[0m  Send the reports to CeeJay %E%[90m(opens an upload page in your browser)%E%[0m
 goto menuQuit
 :menuNew
@@ -63,20 +66,20 @@ rem the user drags it onto the page (file requests take uploads through the web 
 :send
 cls
 echo.
-if exist "GPU-Blueprint-Reports.zip" goto sendAsk
+if defined ZIP goto sendAsk
 echo   %E%[91mNo reports yet.%E%[0m Run a test first (1 to 6); the reports are zipped when it is done.
 echo.
 pause
 exit /b
 :sendAsk
 if defined UPLOAD goto sendInfo
-echo   %E%[91mThe upload page is not set up in this version.%E%[0m Send GPU-Blueprint-Reports.zip to CeeJay another way.
+echo   %E%[91mThe upload page is not set up in this version.%E%[0m Send %ZIP% to CeeJay another way.
 echo.
 pause
 exit /b
 rem Also called at the end of a run (no cls: the results stay on screen).
 :sendInfo
-echo   This opens CeeJay's upload page (Dropbox) in your browser and shows %E%[1;97mGPU-Blueprint-Reports.zip%E%[0m in a folder.
+echo   This opens CeeJay's upload page (Dropbox) in your browser and shows %E%[1;97m%ZIP%%E%[0m in a folder.
 echo   Drag the zip onto the page. You do not need a Dropbox account; the page asks for a name and an email
 echo   (any name will do) so CeeJay can tell reports apart.
 echo.
@@ -86,7 +89,7 @@ echo.
 choice /c YN /n /m "  Send the reports now, open the upload page? (Y/N) "
 if errorlevel 2 exit /b
 start "" "%UPLOAD%"
-start "" explorer /select,"%~dp0GPU-Blueprint-Reports.zip"
+start "" explorer /select,"%~dp0%ZIP%"
 if not exist "Reports\.sent" type nul > "Reports\.sent"
 attrib +h "Reports\.sent" >nul 2>&1
 exit /b
@@ -142,13 +145,14 @@ rem After a run: zip the reports (not Reports\Shaders; Get-ChildItem leaves out 
 rem to send them (owner, 2026-10-05).
 :finish
 if exist "Reports\.sent" del /f /q /a:h "Reports\.sent" >nul 2>&1
-if exist "Reports" powershell -NoProfile -Command "$f = Get-ChildItem -LiteralPath 'Reports' -File; if ($f) { Compress-Archive -LiteralPath $f.FullName -DestinationPath 'GPU-Blueprint-Reports.zip' -Force }" >nul 2>&1
+set "ZIP="
+if exist "Reports" for /f "usebackq delims=" %%z in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%BIN%zip-reports.ps1" "%~dp0."`) do set "ZIP=%%z"
 echo.
-if exist "GPU-Blueprint-Reports.zip" goto zipped
+if defined ZIP goto zipped
 echo   %E%[92mDone.%E%[0m The reports are in the Reports folder.
 goto beep
 :zipped
-echo   %E%[92mDone.%E%[0m %E%[1;97mGPU-Blueprint-Reports.zip%E%[0m, next to GPU-Blueprint.bat, holds every report in the Reports folder.
+echo   %E%[92mDone.%E%[0m %E%[1;97m%ZIP%%E%[0m, next to GPU-Blueprint.bat, holds every report in the Reports folder.
 echo.
 <nul set /p "=%BEL%"
 if not defined UPLOAD goto later

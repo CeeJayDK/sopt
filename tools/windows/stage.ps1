@@ -2,7 +2,7 @@
 # Owner, 2026-10-05: the main folder holds only the launcher and the guide (README.html); the programs go in bin\,
 # the other pages, the stylesheet and the licenses in Docs\.
 #   SweetOpt\       SweetOpt.bat, README.html; bin\ sopt.exe, sopt-fx.exe; Docs\ style.css, LICENSE.txt
-#   GPU-Blueprint\  GPU-Blueprint.bat, README.html; bin\ OpBench.exe, TexBench.exe, ShaderInfo.exe;
+#   GPU-Blueprint\  GPU-Blueprint.bat, README.html; bin\ OpBench.exe, TexBench.exe, ShaderInfo.exe, zip-reports.ps1;
 #                   Docs\ OpBench.html, TexBench.html, ShaderInfo.html, style.css, LICENSE.txt
 #   tools\          run-bench.bat, README.html; bin\ sopt-host.exe, sopt-timer.addon64 / .addon32, sopt-fxc.exe,
 #                   run-bench.ps1, timings.py, ReShade64.dll; Docs\ style.css, LICENSE.txt, ReShade-LICENSE.md
@@ -31,7 +31,7 @@ Stage "SweetOpt" (Join-Path $win "SweetOpt.bat") (Join-Path $root "docs/sweetopt
   @((Join-Path $win "docs/style.css"))
 
 Stage "GPU-Blueprint" (Join-Path $win "GPU-Blueprint.bat") (Join-Path $win "docs/README.html") `
-  @("$Build/OpBench.exe", "$Build/TexBench.exe", "$Build/ShaderInfo.exe") `
+  @("$Build/OpBench.exe", "$Build/TexBench.exe", "$Build/ShaderInfo.exe", (Join-Path $win "zip-reports.ps1")) `
   @((Join-Path $win "docs/OpBench.html"), (Join-Path $win "docs/TexBench.html"), (Join-Path $win "docs/ShaderInfo.html"), (Join-Path $win "docs/style.css"))
 
 Stage "tools" (Join-Path $win "run-bench.bat") (Join-Path $win "docs/Tools.html") `
