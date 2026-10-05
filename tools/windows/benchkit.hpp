@@ -208,10 +208,15 @@ struct Progress {
   const Style* st;
   int planned = 0;
   int steps = 0;
+  bool live = true;  // until the first section is printed nothing is above to read: the bar updates every step
   void step() {
     ++steps;
     if (st->vt) {
       title();
+      if (live) {
+        std::printf("\r   ");
+        draw();
+      }
       return;
     }
     if (steps % stepsPerCell(planned) == 0) std::printf(steps > planned ? "+" : "#");
@@ -241,7 +246,10 @@ struct Progress {
   void start() const {
     std::printf("\n   %s%s%s\n   ", st->c("\x1b[90m"), progressScale(planned).c_str(), st->reset());
   }
-  void pause() const { std::printf(st->vt ? "\r\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2K" : "\n"); }
+  void pause() {
+    live = false;
+    std::printf(st->vt ? "\r\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2K" : "\n");
+  }
   void resume() const {
     start();
     if (st->vt) draw();
@@ -289,9 +297,15 @@ struct CompileCounter {
   const Style* st;
   size_t total = 0, done = 0;
   void start() { std::printf("Compiling %zu shaders ...", total); }
+  // A 30-cell bar (half-cell steps) and the percentage, in place (owner: nothing is above to read yet).
   void step() {
     ++done;
-    if (st->vt && (done % 8 == 0 || done == total)) std::printf("\rCompiling %zu shaders ... %zu", total, done);
+    if (!st->vt || (done % 4 != 0 && done != total)) return;
+    const size_t half = total ? done * 60 / total : 60, pct = total ? done * 100 / total : 100;
+    std::string bar;
+    for (size_t c = 0; c < 30; ++c) bar += c * 2 + 2 <= half ? kFull : c * 2 + 1 == half ? kLeft : " ";
+    std::printf("\rCompiling %zu shaders  \x1b[96m%s\x1b[0m %3zu%%", total, bar.c_str(), pct);
+    setTitle("compiling " + std::to_string(pct) + "%");
   }
   void finish() { std::printf(st->vt ? "\rCompiling %zu shaders ... done\x1b[K\n" : " done\n", total); }
 };

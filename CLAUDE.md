@@ -1022,7 +1022,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   (ESC[?25l, restored atexit / Ctrl+C). Scrolling (owner: every update snapped the console to the bottom): option 2,
   progress only in the window title between sections, the bar redrawn when a section prints (Progress::draw).
   Title (owner): "<program> - <GPU> - <pct>% <test>" (benchkit gGpu / setTitle), "done" at the end, "stopped (error)"
-  in fail(). Background shader compiling per section: owner agreed to wait until after the 0.5.0 release (driver-side
+  in fail(). Live bar (owner): Progress::live until the first section prints; compiling shows a 30-cell bar + % (and in
+  the title). Background shader compiling per section: owner agreed to wait until after the 0.5.0 release (driver-side
   compilation beside the measurements needs a test round on real cards).
   ShaderInfo (owner's go 2026-10-04, after the iand driver finding: the real graphics driver's view instead of
   ptxas; tools/windows/shaderinfo, ShaderInfo.exe + shader-info.bat in the tools artifact): Vulkan at run time,
