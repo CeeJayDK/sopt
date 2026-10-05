@@ -1006,6 +1006,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   compact; a warp = 8 quads), 64 not (0.7%: the next warp lands elsewhere); 512 x 512 tiles 72% contiguous. UHD 630: no
   numbers at all (all pixels "without a number"; the store itself ran: it costs time) - counter switched from a
   RWStructuredBuffer to a 1 x 1 R32_UINT texture, counter / missing pixels now CSV rows; rerun wanted.
+  That changed the GTX 1660's result (owner's 0.5.0 run: blocks 0% compact, counter + store 0.75 ms vs 0.04): NVIDIA
+  merges a warp's buffer atomics into one (consecutive numbers per warp: the 4 x 8 blocks), texture atomics are per
+  lane (interleaved, 18x slower). Now: structured buffer first, texture only when the buffer gives no numbers
+  (OrderResult::counterKind, CSV row "counter kind"). OpBench score: fp16 / rcp from their costs relative to the
+  reference (raw timings came from other moments: 1660 fp16 showed 3.7 vs fp32 4.7 TFLOPS at the same cost, 45% drift).
   Stall on the owner's UHD 630 (TexBench, after the random section, 2026-10-04): a disjoint timestamp reading (-1)
   counted as "faster than 2 ms", so calibration doubled the run length blindly (up to 2^20 iterations). Fixed:
   Timer::time retries disjoint readings (4 tries), calibrate / draw-count loops stop on -1; a query that fails

@@ -1080,6 +1080,7 @@ struct OrderResult {
   UINT together = 0;                           // the largest W with >= 75% compact blocks
   std::string togetherShape;
   std::string image, zoom;
+  std::string counterKind;  // which counter gave the numbers
   // Timing (owner: benchmark it too): one draw of 1024 x 1024 plain, with the store alone, and with the
   // counter and the store; ms per draw and the cost per pixel over the plain draw (4 = one fma).
   double plainMs = 0.0, storeMs = 0.0, orderMs = 0.0, storeUnits = 0.0, orderUnits = 0.0;
@@ -1145,14 +1146,18 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
   const UINT n = kOrderSize;
   ID3D11Texture2D *rt = nullptr, *ord = nullptr, *ordRead = nullptr;
   ID3D11RenderTargetView* rtv = nullptr;
-  // The counter is a 1 x 1 R32_UINT texture: typed UAV atomics on R32_UINT are required on every D3D11 GPU
-  // (a structured-buffer counter gave no numbers at all on the UHD 630).
-  ID3D11Texture2D *cnt = nullptr, *cntRead = nullptr;
-  ID3D11UnorderedAccessView *ordUav = nullptr, *cntUav = nullptr;
-  ID3D11PixelShader *ps = nullptr, *psPlain = nullptr, *psStore = nullptr;
+  // Two counters: a structured buffer first (NVIDIA merges a warp's atomics into one and hands its lanes
+  // consecutive numbers, so runs of numbers show the waves; fast), a 1 x 1 R32_UINT texture when that gives no
+  // numbers (UHD 630: typed UAV atomics are required on every D3D11 GPU, but each pixel takes its own turn, so
+  // the waves do not show).
+  ID3D11Buffer *cntB = nullptr, *cntBRead = nullptr;
+  ID3D11Texture2D *cntT = nullptr, *cntTRead = nullptr;
+  ID3D11UnorderedAccessView *ordUav = nullptr, *cntBUav = nullptr, *cntTUav = nullptr;
+  ID3D11PixelShader *psB = nullptr, *psT = nullptr, *psPlain = nullptr, *psStore = nullptr;
   auto cleanup = [&]() {
-    release(rt), release(ord), release(ordRead), release(rtv), release(cnt), release(cntRead), release(ordUav),
-        release(cntUav), release(ps), release(psPlain), release(psStore);
+    release(rt), release(ord), release(ordRead), release(rtv), release(cntB), release(cntBRead), release(cntT),
+        release(cntTRead), release(ordUav), release(cntBUav), release(cntTUav), release(psB), release(psT),
+        release(psPlain), release(psStore);
   };
   D3D11_TEXTURE2D_DESC td = {};
   td.Width = td.Height = n;
@@ -1173,54 +1178,92 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
   cd.Usage = D3D11_USAGE_DEFAULT;
   cd.CPUAccessFlags = 0;
   cd.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
-  ok = ok && SUCCEEDED(g.dev->CreateTexture2D(&cd, nullptr, &cnt)) && SUCCEEDED(g.dev->CreateUnorderedAccessView(cnt, nullptr, &cntUav));
+  ok = ok && SUCCEEDED(g.dev->CreateTexture2D(&cd, nullptr, &cntT)) && SUCCEEDED(g.dev->CreateUnorderedAccessView(cntT, nullptr, &cntTUav));
   cd.BindFlags = 0;
   cd.Usage = D3D11_USAGE_STAGING;
   cd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-  ok = ok && SUCCEEDED(g.dev->CreateTexture2D(&cd, nullptr, &cntRead));
+  ok = ok && SUCCEEDED(g.dev->CreateTexture2D(&cd, nullptr, &cntTRead));
+  D3D11_BUFFER_DESC bd = {};
+  bd.ByteWidth = 4;
+  bd.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+  bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+  bd.StructureByteStride = 4;
+  ok = ok && SUCCEEDED(g.dev->CreateBuffer(&bd, nullptr, &cntB)) && SUCCEEDED(g.dev->CreateUnorderedAccessView(cntB, nullptr, &cntBUav));
+  bd.BindFlags = bd.MiscFlags = bd.StructureByteStride = 0;
+  bd.Usage = D3D11_USAGE_STAGING;
+  bd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  ok = ok && SUCCEEDED(g.dev->CreateBuffer(&bd, nullptr, &cntBRead));
   if (!ok) {
     cleanup();
     return res;
   }
-  const char* src =
-      "RWTexture2D<uint> CNT : register(u1);\n"
-      "RWTexture2D<uint> ORD : register(u2);\n"
-      "float4 main(float4 pos : SV_Position) : SV_Target\n{\n"
-      "  uint o;\n  InterlockedAdd(CNT[uint2(0, 0)], 1u, o);\n  ORD[uint2(pos.xy)] = o;\n  return 0.0;\n}\n";
-  ID3DBlob* code = compile(src, "order", "ps_5_0", dxbcDir / "Pixel_shader_order.txt");
-  if (FAILED(g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &ps))) {
+  auto makePs = [&](const char* src, const char* name, const std::filesystem::path& dump, ID3D11PixelShader** out) {
+    ID3DBlob* code = compile(src, name, "ps_5_0", dump);
+    const bool made = SUCCEEDED(g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, out));
     code->Release();
+    return made;
+  };
+  ok = makePs("RWStructuredBuffer<uint> CNT : register(u1);\nRWTexture2D<uint> ORD : register(u2);\n"
+              "float4 main(float4 pos : SV_Position) : SV_Target\n{\n"
+              "  uint o;\n  InterlockedAdd(CNT[0], 1u, o);\n  ORD[uint2(pos.xy)] = o;\n  return 0.0;\n}\n",
+              "order", dxbcDir / "Pixel_shader_order.txt", &psB) &&
+       makePs("RWTexture2D<uint> CNT : register(u1);\nRWTexture2D<uint> ORD : register(u2);\n"
+              "float4 main(float4 pos : SV_Position) : SV_Target\n{\n"
+              "  uint o;\n  InterlockedAdd(CNT[uint2(0, 0)], 1u, o);\n  ORD[uint2(pos.xy)] = o;\n  return 0.0;\n}\n",
+              "order texture", dxbcDir / "Pixel_shader_order_texture.txt", &psT) &&
+       makePs("RWTexture2D<uint> ORD : register(u2);\nfloat4 main(float4 pos : SV_Position) : SV_Target\n{\n  return 0.0;\n}\n",
+              "order plain", {}, &psPlain) &&
+       makePs("RWTexture2D<uint> ORD : register(u2);\nfloat4 main(float4 pos : SV_Position) : SV_Target\n{\n"
+              "  ORD[uint2(pos.xy)] = uint(pos.x) ^ uint(pos.y);\n  return 0.0;\n}\n",
+              "order store", {}, &psStore);
+  if (!ok) {
     cleanup();
     return res;
-  }
-  code->Release();
-  const char* const plainSrc[2] = {
-      "RWTexture2D<uint> ORD : register(u2);\nfloat4 main(float4 pos : SV_Position) : SV_Target\n{\n  return 0.0;\n}\n",
-      "RWTexture2D<uint> ORD : register(u2);\nfloat4 main(float4 pos : SV_Position) : SV_Target\n{\n"
-      "  ORD[uint2(pos.xy)] = uint(pos.x) ^ uint(pos.y);\n  return 0.0;\n}\n"};
-  for (int k = 0; k < 2; ++k) {
-    code = compile(plainSrc[k], k ? "order store" : "order plain", "ps_5_0");
-    g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, k ? &psStore : &psPlain);
-    code->Release();
   }
 
   D3D11_VIEWPORT vp = {0.0f, 0.0f, float(n), float(n), 0.0f, 1.0f};
   g.ctx->RSSetViewports(1, &vp);
-  g.ctx->PSSetShader(ps, nullptr, 0);
-  ID3D11UnorderedAccessView* uavs[2] = {cntUav, ordUav};
-  g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &rtv, nullptr, 1, 2, uavs, nullptr);
-  // A warm-up draw, then the one read back.
-  for (int k = 0; k < 2; ++k) {
-    const UINT zero[4] = {0, 0, 0, 0}, none[4] = {~0u, ~0u, ~0u, ~0u};
-    g.ctx->ClearUnorderedAccessViewUint(cntUav, zero);
-    g.ctx->ClearUnorderedAccessViewUint(ordUav, none);
-    g.ctx->Draw(3, 0);
-  }
   ID3D11RenderTargetView* nullRtv = nullptr;
-  g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &nullRtv, nullptr, 1, 0, nullptr, nullptr);
-  g.ctx->CopyResource(ordRead, ord);
-  g.ctx->CopyResource(cntRead, cnt);
+  const uint32_t total = n * n;
+  std::vector<uint32_t> o(size_t(n) * n);
+  // One counter: a warm-up draw and the one read back; true when every pixel got a number.
+  auto orderDraw = [&](ID3D11PixelShader* ps, ID3D11UnorderedAccessView* cntUav, ID3D11Resource* cnt, ID3D11Resource* cntRead) {
+    g.ctx->PSSetShader(ps, nullptr, 0);
+    ID3D11UnorderedAccessView* uavs[2] = {cntUav, ordUav};
+    g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &rtv, nullptr, 1, 2, uavs, nullptr);
+    for (int k = 0; k < 2; ++k) {
+      const UINT zero[4] = {0, 0, 0, 0}, none[4] = {~0u, ~0u, ~0u, ~0u};
+      g.ctx->ClearUnorderedAccessViewUint(cntUav, zero);
+      g.ctx->ClearUnorderedAccessViewUint(ordUav, none);
+      g.ctx->Draw(3, 0);
+    }
+    g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &nullRtv, nullptr, 1, 0, nullptr, nullptr);
+    g.ctx->CopyResource(ordRead, ord);
+    g.ctx->CopyResource(cntRead, cnt);
+    D3D11_MAPPED_SUBRESOURCE m;
+    res.counter = 0;
+    if (SUCCEEDED(g.ctx->Map(cntRead, 0, D3D11_MAP_READ, 0, &m))) {
+      res.counter = *(const uint32_t*)m.pData;
+      g.ctx->Unmap(cntRead, 0);
+    }
+    if (FAILED(g.ctx->Map(ordRead, 0, D3D11_MAP_READ, 0, &m))) return false;
+    for (UINT y = 0; y < n; ++y) std::memcpy(&o[size_t(y) * n], (const uint8_t*)m.pData + size_t(y) * m.RowPitch, n * 4);
+    g.ctx->Unmap(ordRead, 0);
+    res.missing = 0;
+    for (uint32_t v : o) res.missing += v >= total;
+    return res.counter == total && res.missing == 0;
+  };
+  ID3D11PixelShader* ps = psB;
+  ID3D11UnorderedAccessView* cntUav = cntBUav;
+  res.counterKind = "structured buffer";
+  if (!orderDraw(psB, cntBUav, cntB, cntBRead)) {
+    ps = psT;
+    cntUav = cntTUav;
+    res.counterKind = "texture (the structured buffer gave no numbers)";
+    orderDraw(psT, cntTUav, cntT, cntTRead);
+  }
   // Timing: draws in a row until a run takes >= 2 ms, the median of reps runs.
+  ID3D11UnorderedAccessView* uavs[2] = {cntUav, ordUav};
   g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &rtv, nullptr, 1, 2, uavs, nullptr);
   auto timeShader = [&](ID3D11PixelShader* p) {
     g.ctx->PSSetShader(p, nullptr, 0);
@@ -1243,22 +1286,9 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
   auto units = [&](double ms) { return refNs > 0.0 ? 4.0 * (ms - res.plainMs) * 1e6 / (double(n) * n) / refNs : 0.0; };
   res.storeUnits = units(res.storeMs);
   res.orderUnits = units(res.orderMs);
-  std::vector<uint32_t> o(size_t(n) * n);
-  D3D11_MAPPED_SUBRESOURCE m;
-  if (SUCCEEDED(g.ctx->Map(cntRead, 0, D3D11_MAP_READ, 0, &m))) {
-    res.counter = *(const uint32_t*)m.pData;
-    g.ctx->Unmap(cntRead, 0);
-  }
-  if (FAILED(g.ctx->Map(ordRead, 0, D3D11_MAP_READ, 0, &m))) {
-    cleanup();
-    return res;
-  }
-  for (UINT y = 0; y < n; ++y) std::memcpy(&o[size_t(y) * n], (const uint8_t*)m.pData + size_t(y) * m.RowPitch, n * 4);
-  g.ctx->Unmap(ordRead, 0);
   cleanup();
   res.ran = true;
-  const uint32_t total = n * n;
-  for (uint32_t v : o) res.missing += v >= total;
+
 
   // Blocks: pixels with the same o / W.
   for (UINT w = 4; w <= 256; w *= 2) {
@@ -1825,6 +1855,7 @@ int main(int argc, char** argv) {
       std::fprintf(csv, "order,\"tile %u\",\"Pixel shader order\",,,,,%.4f,,,,,,\"contiguity of aligned squares\",\n", b, c);
     std::fprintf(csv, "order,\"counter\",\"Pixel shader order\",,,,,%llu,,,,,,\"expected %u (one per pixel)\",\n",
                  (unsigned long long)order.counter, kOrderSize * kOrderSize);
+    std::fprintf(csv, "order,\"counter kind\",\"Pixel shader order\",,,,,,,,,,,\"%s\",\n", order.counterKind.c_str());
     std::fprintf(csv, "order,\"pixels without a number\",\"Pixel shader order\",,,,,%llu,,,,,,\"expected 0\",\n",
                  (unsigned long long)order.missing);
     std::fprintf(csv, "order,\"plain draw\",\"Pixel shader order\",,,%.4f,,,,,,,,\"ms per 1024 x 1024 draw\",\n", order.plainMs);
@@ -2150,6 +2181,7 @@ int main(int argc, char** argv) {
     }
     if (order.together)
       std::printf("  Pixels shaded together: blocks of %u (%s).\n", order.together, order.togetherShape.c_str());
+    std::printf("  Counter: %s.\n", order.counterKind.c_str());
     std::printf("  Speed (1024 x 1024 draw): plain %.3f ms, with the store %.3f ms, with the counter and the store %.3f ms\n"
                 "  Cost per pixel over the plain draw: store %.1f, counter + store %.1f (4 = one multiply-add; every\n"
                 "  pixel adds 1 to the same counter, so they have to take turns)\n",

@@ -769,14 +769,17 @@ int main(int argc, char** argv) {
   };
   auto score = [&] {
     Score sc;
-    auto ns = [&](const char* name) {
-      return results["tput"].count(name) && !results["tput"][name].readings.empty() ? results["tput"][name].r.nsPerStep : 0.0;
-    };
-    double mean = 0.0;  // every reference reading so far
+    // fp32 from every reference reading; fp16 and rcp from their costs relative to the reference (units are
+    // measured against the reference right before each reading, so a drifting clock cancels; their own raw
+    // timings come from other moments of the run).
+    double mean = 0.0;
     for (double v : mads["tput"]) mean += v / double(mads["tput"].size());
     if (mean > 0.0) sc.fp32 = 2.0 / mean / 1000.0;
-    if (half16 && ns("mad16") > 0.0) sc.fp16 = 2.0 / ns("mad16") / 1000.0;
-    if (ns("rcp") > 0.0) sc.special = 1.0 / ns("rcp");
+    auto units = [&](const char* name) {
+      return results["tput"].count(name) && !results["tput"][name].readings.empty() ? results["tput"][name].units.value : 0.0;
+    };
+    if (half16 && units("mad16") > 0.0) sc.fp16 = sc.fp32 * 4.0 / units("mad16");
+    if (units("rcp") > 0.0) sc.special = sc.fp32 * 1000.0 / 2.0 * 4.0 / units("rcp");  // G fma/s * 4 / cost
     return sc;
   };
   // CSV: the GPU once in header lines, then one row per configuration and test. Written again whenever a
