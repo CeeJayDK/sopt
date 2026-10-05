@@ -1119,8 +1119,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   Iris Xe (Gen12 / Xe-LP, driver 101.7084, docs/shaderinfo/intel-iris-xe.txt; OpBench / TexBench not run): Instruction
   Count (57 / 74) but no Cycle Count (the UHD 630's driver gives one), 181 performance query counters.
   Names (owner, 2026-10-05): the benchmark suite GPU-Bench is now GPU Blueprint (GPU-Blueprint.bat,
-  GPU-Blueprint-<v>.zip, GPU-Blueprint-Reports.zip; OpBench / TexBench / ShaderInfo keep their names); sopt becomes
-  SweetOpt (long name Super Sweet Optimizer, under discussion) - not renamed yet. Report uploads (owner: Dropbox, a
+  GPU-Blueprint-<v>.zip, GPU-Blueprint-Reports.zip; OpBench / TexBench / ShaderInfo keep their names); sopt is now
+  SweetOpt (owner: one name, "the super sweet shader optimizer" as the tagline): title boxes, --version ("sopt-fx
+  (SweetOpt) <v>"), SweetOpt.bat / SweetOpt.ini (was sopt-menu), SweetOpt-<v>-windows-x64.zip / -linux-x64.tar.gz, docs,
+  version resources (ProductName per target: SweetOpt / GPU Blueprint). Kept on purpose: program names sopt / sopt-fx,
+  SOPT_* switches, output files (sopt-out, sopt-report.md, sopt-facts.txt, sopt-found.txt), the repo name, CI artifact
+  names. GPU Blueprint menu (owner): key 1 = every card, 2 main, 3 another; after a run it offers to send the reports
+  (Y opens the upload page); key 9 blinks (ESC[5m) while the zip has not been sent (hidden marker Reports\.sent, made
+  when the page is opened, deleted by the next run). Report uploads (owner: Dropbox, a
   separate service from his Google Drive): file request "GPU Blueprint reports" (id jmwykzlbulwo8ltkyule,
   https://www.dropbox.com/request/jmwykzlbulwo8ltkyule) into /Uploads/GPU Blueprint (one /Uploads/<project> folder per
   project); GPU-Blueprint.bat key 9 (only when picked, asks first) opens the page and shows the zip in Explorer.

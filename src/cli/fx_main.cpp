@@ -287,7 +287,7 @@ int main(int argc, char** argv) {
     else if (a == "--driver-stats") driverStatsFiles.push_back(next());
     else if (a == "--sm") sassCfg.sm = std::atoi(next());
     else if (a == "-h" || a == "--help") { usage(); return 0; }
-    else if (a == "--version") { std::puts("sopt-fx " SOPT_VERSION); return 0; }
+    else if (a == "--version") { std::puts("sopt-fx (SweetOpt) " SOPT_VERSION); return 0; }
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     else collect(a, inputs);
   }
@@ -310,7 +310,7 @@ int main(int argc, char** argv) {
   ropt.userRanges = &userRanges;
 
   const console::Style con = console::init();
-  console::titleBox(con, std::string("sopt-fx ") + SOPT_VERSION + "  -  by CeeJay.dk");
+  console::titleBox(con, std::string("SweetOpt ") + SOPT_VERSION + "  -  the super sweet shader optimizer  -  by CeeJay.dk");
   console::section(con, "Reading " + std::to_string(inputs.size()) + " effect file" + (inputs.size() == 1 ? "" : "s"));
 
   // Front end: every effect twice (two resolutions, see extractRegions).

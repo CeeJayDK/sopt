@@ -5,8 +5,9 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 
 ## 0.6.0
 
-### sopt / sopt-fx
-- **Menu for Windows:** double-click `sopt-menu.bat`: choose the Shaders folder and what to optimize (folder and file dialogs, no typing of paths), the time per statement and the graphics card family, start, open the results, edit value ranges. It remembers the choices.
+### SweetOpt (was sopt)
+- **New name:** sopt is now **SweetOpt**, the super sweet shader optimizer. The programs keep their short names `sopt-fx` and `sopt`, and variant files keep their `SOPT_*` switches; the download is `SweetOpt-<version>-windows-x64.zip`.
+- **Menu for Windows:** double-click `SweetOpt.bat`: choose the Shaders folder and what to optimize (folder and file dialogs, no typing of paths), the time per statement and the graphics card family, start, open the results, edit value ranges. It remembers the choices.
 
 ### GPU Blueprint (was GPU-Bench)
 - **New name:** GPU-Bench is now **GPU Blueprint** (`GPU-Blueprint.bat`, `GPU-Blueprint-<version>.zip`): it maps out what each part of a graphics card costs. OpBench, TexBench and ShaderInfo keep their names.

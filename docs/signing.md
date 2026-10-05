@@ -7,7 +7,7 @@ Foundation signs it for free. Their review is done by people and can take days.
 ## Already in the repository
 - `.github/workflows/release.yml`: a tag `v*` (or a manual run, which makes a draft release)
   builds sopt / sopt-fx (Windows and Linux) and the Windows tools, signs the Windows files when
-  the SignPath secret exists, and attaches `sopt-<v>-windows-x64.zip`, `sopt-<v>-linux-x64.tar.gz`,
+  the SignPath secret exists, and attaches `SweetOpt-<v>-windows-x64.zip`, `SweetOpt-<v>-linux-x64.tar.gz`,
   `GPU-Blueprint-<v>.zip`, `sopt-windows-tools-<v>.zip` and `SHA256SUMS.txt` to a GitHub Release.
 - Version info (name, publisher CeeJay.dk, version) and a manifest on the executables
   (`tools/windows/version.rc.in`, `tools/windows/app.manifest`).
@@ -39,7 +39,7 @@ Foundation signs it for free. Their review is done by people and can take days.
 <?xml version="1.0" encoding="utf-8"?>
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
   <zip-file>
-    <zip-file path="sopt-*-windows-x64.zip">
+    <zip-file path="SweetOpt-*-windows-x64.zip">
       <pe-file-set>
         <include path="sopt.exe"/>
         <include path="sopt-fx.exe"/>

@@ -117,7 +117,7 @@ const char* budgetText(const Budget& b, char* buf, size_t n) {
 
 int main(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "--version") {
-    std::puts("sopt " SOPT_VERSION);
+    std::puts("sopt (SweetOpt) " SOPT_VERSION);
     return 0;
   }
   if (argc < 2) {
@@ -220,13 +220,13 @@ int main(int argc, char** argv) {
     else if (a == "--sm") sassCfg.sm = static_cast<int>(std::strtol(next(), nullptr, 10));
     else if (a == "--sass-keep") sassCfg.keepDir = next();
     else if (a == "-h" || a == "--help") { usage(); return 0; }
-    else if (a == "--version") { std::puts("sopt " SOPT_VERSION); return 0; }
+    else if (a == "--version") { std::puts("sopt (SweetOpt) " SOPT_VERSION); return 0; }
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     else path = a;
   }
   if (noAmdFolds) opt.search.model = withoutAmdFolds(opt.search.model);
   const console::Style con = console::init();
-  console::titleBox(con, std::string("sopt ") + SOPT_VERSION + "  -  by CeeJay.dk");
+  console::titleBox(con, std::string("SweetOpt ") + SOPT_VERSION + "  -  the super sweet shader optimizer  -  by CeeJay.dk");
   if (checkLibrary) {
     // Every rule checked on its own (see checkRule); exit code 1 if any fails.
     try {

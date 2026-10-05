@@ -1,4 +1,4 @@
-// Version resource for sopt's Windows tools (configured per target by CMakeLists.txt).
+// Version resource for the Windows tools (SweetOpt, GPU Blueprint) (configured per target by CMakeLists.txt).
 #include <winver.h>
 
 VS_VERSION_INFO VERSIONINFO
@@ -20,7 +20,7 @@ BEGIN
       VALUE "InternalName",     "@SOPT_RC_NAME@"
       VALUE "LegalCopyright",   "GPL-3.0 (https://github.com/CeeJayDK/sopt)"
       VALUE "OriginalFilename", "@SOPT_RC_FILENAME@"
-      VALUE "ProductName",      "sopt"
+      VALUE "ProductName",      "@SOPT_RC_PRODUCT@"
       VALUE "ProductVersion",   "@PROJECT_VERSION@"
     END
   END

@@ -1,6 +1,6 @@
 @echo off
-rem sopt menu (owner, 2026-10-05: a menu helps users, as GPU-Blueprint.bat did): pick the shaders, then start
-rem sopt-fx with a number key. Settings are kept in sopt-menu.ini next to this file; results go to sopt-out\.
+rem SweetOpt menu (owner, 2026-10-05: a menu helps users, as GPU-Blueprint.bat did): pick the shaders, then start
+rem sopt-fx with a number key. Settings are kept in SweetOpt.ini next to this file; results go to sopt-out\.
 setlocal EnableExtensions
 cd /d "%~dp0"
 rem ESC for colors (Windows 10 and later; older consoles show the codes as text); BEL (a raw 0x07 byte below) beeps.
@@ -11,15 +11,15 @@ set "TARGET="
 set "SECONDS=5"
 set "MODEL=rdna3"
 set "MODELNAME=AMD RDNA 3 (Radeon RX 7000)"
-if exist "sopt-menu.ini" for /f "usebackq eol=# tokens=1,* delims==" %%a in ("sopt-menu.ini") do set "%%a=%%b"
+if exist "SweetOpt.ini" for /f "usebackq eol=# tokens=1,* delims==" %%a in ("SweetOpt.ini") do set "%%a=%%b"
 
 :menu
 cls
 echo.
-echo   %E%[96m=====================================================%E%[0m
-echo   %E%[1;97m  sopt  -  by CeeJay.dk%E%[0m
+echo   %E%[96m====================================================================%E%[0m
+echo   %E%[1;97m  SweetOpt  -  the super sweet shader optimizer  -  by CeeJay.dk%E%[0m
 echo   %E%[90m  finds faster ways to write the math in ReShade shaders%E%[0m
-echo   %E%[96m=====================================================%E%[0m
+echo   %E%[96m====================================================================%E%[0m
 echo.
 if "%SHADERS%"=="" echo   Shaders folder   %E%[91mnot chosen yet - press 1%E%[0m
 if not "%SHADERS%"=="" echo   Shaders folder   %E%[97m%SHADERS%%E%[0m
@@ -35,7 +35,7 @@ echo   %E%[1;93m3%E%[0m  Choose the time per statement %E%[90m(more time can fin
 echo   %E%[1;93m4%E%[0m  Choose the graphics card family %E%[90m(what counts as faster)%E%[0m
 echo.
 echo   %E%[1;93m5%E%[0m  %E%[1;97mStart%E%[0m
-echo   %E%[1;93m6%E%[0m  Quick look: what sopt would work on %E%[90m(seconds, no search)%E%[0m
+echo   %E%[1;93m6%E%[0m  Quick look: what SweetOpt would work on %E%[90m(seconds, no search)%E%[0m
 echo.
 echo   %E%[1;93m7%E%[0m  Open the results %E%[90m(sopt-out folder and sopt-report.md)%E%[0m
 echo   %E%[1;93m8%E%[0m  Edit value ranges %E%[90m(better results: sopt-facts.txt)%E%[0m
@@ -76,7 +76,7 @@ if "%SHADERS%"=="" call :chooseShaders
 if "%SHADERS%"=="" exit /b
 cls
 echo.
-echo   What should sopt optimize?
+echo   What should SweetOpt optimize?
 echo.
 echo   %E%[1;93m1%E%[0m  Every effect in the Shaders folder
 echo   %E%[1;93m2%E%[0m  One folder %E%[90m(for example SweetFX)%E%[0m
@@ -101,7 +101,7 @@ exit /b
 :chooseTime
 cls
 echo.
-echo   How long may sopt search each statement?
+echo   How long may SweetOpt search each statement?
 echo.
 echo   %E%[1;93m1%E%[0m  5 seconds  %E%[90m(a first look; a big folder takes a few minutes)%E%[0m
 echo   %E%[1;93m2%E%[0m  20 seconds %E%[90m(finds more)%E%[0m
@@ -117,7 +117,7 @@ exit /b
 cls
 echo.
 echo   Which graphics cards should the variants be fastest on?
-echo   %E%[90m(sopt also measures AMD and NVIDIA code when their tools are installed; this picks what it searches for)%E%[0m
+echo   %E%[90m(SweetOpt also measures AMD and NVIDIA code when their tools are installed; this picks what it searches for)%E%[0m
 echo.
 echo   %E%[1;93m1%E%[0m  AMD RDNA 3      %E%[90mRadeon RX 7000%E%[0m
 echo   %E%[1;93m2%E%[0m  AMD RDNA 2      %E%[90mRadeon RX 6000, Steam Deck, Radeon 680M%E%[0m
@@ -183,7 +183,7 @@ if exist "sopt-facts.txt" goto factsEdit
 if exist "sopt-out\sopt-facts.txt" copy /y "sopt-out\sopt-facts.txt" "sopt-facts.txt" >nul
 if exist "sopt-facts.txt" goto factsEdit
 echo.
-echo   %E%[93mNo sopt-facts.txt yet: press 5 first.%E%[0m A run lists the inputs whose value range sopt could not work out.
+echo   %E%[93mNo sopt-facts.txt yet: press 5 first.%E%[0m A run lists the inputs whose value range SweetOpt could not work out.
 pause
 exit /b
 :factsEdit
@@ -219,10 +219,10 @@ if defined PICKED set "PICKED=%PICKED:"=%"
 exit /b
 
 :save
->"sopt-menu.ini" echo # sopt-menu.bat settings
->>"sopt-menu.ini" echo SHADERS=%SHADERS%
->>"sopt-menu.ini" echo TARGET=%TARGET%
->>"sopt-menu.ini" echo SECONDS=%SECONDS%
->>"sopt-menu.ini" echo MODEL=%MODEL%
->>"sopt-menu.ini" echo MODELNAME=%MODELNAME%
+>"SweetOpt.ini" echo # SweetOpt.bat settings
+>>"SweetOpt.ini" echo SHADERS=%SHADERS%
+>>"SweetOpt.ini" echo TARGET=%TARGET%
+>>"SweetOpt.ini" echo SECONDS=%SECONDS%
+>>"SweetOpt.ini" echo MODEL=%MODEL%
+>>"SweetOpt.ini" echo MODELNAME=%MODELNAME%
 exit /b

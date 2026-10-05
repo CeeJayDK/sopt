@@ -1,6 +1,6 @@
-# sopt: shader superoptimizer (M0-M3, ISA ranking)
+# SweetOpt: the super sweet shader optimizer
 
-Finds cheaper, verified alternatives to small arithmetic expressions from shaders.
+SweetOpt (programs `sopt-fx` and `sopt`; this repository keeps the short name sopt) finds cheaper, verified alternatives to small arithmetic expressions from shaders.
 Design and roadmap: [docs/design.md](docs/design.md) (Danish).
 
 ## Build
@@ -318,7 +318,8 @@ the backend); Nsight Graphics on real hardware is the ground truth.
 
 ## Windows tools and releases
 
-Ready-built Windows tools are on the [Releases](https://github.com/CeeJayDK/sopt/releases) page:
+Ready-built programs are on the [Releases](https://github.com/CeeJayDK/sopt/releases) page:
+`SweetOpt-<version>-windows-x64.zip` / `-linux-x64.tar.gz` (sopt-fx and sopt; on Windows double-click SweetOpt.bat),
 `GPU-Blueprint-<version>.zip` (OpBench, TexBench and ShaderInfo: what your graphics card and driver really do; double-click GPU-Blueprint.bat) and
 `sopt-windows-tools-<version>.zip` (the benchmark harness, [tools/windows/README.md](tools/windows/README.md)).
 They are built from this repository by GitHub Actions (`.github/workflows/release.yml`).

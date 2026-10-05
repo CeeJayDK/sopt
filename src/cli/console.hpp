@@ -19,7 +19,7 @@ struct Style {
 // it to ANSI / UTF-8 output on Windows.
 Style init();
 
-// "  sopt-fx 0.4.1  -  by CeeJay.dk" in a double-line box (cyan frame; ASCII without colors).
+// "  SweetOpt 0.6.0  -  the super sweet shader optimizer  -  by CeeJay.dk" in a double-line box (cyan frame; ASCII without colors).
 void titleBox(const Style& st, const std::string& title);
 
 // A section heading: "== Searching 318 regions" (bright cyan).

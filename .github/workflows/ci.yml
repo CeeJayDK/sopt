@@ -75,7 +75,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path sopt-win | Out-Null
-          Copy-Item build/Release/sopt.exe, build/Release/sopt-fx.exe, tools/windows/sopt-menu.bat, LICENSE sopt-win/
+          Copy-Item build/Release/sopt.exe, build/Release/sopt-fx.exe, tools/windows/SweetOpt.bat, LICENSE sopt-win/
           Copy-Item docs/QUICKSTART.txt sopt-win/QUICKSTART.txt
       - name: Upload sopt for Windows
         if: matrix.name == 'msvc'
