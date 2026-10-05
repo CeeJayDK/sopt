@@ -23,6 +23,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   from RGA / ACO only).
 - When asking the owner to do or download something, repeat the links/files in that message
   (resend packages, give the CI run link) so nothing has to be searched for in the thread.
+- Versions (owner, 2026-10-05): raise the last digit of `project(sopt VERSION ...)` in every build sent to the
+  owner or testers (0.5.0 -> 0.5.1 -> ...), so each report's header names the build that made it; the release
+  then sets the next minor version.
 - Do not implement your own improvisations or design changes without asking first.
   Implementing the agreed milestone plan is fine; flag anything beyond it.
 
