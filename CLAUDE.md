@@ -1057,6 +1057,28 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   in OpBench; (2) headings "Cost, many in parallel" / "Cost, one dependent chain" / "Latency, one at a time" instead
   of "Throughput" (the number is a cost, lower is better; CSV codes tput / dep / lat unchanged); (3) background
   shader compiling per section.
+  Next version work (owner, 2026-10-05, "time to work on the next version"; CHANGELOG.md ## 0.6.0, bump
+  project(VERSION) at release): testers' notes: GPU-Bench.bat is the only batch file (menu: main card, another
+  card picked from OpBench --list, every card, one program, open Reports, open README.html); the programs write
+  to Reports\ (benchkit reportsDir; dumps Reports\Shaders\<Program>\), the menu zips Reports\*.* (files only)
+  into GPU-Bench-Reports.zip with PowerShell Compress-Archive after every run; docs as HTML (owner: a hub in the
+  main folder, the rest in Docs\): tools/windows/docs/README.html -> zip root, OpBench / TexBench / ShaderInfo
+  .html + style.css -> Docs\ (the txt READMEs / TESTS and measure-*.bat / shader-info.bat are gone); beep (raw
+  BEL byte in the .bat) before the final pause; the programs flush console input at exit (keys typed during a
+  run made choice beep afterwards). TexBench matrix without dep (runsIn), headings "Cost, many in parallel" /
+  "Cost, one dependent chain" / "Latency, one at a time". Background compiling: benchkit BackgroundJobs (Win32
+  worker thread below normal priority; fail() on it throws via gWorker and the main thread reports the error at
+  wait()), OpBench one job per section (Group), TexBench one per test, in measuring order; CompileCounter
+  removed. sopt-menu.bat (owner: the GPU-Bench menu helped a dyslexic developer friend; sopt and sopt-fx have
+  many options): folder / file dialogs (PowerShell WinForms, typed path as fallback), time 5 / 20 / 60 s, cost
+  model by family, start, --list quick look, open results, value ranges (sopt-facts.txt next to the menu, used
+  via --facts once it exists); settings in sopt-menu.ini; in the sopt release zip and CI artifact sopt-windows.
+  Checked under Wine (cmd: the menu's run / zip / beep paths, sopt-menu look + start + settings round trip;
+  OpBench / TexBench with background compiling; lavapipe too slow for TexBench texture tests past 60 s).
+  Owner (2026-10-05, not now): prune sopt / sopt-fx options some day ("lets discuss this one day"). Not
+  decided: AMD driver ISA (ShaderInfo on the RX 9070 XT) as a measured vendor in sopt like Intel's counts.
+  Testers: Windows Defender quarantined sopt-fx.exe 0.5.0 on the owner's PC (submitted to Microsoft); owner
+  will apply for SignPath (steps in docs/signing.md).
   First community 0.5.0 reports (2026-10-05): RX 9070 XT (RDNA 4; docs/opbench/amd-radeon-rx-9070-xt-v5.csv,
   docs/texbench/amd-radeon-rx-9070-xt.csv, docs/shaderinfo/): all tests consensus despite 57% / 97% reference drift;
   = its v1 run within ~5% (MUFU 24.6 vs 26: v1 drift); omod2 / omod4 / omodhalf free, omod8 / 0.25 = control (AMD's
