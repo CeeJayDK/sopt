@@ -16,6 +16,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -48,7 +50,12 @@ inline void setTitle(const std::string& state) {
   SetConsoleTitleA(t.c_str());
 }
 
+// Set on BackgroundJobs' worker thread: fail() there throws, and the job's error is reported by the main
+// thread when it waits for that job.
+inline thread_local bool gWorker = false;
+
 [[noreturn]] inline void fail(const std::string& what) {
+  if (gWorker) throw std::runtime_error(what);
   setTitle("stopped (error)");
   std::fprintf(stderr, "\n%s: %s\n", gProgram, what.c_str());
   if (!gCurrent.empty()) std::fprintf(stderr, "%s: while measuring \"%s\"\n", gProgram, gCurrent.c_str());
@@ -306,23 +313,74 @@ inline int columns(const std::string& s) {
   return n;
 }
 
-// "Compiling N shaders ... k / N": the shaders compile before any measuring (D3DCompile -O3 takes a while
-// for hundreds of them), counted in place on a terminal.
-struct CompileCounter {
-  const Style* st;
-  size_t total = 0, done = 0;
-  void start() { std::printf("Compiling %zu shaders ...", total); }
-  // A 30-cell bar (half-cell steps) and the percentage, in place (owner: nothing is above to read yet).
-  void step() {
-    ++done;
-    if (!st->vt || (done % 4 != 0 && done != total)) return;
-    const size_t half = total ? done * 60 / total : 60, pct = total ? done * 100 / total : 100;
-    std::string bar;
-    for (size_t c = 0; c < 30; ++c) bar += c * 2 + 2 <= half ? kFull : c * 2 + 1 == half ? kLeft : " ";
-    std::printf("\rCompiling %zu shaders  \x1b[96m%s\x1b[0m %3zu%%", total, bar.c_str(), pct);
-    setTitle("compiling " + std::to_string(pct) + "%");
+
+// Jobs (shader compiles) run in order on one worker thread below normal priority (owner, 2026-10-05: the
+// next section's shaders compile while the current one is measured, so results start sooner); wait(i)
+// returns once job i is done and fails with its error on the calling thread. Win32 threads: the mingw build
+// has no std::thread. D3DCompile and the D3D11 device (not created single-threaded) are free-threaded.
+class BackgroundJobs {
+ public:
+  explicit BackgroundJobs(std::vector<std::function<void()>> jobs) : jobs_(std::move(jobs)), errors_(jobs_.size()) {
+    InitializeCriticalSection(&cs_);
+    InitializeConditionVariable(&cv_);
+    thread_ = CreateThread(nullptr, 0, &BackgroundJobs::threadMain, this, 0, nullptr);
+    if (thread_) SetThreadPriority(thread_, THREAD_PRIORITY_BELOW_NORMAL);
+    else run();  // no thread: everything now, on this thread
   }
-  void finish() { std::printf(st->vt ? "\rCompiling %zu shaders ... done\x1b[K\n" : " done\n", total); }
+  ~BackgroundJobs() {
+    if (thread_) {
+      EnterCriticalSection(&cs_);
+      stop_ = true;
+      LeaveCriticalSection(&cs_);
+      WaitForSingleObject(thread_, INFINITE);
+      CloseHandle(thread_);
+    }
+    DeleteCriticalSection(&cs_);
+  }
+  BackgroundJobs(const BackgroundJobs&) = delete;
+  BackgroundJobs& operator=(const BackgroundJobs&) = delete;
+  size_t size() const { return jobs_.size(); }
+  void wait(size_t i) {
+    if (i >= jobs_.size()) return;
+    EnterCriticalSection(&cs_);
+    while (done_ <= i) SleepConditionVariableCS(&cv_, &cs_, INFINITE);
+    const std::string error = errors_[i];
+    LeaveCriticalSection(&cs_);
+    if (!error.empty()) fail(error);
+  }
+
+ private:
+  static DWORD WINAPI threadMain(void* self) {
+    gWorker = true;
+    static_cast<BackgroundJobs*>(self)->run();
+    return 0;
+  }
+  void run() {
+    for (size_t i = 0; i < jobs_.size(); ++i) {
+      EnterCriticalSection(&cs_);
+      const bool stop = stop_;
+      LeaveCriticalSection(&cs_);
+      if (stop) break;
+      std::string error;
+      try {
+        jobs_[i]();
+      } catch (const std::exception& e) {
+        error = e.what();
+      }
+      EnterCriticalSection(&cs_);
+      errors_[i] = error;
+      done_ = i + 1;
+      WakeAllConditionVariable(&cv_);
+      LeaveCriticalSection(&cs_);
+    }
+  }
+  std::vector<std::function<void()>> jobs_;
+  std::vector<std::string> errors_;
+  CRITICAL_SECTION cs_;
+  CONDITION_VARIABLE cv_;
+  HANDLE thread_ = nullptr;
+  size_t done_ = 0;
+  bool stop_ = false;
 };
 
 // The console window's width in characters (120 when the output is not a console), so summary lines

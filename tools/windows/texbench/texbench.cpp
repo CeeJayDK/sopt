@@ -1544,40 +1544,47 @@ int main(int argc, char** argv) {
   std::printf("\n%zu tests, each read at least twice (more often when the readings disagree), each against the\n"
               "reference mad measured right before it.\n",
               tests.size());
-  CompileCounter compiling{&st};
-  for (const Test* t : tests)
-    if (t->stage == Stage::Compute || t->stage == Stage::Pixel) compiling.total += t->stage == Stage::Compute ? 3 : 2;
-  compiling.start();
   std::mt19937 rng(12345);
 
-  // Compile every compute / pixel test for its configurations.
+  // Shaders compile in the background, test by test in measuring order (owner, 2026-10-05: results start
+  // sooner); measuring a test waits for its own. The map gets every key first, so the worker only writes values.
   std::map<std::string, std::map<std::string, Kernel>> kernels;  // test -> config -> kernel
+  std::vector<std::function<void()>> jobList;
   for (const Test* t : tests) {
-    if (t->stage == Stage::Write || t->stage == Stage::Blend || t->stage == Stage::Pass) continue;
-    for (const Config& c : kConfigs) {
-      if (!runsIn(*t, c)) continue;
-      Kernel k;
-      if (t->stage == Stage::Compute) {
-        ID3DBlob* code = compile(computeSource(*t, c.chains), t->name.c_str(), "cs_5_0",
-                                 c.chains == 8 ? dxbcDir / fileName(t->name) : std::filesystem::path());
-        if (FAILED(g.dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &k.cs)))
-          fail("cannot create " + t->name);
-        code->Release();
-      } else {
-        ID3DBlob* code = compile(pixelSource(*t, c.chains), t->name.c_str(), "ps_5_0",
-                                 c.chains == 8 ? dxbcDir / fileName(t->name) : std::filesystem::path());
-        if (FAILED(g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &k.ps)))
-          fail("cannot create " + t->name);
-        code->Release();
-      }
-      kernels[t->name][c.name] = k;
-      compiling.step();
+    if (t->stage == Stage::Write || t->stage == Stage::Blend || t->stage == Stage::Pass) {
+      jobList.push_back([] {});
+      continue;
     }
+    for (const Config& c : kConfigs)
+      if (runsIn(*t, c)) kernels[t->name][c.name] = Kernel{};
+    std::map<std::string, Kernel>& slots = kernels[t->name];
+    jobList.push_back([t, &slots, &g, &dxbcDir] {
+      for (const Config& c : kConfigs) {
+        if (!runsIn(*t, c)) continue;
+        Kernel k;
+        if (t->stage == Stage::Compute) {
+          ID3DBlob* code = compile(computeSource(*t, c.chains), t->name.c_str(), "cs_5_0",
+                                   c.chains == 8 ? dxbcDir / fileName(t->name) : std::filesystem::path());
+          if (FAILED(g.dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &k.cs)))
+            fail("cannot create " + t->name);
+          code->Release();
+        } else {
+          ID3DBlob* code = compile(pixelSource(*t, c.chains), t->name.c_str(), "ps_5_0",
+                                   c.chains == 8 ? dxbcDir / fileName(t->name) : std::filesystem::path());
+          if (FAILED(g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &k.ps)))
+            fail("cannot create " + t->name);
+          code->Release();
+        }
+        slots[c.name] = k;
+      }
+    });
   }
-  compiling.finish();
+  BackgroundJobs compiling(std::move(jobList));
+  auto jobOf = [&](const Test* t) { return size_t(std::find(tests.begin(), tests.end(), t) - tests.begin()); };
   if (!tests.empty()) {
     std::printf("Warming up the GPU for 2 seconds ...");
     // Warm up with the compute reference.
+    compiling.wait(jobOf(byName("mad")));
     Bound none = bindResources(g, *byName("mad"), rng);
     const Kernel& k = kernels["mad"]["tput"];
     bind(g, *byName("mad"), none, k);
@@ -2158,6 +2165,7 @@ int main(int argc, char** argv) {
   for (const Test* t : tests) {
     lap(t);
     gCurrent = t->name;
+    compiling.wait(jobOf(t));
     measure(t);
     // Costs over the bases (bases come first, so they are known).
     for (auto& [cname, byTest] : results)

@@ -609,12 +609,14 @@ int main(int argc, char** argv) {
           }
   }
 
+  // Shaders compile in the background, section by section in measuring order (owner, 2026-10-05: results
+  // start sooner); each section waits for its own. The map is filled with every key first, so the worker only
+  // writes values.
   std::map<std::string, std::map<std::string, ID3D11ComputeShader*>> shaders;
-  std::printf("\n");
-  CompileCounter compiling{&st, std::size(kConfigs) * tests.size()};
-  compiling.start();
   for (const Config& c : kConfigs)
-    for (const Test* t : tests) {
+    for (const Test* t : tests) shaders[c.name][t->name] = nullptr;
+  auto compileTest = [&](const Test* t) {
+    for (const Config& c : kConfigs) {
       const std::string src = shaderSource(*t, c.chains);
       ID3DBlob* code = nullptr;
       ID3DBlob* err = nullptr;
@@ -638,9 +640,8 @@ int main(int argc, char** argv) {
         fail(std::string("cannot create test ") + t->name);
       code->Release();
       shaders[c.name][t->name] = cs;
-      compiling.step();
     }
-  compiling.finish();
+  };
 
   const Test* madTest = nullptr;
   for (const Test* t : tests)
@@ -680,6 +681,15 @@ int main(int argc, char** argv) {
   }
   groups.emplace_back();
   for (const Test* t : tests) assign(groups.back(), t, assign);
+
+  std::vector<std::function<void()>> jobList;
+  for (const Group& gr : groups)
+    jobList.push_back([&compileTest, &gr] {
+      for (const Test* t : gr.run) compileTest(t);
+    });
+  std::printf("\n");
+  BackgroundJobs compiling(std::move(jobList));
+  compiling.wait(0);  // the reference, for the warm-up
 
   std::printf("%zu tests, each measured in three ways:\n", tests.size());
   for (const Config& c : kConfigs)
@@ -815,7 +825,9 @@ int main(int argc, char** argv) {
   };
   Progress progress{&st, 2 * static_cast<int>(tests.size() * std::size(kConfigs))};  // passes 1 and 2
   progress.start();
-  for (const Group& gr : groups) {
+  for (size_t gi = 0; gi < groups.size(); ++gi) {
+    const Group& gr = groups[gi];
+    compiling.wait(gi);
     for (const Config& c : kConfigs) {
       std::map<std::string, UINT>& it = iters[c.name];
       if (!it.count("mad")) it["mad"] = calibrate(g, shaders[c.name]["mad"], *madTest, c);

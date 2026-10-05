@@ -10,6 +10,9 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 - **Reports folder:** everything to send goes to `Reports\` (shader dumps to `Reports\Shaders\`), and after every run `GPU-Bench-Reports.zip` holds the reports, ready to send.
 - **HTML guide:** `README.html` is the hub, with one page per program in `Docs\` (what every test measures, how to read the results), replacing the text files.
 - **Beep** when a run is done, before the "press a key" pause (it used to come after the key press).
+- **Results start sooner:** OpBench and TexBench compile the shaders in the background, section by section, while the previous section is measured (no compiling pause at the start).
+- **Clearer headings:** the three ways of measuring are called "Cost, many in parallel", "Cost, one dependent chain" and "Latency, one at a time" (every number is a cost: lower is better).
+- **TexBench is shorter:** the formats × filtering table no longer runs the dependent-chain mode (it matched the first mode on every card tested), about 25-30 seconds less.
 
 ## 0.5.0
 
