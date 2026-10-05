@@ -484,12 +484,12 @@ TEST(fx_vendor_auto) {
     v.klass = k == 2 ? Klass::LessAccurate : Klass::Within;
     rr.variants.push_back(v);
   }
-  CHECK(fx::vendorPick(rr, true) == 2 && fx::vendorPick(rr, false) == 1);
+  CHECK(fx::vendorPick(rr, fx::Vendor::Amd) == 2 && fx::vendorPick(rr, fx::Vendor::Nv) == 1);
   {
     // A variant with problem inputs is never picked.
     fx::RegionResult marked = rr;
     marked.variants[1].problems = "fails at d = 0.5 (NaN/inf at some)";
-    CHECK(fx::vendorPick(marked, true) == 0 && fx::vendorPick(marked, false) == 1);
+    CHECK(fx::vendorPick(marked, fx::Vendor::Amd) == 0 && fx::vendorPick(marked, fx::Vendor::Nv) == 1);
   }
   const fs::path out = fs::temp_directory_path() / "sopt_test_fx_vendor";
   std::error_code ec;
@@ -517,7 +517,7 @@ TEST(fx_vendor_auto) {
   rr.targetDxbc = 5;
   rr.variants[1].dxbc = 5;
   rr.variants[1].dxbcSame = true;
-  CHECK(fx::vendorPick(rr, true, true) == 0 && fx::vendorPick(rr, true, false) == 2);
+  CHECK(fx::vendorPick(rr, fx::Vendor::Amd, true) == 0 && fx::vendorPick(rr, fx::Vendor::Amd, false) == 2);
   CHECK(fx::writeVariants({rr}, out, errors).size() == 1);
   std::ifstream f2(out / "sopt_chain.fx");
   std::stringstream ss2;
@@ -740,6 +740,149 @@ TEST(fx_hlsl) {
   fs::remove_all(out, ec);
 }
 
+namespace {
+
+const fx::Region* regionOn(const std::vector<fx::Region>& rs, uint32_t line, bool window = false) {
+  for (const auto& r : rs)
+    if (r.line == line && r.removed.empty() != window) return &r;
+  return nullptr;
+}
+
+int inputNamed(const fx::Region& r, const std::string& name) {
+  for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+    if (r.prog.inputs[k].name == name) return int(k);
+  return -1;
+}
+
+// Writes one variant (the region's own value) for each region and checks that the
+// variant file loads with SOPT_ALL 0 and 1.
+void checkVariantFile(const std::vector<const fx::Region*>& regions, const fs::path& file, const fx::LoadOptions& lo,
+                      const std::string& expect) {
+  std::vector<fx::RegionResult> results;
+  for (const fx::Region* r : regions) {
+    fx::RegionResult rr;
+    rr.region = *r;
+    fx::Variant v;
+    v.expr = r->prog.target;
+    v.text = toString(r->prog.target, r->prog.inputs);
+    v.cost = 1;
+    v.klass = Klass::BitExact;
+    rr.variants.push_back(v);
+    results.push_back(rr);
+  }
+  const fs::path out = fs::temp_directory_path() / "sopt_test_compute_out";
+  std::error_code ec;
+  fs::remove_all(out, ec);
+  std::string errors;
+  const auto files = fx::writeVariants(results, out, errors);
+  CHECK(errors.empty() && files.size() == 1);
+  std::ifstream f(out / file.filename());
+  std::stringstream ss;
+  ss << f.rdbuf();
+  CHECK(ss.str().find(expect) != std::string::npos);
+  for (const char* all : {"0", "1"}) {
+    fx::LoadOptions lv = lo;
+    lv.macros.emplace_back("SOPT_ALL", all);
+    std::string err;
+    CHECK(fx::loadEffect(out / file.filename(), lv, err) != nullptr);
+  }
+  fs::remove_all(out, ec);
+}
+
+}  // namespace
+
+TEST(fx_compute) {
+  // ReShade FX compute shaders: thread IDs are float inputs (converted from uint) with ranges
+  // from their semantic and the pass's group size, tex2Dstore's value is a region with the
+  // storage texture's budget, groupshared reads take a user range by variable.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_compute.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) {
+    std::printf("  %s\n", err.c_str());
+    return;
+  }
+  CHECK((fx::groupsharedVariables(*e) == std::vector<std::string>{"tile"}));
+  fx::UserRanges user;
+  user["sopt_compute.fx groupshared tile"] = {0.0, 1.0};
+  fx::RegionOptions ro;
+  ro.userRanges = &user;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+  const fx::Region* uv = regionOn(regions, 16);
+  CHECK(uv != nullptr);
+  if (uv) {
+    const int k = inputNamed(*uv, "float2(id.xy)");
+    CHECK(k >= 0 && uv->prog.inputs[k].lo == 0.0 && uv->prog.inputs[k].hi == 7680.0 && uv->prog.inputs[k].grid == 1);
+  }
+  const fx::Region* g = regionOn(regions, 17);
+  CHECK(g != nullptr);
+  if (g) {
+    const int k = inputNamed(*g, "float2(tid.xy)");
+    CHECK(k >= 0 && g->prog.inputs[k].hi == 7.0);  // CSMain<8, 8>
+  }
+  const fx::Region* w = regionOn(regions, 23);
+  CHECK(w != nullptr);
+  if (w) {
+    CHECK(w->kind == fx::Region::Kind::Write && w->lhs == "tex2Dstore(StOut, id.xy," && w->rhs == ")");
+    CHECK(w->prog.budget.kind == Budget::Kind::Color8);  // RGBA8 storage
+  }
+  const fx::Region* f = regionOn(regions, 24);
+  CHECK(f != nullptr);
+  if (f) {
+    CHECK(f->prog.budget.kind == Budget::Kind::Rel);  // RGBA16F storage
+    const int k = inputNamed(*f, "n");
+    CHECK(k >= 0 && f->prog.inputs[k].lo == 0.0 && f->prog.inputs[k].hi == 1.0 && !f->facts[k].assumed);
+  }
+  if (uv && w) checkVariantFile({uv, w}, file, lo, "tex2Dstore(StOut, id.xy, float4(");
+}
+
+TEST(fx_hlsl_compute) {
+  // Plain HLSL compute shader: [numthreads] makes the entry a compute shader; RW texture
+  // writes are regions (a float2 element's value without the parser's widening), compound
+  // writes read the element first; Name[index] reads are fetch inputs keyed by the resource.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_compute.hlsl";
+  fx::LoadOptions lo;
+  lo.hlsl = true;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) {
+    std::printf("  %s\n", err.c_str());
+    return;
+  }
+  CHECK((fx::unrangedTextures(*e) ==
+         std::vector<std::string>{"Depth", "Input", "Motion", "Offsets", "Output", "Sums", "Weights"}));
+  CHECK(fx::textureFactKey(*e, "Weights") == "sopt_compute.hlsl buffer Weights");
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* in = regionOn(regions, 40);
+  CHECK(in != nullptr);
+  if (in) {
+    const int k = inputNamed(*in, "Input[id.xy]");
+    CHECK(k >= 0 && in->facts[k].fetch && in->facts[k].key == "sopt_compute.hlsl texture Input");
+  }
+  const fx::Region* m = regionOn(regions, 41);
+  CHECK(m != nullptr);
+  if (m) {
+    const int k = inputNamed(*m, "Weights[gi].xy");
+    CHECK(k >= 0 && m->facts[k].key == "sopt_compute.hlsl buffer Weights");
+  }
+  const fx::Region* o = regionOn(regions, 51);
+  CHECK(o != nullptr && o->kind == fx::Region::Kind::Write && o->lhs == "Output[id.xy] =" && o->rhs.empty());
+  const fx::Region* mo = regionOn(regions, 52);
+  CHECK(mo != nullptr);
+  if (mo) CHECK(toString(mo->prog.target, mo->prog.inputs) == "off * 2.0 + off * d");
+  const fx::Region* c = regionOn(regions, 56, true);
+  CHECK(c != nullptr);
+  if (c) CHECK(inputNamed(*c, "Output[id.xy]") >= 0 && inputNamed(*c, "float(gid.x)") >= 0);
+  // old = Motion[id.xy] is not inlined past the write to Motion.
+  CHECK(regionOn(regions, 59) != nullptr && regionOn(regions, 59, true) == nullptr);
+  if (o && mo && c) checkVariantFile({o, mo, c}, file, lo, "Motion[id.xy] = off * 2.0 + off * d; // sopt");
+}
+
 TEST(fx_register_counts) {
   // Register counts go into the report (columns with the change) and, where they change,
   // the variant comment.
@@ -784,6 +927,24 @@ TEST(fx_register_counts) {
   CHECK(ss.str().find("amd 7 -> 5, nv 9 -> 8, vgpr 10 -> 12") != std::string::npos);
   CHECK(ss.str().find("nv regs") == std::string::npos);  // unchanged: not mentioned
   fs::remove_all(out, ec);
+
+  // A variant kept only for fewer registers (owner, 2026-10-04): labeled, never SOPT_AUTO.
+  fx::RegionResult rg = rr;
+  fx::Variant& w = rg.variants[0];
+  w.amd = 7;
+  w.amdVgprs = 8;
+  w.nv = 9;
+  w.nvRegs = 12;
+  w.fewerRegisters = w.notFaster = true;
+  CHECK(fx::vendorPick(rg, fx::Vendor::Amd) == 0 && fx::vendorPick(rg, fx::Vendor::Nv) == 0);
+  fs::remove_all(out, ec);
+  fx::writeVariants({rg}, out, errors);
+  std::ifstream g(out / "sopt_test.fx");
+  std::stringstream gs;
+  gs << g.rdbuf();
+  CHECK(gs.str().find("within budget, fewer registers (not faster)") != std::string::npos);
+  CHECK(gs.str().find("vgpr 10 -> 8") != std::string::npos);
+  fs::remove_all(out, ec);
 }
 
 TEST(fx_precise_and_too_exact) {
@@ -823,7 +984,7 @@ TEST(fx_precise_and_too_exact) {
   v.klass = Klass::Accurate;
   v.amd = 1;
   rr.variants.push_back(v);
-  CHECK(fx::vendorPick(rr, true) == 0);
+  CHECK(fx::vendorPick(rr, fx::Vendor::Amd) == 0);
   const fs::path out = fs::temp_directory_path() / "sopt_test_tooexact_out";
   std::error_code ec;
   fs::remove_all(out, ec);

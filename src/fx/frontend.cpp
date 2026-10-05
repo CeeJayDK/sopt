@@ -145,6 +145,8 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   fx->height = opt.height;
   fx->bufferSymbolic = opt.bufferSymbolic;
   fx->hlsl = opt.hlsl;
+  fx->hlslFetchNames.insert(parser.sopt_hlsl_fetch_names.begin(), parser.sopt_hlsl_fetch_names.end());
+  fx->hlslBuffers.insert(parser.sopt_hlsl_buffer_names.begin(), parser.sopt_hlsl_buffer_names.end());
   for (const auto& [name, m] : pp.sopt_macros())
     if (!m.is_function_like) fx->objectMacros[name] = m.replacement_list;
   fx->sourceFiles.push_back(pathString(path));
@@ -206,7 +208,31 @@ std::set<std::string> symbolicMacros(const fs::path& path, const LoadOptions& op
 }
 
 std::string textureFactKey(const Effect& fx, const std::string& texture) {
-  return fx.path.filename().string() + " texture " + texture;
+  return fx.path.filename().string() + (fx.hlslBuffers.count(texture) ? " buffer " : " texture ") + texture;
+}
+
+// A global's source name from its unique name ("V__tile" -> "tile", "VNs__tile" -> "Ns::tile").
+std::string globalSourceName(const std::string& unique) {
+  std::string n = unique.rfind("V", 0) == 0 ? unique.substr(1) : unique;
+  if (n.rfind("__", 0) == 0) n.erase(0, 2);
+  std::string out;
+  for (size_t i = 0; i < n.size(); ++i) {
+    if (n[i] == '_' && i + 1 < n.size() && n[i + 1] == '_') { out += "::"; ++i; }
+    else out += n[i];
+  }
+  return out;
+}
+
+std::string groupsharedFactKey(const Effect& fx, const std::string& name) {
+  return fx.path.filename().string() + " groupshared " + name;
+}
+
+std::vector<std::string> groupsharedVariables(const Effect& fx) {
+  std::set<std::string> out;
+  for (const auto& [id, v] : fx.cg->variables)
+    if (v.kind == Variable::Kind::Global && v.type.has(reshadefx::type::q_groupshared) && v.type.is_floating_point())
+      out.insert(globalSourceName(v.uniqueName));
+  return {out.begin(), out.end()};
 }
 
 std::vector<std::string> unrangedTextures(const Effect& fx) {
@@ -219,9 +245,13 @@ std::vector<std::string> unrangedTextures(const Effect& fx) {
     switch (s.format) {
       case F::r8: case F::rg8: case F::rgba8: case F::rgb10a2:
       case F::r16: case F::rg16: case F::rgba16: continue;
+      case F::r32i: case F::r32u: case F::rgba32i: case F::rgba32u: continue;  // integer reads end regions
       default: out.insert(s.textureName);
     }
   }
+  // HLSL RW textures and buffers (storage objects named like the resource) with float elements.
+  for (const auto& st : fx.cg->mod().storages)
+    if (fx.hlslFetchNames.count(st.name) && st.type.is_floating_point()) out.insert(st.name);
   return {out.begin(), out.end()};
 }
 
@@ -260,13 +290,22 @@ bool isIdent(char c);
 
 // The '(' of a texture fetch call at i: ReShade FX "tex2D(", "tex2Dlod (", ... or an HLSL
 // texture method call "tex.Sample(", "gColor.SampleLevel (", ...; npos if there is none.
+// Plain HLSL resources whose elements are read as Name[index] (set while extracting from an
+// HLSL effect, see Extractor): such reads are fetches too.
+thread_local const std::set<std::string>* tlBracketFetches = nullptr;
+
 size_t fetchOpen(const std::string& t, size_t i) {
   if (i >= t.size() || (i && isIdent(t[i - 1])) || !isIdent(t[i]) || std::isdigit(static_cast<unsigned char>(t[i])))
     return std::string::npos;
   size_t j = i;
   while (j < t.size() && isIdent(t[j])) ++j;
   const bool fx = j - i >= 5 && t.compare(i, 3, "tex") == 0 && std::isdigit(static_cast<unsigned char>(t[i + 3])) &&
-                  t[i + 4] == 'D';
+                  t[i + 4] == 'D' && t.compare(i + 5, 5, "store") != 0;
+  if (!fx && tlBracketFetches && tlBracketFetches->count(t.substr(i, j - i))) {
+    size_t k = j;
+    while (k < t.size() && (t[k] == ' ' || t[k] == '\t')) ++k;
+    if (k < t.size() && t[k] == '[') return k;
+  }
   if (!fx) {
     if (j >= t.size() || t[j] != '.') return std::string::npos;
     size_t m = ++j;
@@ -295,8 +334,8 @@ std::string withoutFetches(const std::string& t) {
     size_t k = fetchOpen(t, i);
     int depth = 0;
     for (; k < t.size(); ++k) {
-      if (t[k] == '(') ++depth;
-      if (t[k] == ')' && --depth == 0) break;
+      if (t[k] == '(' || t[k] == '[') ++depth;
+      if ((t[k] == ')' || t[k] == ']') && --depth == 0) break;
     }
     out += " tex_fetch ";
     i = k;
@@ -462,6 +501,7 @@ Range clampR(const Range& a, double lo, double hi) {
 
 std::string semanticKey(std::string s);
 Range semanticConvention(const std::string& semantic, double maxWidth);
+Range computeInputRange(const Function& cs, const std::string& semantic, double maxWidth);
 
 // A texture fetch call in current ReShade FX syntax (variants are written with it):
 // the deprecated texNDoffset / texNDlodoffset / tex2Dgather(s, c, comp) /
@@ -505,8 +545,12 @@ std::string modernFetch(const std::string& call) {
 }
 
 bool isTexFetch(const std::string& n) {
-  return n.rfind("tex1D", 0) == 0 || n.rfind("tex2D", 0) == 0 || n.rfind("tex3D", 0) == 0;
+  return (n.rfind("tex1D", 0) == 0 || n.rfind("tex2D", 0) == 0 || n.rfind("tex3D", 0) == 0) &&
+         n.find("store") == std::string::npos;
 }
+
+// Init and Store statements write a variable; Return and Write (into a resource) do not.
+bool hasVar(const Statement& s) { return s.kind == Statement::Kind::Init || s.kind == Statement::Kind::Store; }
 
 
 // ---------------------------------------------------------------------------
@@ -618,6 +662,12 @@ std::string upper(std::string s) {
   return s;
 }
 
+// The integer thread IDs a compute shader can take as inputs.
+bool computeSemantic(const std::string& semantic) {
+  const std::string s = upper(semantic);
+  return s == "SV_DISPATCHTHREADID" || s == "SV_GROUPTHREADID" || s == "SV_GROUPID" || s == "SV_GROUPINDEX";
+}
+
 bool isFloatType(const reshadefx::type& t) {
   return (t.base == reshadefx::type::t_float) && t.cols == 1 && t.rows >= 1 && t.rows <= 4 &&
          !t.is_array();
@@ -629,19 +679,21 @@ struct Unsupported : std::runtime_error {
 
 class Extractor {
  public:
+  ~Extractor() { tlBracketFetches = nullptr; }
   Extractor(const Effect& fx, const RegionOptions& opt) : fx_(fx), cg_(*fx.cg), opt_(opt) {
+    tlBracketFetches = fx.hlsl ? &fx.hlslFetchNames : nullptr;
     for (const auto& [id, v] : cg_.values)
       for (uint32_t a : v.args) users_[a].push_back(id);
     for (const auto& [id, v] : cg_.values)
       if (v.kind == Value::Kind::Chain || v.kind == Value::Kind::Load) users_[v.base].push_back(id);
     for (const auto& f : cg_.functions) {
       for (const auto& s : f->stmts) {
-        if (s.kind != Statement::Kind::Return) defs_[s.var].push_back(&s);
+        if (hasVar(s)) defs_[s.var].push_back(&s);
         stmtUses_[s.value].push_back(&s);
       }
       for (uint32_t p : f->params) paramOf_[p] = f.get(), varFunction_[p] = f.get();
       for (const auto& st : f->stmts)
-        if (st.kind != Statement::Kind::Return) varFunction_.emplace(st.var, f.get());
+        if (hasVar(st)) varFunction_.emplace(st.var, f.get());
     }
     for (const auto& [id, v] : cg_.values) {
       if (v.kind != Value::Kind::Call) continue;
@@ -674,6 +726,7 @@ class Extractor {
     std::vector<uint8_t> remap;  // component -> input component
     bool fetch = false;          // texture fetch: prefix is its call text
     std::string semantic;        // of the struct member the prefix ends in, if any
+    bool intSource = false;      // a compute shader's integer thread ID, read converted to float
   };
   Leaf& fetchLeaf(uint32_t id);
 
@@ -692,6 +745,21 @@ class Extractor {
   std::string varKey(uint32_t var) const;  // UserRanges key of a variable
   std::unordered_map<uint32_t, const Function*> varFunction_;  // local/param -> function
   Range samplerRange(uint32_t valueId);
+  // `object` (or the object a load of it reads) is a storage.
+  bool isStorage(uint32_t object) const {
+    if (const auto v = cg_.values.find(object); v != cg_.values.end()) object = v->second.base;
+    for (const auto& st : cg_.mod().storages)
+      if (st.id == object) return true;
+    return false;
+  }
+  // Fact key of an HLSL RW texture / buffer read through `object` (the storage or a load of it); empty otherwise.
+  std::string storageFactKey(uint32_t object) const {
+    if (!fx_.hlsl) return {};
+    if (const auto v = cg_.values.find(object); v != cg_.values.end()) object = v->second.base;
+    for (const auto& st : cg_.mod().storages)
+      if (st.id == object && fx_.hlslFetchNames.count(st.name)) return textureFactKey(fx_, st.name);
+    return {};
+  }
   Budget budgetFor(const Function& f, const Statement& s, std::string& reason);
   void useKinds(uint32_t valueId, bool& cmp, bool& coord, bool& other, int depth);
   static bool outOnly(const Variable& v);
@@ -795,6 +863,22 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
       i < v.chain.size() && v.chain[i].op == reshadefx::expression::operation::op_cast &&
       isFloatType(v.chain[i].to))
     t.base = reshadefx::type::t_float;
+  // A compute shader's thread ID (uint) read through a conversion to float: a float input
+  // written float(id.x) / float2(id.xy) (integer arithmetic on it stays unsupported).
+  bool intSource = false;
+  const size_t rest = v.chain.size() - i;  // [component pick,] cast
+  if (var->kind == Variable::Kind::Param && t.is_integral() && (rest == 1 || rest == 2)) {
+    const auto pf = paramOf_.find(v.base);
+    using O = reshadefx::expression::operation;
+    const size_t c = v.chain.size() - 1;
+    const bool picked = rest == 1 || v.chain[i].op == O::op_swizzle || v.chain[i].op == O::op_constant_index;
+    if (pf != paramOf_.end() && pf->second->type == reshadefx::shader_type::compute &&
+        computeSemantic(var->semantic) && picked && v.chain[c].op == O::op_cast &&
+        v.chain[c].from.is_integral() && isFloatType(v.chain[c].to) && v.chain[c].to.rows == v.chain[c].from.rows) {
+      t.base = reshadefx::type::t_float;
+      intSource = true;
+    }
+  }
   if (!isFloatType(t)) throw Unsupported("non-float variable");
   for (auto& l : leaves_)
     if (l.var == v.base && l.prefix == text) return l;
@@ -802,6 +886,7 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
   l.var = v.base;
   l.prefix = text;
   l.type = t;
+  l.intSource = intSource;
   // Semantics of pixel shader inputs only (members of an entry point's struct parameter).
   if (var->kind == Variable::Kind::Param) {
     const auto pf = paramOf_.find(v.base);
@@ -845,7 +930,8 @@ uint32_t chainMask(const std::vector<reshadefx::expression::operation>& chain, s
   if (op.op == O::op_cast && isFloatType(op.from) && isFloatType(op.to)) return (1u << rows) - 1;
   // int scalar -> float(N): only symbolic BUFFER_WIDTH / HEIGHT get here (leafOf rejects
   // other int variables, collect() int arithmetic).
-  if (op.op == O::op_cast && op.from.is_integral() && op.from.is_scalar() && isFloatType(op.to))
+  if (op.op == O::op_cast && op.from.is_integral() && isFloatType(op.to) &&
+      (op.from.is_scalar() || op.to.rows == op.from.rows))
     return (1u << rows) - 1;
   throw Unsupported("access chain");
 }
@@ -1122,7 +1208,14 @@ Range Extractor::samplerRange(uint32_t valueId) {
   const auto it = cg_.values.find(valueId);
   if (it == cg_.values.end()) return Range::unknown();
   const auto si = cg_.samplers.find(it->second.base);
-  if (si == cg_.samplers.end()) return Range::unknown();
+  if (si == cg_.samplers.end()) {
+    // A read of an HLSL RW texture / buffer (a storage object): the user's range for it.
+    const std::string key = storageFactKey(valueId);
+    const auto u = opt_.userRanges && !key.empty() ? opt_.userRanges->find(key) : UserRanges::const_iterator();
+    if (!key.empty() && opt_.userRanges && u != opt_.userRanges->end())
+      return Range::of(u->second.first, u->second.second, "user (facts file)");
+    return Range::unknown();
+  }
   const SamplerInfo& s = si->second;
   using F = reshadefx::texture_format;
   const std::string sem = upper(s.textureSemantic);
@@ -1382,6 +1475,8 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         const std::string sem = upper(v.semantic);
         if (sem == "SV_POSITION" || sem == "VPOS")
           return Range::of(0, opt_.maxWidth, "SV_Position (pixels, up to --max-width)");
+        if (f->type == reshadefx::shader_type::compute && computeSemantic(sem))
+          return computeInputRange(*f, sem, opt_.maxWidth);
         // Pixel shader input: what the vertex shaders of its passes write, else the
         // semantic's convention.
         if (f->type == reshadefx::shader_type::pixel) {
@@ -1438,13 +1533,34 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
       if (!killed && v.kind == Variable::Kind::Param && !outOnly(v)) return unite(r, entry());
       return full ? r : Range::unknown();
     }
-    case Variable::Kind::Global: break;
+    case Variable::Kind::Global:
+      // Groupshared memory: what the threads store there has no single statement to follow,
+      // so a range only from the user (facts file key "<file> groupshared <name>").
+      if (v.type.has(reshadefx::type::q_groupshared) && opt_.userRanges) {
+        const auto u = opt_.userRanges->find(groupsharedFactKey(fx_, globalSourceName(v.uniqueName)));
+        if (u != opt_.userRanges->end()) return Range::of(u->second.first, u->second.second, "user (facts file)");
+      }
+      break;
   }
   return Range::unknown();
 }
 
 bool Extractor::outOnly(const Variable& v) {
   return v.type.has(reshadefx::type::q_out) && !v.type.has(reshadefx::type::q_in);
+}
+
+// Compute shader inputs: integer IDs, one interval for all components (ranges are per
+// variable). Dispatch thread and group IDs are bounded like SV_Position (a dispatch covers at
+// most a --max-width wide target); group thread IDs and the group index by the group size.
+Range computeInputRange(const Function& cs, const std::string& semantic, double maxWidth) {
+  const std::string sem = upper(semantic);
+  const int x = std::max(cs.numThreads[0], 1), y = std::max(cs.numThreads[1], 1), z = std::max(cs.numThreads[2], 1);
+  if (sem == "SV_DISPATCHTHREADID") return Range::of(0, maxWidth, "SV_DispatchThreadID (up to --max-width)", 1);
+  if (sem == "SV_GROUPID") return Range::of(0, maxWidth, "SV_GroupID (up to --max-width)", 1);
+  if (sem == "SV_GROUPTHREADID")
+    return Range::of(0, std::max({x, y, z}) - 1, "SV_GroupThreadID (numthreads)", 1);
+  if (sem == "SV_GROUPINDEX") return Range::of(0, double(x) * y * z - 1, "SV_GroupIndex (numthreads)", 1);
+  return Range::unknown();
 }
 
 // "TEXCOORD0" and "TEXCOORD" are the same semantic.
@@ -1539,7 +1655,7 @@ void Extractor::useKinds(uint32_t id, bool& cmp, bool& coord, bool& other, int d
   if (si != stmtUses_.end())
     for (const Statement* s : si->second) {
       // Copied into another variable (also call arguments): follow its loads.
-      if (s->kind == Statement::Kind::Return) { other = true; continue; }
+      if (!hasVar(*s)) { other = true; continue; }
       bool found = false;
       for (const auto& [lid, lv] : cg_.values)
         if (lv.kind == Value::Kind::Load && lv.base == s->var && lv.seq > s->seq) {
@@ -1552,6 +1668,27 @@ void Extractor::useKinds(uint32_t id, bool& cmp, bool& coord, bool& other, int d
 
 Budget Extractor::budgetFor(const Function& f, const Statement& s, std::string& reason) {
   Budget b;
+  if (s.kind == Statement::Kind::Write) {
+    // A compute shader's store: an 8-bit storage texture quantizes (and clamps) like a render target.
+    using F = reshadefx::texture_format;
+    uint32_t storage = s.storage;  // the storage object, or a load of it
+    if (const auto lv = cg_.values.find(storage); lv != cg_.values.end() && lv->second.kind == Value::Kind::Load)
+      storage = lv->second.base;
+    for (const auto& st : cg_.mod().storages)
+      if (st.id == storage)
+        for (const auto& tex : cg_.mod().textures)
+          if (tex.unique_name == st.texture_name &&
+              (tex.format == F::rgba8 || tex.format == F::r8 || tex.format == F::rg8)) {
+            b.kind = Budget::Kind::Color8;
+            b.maxCodeDiff = 0;
+            reason = "compute shader output, 8-bit storage texture";
+            return b;
+          }
+    b.kind = Budget::Kind::Rel;
+    b.eps = opt_.relEps;
+    reason = "stored to a resource";
+    return b;
+  }
   if (s.kind == Statement::Kind::Return) {
     // A pixel shader's result written to an 8-bit target without blending.
     if (f.type == reshadefx::shader_type::pixel && !f.returnType.is_struct()) {
@@ -1623,7 +1760,7 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
   reg.original = st.original;
   reg.text = st.text;
   std::string name;
-  if (s.kind != Statement::Kind::Return) {
+  if (hasVar(s)) {
     const auto vi = cg_.variables.find(s.var);
     if (vi == cg_.variables.end() || vi->second.kind == Variable::Kind::Global) {
       why = "store to a global";
@@ -1632,7 +1769,46 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
     name = vi->second.name;
   }
   const std::string& body = st.text;
-  if (s.kind == Statement::Kind::Return) {
+  if (s.kind == Statement::Kind::Write && fx_.hlsl) {
+    // HLSL: Name[index] = <value>; (or op=, then the region is Name[index] op (<value>)).
+    char compound = 0;
+    const size_t eq = assignmentOp(body, compound);
+    const std::string lhs = eq == std::string::npos ? std::string() : trim(body.substr(0, eq));
+    const size_t open = lhs.find('[');
+    if (open == std::string::npos || lhs.back() != ']' || !fx_.hlslFetchNames.count(trim(lhs.substr(0, open)))) {
+      why = "resource write shape";
+      return false;
+    }
+    reg.kind = Region::Kind::Write;
+    reg.lhs = lhs + " =";
+    name = "r";
+  } else if (s.kind == Statement::Kind::Write) {
+    // texNDstore(storage, coord, <value>): the value is the third argument.
+    const size_t open = body.find('(');
+    const std::string callee = trim(body.substr(0, open == std::string::npos ? 0 : open));
+    if (callee != "tex1Dstore" && callee != "tex2Dstore" && callee != "tex3Dstore") {
+      why = "resource write not at statement start";
+      return false;
+    }
+    int depth = 0, commas = 0;
+    size_t valueStart = std::string::npos, close = std::string::npos;
+    for (size_t i = open; i < body.size(); ++i) {
+      const char c = body[i];
+      if (c == '(' || c == '[') ++depth;
+      else if (c == ')' || c == ']') {
+        if (--depth == 0) { close = i; break; }
+      } else if (c == ',' && depth == 1 && ++commas == 2) valueStart = i + 1;
+    }
+    if (valueStart == std::string::npos || close == std::string::npos || commas != 2 ||
+        !trim(body.substr(close + 1)).empty()) {
+      why = "resource write shape";
+      return false;
+    }
+    reg.kind = Region::Kind::Write;
+    reg.lhs = trim(body.substr(0, valueStart));
+    reg.rhs = ")";
+    name = "r";
+  } else if (s.kind == Statement::Kind::Return) {
     if (body.rfind("return", 0) != 0 || (body.size() > 6 && isIdent(body[6]))) {
       why = "return value not at statement start";
       return false;
@@ -1732,7 +1908,10 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   reg.prog.inputs.clear();
   reg.facts.clear();
   fetchText_.clear();
-  mapFetches(s, reg.text);
+  // A resource write's text starts with the call and its coordinate (HLSL: Name[index] =): only the
+  // value is the region. An HLSL compound write (Name[index] += v) reads the element first, as its text does.
+  const size_t lhsAt = reg.kind == Region::Kind::Write ? reg.text.find(reg.lhs) : std::string::npos;
+  mapFetches(s, lhsAt != std::string::npos ? reg.text.substr(lhsAt + reg.lhs.size()) : reg.text);
   for (const Statement* d : window_) {
     Region shape;
     std::string w;
@@ -1762,6 +1941,8 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
         for (int c = 0; c < 4; ++c)
           if (l.mask & (1u << c)) d.name += xyzw[c];
       }
+      // Integer thread IDs: the code reads them converted (unsigned arithmetic would wrap).
+      if (l.intSource) d.name = "float" + (w > 1 ? std::to_string(w) : std::string()) + "(" + d.name + ")";
       d.type = floatType(w);
       d.compileTime = !l.fetch && isSymbolic(l.var);
       Range r = d.compileTime ? range(l.loadValue) : leafRange(l.loadValue);
@@ -1776,6 +1957,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
                                                                            : cg_.values.find(fv->second.args[0]);
         const auto si = sv == cg_.values.end() ? cg_.samplers.end() : cg_.samplers.find(sv->second.base);
         if (si != cg_.samplers.end()) fact.key = textureFactKey(fx_, si->second.textureName);
+        else if (!fv->second.args.empty()) fact.key = storageFactKey(fv->second.args[0]);
       }
       if (fact.key.empty())
         fact.key = pathFrom(reg.file).filename().string() + " " + reg.function + " " + l.prefix;
@@ -1859,8 +2041,8 @@ void Extractor::mapFetches(const Statement& s, const std::string& text) {
     int depth = 0;
     size_t k = j;
     for (; k < text.size(); ++k) {
-      if (text[k] == '(') ++depth;
-      if (text[k] == ')' && --depth == 0) break;
+      if (text[k] == '(' || text[k] == '[') ++depth;
+      if ((text[k] == ')' || text[k] == ']') && --depth == 0) break;
     }
     if (k >= text.size()) return;
     for (size_t m = i + 1; m < k; ++m)
@@ -1928,7 +2110,7 @@ bool Extractor::touchesPrecise(const Function& f, const Statement& s,
   all.push_back(&s);
   std::unordered_set<uint32_t> tree, written;
   for (const Statement* t : all) {
-    if (t->kind != Statement::Kind::Return) {
+    if (hasVar(*t)) {
       if (precise(t->var)) return true;
       written.insert(t->var);
     }
@@ -1944,7 +2126,7 @@ bool Extractor::touchesPrecise(const Function& f, const Statement& s,
   }
   // Feeds a precise variable directly.
   for (const Statement& t : f.stmts) {
-    if (t.kind == Statement::Kind::Return || !precise(t.var)) continue;
+    if (!hasVar(t) || !precise(t.var)) continue;
     std::unordered_set<uint32_t> used;
     treeValues(t.value, used);
     for (uint32_t id : used) {
@@ -2075,6 +2257,17 @@ bool Extractor::leavesUnchanged(const Statement& s, const std::vector<const Stat
       const auto it = cg_.values.find(id);
       if (it == cg_.values.end() || it->second.kind != Value::Kind::Intrinsic || !isTexFetch(it->second.name))
         continue;
+      // A read of a storage (HLSL RW texture / buffer) moved past a write into a storage would
+      // read the new value.
+      if (!it->second.args.empty() && isStorage(it->second.args[0]))
+        for (const auto& fn : cg_.functions)
+          for (const Statement& x : fn->stmts)
+            if (x.kind == Statement::Kind::Write && x.seq > it->second.seq && x.seq < s.seq) return false;
+      if (!it->second.args.empty() && isStorage(it->second.args[0]))
+        for (const auto& [cid, cv] : cg_.values)
+          if (cv.kind == Value::Kind::Intrinsic && cv.name.rfind("atomic", 0) == 0 && cv.seq > it->second.seq &&
+              cv.seq < s.seq)
+            return false;
       std::unordered_set<uint32_t> args;
       for (uint32_t a : it->second.args) treeValues(a, args);
       for (uint32_t a : args) {
@@ -2106,11 +2299,13 @@ bool Extractor::leavesUnchanged(const Statement& s, const std::vector<const Stat
 
 std::vector<Region> Extractor::run(SkipCount& skipped) {
 #define SKIPADD(r) skipped.add((r), s.loc.source, s.loc.line)
-  // Functions reachable from pixel shaders.
+  // Functions reachable from pixel and compute shaders.
   std::set<std::string> reach;
   std::vector<const Function*> work;
   for (const auto& f : cg_.functions)
-    if (f->type == reshadefx::shader_type::pixel && reach.insert(f->uniqueName).second) work.push_back(f.get());
+    if ((f->type == reshadefx::shader_type::pixel || f->type == reshadefx::shader_type::compute) &&
+        reach.insert(f->uniqueName).second)
+      work.push_back(f.get());
   while (!work.empty()) {
     const Function* f = work.back();
     work.pop_back();

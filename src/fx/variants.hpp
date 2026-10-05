@@ -19,6 +19,7 @@ struct Variant {
   bool proven = false;          // V3 on the whole domain
   double provenFraction = 0.0;  // V3: share of the domain proven
   int amd = -1, nv = -1;  // measured ISA cost (fxstat + RGA, ptxas + nvdisasm), -1 = not measured
+  int intel = -1;         // Intel driver's instruction count (ShaderInfo --batch, --driver-stats), -1 = n/a
   // Registers of the measured shader (AMD VGPRs / SGPRs, NVIDIA registers per thread), -1 =
   // not measured. Whole-shader counts (test scaffolding included): only differences matter.
   int amdVgprs = -1, amdSgprs = -1, nvRegs = -1;
@@ -26,10 +27,12 @@ struct Variant {
   // some), fine on ..."; owner: kept and marked, the user decides; never picked by SOPT_AUTO.
   std::string problems;
   // Clearly more accurate than the original against exact math (accuracy variants, owner
-  // 2026-09-26); accuracyOnly: not faster, kept at most one instruction slower per
-  // measured vendor. Never picked by SOPT_AUTO.
+  // 2026-09-26); fewer registers than the original on a measured vendor and more on none
+  // (owner, 2026-10-04); notFaster: kept for one of those, not faster, at most one
+  // instruction slower per measured vendor. Never picked by SOPT_AUTO.
   bool moreAccurate = false;
-  bool accuracyOnly = false;
+  bool fewerRegisters = false;
+  bool notFaster = false;
   // Backend normalization (--backends): instruction counts after the compilers' optimizers
   // (-1 = not measured) and whether the code is identical to the original's there.
   int spirv = -1, dxbc = -1;
@@ -51,7 +54,7 @@ struct RegionResult {
   std::vector<Variant> unwritten;
   bool limitHit = false;
   uint32_t onlyContraction = 0;  // cheaper only by explicit fma or free swizzles (dropped)
-  int targetAmd = -1, targetNv = -1;
+  int targetAmd = -1, targetNv = -1, targetIntel = -1;
   int targetAmdVgprs = -1, targetAmdSgprs = -1, targetNvRegs = -1;  // see Variant
   int targetSpirv = -1, targetDxbc = -1;  // backend normalization of the original
   // The region's inputs with the back buffer as scRGB (FP16, [-0.5, 125]); empty when no
@@ -77,12 +80,14 @@ uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<Input
 // Name of the preprocessor switch of a region: SOPT_<file stem>_<line>.
 std::string switchName(const Region& r);
 
-// SOPT_AUTO: the variant (1-based) with the lowest measured cost on AMD (amd) or NVIDIA,
-// if lower than the original's; less accurate variants are never picked. 0 = none.
+// SOPT_AUTO: the variant (1-based) with the lowest measured cost on the vendor (AMD, NVIDIA, or
+// Intel from the driver's statistics), if lower than the original's; less accurate variants are
+// never picked. 0 = none.
 // dx: for DX9-DX12 (owner, 2026-09-27: pick per API too), where the driver gets fxc's DXBC:
 // a variant fxc compiles to the original's code (dxbcSame), or to more DXBC instructions,
 // is no gain there (--backends; without it the pick is the same for every API).
-int vendorPick(const RegionResult& rr, bool amd, bool dx = false);
+enum class Vendor { Amd, Nv, Intel };
+int vendorPick(const RegionResult& rr, Vendor vendor, bool dx = false);
 
 // The statement text that replaces the region's lines for one variant.
 std::string variantStatement(const Region& r, const std::string& expr);
@@ -107,6 +112,7 @@ struct ReportInfo {
   double seconds = 0.0;
   size_t checks = 0, checkFailures = 0;  // re-parses of the variant effects
   bool amd = false, nv = false;           // ISA measurements ran
+  bool intel = false;                     // Intel driver statistics loaded (--driver-stats)
   bool spirv = false, dxbc = false;       // backend normalization ran
 };
 

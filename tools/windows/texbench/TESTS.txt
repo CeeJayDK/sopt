@@ -1,0 +1,166 @@
+TexBench tests
+==============
+
+Costs are in sopt units: 4 = one fma (multiply-add), measured as extra time over the test's base.
+Every texture test reads at a coordinate computed from the previous result, so the reads in one
+chain cannot overlap; the base computes the same coordinate without reading, so the cost is the
+read alone (for Load: with the conversion of the coordinate to texels).
+
+Three ways (compute shaders), as in OpBench:
+  tput  8 chains per thread, 1M threads: the GPU can overlap reads of different chains and threads.
+        The ballpark for a read inside a real shader.
+  dep   1 chain per thread, 1M threads: only other threads hide the waiting.
+  lat   1 chain, one group of 64 threads: nothing hides it; close to the raw latency of a read.
+
+Formats and filtering: 1024 x 1024 with mipmaps, coherent (one table)
+  Every format ReShade supports (R8 ... RGBA32I, plus RGBA8 with an sRGB view), each with:
+  Load      texel fetch, no filtering
+  point     SampleLevel with point filtering
+  bilin     bilinear filtering (4 texels)
+  gather    GatherRed: one channel of the 4 texels a bilinear read would use
+  trilin    trilinear: blends two mip levels (8 texels)
+  aniso2 .. aniso16   anisotropic filtering with MaxAnisotropy 2, 4, 8 and 16, on a steep
+            (16 x 1 texel) footprint so the setting decides how many samples are taken.
+  Each thread reads within one texel of its own pixel, in 8 x 8 tiles, like a post-processing pass:
+  mostly cache hits. Shows which formats are slower to filter (some GPUs filter 64-bit formats at
+  half speed, unpack RGB10A2 / RG11B10F, or filter point and bilinear at different speeds).
+  Integer formats cannot be filtered: Load and gather only. Formats a GPU cannot gather or
+  mipmap are left out and listed. GB/s: the data rate of the bilinear read (integer formats: Load).
+
+Formats: random reads from 4096 x 4096 (Load)
+  The same formats read at random places: cache misses, so the texel size and memory speed show
+  (R8 = 1 byte per texel, RGBA32F = 16). Large textures in big caches (e.g. 64+ MB on some GPUs)
+  stay partly cached. The next place comes from the value read and the place before it (from the
+  value alone, R8 with its 256 values would visit only 256 places, all in the cache).
+
+Texture functions: RGBA8 1024 x 1024 with mipmaps, coherent
+  The rest of ReShade FX's texture functions:
+  bilinear / Load / gather offset   tex2Dlod, tex2Dfetch, tex2DgatherR with an offset.
+  gather green / blue / alpha       tex2DgatherG / B / A.
+  Load mip 1   tex2Dfetch from mip level 1.
+  grad 1:1     tex2Dgrad with gradients of one texel (mip 0).
+  tex1D bilinear, tex1Dfetch   a real 1D texture (1024 texels).
+  tex3D linear, tex3Dfetch     a 1024 x 1024 x 2 3D texture; linear halfway between the slices
+               filters 8 texels (like trilinear).
+  tex1Dsize, tex2Dsize, tex3Dsize   size queries with a mip level that comes from the chain (the
+               plain query is the same for the whole draw and moves out of loops: free per use).
+  address clamp / wrap / mirror / border   bilinear with coordinates 12% past the edges.
+
+Color lookup tables: coherent colors (like an image), RGBA8
+  2D N (2 reads)   a 3D LUT stored as N slices of N x N side by side in a 2D texture: two bilinear
+               reads and a lerp between the slices (the way ReShade's LUT.fx does it).
+  3D N^3       one read from a 3D texture (the hardware filters the 8 texels).
+  N = 32 and 64. The colors change smoothly over the screen like an image, so neighbouring pixels
+  read neighbouring LUT entries. Cost = the whole lookup (coordinates, reads, blend).
+
+Lookup tables and texture size: RGBA8, random reads, bilinear
+  LUT 256x1   a 1D lookup table (1 KB): always in the cache. Compare with OpBench's math costs
+              (pow, exp, sin ...) to see when a lookup table is cheaper than computing.
+  LUT 32^3    a 3D color grading lookup table (128 KB), trilinear between slices.
+  512^2 ... 8192^2   random reads from growing textures: where the caches run out.
+
+GB/s (in the format sections): the texel data the reads deliver per second at full throughput
+  (the texel's bytes over the read's own time). Formats with the same texel size do not always cost
+  the same, so this shows which formats give the most data for the time. Formats are listed from
+  the smallest texel to the largest.
+
+Cache sizes: random reads (Load) from an RGBA8 texture of growing size
+  4 KB ... 256 MB in steps of 2x. While the texture fits in a cache level, reads cost about the
+  same; where the cost jumps, a cache level ran out (clearest in the lat column: the waiting time
+  of a single read). So the jumps show this card's cache sizes (texture / L1 cache, L2 cache, and
+  on some AMD cards the large Infinity Cache).
+
+Cache use: RGBA8 2048 x 2048 (Load), reads around each thread's own pixel
+  spread N     each thread reads at random within N x N texels around its own pixel (N = 1 ...
+               256). Neighbouring threads share cache lines while N is small; the cost rises
+               where they stop sharing. Shows how far apart neighbouring pixels may read (blur
+               radius, sample patterns) before the cache stops helping.
+  row N, column N   random along the pixel's row / column only (N texels): a horizontal against
+               a vertical blur pass. Equal costs mean the texture is stored in tiles.
+  group WxH    compute: 64 threads as W x H pixels (8x8, 16x4, 32x2, 64x1), spread 8: which
+               thread group shape uses the cache best.
+
+Cache use: texel size, random reads (Load) from 1024 x 1024
+  R8, RGBA8, RGBA16F, RGBA32F: the same texel count in 1, 4, 8 and 16 MB. Shows whether bigger
+  texels fill the caches sooner.
+
+Compute: storage writes (tex2Dstore): near the pixel into 1024 x 1024, random into 4096 x 4096
+  <format> store         a compute shader writes near its own pixel (like a post-processing pass).
+  <format> store random  writes at random places.
+  GB/s as for reads, comparable with the render target writes. Formats the GPU cannot write from a
+  compute shader (beyond D3D11's required ones, storage formats are optional) are left out and
+  listed at the start.
+
+Compute: storage atomics
+  aAdd, aAnd, aOr, aXor, aMin, aMax, aXchg, aCmpXchg = atomicAdd, And, Or, Xor, Min, Max, Exchange,
+  CompareExchange on a storage texture (R32U): each thread on its own address, and "(1)": the
+  group's 64 threads on one address (contention). (Not a whole dispatch on one address: that could
+  take seconds and trip the driver's timeout.) Groupshared memory, barriers, groupshared atomics,
+  local arrays and branches are in OpBench.
+
+Pixel shader: derivatives and automatic mip selection (1024 x 1024 target; tput and dep)
+  ddx, ddy, ddx_fine, ddy_fine, ddx_coarse, ddy_coarse, fwidth   step x = mad(d(x), c.x, c.y); base: the pixel
+              shader mad. Derivatives exchange values within 2 x 2 pixel quads.
+  Sample point       Sample with point filtering
+  Sample bilinear    Sample (mip level from the derivatives: 1 texel per pixel = mip 0)
+  Sample trilinear   1.5 texels per pixel: between mip 0 and 1
+  Sample aniso 4:1   4 x 1 texel footprint, 16x anisotropic filtering
+
+Render target writes: full-screen passes into 3840 x 2160
+  Each format as a render target, in GB/s, written three times by the same pixel shader: noise (a
+  hash of the pixel position, which cannot be compressed), a smooth gradient and one flat color.
+  GPUs compress render targets, so compressible output can be written faster than the memory
+  bandwidth allows; the two Gain columns (smooth / noise, flat / noise) show how well this card
+  compresses each format. The passes alternate between two targets: some GPUs (NVIDIA among them)
+  keep back to back full-screen draws into one target in an on-chip cache, so only the last one
+  would reach memory. Small formats (R8, R16) are usually limited
+  by the pixel rate (ROPs), not by memory.
+
+Blending: full-screen passes into 3840 x 2160 (ms per pass)
+  ReShade passes can blend their output into the target (BlendEnable, BlendOp, SrcBlend,
+  DestBlend) instead of reading the image in the shader. For RGBA8, RGB10A2, RG11B10F, RGBA16F and
+  RGBA32F: a plain write, then four common blends, each done by the blend hardware ("blend") and by
+  a shader that reads the target's content as a texture and does the same math ("shader"):
+  add (ONE, ONE: e.g. bloom), lerp (SRCALPHA, INVSRCALPHA: mixing with the image), multiply
+  (DESTCOLOR, ZERO) and min (BlendOp MIN). The faster of each pair is shown in green. Before each
+  pass a plain draw restores the target's content (noise); those draws are timed alone right
+  before and subtracted. Two targets take turns, as for the writes.
+
+Pass states: full-screen passes into 3840 x 2160 (ms per pass)
+  1 / 2 / 4 / 8 targets   one pass writing several RGBA8 render targets (RenderTarget0..7).
+  clear RGBA8 / RGBA16F   ClearRenderTargets.
+  mipmaps RGBA8 / RGBA16F   generating the mip chain of a 3840 x 2160 texture (MipLevels).
+  heavy shader            32 sin per pixel on every pixel, against:
+  heavy, stencil 50%      half the pixels (8 x 8 tiles) fail the stencil test (StencilEnable).
+  heavy, discard 50% tiles   discard first in half the 8 x 8 tiles.
+  heavy, discard 50% pixels  discard first in every other pixel: GPUs shade 2 x 2 pixel quads,
+               so this usually saves nothing.
+
+Pixel shader order: which pixels the GPU shades together (not a timing)
+  One full-screen draw into 1024 x 1024. Every pixel takes the next number from one shared counter
+  (an atomic add) and stores it at its position, so the numbers show the order in which the GPU
+  shaded the pixels. GPUs shade pixels in 2 x 2 quads and hand them to the shader units in larger
+  groups (waves of 32 or 64 pixels on most GPUs, 8 / 16 / 32 on Intel).
+  Block N    pixels whose numbers fall in the same run of N (0..N-1, N..2N-1, ...). "Compact" is
+             the share of these runs that fill a rectangle exactly (e.g. 8 x 4 for 32): such pixels
+             were shaded together. The largest size where most runs are compact is printed below.
+  Tile B     for squares of B x B pixels: 100% when the square got one unbroken run of numbers (the
+             GPU finished it before moving on), lower when it was mixed with other squares.
+  Images (next to the CSV): texbench-<GPU>-order.png, the whole order from blue (first) to red
+  (last); texbench-<GPU>-order-zoom.png, the middle 64 x 64 pixels 8x enlarged, one color per block
+  of the size found, black lines between blocks, darker lines between 2 x 2 quads.
+  Counter: a structured buffer first (NVIDIA merges a wave's atomic adds into one and gives its pixels
+  consecutive numbers, so runs of numbers show the waves); where that gives no numbers (Intel UHD 630) a
+  1 x 1 texture, where every pixel takes its own turn, so the waves do not show (CSV row "counter kind").
+  Speed: the same draw timed plain, with the store alone and with the counter and the store. The
+  cost per pixel over the plain draw shows what one shared counter costs when every pixel uses it
+  (they have to take turns).
+
+TexBench score (at the end)
+  Texture rate      bilinear RGBA8 reads per second (GTexels/s): the whole read step, because the
+                    coordinate math runs beside the texture units when they are the limit.
+  Pixel fill rate   the fastest render target write, in pixels per second (GPixels/s).
+  Memory bandwidth  the fastest write of noise (cannot be compressed), GB/s.
+  These are the numbers GPU spec lists give; measured ones are usually a bit lower.
+
+The CSV is written again after every section, so a run stopped early still leaves its results.

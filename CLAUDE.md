@@ -8,8 +8,8 @@ facts, budgets, variant .fx; owner's ReShade test passed on DX11 and Vulkan); pl
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 and the nvidia / intel models default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
-cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
-`nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3.
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `nvidia-maxwell`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
+`nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3; plain HLSL SM5 pixel and compute shaders, ReShade FX compute shaders.
 
 ## Working with the owner
 - Owner's principle (2026-09-26): fewer instructions at equal measured speed are still
@@ -121,6 +121,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 - `src/fx/variants`: `compiledCost` (contraction, modifiers, swizzles free), variant
   files (switch per region, `SOPT_ALL`, overlap resolution), Markdown report.
   `src/cli/fx_main.cpp`: sopt-fx (parallel search, filters, --isa/--sass, re-parse).
+  `src/cli/console`: terminal output of sopt / sopt-fx (owner, 2026-10-04): title box "sopt-fx <v>  -  by
+  CeeJay.dk", section headings, progress bars with a percentage scale and time left (search: per unique
+  region; measurement: per region with variants); colors / UTF-8 blocks only on a terminal (isatty, Windows VT
+  mode; NO_COLOR, TERM=dumb off), block characters as explicit UTF-8 bytes (MSVC without /utf-8).
 - `bench/bench.cpp`: example suite + planted problems. `examples/*.sopt` with `# expect:`.
 
 ## Invariants (do not break)
@@ -596,7 +600,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   RGBA16F 0.109-0.117 (level 3 / level 1), just under one fp16 ulp near 1 (0.125): the old shader
   averages in fp32 and imageStore converts to fp16 by truncation on this driver, while the
   bilinear fetch already returns a correctly rounded fp16 value. So the patch is equal or more
-  accurate. Both parts tested: next, report to crosire. Copy test also identical on the Intel Iris 540
+  accurate. Both parts tested; reported to crosire by the owner (2026-10-03). Copy test also identical on the Intel Iris 540
   (owner, 2026-10-01). Write-up for crosire: tools/reshade/UPSTREAM.md. Owner: removed the info log line
   and the copy sampler (pipeline layout with only the SRV; sampler state, push and destroy gone);
   re-tested by the owner (D3D11 --msaa 4, GTX 1660): SHA256-identical again.
@@ -651,7 +655,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   floor, clamp, lerp nothing cheaper.
 - Other shader languages (owner, 2026-10-03: "at some point sopt should also work with HLSL and GLSL; I doubt we
   have to change that much"; "start with HLSL", "pixel shaders first ... and the planned for later": compute /
-  SM6 later, GLSL later). HLSL SM5 pixel shaders done: sopt-fx reads `.hlsl` / `.hlsli` (or `--hlsl`), entry
+  SM6 later, GLSL later). HLSL SM5 pixel shaders done (compute since 2026-10-03, below): sopt-fx reads `.hlsl` / `.hlsli` (or `--hlsl`), entry
   point `--entry NAME` (default main). The vendored parser's `sopt_hlsl` mode rewrites HLSL constructs to FX
   text and re-lexes it in place (`sopt_parse_text`): cbuffer / tbuffer members become uniforms, register /
   packoffset skipped, SamplerState (+ Comparison) declarations dropped, Texture1D/2D/3D/Cube/2DArray[<T>]
@@ -661,6 +665,27 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   parse, no `__VENDOR__` auto picks (vendorPick 0). Textures have no range from a format: fact key
   `<file> texture <name> = [lo, hi]` (`textureFactKey`, applied in samplerRange to every read, also values
   stored from one; HLSL fetch leaves use it; sopt-facts.txt lists such textures). Test tests/fx/sopt_hlsl.hlsl.
+  Compute shaders (owner's go 2026-10-03: "HLSL + FX", resource stores as regions, ranges as proposed): extraction
+  reaches pixel and compute entry points. Thread IDs (uint params with SV_DispatchThreadID / SV_GroupThreadID /
+  SV_GroupID / SV_GroupIndex, read through a cast to float, possibly after a component pick) are float inputs named
+  `float2(id.xy)` (Leaf::intSource; unsigned arithmetic would wrap): dispatch / group ID [0, --max-width], group
+  thread ID [0, max(numthreads) - 1], group index [0, x*y*z - 1], grid 1 (`computeInputRange`; Function::numThreads,
+  max over the passes). Statement::Kind::Write / Region::Kind::Write: the value of tex1D/2D/3Dstore(s, c, value)
+  (Codegen records it; lhs "tex2Dstore(s, c," rhs ")"), budget color8 for an RGBA8 / R8 / RG8 storage texture, else
+  rel ("stored to a resource"); isTexFetch / fetchOpen exclude *store. Groupshared memory: user range by
+  `<file> groupshared <name>` (globalSourceName), listed in sopt-facts.txt. Windows: a storage read is not moved
+  past a Write or an atomic (leavesUnchanged). HLSL (parser sopt_hlsl): `[numthreads]` entry = compute;
+  RWTexture1D/2D/3D/2DArray, RWBuffer, RWStructuredBuffer of scalar / vector T = storage Name on texture
+  __sopt_rwtex<rows>_Name (element scalar or 4-wide, float2 / float3 widened by .xyyy / .xyzz, which Codegen strips
+  from the stored value); `Name[i] = v` / `op=` -> texNDstore, `Name[i]` reads -> texNDfetch (fetch leaves in the HLSL
+  text: fetchOpen knows Name[ via Effect::hlslFetchNames, thread-local while extracting); Buffer / StructuredBuffer of
+  scalar / vector T = 1D texture + sampler (key `<file> buffer <name>`, Effect::hlslBuffers); struct structured buffers,
+  Append / Consume, ByteAddressBuffer = static globals (parse only); GetDimensions = assignments (parse only);
+  GroupMemoryBarrier* / DeviceMemoryBarrier* / AllMemoryBarrier* -> barrier / groupMemoryBarrier / memoryBarrier,
+  Interlocked* -> atomic* (storage overload for Name[i] destinations). Texture2D<float2 / float3> now use a float4
+  sampler + swizzle (FX fetch overloads are scalar / 4-wide). Tests fx_compute (tests/fx/sopt_compute.fx),
+  fx_hlsl_compute (tests/fx/sopt_compute.hlsl); the HLSL test's original and SOPT_ALL = 1 variant compile with
+  Microsoft's fxc cs_5_0 (Wine). Not yet: SM6 / DXC syntax, GLSL, groupshared stores as regions (store to a global).
   First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
   the base step mad(x, c.x, c.y) is 2 instructions there (GCN's constant bus takes one SGPR per VALU op, so
   one constant needs a v_mov), so 1 instruction = ~2.1 units: add / sub / min / max / floor / ceil / round /
@@ -813,10 +838,235 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 - OpBench output modifier scales (owner, 2026-10-03: "test whether x8 and x0.25 are free ... I expect them NOT
   to be free on modern hardware, but we want to know"): tests omod4 (AMD's third scale), omod8, omod0.25, omod0.125
   (DX9-era _x8 / _d4 / _d8), base rcpmax like omod2; with the trunc test released as OpBench 0.4.0 (2026-10-03).
+  Owner's 0.4.0 runs (docs/opbench/intel-uhd-630-v4.csv, nvidia-gtx-1660-v4.csv; old tests = 0.3.0 within 0.6): trunc =
+  round = floor (UHD 630 3.96, one op; GTX 1660 12.0, quarter rate; lat identical to round): not faster. Every omod
+  scale (2, 0.5, 4, 8, 0.25, 0.125) = the x3 control on both (tput: the mul hides beside the rcp, NVIDIA 0, Intel
+  ~0.75; lat: one dependent mul, Intel ~4.4, NVIDIA 4.8): no output modifier on Intel Gen9 / NVIDIA Turing. Whether
+  x4 / x8 / x0.25 are free on AMD (the only one with omod) needs an AMD 0.4.0 report. First AMD 0.4.0 report:
+  RX 6700 XT (amd-radeon-rx-6700-xt.csv, Navi 22, 0x73DF, drift 0.1%, all consensus): = the RX 6950 XT within 0.6 on
+  every tput test (only length / atan / atan2 0.6-1.2 lower): third RDNA 2 device, amd-rdna2 unchanged. omod2 /
+  omodhalf / omod4 0.0 (free), omod8 / omod0.25 / omod0.125 = the x3 control (tput 1.2, lat 3.1): exactly AMD's
+  output modifier set (x2, x4, x0.5), as CostModel::amdFolds assumes. trunc = round = floor (one op, 2.97).
+  One tester, two cards, stock and undervolted (OpBench 0.4.0, 2026-10-04; nvidia-rtx-4090-laptop-v4-stock / -undervolt,
+  nvidia-rtx-2060-stock / -undervolt): reference drift 13-128% in every run, yet every test reached consensus (the
+  fresh reference per reading works) and undervolting changes no cost. RTX 4090 Laptop = RTX 4070 (Ada / nvidia-ampere)
+  within 15% on every tput test (MUFU 23.7, add 3.5, min 4.5, clamp 9.9, sign 27.4-28.2, pow 52): the earlier v1 hybrid
+  run's 7% lower MUFU was drift, nvidia-ampere unchanged. RTX 2060 (0x1F15) = GTX 1660 v4 (Turing) on every test except
+  iand: 1.05 tput / 0.3 lat (~free, like iadd) vs 4.0 / 3.8 on the 1660; driver 32.0.16.2002 vs the 1660's
+  32.0.15.6614, so most likely the newer driver fuses the step's xor and and into one LOP3 (3-input logic op): a
+  driver difference, not hardware.
+- TexBench (owner, 2026-10-04: texture costs next to math, "when to use math and when to use lookup tables";
+  do not assume R8 / RG8 / RGB10A2 / RG11B10F / the other ReShade formats perform as expected, test them; a
+  separate exe since it doubles the run time): tools/windows/texbench/texbench.cpp (target texbench,
+  TexBench.exe, measure-textures.bat, TexBench-<v>.zip in release.yml, TexBench.exe in the tools artifact);
+  OpBench's console / statistics / adapter / timestamp code moved to tools/windows/benchkit.hpp (shared;
+  OpBench checked under Wine after the move). Tests: 19 formats (18 ReShade + RGBA8 sRGB) coherent bilinear
+  (1024^2, 8 x 8 thread tiles, int formats Load) and random Load (4096^2); RGBA8 access / filtering; LUT 256x1,
+  LUT 32^3, random 512^2..8192^2; pixel shader ddx / ddy / fine / coarse / fwidth and Sample bilinear /
+  trilinear (1.5 texels per pixel) / aniso 4:1; render target writes per format (GB/s, 3840 x 2160). Each read's
+  coordinate depends on the previous result; bases compute the same coordinate without reading. Runs under
+  Wine (xvfb-run, lavapipe: functional only, timestamps meaningless there).
+  First runs (owner, GTX 1660, 2026-10-04, 2 runs agree; docs/texbench/nvidia-gtx-1660*.csv; units: mad = 4):
+  coherent bilinear ~39 (~10 mads) for every format up to 32 bits (R8 = RG8 = RGBA8 = RGB10A2 = RG11B10F = sRGB =
+  R16F = R32F), 64-bit and RGBA32F ~102 (half rate), int Load ~35; Load = point = bilinear = gather; trilinear 104,
+  aniso 8:1 485; latency bilinear ~113. ddx / ddy (= coarse) 28, ddx_fine / ddy_fine 12, fwidth 44. LUT 256x1
+  (random) 193, LUT 32^3 1080, random over 512^2 885 .. 8192^2 7740. Two test flaws: (1) "random" format reads:
+  the next coordinate depends only on the value read, so the chain collapses onto as many addresses as the format
+  has distinct values (R8 256 -> cached, 115; R16 / R32F -> DRAM, ~6000): measures data entropy, not the format;
+  (2) writes reach ~300 GB/s (> the 1660's 192 GB/s peak): the smooth gradient compresses (DCC); R8 74 / R16 155
+  GB/s = ROP fill rate. Fixed (owner's go): random 2D reads use x = (t.x + uv.y) * c.z + c.w (int: low 10 bits
+  of tu.x plus uv.y; same op count as the bases), writes run twice per format with one shader (U[0].x picks):
+  noise (integer hash of the pixel) and the smooth gradient, summary Noise / Smooth / Gain. OpBench rerun
+  (nvidia-gtx-1660-v4-2.csv, driver 32.0.15.6614) = v4, iand 3.99 again: the RTX 2060's 1.05 is likely its newer
+  driver; owner will update his driver and rerun.
+  Progress scale (owner): the marking digit of each label (0 of 0%, 5 of 25%, 0 of 50%, 5 of 75%, first 0 of
+  100%) on cell round((cells - 1) * q / 100) (benchkit scaleLine, console Progress).
+  Cache and compression tests (owner's go, 2026-10-04, for topt, the owner's texture sampling optimizer):
+  "Cache sizes" (random Load from RGBA8 textures of 4 KB .. 256 MB in 2x steps), "Cache use" (spread N: random
+  within N x N texels around the thread's pixel, N = 1 .. 256, kSpread with the cbuffer scale, base addr.spread;
+  row / column 32 / 256; group 8x8 / 16x4 / 32x2 / 64x1 via Test::tileW; texel size: R8 / RGBA8 / RGBA16F /
+  RGBA32F random over 1024^2), writes noise / smooth / flat (U[0].x 1 / 0 / 2) with two Gain columns.
+  Intel UHD 630 (docs/texbench/intel-uhd-630.csv, the pre-fix build): unlike NVIDIA, formats differ: bilinear
+  ~35 for R8 .. RGBA8 / R16F / RG16F / R32F, ~93 (half rate) for RGBA8 sRGB, RGB10A2, RG11B10F and the 64-bit
+  formats, RGBA32F 211 (quarter); int Load 22; writes (shared DDR4, ~38 GB/s): RGBA8 / RGBA16F / R32U 38 but
+  RGBA16 / RG16 / R32F / RG32F / RGBA32F ~20-23, sRGB / RGB10A2 / RG11B10F 26-28; ddx / ddy / ddx_fine 5.6,
+  ddy_fine 12.5, fwidth 15.
+  Blending (owner's go): Stage::Blend, RGBA8 / RGB10A2 / RG11B10F / RGBA16F / RGBA32F, plain + add (ONE, ONE),
+  lerp (SRCALPHA, INVSRCALPHA), multiply (DESTCOLOR, ZERO), min (OP_MIN) by blend state vs a shader reading the
+  content texture (blendSource); every pass restores the target from a noise texture by CopyResource, copies
+  timed alone right before and subtracted (blendPass); CSV config "blend" (ms per pass). B/op column (owner:
+  "bandwidth per performance"): texel bytes / Ops for Test::perByte (format coherent / random, texel size).
+  Polish (owner): "(shorter / longer / lower is better)" under every graph / table (OpBench too); B/op became
+  GB/s (texel bytes / (Ops x the reference fma's ns per step)); kFormats ordered by texel size; ddy_coarse and
+  "Sample point" added to the pixel shader section; GPU names in vendor colors (benchkit vendorColor: NVIDIA
+  bright green, AMD bright red, Intel bright blue).
+  Everything ReShade FX / HLSL can do (owner's go 2026-10-04, after a gap list against the parser's
+  intrinsics): OpBench + cosh / sinh / tanh / log10 / radians / ldexp / frexp / modf / isnan / isinf / f16round
+  / bitcast / refract / faceforward / det3 / matmul4 / transpose / fbl / icmpsel / udiv / umod / idiv / imod /
+  itof. TexBench "Texture functions" (offsets, gather G/B/A, Load mip 1, grad, aniso 2/4/16, trilinear in 5
+  formats, real 1D, 3D 1024x1024x2 (Tex::Vol), size queries with an x-dependent mip level (the plain query is
+  hoisted), address modes on kCoherentWide), "Color lookup tables" (Tex::Lut2D N slices side by side, 2 reads +
+  lerp, vs 3D N^3, N = 32 / 64, kLutColor from the pixel position), compute (storage stores per format via
+  Tex::Storage / Test::uav, formats without typed UAV store support skipped; groupshared read / write / stride 32
+  / barriers: fxc drops groupshared writes nothing reads, so computeSource reads GS at the end; 8 atomics on
+  groupshared and R32U storage, own address vs 64 threads on one (not a dispatch: TDR risk); local array
+  (indexable temp), const array (icb), select vs uniform / divergent [branch]), "Pass states" (Stage::Pass: 1-8
+  RGBA8 targets, clears, GenerateMips, heavy 32-sin shader vs stencil 50% / discard tiles / discard pixels).
+  Progress bars: at most benchkit::kMaxCells (70) cells (stepsPerCell).
+  First full run (owner, GTX 1660, 2026-10-04, docs/texbench/nvidia-gtx-1660-v5.csv, docs/opbench/nvidia-gtx-1660-v5.csv):
+  random reads now ~6400-7500 for every format (DRAM bound: the fix works); cache sizes: <= 32 KB ~100, 128 KB -
+  1 MB ~450, 2 MB 940, 4 MB 2640, >= 16 MB ~6000-7400 (texture cache ~64 KB, L2 1.5 MB); spread <= 8 texels ~35,
+  16-32 ~80, 64+ 280-470; row = column (tiled layout); offsets, size queries, address modes, 1D = 2D free; grad 1:1 =
+  aniso 2:1 = trilinear 104, aniso 4:1 231, 16:1 992; trilinear R8 / RGB10A2 / RG11B10F 104, RGBA16F 167, RGBA32F
+  232; tex3D linear 112; LUT 32: 2D (2 reads) 108 vs 3D 104, LUT 64: 187 vs 146 (3D wins); storage stores
+  coherent RGBA8 53, other 32-bit ~67, 64-bit 140-164, 128-bit ~400, random ~7400-8300; groupshared read 1.7 /
+  write 3.8, stride 32 ~460-500 (bank conflicts), barrier 18, groupMemoryBarrier 48, memoryBarrier 66; gs atomics
+  ~1 (CAS 16), 64 on one address 155-545 (CAS 1020); storage atomics ~250-280 (CAS 532), one address ~1000-1240;
+  local array read 40, write + read 848, const array (divergent index) 239; derivatives as before. OpBench: cosh /
+  sinh 28, tanh 44, log10 12, radians ~0, ldexp 7, frexp 26, modf 12, isnan 4, isinf 7, f16round ~0, refract 45,
+  faceforward 23, matmul4 68, transpose free, det3 32, fbl 27, icmpsel 8, udiv / umod ~67, idiv / imod ~82, itof 12,
+  iand still 4.0 (driver 32.0.15.6614). Flaws found and fixed: CSV test names with commas were unquoted; the heavy
+  pass shader folded to a constant in fxc (now cbuffer constants); the branch tests were flattened by the driver
+  (sides now 4 sin / 4 cos); writes measured above the 1660's 192 GB/s (230-300: back to back full-screen draws
+  stay in NVIDIA's on-chip tile cache) - writes and draw pass tests alternate between two targets; blend results
+  were two-valued (~0.42 / ~0.74 ms, copy-based restore) - restore by plain draws, two targets; summary lines fit
+  the console (consoleColumns, names <= 24, CmpXchg), numbers keep their width.
+  Restructure (owner, 2026-10-04: "OpBench for ops, TexBench for texture operations", pixel shader ops stay):
+  groupshared read / write / stride 32 / barriers, groupshared atomics (aAdd .. aCmpXchg, "1" = 64 threads on
+  one address), local / const arrays, select vs branches moved to OpBench (Test::setup kGroupshared /
+  kLocalArray; a step with ';' is statements). TexBench keeps storage stores and storage atomics (aAdd (1) ...).
+  Formats x filtering matrix (owner: point vs bilinear differ in some formats): every format x Load, point,
+  bilinear, gather, trilinear, aniso 2x / 4x / 8x / 16x (MaxAnisotropy on a 16:1 footprint; Test::maxAniso;
+  integer formats Load + gather), one summary table (printMatrix) with the bilinear GB/s; replaces the coherent
+  format list, the RGBA8 access section and the per-format trilinear / aniso tests. Test::needs (format support
+  bits) leaves out what a GPU lacks (storage, gather, mip autogen) and lists it. CSV column "seconds" per test
+  and "# run time" (owner: shrink texture sizes where they do not matter, tune as we go). Graphs grow to 40
+  characters in wide consoles.
+  Maxwell (2026-10-04, OpBench 0.4.0, clean): GTX 860M (GM107, nvidia-gtx-860m.csv) and Quadro M5000M (GM204,
+  nvidia-quadro-m5000m.csv) = Pascal except min / max / step 4.6-4.9 (Pascal 6.8), clamp 11.5 (13.7): cost model
+  `nvidia-maxwell` (kNvidiaMaxwell). The 860M (driver 32.0.15.8278) measures sqrt 24 (rsqrt + rcp), the M5000M
+  (32.0.15.8194) 10: another driver difference. Maxwell integer: imul slow (ixmul base 10, XMAD), utof / ftou ~free,
+  bitrev 3.5, popc 7, fbh 14; min16float runs at 32 bits.
+  GTX 1660 Ti (nvidia-gtx-1660-ti-v4.csv, driver 32.0.16.1714, clean tput) = GTX 1660 except iand 1.1 (1660 on
+  32.0.15.6614: 4.0): with the RTX 2060 (32.0.16.2002: 1.05) the third card where a 32.0.16 driver makes the
+  xor + and one instruction: a driver improvement, not hardware.
+  Confirmed by the owner (2026-10-04): his own GTX 1660 after a driver update measures iand ~1 like the others (same
+  card, only the driver changed; most likely LOP3 merging the and + xor). measure-both.bat (owner): OpBench, then
+  TexBench, no pause in between, pause at the end (tools artifact / zip).
+  Run time (owner: TexBench "takes forever" on the UHD 630): calibrate (Plan) starts at one iteration and, when a
+  compute run still takes > 8 ms, halves the thread groups down to kMinGroups (1024 = 64K threads); texelData uses
+  splitmix64 instead of mt19937 + uniform_real_distribution; "Compiling N shaders ... k" before "Warming up"
+  (TexBench compiled its ~1000 shaders after printing the 2-second warm-up message; OpBench gets the counter too).
+  Run time vs accuracy (owner: "good numbers first, but do not keep users longer than needed"): reps 7 -> 5 in
+  both programs; cache-use tests on 2048^2 (reads stay within 1408 texels), coherent storage writes into 1024^2
+  (random stay 4096^2). Pending the owner's next runs (seconds column): whether the matrix keeps dep / lat
+  (owner: they stay only if we learn something from them).
+  Intel UHD 630 full run (docs/texbench/intel-uhd-630-v5.csv; the build before the write / blend fixes, names with
+  commas unquoted): formats: 8 / 16 / 32-bit bilinear ~35 except sRGB / RGB10A2 / RG11B10F / 64-bit ~93, RGBA32F
+  209, RGBA32U/I Load 86; trilinear R8 93, RGB10A2 / RG11B10F / RGBA16F 209, RGBA32F 441; grad 1:1 79; aniso 2:1 93,
+  4:1 209, 16:1 905; tex3D linear and tex3Dfetch both 93 (3D loads slow); size queries NOT free (tex2Dsize 26,
+  tex3Dsize 77); offsets / gathers / address modes free; LUT 32 2D = 3D 89.6, LUT 64 2D 168 vs 3D 128; cache
+  sizes <= 32 KB ~100, 64 KB 204, 128 KB - 512 KB ~380-520, 1 MB 700, 4 MB 1680, 256 MB 4240 (L3 + shared LLC:
+  gradual); spread <= 4 ~20, 8 30, 16 60, 128+ 290-370; row 256 118 vs column 256 291 (columns cost more here);
+  group shapes equal (29.5); stores coherent 70-72 (R8 114), 64-bit 137, 128-bit 256, random 3400-3900; gs read
+  1.7, write 11.4, stride 32 ~30 (mild bank conflicts), barrier 35, groupMemoryBarrier 4, memoryBarrier 62; gs
+  atomics ~30 (CAS 40), one address 224; storage atomics 94 (CAS 242), one address ~1710; array read 27, write +
+  read 116, const array 94; branch uniform 15.5 vs divergent 31.7 vs select 29.8 (branches work here);
+  derivatives as before. Writes / blending / pass states were shader bound: the 4-hash noise (integer
+  multiplies are slow on Gen9) capped an RGBA8 write at ~11.5 GB/s, linear in bytes per pixel (R8 2.9, RG8 5.7),
+  while the folded "heavy" constant pass wrote at ~40 GB/s (the DDR4's bandwidth). Fixed: kNoise = one Load per
+  pixel from a 128 x 128 noise texture (TN RGBA32F / TNU RGBA32U at t4 / t5, bound once) for writes, blending
+  and pass states. discard per pixel cost 3x there (2.98 vs 0.83 ms).
+  measure-all-gpus.bat (owner): OpBench + TexBench for every GPU in the PC, each once (`--adapters` prints the
+  hardware adapter indices, one per LUID and per vendor / device / subsystem / revision / memory (owner: the GTX 1660
+  was listed twice with different LUIDs, so --adapters printed 0 1 2), no software adapter; the batch loops over them with
+  for /f "usebackq" ... (`call "%~dp0OpBench.exe" --adapters`)); checked under Wine (cmd).
+  Pixel shader order (owner's go 2026-10-04: atomics show how the GPU schedules pixels; runOrder, not a timing,
+  after the measurements, `--filter order`): one full-screen draw into 1024^2, each pixel InterlockedAdd on one
+  counter and stores the number at its position (R32_UINT UAV, read back). Blocks: runs of N numbers (N = 4 ..
+  256), share whose bounding box is exactly N pixels ("compact") + the most common shape; the largest N with >= 75%
+  compact = "pixels shaded together". Tiles: aligned B x B squares, B^2 / (max - min + 1). PNGs (WIC, owner) next to the CSV
+  (order gradient; middle 64^2 8x with block colors and lines). CSV config "order".
+  Results per section (owner, 2026-10-04: "hide the run time" by showing each section as it completes): benchkit
+  Progress::start / pause (erases the bar, scale and blank line) / resume (redraws them filled to the current step);
+  OpBench measures in display-order sections (Group: shown tests + bases / solos with the first section needing them;
+  leftovers last; all 3 configs per section, fwd / bwd within the section), graph scale fixed at 100 units; TexBench
+  prints a section when its last test is done (`left` counts; printMatrix / printTable / printWrites / printBlend /
+  printPass). Final summary = GPU box, warnings, footer.
+  Score boxes (owner, 2026-10-04: "a number users can brag about", spec-list units): benchkit printScore (double-line
+  cyan box, headline in large yellow block digits, bigNumber / threeDigits / visibleColumns). OpBench: fp32 TFLOPS
+  (mean reference fma), fp16 TFLOPS (mad16, only with 16-bit min precision), special functions Gops/s (rcp step).
+  TexBench: texture rate GTexels/s (RGBA8 bilinear whole step time: tex and ALU overlap, so vsBase understates the
+  texture time; spec-like), pixel fill rate (max write GB/s / bytes), memory bandwidth (max noise write). Also as
+  "#" CSV header lines. CSV rewritten at every section display (GPU idle then; owner: not during measurements).
+  Pixel shader order timed too (owner): plain / store / counter + store draws, units per pixel over plain.
+  TexBench 0.5.0 full runs (owner, 2026-10-04; docs/texbench/*-v6.csv): run time 211 s (GTX 1660) and 178 s (UHD 630; the
+  earlier builds took "forever" there). Scores: GTX 1660 165.8 GTexels/s (spec 157 at 1785 MHz: boost above it), 63.5
+  GPixels/s (spec 85.7), 154 GB/s writes (spec 192); UHD 630 15.4 GTexels/s, 9.7 GPixels/s (8 px/clk x 1.2 GHz = 9.6),
+  25.6 GB/s (dual DDR4-2400 peak 38.4). Pixel shader order, GTX 1660: runs of 32 numbers are 4 x 8 pixel blocks (100%
+  compact; a warp = 8 quads), 64 not (0.7%: the next warp lands elsewhere); 512 x 512 tiles 72% contiguous. UHD 630: no
+  numbers at all (all pixels "without a number"; the store itself ran: it costs time) - counter switched from a
+  RWStructuredBuffer to a 1 x 1 R32_UINT texture, counter / missing pixels now CSV rows; rerun wanted.
+  That changed the GTX 1660's result (owner's 0.5.0 run: blocks 0% compact, counter + store 0.75 ms vs 0.04): NVIDIA
+  merges a warp's buffer atomics into one (consecutive numbers per warp: the 4 x 8 blocks), texture atomics are per
+  lane (interleaved, 18x slower). Now: structured buffer first, texture only when the buffer gives no numbers
+  (OrderResult::counterKind, CSV row "counter kind"). Real cause on the UHD 630 (owner's next CSV: counter 2097152 = 2x the pixels):
+  the counter cleared while bound to OM was not reset between the warm-up and the measured draw; now cleared while
+  unbound, and the numbers are taken relative to the smallest one read back. OpBench score: fp16 / rcp from their costs relative to the
+  reference (raw timings came from other moments: 1660 fp16 showed 3.7 vs fp32 4.7 TFLOPS at the same cost, 45% drift).
+  Stall on the owner's UHD 630 (TexBench, after the random section, 2026-10-04): a disjoint timestamp reading (-1)
+  counted as "faster than 2 ms", so calibration doubled the run length blindly (up to 2^20 iterations). Fixed:
+  Timer::time retries disjoint readings (4 tries), calibrate / draw-count loops stop on -1; a query that fails
+  (device removed) or takes > 60 s ends the run with a message naming the test (benchkit gCurrent).
+  Owner confirmed: Windows logged event 4101 (display driver reset, TDR) at the stall. Caret hidden while running
+  (ESC[?25l, restored atexit / Ctrl+C). Scrolling (owner: every update snapped the console to the bottom): option 2,
+  progress only in the window title between sections, the bar redrawn when a section prints (Progress::draw).
+  Title (owner): "<program> - <GPU> - <pct>% <test>" (benchkit gGpu / setTitle), "done" at the end, "stopped (error)"
+  in fail(). Live bar (owner): Progress::live until the first section prints; compiling shows a 30-cell bar + % (and in
+  the title). Background shader compiling per section: owner agreed to wait until after the 0.5.0 release (driver-side
+  compilation beside the measurements needs a test round on real cards).
+  ShaderInfo (owner's go 2026-10-04, after the iand driver finding: the real graphics driver's view instead of
+  ptxas; tools/windows/shaderinfo, ShaderInfo.exe + shader-info.bat in the tools artifact): Vulkan at run time,
+  per GPU: VK_KHR_pipeline_executable_properties (statistics + internal representations of two compute shaders,
+  int.comp / float.comp -> shaders_spv.h; `--spv` adds one), VK_AMD_shader_info (VGPRs, disassembly),
+  VK_KHR_performance_query counters (owner's mention; listed only), yes / no for VK_AMD_gpa_interface (counters, thread
+  traces, PROFILING clock mode: stable clocks for OpBench on AMD later?) and VK_INTEL_performance_query, all device extensions in the file. Report shaderinfo-<gpu>.txt. Lavapipe has none
+  of them (Wine check: runs, reports "nothing"); waiting for the owner's GTX 1660 / Intel reports to decide.
+  First reports (owner, 2026-10-04; docs/shaderinfo/): GTX 1660 (driver 617.14): pipeline executable properties yes but
+  statistics only (Register Count 16, Binary Size 1280 / 768 bytes ~ 16 bytes per SASS instruction, Local Memory Size
+  garbage 2^36), no disassembly, no performance query. UHD 630 (101.2141): Instruction Count (25 / 39 GEN instructions),
+  Cycle Count estimate (87 / 152), SEND count, spills, loops; no disassembly; VK_KHR_performance_query with 195 counters
+  (EU active / stall, FPU0 / FPU1, sampler busy / bottleneck, L3 / GTI bytes, ...) and VK_INTEL_performance_query.
+  So: an Intel instruction / cycle count source (sopt has none) and NVIDIA register counts / binary size from the real
+  drivers; using them in sopt is a design decision for the owner.
+  Owner (2026-10-04): if useful, driver shader statistics could also be a ReShade feature (not this project's scope;
+  a ReShade add-on like sopt-timer would be the natural route).
+  Release 0.5.0 (owner, 2026-10-05: "release tonight so people can use them while I sleep"; one zip for testers):
+  release.yml builds GPU-Bench-<v>.zip (OpBench, TexBench, ShaderInfo, GPU-Bench.bat menu (owner: number keys, colors), measure-main-gpu
+  (renamed from measure-both, owner) / measure-all-gpus run ShaderInfo
+  first, README.txt = tools/windows/GPU-BENCH-README.txt, <Program>-README / <Program>-TESTS) instead of the separate
+  OpBench / TexBench zips; sopt and sopt-windows-tools zips unchanged. The footers name OpBench-TESTS.txt /
+  TexBench-TESTS.txt. Process: PR merged to main, release.yml run manually on main = draft, owner publishes.
+  OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
+  pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
+  summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
+  fma+fma (control), fma+int, fma+minmax, fma+cvt, fma+rcp, fma+half; solo tests int, minmax1, cvt1, rcp1,
+  half1. dep / lat are meaningless for pair tests (one chain = the mad chain).
+  Owner's ideas (2026-10-04, not decided): expected costs per cost model built into
+  OpBench / TexBench, telling the user when their card does not match its model ("your report is very
+  interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs
+  more data first).
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
-  and ptxas -v (`parsePtxasRegs`); informative only, not used to keep / drop). Polynomial approximations
+  and ptxas -v (`parsePtxasRegs`); informative only at first). Register variants (owner, 2026-10-04: "2-pass
+  looks for variants that may not be faster but might be preferable in other ways"; part 2 first): with --isa /
+  --sass, accepted candidates that are not statically cheaper (up to accuracySlack above) are measured too (max 2
+  per region, `registers` bucket); kept as Variant::fewerRegisters + notFaster (renamed from accuracyOnly) when
+  some vendor's VGPRs / regs drop, none rise, and every vendor is at most 1 instruction slower; labeled "fewer
+  registers (not faster)", listed last, never SOPT_AUTO, not in sopt-found.txt; registers join the Pareto check
+  (amdVgprs, nvRegs). Part 1 (later, behind a flag, bench / corpus runs to see the impact): the second phase also
+  keeps the best hit per extra static measure (critical path, live values, MUFU ops). Polynomial approximations
   (`--poly`, planned; owner 2026-10-03: after the full corpus run): a special mode for development, not a default; its approximations go into
   docs/inexact-tricks.md. Later (owner): the compiler's output as a seed or comparison variant; instead /
   first (owner): do what the compilers do by reading their source (done for Mesa nir_opt_algebraic, ACO,

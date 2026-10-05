@@ -104,6 +104,8 @@ const CostModel& costGeneric();
 const CostModel& costRdna3();
 // nvidia: NVIDIA Ada SASS (ptxas + nvdisasm) in quarter-ALU units, MUFU at 8x.
 const CostModel& costNvidia();
+// nvidia-maxwell: NVIDIA Maxwell (GTX 860M, Quadro M5000M) from OpBench timings, quarter units.
+const CostModel& costNvidiaMaxwell();
 // nvidia-pascal: NVIDIA Pascal (GT 1030, GTX 1060) from sopt-opbench timings, quarter units.
 const CostModel& costNvidiaPascal();
 // nvidia-turing: NVIDIA Turing (GTX 1660) from sopt-opbench timings, quarter units, MUFU ~3x extra.

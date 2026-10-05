@@ -1,0 +1,13 @@
+#version 450
+// Integer chain like OpBench's iand test: (x & a) ^ b fits one NVIDIA LOP3; then a multiply.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint data[]; };
+layout(push_constant) uniform P { uint a, b, c, n; };
+void main() {
+  uint x = data[gl_GlobalInvocationID.x];
+  for (uint i = 0u; i < n; ++i) {
+    x = ((x & a) ^ b) * c;
+    x = ((x + a) ^ b) * c;
+  }
+  data[gl_GlobalInvocationID.x] = x;
+}

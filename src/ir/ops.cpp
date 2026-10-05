@@ -133,6 +133,19 @@ const CostModel kNvidiaTuring{"nvidia-turing",
 // mul hides), pow two of them (24); min/max/step/compares ~1.75 ops (6.8: no free min / max on a second
 // pipe as on Turing), so clamp 14 (two of them, no med3) and compare + select 12 (select 5 after the
 // 7-unit compare); lerp two ops, sign 10 (~2.5 ops). Contraction to fma; no omod, no max3.
+// NVIDIA Maxwell (GTX 860M = GM107 and Quadro M5000M = GM204, docs/opbench/nvidia-gtx-860m.csv /
+// nvidia-quadro-m5000m.csv, OpBench 0.4.0, clean: drift <= 0.3%; the two agree within ~0.5): as Pascal
+// (add/mul/mad and abs one op, neg / saturate free, the quarter-rate unit and floor / ceil / round / frac 10,
+// pow 24, sign 10, lerp 8) except min / max / step / compares ~1.2 ops (4.6-4.9 against Pascal's 6.8), so
+// clamp 12 (measured 11.5) and compare + select 12 (select 7 after the 5-unit compare). sqrt 10 (M5000M;
+// the 860M's newer driver 32.0.15.8278 measures 24, rsqrt + rcp). Contraction to fma; no omod, no max3.
+const CostModel kNvidiaMaxwell{"nvidia-maxwell",
+  {0, 0, 1, 4, 1, 10, 10, 10, 10,
+   10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 4, 4, 10, 5, 5, 5, 24,
+   5, 5, 5, 5, 5, 5, 4, 8, 12, 7, 1,
+   4, 14, 18, 18, 1, 1},
+  1, true};
+
 const CostModel kNvidiaPascal{"nvidia-pascal",
   {0, 0, 1, 4, 1, 10, 10, 10, 10,
    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 4, 4, 10, 7, 7, 7, 24,
@@ -258,6 +271,7 @@ const CostModel kAmdTerascale2{"amd-terascale2",
 const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }
 const CostModel& costNvidia() { return kNvidia; }
+const CostModel& costNvidiaMaxwell() { return kNvidiaMaxwell; }
 const CostModel& costNvidiaPascal() { return kNvidiaPascal; }
 const CostModel& costNvidiaTuring() { return kNvidiaTuring; }
 const CostModel& costNvidiaAmpere() { return kNvidiaAmpere; }
@@ -277,7 +291,7 @@ const CostModel kRdna3NoFolds = [] {
 
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kNvidia ||
-                 &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
+                 &objective == &kNvidiaMaxwell || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
                  &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kAmdRdna2 ||
                  &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
              ? kSearch
@@ -291,6 +305,7 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kRdna3.name) return &kRdna3;
   if (name == kSearch.name || name == "rdna3-search") return &kSearch;
   if (name == kNvidia.name) return &kNvidia;
+  if (name == kNvidiaMaxwell.name) return &kNvidiaMaxwell;
   if (name == kNvidiaPascal.name) return &kNvidiaPascal;
   if (name == kNvidiaTuring.name) return &kNvidiaTuring;
   if (name == kNvidiaAmpere.name) return &kNvidiaAmpere;

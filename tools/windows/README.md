@@ -34,9 +34,14 @@ DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host
 | `timings.py` | merges several CSVs into one Markdown table |
 | `ReShade64.dll`, `ReShade-LICENSE.md` | ReShade 6.8.0, full add-on support, unchanged (CI build) |
 | `OpBench.exe`, `measure-gpu.bat` | instruction costs on this GPU, for sopt's cost models (below) |
+| `TexBench.exe`, `measure-textures.bat`, `TexBench-TESTS.txt` | texture reads, derivatives and render target writes per format (below) |
+| `ShaderInfo.exe`, `shader-info.bat` | what each Vulkan GPU driver reports about the shaders it compiles: statistics, disassembly (where offered), hardware counters; writes `shaderinfo-<gpu>.txt` (a test before building on it) |
+| `GPU-Bench.bat` | a menu (number keys) for all of the batch files below |
+| `measure-main-gpu.bat` | ShaderInfo, then OpBench, then TexBench on the main graphics card, without stopping in between (pauses at the end) |
+| `measure-all-gpus.bat` | the same for every graphics card in the PC (each card once, no software renderer; `--adapters` lists them) |
 
 Sources: `tools/windows/timer` (add-on, timings.py), `tools/windows/host` (sopt-host),
-`tools/windows/opbench` (OpBench), this folder (scripts).
+`tools/windows/opbench` (OpBench), `tools/windows/texbench` (TexBench), `benchkit.hpp` (shared by both), this folder (scripts).
 
 # sopt-timer and sopt-host (details)
 
@@ -189,10 +194,39 @@ half of its readings agree (their mean is the result; "no consensus" otherwise);
 Version 5 (0.4.0, owner 2026-10-03): more output modifier scales after `rcp` (`omod4`; `omod8`,
 `omod0.25`, `omod0.125`: free on DX9-era GPUs, measured to know whether they still are) and `trunc`
 (round toward zero, suggested by a tester).
+
+Version 6 (0.5.0, owner 2026-10-04): the rest of ReShade FX's math (hyperbolic functions, ldexp / frexp /
+modf, isnan / isinf, f16 conversions, refract, faceforward, matrices, determinant, integer divide / modulo);
+"(shorter is better)" under each section, aligned with the graphs; GPU names in their vendor's color; the
+progress bar stays within 70 characters. Also a percentage scale (0% 25% 50% 75% 100%) above each progress bar.
+100% is the end of the two passes over every test; extra passes for tests whose readings disagree
+continue past it in yellow (`+` without colors).
+Results per section (owner, 2026-10-04: users can read while the rest is measured): OpBench measures section
+by section (all three configurations, the bases with the first section that needs them, forward then
+backward within the section) and prints each section's table as soon as it is done, with the progress bar
+below; graphs on a fixed scale (a full bar = 100 = 25 mads, longer costs fill it). TexBench prints each
+section once its last test is measured. At the end: the GPU box, drift / consensus warnings, the footer.
 The exe asks NVIDIA / AMD drivers for the discrete GPU on laptops with switchable graphics
-(`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases: the
-`OpBench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases (exe, measure-gpu.bat,
-README.txt).
+(`NvOptimusEnablement`, `AmdPowerXpressRequestHighPerformance`). Releases (since 0.5.0, owner: one zip for
+testers): `GPU-Bench-<version>.zip` on https://github.com/CeeJayDK/sopt/releases with OpBench, TexBench and
+ShaderInfo, their batch files (measure-main-gpu.bat / measure-all-gpus.bat run ShaderInfo first), README.txt
+(GPU-BENCH-README.txt) and the programs' READMEs / TESTS files prefixed with their names.
+
+## TexBench (texture costs)
+
+`measure-textures.bat` (or `TexBench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)
+writes `texbench-<gpu>.csv` and `texbench-dxbc\` next to the exe. Owner's idea (2026-10-04): ballpark
+costs of texture operations next to math (when a lookup table beats computing), and every format ReShade
+supports measured instead of assumed; a separate program because it about doubles OpBench's run time.
+Same method as OpBench (chains, a fresh reference mad before every reading, extra readings until they
+agree; shared code in `benchkit.hpp`), but each test is measured in all configurations in a row and its
+texture freed afterwards (19 formats at 4096 x 4096 would not fit together). Sections: formats with
+coherent reads (bilinear, 1024 x 1024, each thread within one texel of its pixel) and random reads
+(Load, 4096 x 4096); access and filtering on RGBA8 (Load, point, bilinear, gather, trilinear,
+anisotropic via SampleGrad); a 1D LUT (256 x 1), a 3D LUT (32^3) and random reads from 512^2 to 8192^2;
+pixel shader derivatives (ddx / ddy, fine / coarse, fwidth) and Sample with automatic mip selection
+(bilinear, trilinear, 4:1 anisotropic); render target writes per format (GB/s, 3840 x 2160).
+`tools/windows/texbench/TESTS.txt` explains each test. Releases: in `GPU-Bench-<version>.zip`.
 
 ## ReShade's own statistics (6.8.0 source, `runtime.cpp` / `runtime_gui.cpp`)
 

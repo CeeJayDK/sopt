@@ -28,7 +28,7 @@ as one more fma, and "Cost 0" means it is free (the GPU folds it into a neighbou
 
 Before every test the reference is measured again. A GPU clock change (boost, temperature,
 power saving) then affects the reference and the test alike, instead of making the test look
-cheaper or dearer. Every test runs twice: forward through the list, then backward. Slow drift
+cheaper or dearer. Every test runs twice: forward through its section, then backward. Slow drift
 cancels out. When the two readings of a test disagree (by more than 0.75 units or 15%), it is
 measured again, like a third sensor: two readings show that one is wrong, three or more show which
 one. This repeats until more than half of the readings agree (at most 6 passes); the result is the
@@ -97,6 +97,10 @@ Vector (float2 / float3 / float4)
   length, distance      dot, sqrt (distance: 3 subtracts first), plus one fma of the step.
   normalize             dot, rsqrt and 3 multiplies.
   reflect               i - 2 * dot(i, n) * n.
+  refract, faceforward  refraction (dot, sqrt, select) and faceforward (dot, compare, select).
+  det3                  determinant of a float3x3.
+  matmul4               mul(float4x4, float4): 4 dot products (16 fmas).
+  transpose             the same with transpose(): should cost nothing extra.
 
 Written out by fxc (no single instruction exists; fxc emits a sequence)
   smoothstep        subtract, mul_sat, mad, 2 multiplies.
@@ -105,6 +109,16 @@ Written out by fxc (no single instruction exists; fxc emits a sequence)
   tan               sin, cos and a divide.
   atan, atan2       polynomial approximations (atan2 adds quadrant fixes).
   asin, acos        polynomial with a sqrt.
+
+More intrinsics
+  bitcast           asint / asfloat: should be free.
+  radians           a multiply (degrees too).
+  log10             log2 and a multiply.
+  isnan, isinf      a compare and a select (a driver may drop isnan if it assumes no NaNs).
+  modf, frexp       fraction and integer part; mantissa and exponent.
+  ldexp             x * exp2(e).
+  f16round          f32tof16 + f16tof32: rounding a value through half precision.
+  tanh, sinh, cosh  written out with exp (and a divide for tanh).
 
 Integer and conversions (chains of uint values, x = (x ^ a) * b, with random 32-bit constants)
   bitor             one integer OR on a float value: is switching between float and int free?
@@ -115,15 +129,46 @@ Integer and conversions (chains of uint values, x = (x ^ a) * b, with random 32-
   imul              a second 32-bit multiply (slower than float on some cards).
   popc, fbh         countbits, firstbithigh.
   bitrev            reversebits.
+  fbl               firstbitlow.
+  icmpsel           unsigned compare and select.
   unitf             uint -> float in [1, 2) through the bits (shift, or): a fast random-number trick.
-  utof, ftou        uint -> float and float -> uint conversions.
+  utof, ftou        uint -> float and float -> uint conversions; itof: int -> float.
   ftoitof           float -> int, an integer or, int -> float (fxc writes float(int(x)) alone as
                     one truncation instruction, so the or keeps the conversions).
+  udiv, umod        unsigned divide / modulo by a small divisor (1 .. 255). Most GPUs have no
+  idiv, imod        integer divide instruction, so the driver writes a sequence; signed is longer.
 
 Half precision (min16float)
   mad16, add16, mul16, rcp16, sqrt16, exp2_16   the same steps in 16-bit floats. AMD RDNA and some
                     other cards run these at twice the rate (two per instruction). Drivers may run
                     min16float at 32 bits instead. The summary and the CSV header say which.
+
+Compute: groupshared memory and barriers (moved from TexBench)
+  gsread, gswrite, gswriteread   groupshared memory (fast on-chip memory shared by a thread group).
+  gsread32, gswrite32            lanes 32 words apart: they hit the same memory bank (bank conflicts).
+  barrier, groupbarrier, membarrier   barrier() / groupMemoryBarrier() / memoryBarrier() after a write.
+
+Compute: groupshared atomics
+  aAdd, aAnd, aOr, aXor, aMin, aMax, aXchg, aCmpXchg = atomicAdd ... atomicCompareExchange, each
+  thread on its own address; with "1" (aAdd1 ...): the group's 64 threads on one address.
+
+Compute: local arrays and branches
+  arrayread, arraywrite   a local float A[16] indexed at run time (the index differs per thread). fxc
+                    puts such arrays in indexable temps, which some GPUs keep in slow memory.
+  constarray        a static const float K[16] indexed at run time.
+  selectboth        4 sin and 4 cos both computed, one result picked.
+  branchuni         the same as a branch; all threads of a group take the same side.
+  branchdiv         the same as a branch; neighbouring threads take different sides, so every
+                    group runs both.
+
+Parallel issue: an fma and X together
+  fma+int, fma+minmax, fma+cvt, fma+rcp, fma+half   half of the chains run mad, the other half run X
+                    (integer xor + add, min + max, uint -> float, rcp, an fp16 fma); int1 ... half1
+                    measure X alone. Cost = one fma and one X together; the comment gives it as a
+                    percentage of the two one after the other (4 + X alone). Below ~85% they run at
+                    the same time: separate units or slots (old AMD VLIW cards, NVIDIA's integer pipe
+                    beside the float pipe, a second FP32 pipe, AMD dual issue).
+  fma+fma           control: the same fma on both halves (should be ~100%).
 
 Reading the CSV
 ---------------
@@ -135,3 +180,13 @@ moved (drift) in each mode. Then one row per mode and test:
   passes, consensus, readings   how many passes the test needed, whether most readings agreed,
                  and every reading (units, ';'-separated)
   step           the HLSL step, note: what it is about
+
+OpBench score (at the end)
+  fp32               TFLOPS from the reference multiply-add (2 floating point operations each).
+  fp16 (min16float)  TFLOPS of the half precision multiply-add ("runs at fp32" when the driver does not
+                     run min16float at 16 bits).
+  Special functions  rcp per second (Gops/s); sqrt, exp2, sin and the like usually run at the same rate.
+  The fp32 number is the one GPU spec lists give ("processing power"); measured ones are usually a bit
+  lower, or higher when the GPU boosts above its listed clock.
+
+The CSV is written again after every section, so a run stopped early still leaves its results.

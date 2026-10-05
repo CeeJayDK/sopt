@@ -28,6 +28,10 @@ build/sopt-fx -I reshade-shaders/Shaders -o sopt-out SweetFX/Shaders [--isa] [--
 build/sopt-fx -I reshade-shaders/Shaders --list --skips SweetFX/Shaders/SweetFX/Vignette.fx
 ```
 
+On a terminal sopt-fx shows a title box, section headings and progress bars (with the
+percentage done and the time left) for the search and the measurement; redirected output, or
+`NO_COLOR` set, gives plain text.
+
 Reads every `.fx` (directories recursively) with the ReShade FX preprocessor and
 parser (vendored in `third_party/reshadefx`), finds regions in the functions that pixel
 shaders reach, searches each (in parallel, `--time 5` s and `--max-bank 500000` per
@@ -81,7 +85,10 @@ and skipped.
 inputs from what the passes' vertex shaders write (`PostProcessVS` texcoord in [0, 1],
 other vertex shaders by range analysis, including out parameters of functions they
 call; where that finds nothing, TEXCOORD0..9 are [0, 1] by convention, also for members
-of struct inputs), `SV_Position` in pixels ([0, 7680], 8K; `--max-width N` up to the hardware limit 16384), texture fetches by format (the back buffer as
+of struct inputs), `SV_Position` in pixels ([0, 7680], 8K; `--max-width N` up to the hardware limit 16384), compute
+shader thread IDs (`SV_DispatchThreadID` / `SV_GroupID` [0, 7680] like `SV_Position`,
+`SV_GroupThreadID` / `SV_GroupIndex` from the group size; read converted to float, as
+`float2(id.xy)`), texture fetches by format (the back buffer as
 8-bit SDR, grid 255; depth [0, 1]), helper parameters from their call sites, and
 interval propagation over reaching definitions. Otherwise the range is *assumed*
 ([-1000, 1000]): such regions are searched, but their variants only appear in the
@@ -122,12 +129,23 @@ parameters first; after each answer the effects are read again, so values comput
 from it get a range too. A range is a fact for the variable wherever the analysis
 has none (key: file, function or `global` for uniforms, variable).
 
+**Compute shaders.** ReShade FX compute passes (`ComputeShader = CS<8, 8>`) and HLSL entry
+points with `[numthreads]` are searched like pixel shaders. A store into a resource
+(`tex2Dstore(s, id.xy, value)`, HLSL `Output[id.xy] = value` and `+=` etc.) is a region:
+the value, budget 8-bit identical for an 8-bit storage texture, else rel 1e-6. Groupshared
+memory has no range: give one per variable (`cs.fx groupshared tile = [0, 1]`), it applies
+to every read.
+
 **Plain HLSL.** `.hlsl` / `.hlsli` files (or any file with `--hlsl`) are read as SM5
-pixel shaders, entry point `--entry NAME` (default `main`): cbuffers, typed textures,
-sampler states and texture methods (`Sample`, `SampleLevel`, `Load`, `GatherRed`, ...)
-are understood, variant files are written in the same HLSL. An HLSL texture has no
-format, so its reads have no range: give one per texture (`t.hlsl texture gColor =
-[0, 1]`), it applies to every read. No per-vendor picks (`SOPT_AUTO`) for HLSL.
+pixel shaders, or compute shaders when the entry point (`--entry NAME`, default `main`) has
+`[numthreads]`: cbuffers, typed textures, sampler states and texture methods (`Sample`,
+`SampleLevel`, `Load`, `GatherRed`, ...), `Name[index]` reads, RW textures and buffers,
+`Buffer` / `StructuredBuffer` of float vectors, groupshared memory, barriers and
+`Interlocked*` are understood (structured buffers of structs and byte address buffers
+only parse: their reads end a region); variant files are written in the same HLSL. An HLSL
+texture or buffer has no format, so its reads have no range: give one per resource
+(`t.hlsl texture gColor = [0, 1]`, `t.hlsl buffer Weights = [0, 1]`), it applies to every
+read. No per-vendor picks (`SOPT_AUTO`) for HLSL.
 
 **Budget from use.** Pixel shader output to an 8-bit target without blending: 8-bit
 identical (color8, max code diff 0). Used in a comparison: exact. Only used as texture
@@ -211,6 +229,14 @@ Accuracy variants: a candidate that is not cheaper but has at most a quarter of 
 original's error against exact math is kept as "more accurate" (sopt-fx: if at most one
 instruction slower per measured vendor; never picked by `SOPT_AUTO`).
 `--no-accuracy-variants` turns this off.
+
+Register variants (sopt-fx with `--isa` / `--sass`): a candidate that is not faster but
+needs fewer registers on a measured vendor (AMD VGPRs, NVIDIA registers per thread) and
+more on none is kept as "fewer registers (not faster)", under the same rule (at most one
+instruction slower per measured vendor, never `SOPT_AUTO`). Registers also count when
+variants of a region are compared: a variant stays if no other is as fast, as accurate
+and as frugal with registers. The counts are those of the region compiled on its own; a
+whole shader may allocate the same either way.
 
 ## Exhaustive verification (V2)
 

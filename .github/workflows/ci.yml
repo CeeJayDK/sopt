@@ -59,7 +59,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, build/Release/OpBench.exe, tools/windows/measure-gpu.bat, tools/windows/opbench/TESTS.txt, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md dist/
+          Copy-Item build/Release/sopt-host.exe, build/Release/sopt-timer.addon64, build32/Release/sopt-timer.addon32, build/Release/sopt-fxc.exe, build/Release/OpBench.exe, tools/windows/measure-gpu.bat, tools/windows/README.md, tools/windows/run-bench.bat, tools/windows/run-bench.ps1, tools/windows/timer/timings.py, reshade-bin/ReShade64.dll, reshade-bin/ReShade-LICENSE.md dist/
+          Copy-Item build/Release/TexBench.exe, tools/windows/measure-textures.bat, tools/windows/measure-main-gpu.bat, tools/windows/measure-all-gpus.bat, tools/windows/GPU-Bench.bat, build/Release/ShaderInfo.exe, tools/windows/shader-info.bat dist/
+          Copy-Item tools/windows/texbench/TESTS.txt dist/TexBench-TESTS.txt
+          Copy-Item tools/windows/opbench/TESTS.txt dist/OpBench-TESTS.txt
       - name: Upload Windows tools
         # sopt-host, sopt-timer (M4 harness), the one-click bench, ReShade64.dll, OpBench, sopt-fxc
         if: matrix.name == 'msvc'

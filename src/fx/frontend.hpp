@@ -50,6 +50,9 @@ struct Effect {
   unsigned width = 1920, height = 1080;  // BUFFER_WIDTH / BUFFER_HEIGHT of this parse
   bool bufferSymbolic = false;           // they are symbolic (see LoadOptions)
   bool hlsl = false;                     // plain HLSL (see LoadOptions)
+  // Plain HLSL: resources read as Name[index] (textures, buffers, RW textures / buffers), and
+  // which of them are buffers.
+  std::set<std::string> hlslFetchNames, hlslBuffers;
   // Object-like macros' replacement lists (for source lines that use BUFFER_SCREEN_SIZE etc.).
   std::map<std::string, std::string> objectMacros;
 };
@@ -109,15 +112,17 @@ bool parseRange(const std::string& text, double& lo, double& hi);
 //   Init:   float3 x = <rhs>;
 //   Store:  x.rgb = <rhs>;   (also x *= <rhs>, then the region is x * (<rhs>))
 //   Return: return <rhs>;
+//   Write:  tex2Dstore(s, coord, <rhs>);   (a compute shader's store into a resource)
 // The program's inputs are the variables it reads (named by their FX text, e.g.
 // "color.rgb"), so a candidate printed with toString() is valid FX in place.
 struct Region {
-  enum class Kind { Init, Store, Return } kind = Kind::Store;
+  enum class Kind { Init, Store, Return, Write } kind = Kind::Store;
   std::string file;          // source file path as the preprocessor names it
   uint32_t line = 0;         // first line of the statement (1-based)
   uint32_t lastLine = 0;     // line with the terminating ';'
   std::string function;      // enclosing function
   std::string lhs;           // statement text before the value: "float3 x =", "x.rgb =", "return"
+  std::string rhs;           // ... and after it (Write: ")")
   std::string original;      // original statement text (joined lines; windows: all statements)
   std::string text;          // the (root) statement without comments, on one line
   // Window: declarations of single-use temporaries inlined into this statement
@@ -168,6 +173,10 @@ struct SkipCount {
 std::string textureFactKey(const Effect& fx, const std::string& texture);
 // Textures whose format gives no range (float or unknown formats, every texture in plain HLSL).
 std::vector<std::string> unrangedTextures(const Effect& fx);
+// User range key for every read of a groupshared variable (compute): "<file> groupshared <name>".
+std::string groupsharedFactKey(const Effect& fx, const std::string& name);
+// The float groupshared variables of an effect (by source name).
+std::vector<std::string> groupsharedVariables(const Effect& fx);
 
 std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const RegionOptions& opt,
                                    SkipCount& skipped);

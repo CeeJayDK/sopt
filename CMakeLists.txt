@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sopt VERSION 0.4.0 LANGUAGES C CXX)
+project(sopt VERSION 0.5.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -72,7 +72,8 @@ add_library(sopt-measure
   src/measure/tools.cpp
   src/measure/isa.cpp
   src/measure/sass.cpp
-  src/measure/backends.cpp)
+  src/measure/backends.cpp
+  src/measure/driverstats.cpp)
 target_link_libraries(sopt-measure PUBLIC sopt-ir Threads::Threads)
 sopt_fp_flags(sopt-measure)
 
@@ -99,12 +100,12 @@ add_library(sopt-fx-lib
 target_link_libraries(sopt-fx-lib PUBLIC reshadefx sopt-search)
 sopt_fp_flags(sopt-fx-lib)
 
-add_executable(sopt-fx src/cli/fx_main.cpp)
+add_executable(sopt-fx src/cli/fx_main.cpp src/cli/console.cpp)
 target_link_libraries(sopt-fx PRIVATE sopt-fx-lib sopt-measure)
 target_compile_definitions(sopt-fx PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
 sopt_fp_flags(sopt-fx)
 
-add_executable(sopt src/cli/main.cpp)
+add_executable(sopt src/cli/main.cpp src/cli/console.cpp)
 target_link_libraries(sopt PRIVATE sopt-search sopt-measure)
 target_compile_definitions(sopt PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
 sopt_fp_flags(sopt)
@@ -144,6 +145,21 @@ if(WIN32)
   target_compile_features(opbench PRIVATE cxx_std_17)
   target_link_libraries(opbench PRIVATE d3d11 dxgi d3dcompiler)
   target_compile_definitions(opbench PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
+  # TexBench (owner, 2026-10-04): texture reads, derivatives and render target writes per format,
+  # tools/windows/texbench; shares tools/windows/benchkit.hpp with OpBench.
+  add_executable(texbench tools/windows/texbench/texbench.cpp)
+  set_target_properties(texbench PROPERTIES OUTPUT_NAME TexBench)
+  target_compile_features(texbench PRIVATE cxx_std_17)
+  target_link_libraries(texbench PRIVATE d3d11 dxgi d3dcompiler ole32 windowscodecs)
+  target_compile_definitions(texbench PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
+  # ShaderInfo: what the Vulkan drivers report about compiled shaders (statistics, disassembly, hardware
+  # counters); tools/windows/shaderinfo. Vulkan loaded at run time.
+  add_executable(shaderinfo tools/windows/shaderinfo/shaderinfo.cpp)
+  set_target_properties(shaderinfo PROPERTIES OUTPUT_NAME ShaderInfo)
+  target_include_directories(shaderinfo PRIVATE third_party/vulkan)
+  target_compile_features(shaderinfo PRIVATE cxx_std_17)
+  target_link_libraries(shaderinfo PRIVATE d3d11 dxgi)
+  target_compile_definitions(shaderinfo PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
   # Version resource (name, publisher, version under Properties > Details) on every tool we
   # distribute, and a manifest (asInvoker, supported Windows versions) on the executables:
   # unsigned executables without them look more suspicious to Windows Defender.
@@ -159,6 +175,8 @@ if(WIN32)
     endif()
   endfunction()
   sopt_version_info(opbench OpBench.exe "OpBench: GPU instruction cost benchmark (sopt)" VFT_APP)
+  sopt_version_info(texbench TexBench.exe "TexBench: GPU texture cost benchmark (sopt)" VFT_APP)
+  sopt_version_info(shaderinfo ShaderInfo.exe "ShaderInfo: what GPU drivers report about compiled shaders (sopt)" VFT_APP)
   sopt_version_info(sopt-host sopt-host.exe "sopt benchmark host window (DX11 / Vulkan)" VFT_APP)
   sopt_version_info(sopt-fxc sopt-fxc.exe "sopt helper: HLSL to DXBC with Microsoft fxc" VFT_APP)
   sopt_version_info(sopt sopt.exe "sopt: shader superoptimizer (single expressions)" VFT_APP)
@@ -171,7 +189,7 @@ if(WIN32)
   # UTF-8 string literals (OpBench's block graphics): without /utf-8 MSVC converts them
   # to the ANSI code page at compile time and writes '?' (0.1.0); C4566 as an error catches that.
   if(MSVC)
-    foreach(t opbench sopt-host sopt-fxc sopt-timer)
+    foreach(t opbench texbench shaderinfo sopt-host sopt-fxc sopt-timer)
       target_compile_options(${t} PRIVATE /utf-8 /we4566)
     endforeach()
   endif()
