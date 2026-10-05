@@ -1138,10 +1138,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   docs/texbench/*-order*.png), site/ (architecture chips, bars per op group in fma units
   with modifiers shown as free, one-operation comparison, card table, picture gallery; light / dark). .github/workflows/
   pages.yml builds it on GitHub (PRs: build only; main: deploy to GitHub Pages) with the PNGs as they are. PNG optimization
-  (owner, 2026-10-05: it held up the release, 20+ min; optimize in the background, never twice): optimize-pngs.yml (push of
-  docs/texbench/*.png to main, weekly, manual) runs oxipng -o max --zopfli (else zopflipng) on files whose SHA-256 is not in
-  docs/texbench/png-optimized.txt, commits them to main as github-actions[bot] about every 10 min and at the end, and starts
-  pages.yml after each commit (GITHUB_TOKEN pushes start no workflows, so no loop). Owner's one-time setup: Settings > Pages > Source: GitHub Actions (the user site
+  (owner, 2026-10-05: it held up the release, 20+ min; optimize in the background, never twice, ECT, file and image
+  fingerprints): optimize-pngs.yml (push of docs/texbench/*.png to main, weekly, manual) runs tools/site/optimize_pngs.py:
+  docs/texbench/png-optimized.txt lists <git blob id> <SHA-256 of the RGBA pixels + size> <name>; a file whose blob is
+  listed is done; one showing an image already optimized gets that file back from git history (fetch-depth 0); the rest
+  go through ECT (v0.9.5, built and cached on the runner, ECT_LEVEL in the workflow, provisionally 5); every result must
+  keep the original's pixels (Pillow), else the original stays. Commits to main as github-actions[bot] about every 10 min
+  and at the end, then starts pages.yml (GITHUB_TOKEN pushes start no workflows, so no loop). Benchmark on the 18 order
+  PNGs (476 KB, 4 threads): oxipng -o 2 21.9% 4.6 s, -o 4 26.6% 11 s, -o 6 / max 26.9% 23 s, -o 2 --zopfli 27.9% 166 s;
+  zopflipng -m 26.8% 305 s; optipng -o7 17.7% 83 s; ECT -3 24.2% 7 s, -4 27.9% 10 s, -5 28.1% 14 s, -6 28.2% 22 s, -8
+  28.3% 76 s, -9 29.1% 109 s, -9 --allfilters 30.4% 1800 s. The owner's css-ig.net PNG benchmark (pingo's author, 1354
+  files): oxipng -ao4 ~99% of -Zao6 at 7% of the time; pingo -s4 -l best overall (Windows); ECT best on gradients /
+  screenshots, poor on palettes (not our case); zopflipng slowest and behind. Owner's one-time setup: Settings > Pages > Source: GitHub Actions (the user site
   CeeJayDK.github.io has the ceejay.dk domain, so this repo's site is ceejay.dk/sopt/).
   Site pages (owner, 2026-10-05: every DX11 architecture with the missing ones greyed, a TexBench page, a SweetOpt page
   and a library page, subdirectories): site/index.html (SweetOpt, sign() bars per model), library/ (`sopt --library-json`:
