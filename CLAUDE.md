@@ -1103,6 +1103,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   8 x 8 (wave64), quadrants like RDNA 4. Score caveat (both GCN APUs): fp32 0.365 TFLOPS vs ~1.1 spec, because the
   reference mad with two scalar constants is 2 instructions on GCN (an extra v_mov); fp16 1.1 is the real rate. Fix
   (e.g. a score from a mad with one constant) needs the owner's go.
+  GTX 1660 Ti (TU116, driver 32.0.16.1714; docs/opbench/nvidia-gtx-1660-ti-v5.csv, texbench, shaderinfo): OpBench 0.5.0 =
+  the owner's GTX 1660 v6 within 0.8 on every simple test (long composites like udiv / matmul4 / refract 2-10% lower),
+  all consensus at 37% drift: nvidia-turing holds; fp32 4.96 / fp16 4.94 TFLOPS; TexBench 259 s, 189 GTexels/s, 68
+  GPixels/s, 244 GB/s (GDDR6; the 1660's GDDR5 154); ShaderInfo statistics only; pixel order 4 x 8 warp blocks.
+  fp32 score test (owner's go, 2026-10-05, for 0.6.0): OpBench `fma1` = mad(x, x, c.x) (one constant; x converges to
+  -0.37); score fp32 = the faster of the reference and fma1 (fp16 / rcp stay relative to the reference). Lavapipe
+  under Wine shows fma1 absurdly slow next to an absurdly fast reference (its timings are meaningless); real cards to
+  confirm (GCN should show fma1 ~2, NVIDIA ~4).
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
