@@ -16,9 +16,9 @@ echo   %E%[1;97m  GPU Blueprint  -  by CeeJay.dk%E%[0m
 echo   %E%[90m  measures your graphics card for sopt%E%[0m
 echo   %E%[96m=====================================================%E%[0m
 echo.
-echo   %E%[1;93m1%E%[0m  Main graphics card: ShaderInfo, OpBench and TexBench %E%[90m(5-15 min)%E%[0m
-echo   %E%[1;93m2%E%[0m  Another graphics card: the same, you pick the card
-echo   %E%[1;93m3%E%[0m  Every graphics card in this PC, one after the other
+echo   %E%[1;93m1%E%[0m  Every graphics card in this PC: ShaderInfo, OpBench and TexBench %E%[90m(5-15 min per card)%E%[0m
+echo   %E%[1;93m2%E%[0m  Main graphics card only
+echo   %E%[1;93m3%E%[0m  Another graphics card: you pick the card
 echo.
 echo   %E%[1;93m4%E%[0m  OpBench only     %E%[90mwhat math instructions cost%E%[0m
 echo   %E%[1;93m5%E%[0m  TexBench only    %E%[90mwhat texture reads, writes and blending cost%E%[0m
@@ -26,17 +26,23 @@ echo   %E%[1;93m6%E%[0m  ShaderInfo only  %E%[90mwhat the driver reports about c
 echo.
 echo   %E%[1;93m7%E%[0m  Open the Reports folder
 echo   %E%[1;93m8%E%[0m  Open the guide %E%[90m(README.html)%E%[0m
+rem New reports not sent yet (the zip without the hidden marker Reports\.sent): key 9 blinks (owner, 2026-10-05).
+if exist "GPU-Blueprint-Reports.zip" if not exist "Reports\.sent" goto menuNew
 echo   %E%[1;93m9%E%[0m  Send the reports to CeeJay %E%[90m(opens an upload page in your browser)%E%[0m
+goto menuQuit
+:menuNew
+echo   %E%[5;1;92m9%E%[0m  %E%[5;1;92mSend the reports to CeeJay%E%[0m %E%[92m(new reports are ready)%E%[0m
+:menuQuit
 echo   %E%[1;93m0%E%[0m  Quit
 echo.
-echo   %E%[90mClose games and other GPU-heavy programs first. When a run is done, press 9 to send the reports.%E%[0m
+echo   %E%[90mClose games and other GPU-heavy programs first. When a run is done, it offers to send the reports.%E%[0m
 echo.
 choice /c 1234567890 /n /m "  Press a number: "
 set "n=%errorlevel%"
 if "%n%"=="10" goto :eof
-if "%n%"=="1" call :run "" all
-if "%n%"=="2" call :pick
-if "%n%"=="3" call :every
+if "%n%"=="1" call :every
+if "%n%"=="2" call :run "" all
+if "%n%"=="3" call :pick
 if "%n%"=="4" call :run "" opbench
 if "%n%"=="5" call :run "" texbench
 if "%n%"=="6" call :run "" shaderinfo
@@ -66,6 +72,7 @@ echo   %E%[91mThe upload page is not set up in this version.%E%[0m Send GPU-Blue
 echo.
 pause
 exit /b
+rem Also called at the end of a run (no cls: the results stay on screen).
 :sendInfo
 echo   This opens CeeJay's upload page (Dropbox) in your browser and shows %E%[1;97mGPU-Blueprint-Reports.zip%E%[0m in a folder.
 echo   Drag the zip onto the page. You do not need a Dropbox account; the page asks for a name and an email
@@ -74,10 +81,12 @@ echo.
 echo   The zip holds the reports in the Reports folder: your graphics card's name, driver version and the
 echo   measurements. Nothing else from your PC is sent, and nothing is sent unless you upload it.
 echo.
-choice /c YN /n /m "  Open the upload page? (Y/N) "
+choice /c YN /n /m "  Send the reports now, open the upload page? (Y/N) "
 if errorlevel 2 exit /b
 start "" "%UPLOAD%"
 start "" explorer /select,"%~dp0GPU-Blueprint-Reports.zip"
+if not exist "Reports\.sent" type nul > "Reports\.sent"
+attrib +h "Reports\.sent" >nul 2>&1
 exit /b
 
 rem :run "<adapter number or empty>" all|opbench|texbench|shaderinfo
@@ -127,8 +136,10 @@ exit /b
 "%~dp0%~1" %~2
 exit /b
 
-rem After a run: zip the reports (not Reports\Shaders), beep, then wait for a key.
+rem After a run: zip the reports (not Reports\Shaders; Get-ChildItem leaves out the hidden marker), beep, then offer
+rem to send them (owner, 2026-10-05).
 :finish
+if exist "Reports\.sent" del /f /q /a:h "Reports\.sent" >nul 2>&1
 if exist "Reports" powershell -NoProfile -Command "$f = Get-ChildItem -LiteralPath 'Reports' -File; if ($f) { Compress-Archive -LiteralPath $f.FullName -DestinationPath 'GPU-Blueprint-Reports.zip' -Force }" >nul 2>&1
 echo.
 if exist "GPU-Blueprint-Reports.zip" goto zipped
@@ -136,7 +147,14 @@ echo   %E%[92mDone.%E%[0m The reports are in the Reports folder.
 goto beep
 :zipped
 echo   %E%[92mDone.%E%[0m %E%[1;97mGPU-Blueprint-Reports.zip%E%[0m, next to GPU-Blueprint.bat, holds every report in the Reports folder.
-echo   To send it to CeeJay, press 9 in the menu.
+echo.
+<nul set /p "=%BEL%"
+if not defined UPLOAD goto later
+call :sendInfo
+exit /b
+:later
+pause
+exit /b
 :beep
 <nul set /p "=%BEL%"
 pause

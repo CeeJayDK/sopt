@@ -13,7 +13,8 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 - **One batch file:** `GPU-Blueprint.bat` is now the only one, a menu that does it all. New: **another graphics card** (shows the cards, you type the number). The separate measure / shader-info batch files are gone.
 - **Reports folder:** everything to send goes to `Reports\` (shader dumps to `Reports\Shaders\`), and after every run `GPU-Blueprint-Reports.zip` holds the reports, ready to send.
 - **HTML guide:** `README.html` is the hub, with one page per program in `Docs\` (what every test measures, how to read the results), replacing the text files.
-- **Send the reports** (menu key 9, only when you pick it): opens CeeJay's upload page (a Dropbox file request, no account needed) and shows the zip, ready to drag onto the page.
+- **Send the reports:** at the end of a run it asks whether to send them (or menu key 9 later, blinking while there are new reports): yes opens CeeJay's upload page (a Dropbox file request, no account needed) and shows the zip, ready to drag onto the page.
+- **Key 1 measures every graphics card** in the PC (with one card: that card); 2 the main card only, 3 another card.
 - **Beep** when a run is done, before the "press a key" pause (it used to come after the key press).
 - **Results start sooner:** OpBench and TexBench compile the shaders in the background, section by section, while the previous section is measured (no compiling pause at the start).
 - **Clearer headings:** the three ways of measuring are called "Cost, many in parallel", "Cost, one dependent chain" and "Latency, one at a time" (every number is a cost: lower is better).
