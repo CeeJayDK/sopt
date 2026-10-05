@@ -599,5 +599,7 @@ int main(int argc, char** argv) {
   std::printf("\n");
   for (const std::string& f : files) std::printf("  Report: %s\n", f.c_str());
   std::printf("  Please send these files; they show what each driver tells about the shaders it compiles.\n");
+  gCurrent.clear();
+  setTitle("done");
   return 0;
 }

@@ -928,5 +928,7 @@ int main(int argc, char** argv) {
     if (sc.special > 0.0) more.push_back({"Special functions (rcp)", threeDigits(sc.special) + " Gops/s"});
     printScore(st, "OpBench score", gpuName, desc.VendorId, sc.fp32, "TFLOPS", "fp32, measured", more);
   }
+  gCurrent.clear();
+  setTitle("done");
   return 0;
 }

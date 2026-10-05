@@ -34,10 +34,21 @@ namespace benchkit {
 // The program's name in error messages ("OpBench", "TexBench").
 inline const char* gProgram = "bench";
 
-// The test being measured, named in error messages (a GPU that stops responding names its test).
+// The test being measured, named in error messages (a GPU that stops responding names its test), and the GPU
+// (both in the window title).
 inline std::string gCurrent;
+inline std::string gGpu;
+
+// The window title: "<program> - <GPU> - <state>" (owner: the GPU in the title; "done" at the end).
+inline void setTitle(const std::string& state) {
+  std::string t = gProgram;
+  if (!gGpu.empty()) t += "  -  " + gGpu;
+  if (!state.empty()) t += "  -  " + state;
+  SetConsoleTitleA(t.c_str());
+}
 
 [[noreturn]] inline void fail(const std::string& what) {
+  setTitle("stopped (error)");
   std::fprintf(stderr, "\n%s: %s\n", gProgram, what.c_str());
   if (!gCurrent.empty()) std::fprintf(stderr, "%s: while measuring \"%s\"\n", gProgram, gCurrent.c_str());
   std::exit(1);
@@ -206,10 +217,8 @@ struct Progress {
     if (steps % stepsPerCell(planned) == 0) std::printf(steps > planned ? "+" : "#");
   }
   void title() const {
-    char buf[256];
     const int pct = planned ? std::min(100, 100 * steps / planned) : 100;
-    std::snprintf(buf, sizeof(buf), "%s %d%%%s%s", gProgram, pct, gCurrent.empty() ? "" : "  -  ", gCurrent.c_str());
-    SetConsoleTitleA(buf);
+    setTitle(std::to_string(pct) + "%" + (gCurrent.empty() ? "" : "  " + gCurrent));
   }
   // The bar for the steps so far: full cells, then the last cell's fill level (6 levels), yellow past 100%.
   void draw() const {
@@ -471,6 +480,8 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
                   unsigned(HIWORD(umd.LowPart)), unsigned(LOWORD(umd.LowPart)));
     a.driver = buf;
   }
+  gGpu = a.name;
+  setTitle("");
   std::printf("%sGPU:%s %s%s%s (vendor 0x%04X, device 0x%04X), driver %s\n", st.c("\x1b[1m"), st.reset(),
               vendorColor(st, a.desc.VendorId), a.name.c_str(), st.reset(), a.desc.VendorId, a.desc.DeviceId,
               a.driver.c_str());

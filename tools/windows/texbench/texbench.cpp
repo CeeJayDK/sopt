@@ -2154,9 +2154,12 @@ int main(int argc, char** argv) {
   const double drift = refs.empty() ? 0.0 : 100.0 * (*hi - *lo) / median(refs);
   std::printf("\n   reference drift %.1f%%%s\n", drift, drift > 5.0 ? " (the GPU clock moved)" : "");
   // Pixel shader order (not a timing: one draw, read back).
-  if (filter.empty() || std::string("Pixel shader order").find(filter) != std::string::npos)
+  if (filter.empty() || std::string("Pixel shader order").find(filter) != std::string::npos) {
+    gCurrent = "Pixel shader order";
+    setTitle(gCurrent);
     order = runOrder(g, dxbcDir, (std::filesystem::path(outPath).parent_path() / std::filesystem::path(outPath).stem()).string(),
                      refs.empty() ? 0.0 : median(refs), reps);
+  }
 
   writeCsv();
 
@@ -2222,5 +2225,7 @@ int main(int argc, char** argv) {
     if (sc.bandwidth > 0.0) more.push_back({"Memory bandwidth (writes)", threeDigits(sc.bandwidth) + " GB/s"});
     printScore(st, "TexBench score", ad.name, ad.desc.VendorId, sc.texRate, "GTexels/s", "texture rate, bilinear RGBA8", more);
   }
+  gCurrent.clear();
+  setTitle("done");
   return 0;
 }
