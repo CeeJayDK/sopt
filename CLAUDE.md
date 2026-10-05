@@ -1131,6 +1131,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   from the report file names without brand words (GTX-1660, UHD-630, Iris-Xe, RX-9070-XT, RTX-3050-Laptop; all brand
   words -> AMD-Radeon), several cards joined by '+', one zip only (older Reports*.zip removed); the menu finds it with
   `for %%z in (Reports*.zip)` (Wine's cmd does not expand a quoted wildcard). Dropbox prefixes the uploader name.
+  Web page (owner, 2026-10-05: the rounded cost model numbers online for developers, the pixel order pictures, no personal
+  data): `sopt --cost-models-json` (src/cli/main.cpp: the OpBench models + rdna3, quarter units, flags contraction /
+  output modifier / max3 / minmax, vector helpers at float3), tools/site/build.py (cards per model from docs/opbench
+  report headers: NAME_BY_FILE / NAME_BY_DEVICE fixes, MODEL_RULES regexes, Microsoft WARP skipped; pictures from
+  docs/texbench/*-order*.png), site/ (index.html, app.js, style.css: architecture chips, bars per op group in fma units
+  with modifiers shown as free, one-operation comparison, card table, picture gallery; light / dark). .github/workflows/
+  pages.yml builds it on GitHub (PRs: build only; main: deploy to GitHub Pages) and optimizes the PNGs losslessly (oxipng
+  -o max --zopfli, else zopflipng). Owner's one-time setup: Settings > Pages > Source: GitHub Actions, custom domain.
   Download layout (owner, 2026-10-05: "only the menu and the readme start page" in the main folder):
   tools/windows/stage.ps1 stages SweetOpt\ / GPU-Blueprint\ / tools\ for CI (artifacts SweetOpt-windows,
   GPU-Blueprint, sopt-windows-tools) and release.yml (zips; Linux tarball the same: README.html, bin/, Docs/):

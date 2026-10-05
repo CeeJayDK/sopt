@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Blueprint</title>
+<meta name="description" content="What shader operations cost on each GPU architecture: the measured cost models SweetOpt uses.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <h1>GPU Blueprint</h1>
+    <p class="lead">What shader operations cost on each GPU architecture: the cost models <a href="https://github.com/CeeJayDK/sopt">SweetOpt</a> uses to find faster shader code, measured on real cards.</p>
+    <p class="unit"><strong>1.0 = one fma</strong> (a fused multiply-add at full rate), measured as throughput: many independent operations in parallel. Lower is better. Numbers are rounded to what the cost models use.</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section id="models">
+    <h2>Architectures</h2>
+    <div id="picker" class="picker" role="tablist" aria-label="Architecture"></div>
+    <div id="model" class="panel"></div>
+  </section>
+
+  <section id="compare">
+    <h2>One operation on every architecture</h2>
+    <label class="select">Operation <select id="op"></select></label>
+    <div id="opbars" class="panel"></div>
+  </section>
+
+  <section id="cards">
+    <h2>Cards measured</h2>
+    <p class="note">Every report comes from GPU Blueprint's OpBench run by a volunteer. Cards of the same architecture measure alike, so they share one cost model.</p>
+    <div class="tablewrap"><table id="cardtable"></table></div>
+  </section>
+
+  <section id="order">
+    <h2>Pixel shader order</h2>
+    <p class="note">How each GPU hands pixels to its shader cores: TexBench numbers every pixel of a full-screen draw in the order it ran. The colour runs from first (blue) to last (red); the close-up shows the blocks of pixels shaded together.</p>
+    <div id="gallery" class="gallery"></div>
+  </section>
+</main>
+
+<footer class="wrap">
+  <p>Measure your card: download <strong>GPU Blueprint</strong> from <a href="https://github.com/CeeJayDK/sopt/releases">the releases page</a>, run it and send the reports from its menu. Only the card, its driver version and the measurements are published.</p>
+  <p>GPU Blueprint and SweetOpt by CeeJay.dk &middot; <a href="https://github.com/CeeJayDK/sopt">github.com/CeeJayDK/sopt</a> &middot; <span id="version"></span></p>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

@@ -5,6 +5,9 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 
 ## 0.6.0
 
+### Web page
+- **GPU Blueprint online:** the cost models SweetOpt uses, per architecture and per operation, the cards measured and the pixel order pictures, rebuilt automatically as reports come in.
+
 ### All downloads
 - **Tidy main folder:** each zip now has only its launcher (`SweetOpt.bat`, `GPU-Blueprint.bat`, `run-bench.bat`) and its guide (`README.html`) in the main folder; the programs are in `bin`, the other pages and the licenses in `Docs`.
 - **SweetOpt has an HTML guide** (`README.html`), replacing QUICKSTART.txt. The bench tools zip no longer includes GPU Blueprint (it has its own download).
