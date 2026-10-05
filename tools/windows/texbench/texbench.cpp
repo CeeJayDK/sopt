@@ -1227,14 +1227,18 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
   const uint32_t total = n * n;
   std::vector<uint32_t> o(size_t(n) * n);
   // One counter: a warm-up draw and the one read back; true when every pixel got a number.
+  // The counter and ORD are cleared while unbound (the UHD 630 did not reset a bound counter between the
+  // warm-up and the measured draw: it ended at 2x the pixels), and the numbers are taken relative to the
+  // smallest one read back, so a counter that does not start at 0 changes nothing.
   auto orderDraw = [&](ID3D11PixelShader* ps, ID3D11UnorderedAccessView* cntUav, ID3D11Resource* cnt, ID3D11Resource* cntRead) {
     g.ctx->PSSetShader(ps, nullptr, 0);
     ID3D11UnorderedAccessView* uavs[2] = {cntUav, ordUav};
-    g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &rtv, nullptr, 1, 2, uavs, nullptr);
     for (int k = 0; k < 2; ++k) {
       const UINT zero[4] = {0, 0, 0, 0}, none[4] = {~0u, ~0u, ~0u, ~0u};
+      g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &nullRtv, nullptr, 1, 0, nullptr, nullptr);
       g.ctx->ClearUnorderedAccessViewUint(cntUav, zero);
       g.ctx->ClearUnorderedAccessViewUint(ordUav, none);
+      g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &rtv, nullptr, 1, 2, uavs, nullptr);
       g.ctx->Draw(3, 0);
     }
     g.ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &nullRtv, nullptr, 1, 0, nullptr, nullptr);
@@ -1249,6 +1253,13 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
     if (FAILED(g.ctx->Map(ordRead, 0, D3D11_MAP_READ, 0, &m))) return false;
     for (UINT y = 0; y < n; ++y) std::memcpy(&o[size_t(y) * n], (const uint8_t*)m.pData + size_t(y) * m.RowPitch, n * 4);
     g.ctx->Unmap(ordRead, 0);
+    uint32_t lo = ~0u;
+    for (uint32_t v : o) lo = std::min(lo, v);
+    if (lo != ~0u) {
+      for (uint32_t& v : o)
+        if (v != ~0u) v -= lo;
+      res.counter = res.counter >= lo ? res.counter - lo : 0;
+    }
     res.missing = 0;
     for (uint32_t v : o) res.missing += v >= total;
     return res.counter == total && res.missing == 0;

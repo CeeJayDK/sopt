@@ -1010,7 +1010,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   That changed the GTX 1660's result (owner's 0.5.0 run: blocks 0% compact, counter + store 0.75 ms vs 0.04): NVIDIA
   merges a warp's buffer atomics into one (consecutive numbers per warp: the 4 x 8 blocks), texture atomics are per
   lane (interleaved, 18x slower). Now: structured buffer first, texture only when the buffer gives no numbers
-  (OrderResult::counterKind, CSV row "counter kind"). OpBench score: fp16 / rcp from their costs relative to the
+  (OrderResult::counterKind, CSV row "counter kind"). Real cause on the UHD 630 (owner's next CSV: counter 2097152 = 2x the pixels):
+  the counter cleared while bound to OM was not reset between the warm-up and the measured draw; now cleared while
+  unbound, and the numbers are taken relative to the smallest one read back. OpBench score: fp16 / rcp from their costs relative to the
   reference (raw timings came from other moments: 1660 fp16 showed 3.7 vs fp32 4.7 TFLOPS at the same cost, 45% drift).
   Stall on the owner's UHD 630 (TexBench, after the random section, 2026-10-04): a disjoint timestamp reading (-1)
   counted as "faster than 2 ms", so calibration doubled the run length blindly (up to 2^20 iterations). Fixed:
