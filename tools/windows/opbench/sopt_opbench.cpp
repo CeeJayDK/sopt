@@ -78,6 +78,9 @@ const Test kTests[] = {
     {"add", "mad(x + c.z, c.x, c.y)", 0.5f, 0.5f, 0.1f, 0.0f, "mad", ""},
     {"sub", "mad(c.z - x, c.x, c.y)", 0.5f, 1.0f, 2.0f, 0.0f, "mad", ""},
     {"mul", "mad(x * c.z, c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.0f, "mad", ""},
+    // One fma with a single constant (x stays near the fixed point -0.37): the fp32 score's rate on GPUs where
+    // the reference's two constants cost a second instruction (GCN's constant bus: an extra v_mov).
+    {"fma1", "mad(x, x, c.x)", -0.5f, 0.0f, 0.0f, 0.0f, nullptr, "one fma, one constant: the fp32 score where it is faster"},
     {"mad2", "mad(mad(x, c.z, c.w), c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.1f, "mad", "a second mad"},
     {"min", "mad(min(x, c.z), c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.0f, "mad", ""},
     {"max", "mad(max(x, c.z), c.x, c.y)", 0.5f, 0.5f, 0.8f, 0.0f, "mad", ""},
@@ -483,7 +486,7 @@ struct Measured {
 const char* const kDisplayOrder[] = {
     "#Modifiers and folds", "neg", "abs", "negabs", "saturate", "satmad", "mul", "omod2", "omodhalf", "omod4",
     "omod8", "omod0.25", "omod0.125", "omod3",
-    "#Basic arithmetic", "min", "max", "step", "add", "sub", "mad2", "contract", "max3", "minmax", "clamp", "select",
+    "#Basic arithmetic", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
     "lerp",
     "#Rounding and sign", "floor", "ceil", "round", "trunc", "frac", "roundadd", "flooradd", "fracadd", "signsel2", "signbits",
     "signsat", "signmad", "signclamp", "signsel", "sign",
@@ -764,7 +767,7 @@ int main(int argc, char** argv) {
   std::map<std::string, std::map<std::string, UINT>> iters;   // config -> test -> run length
   std::map<std::string, std::map<std::string, Result>> sums;  // config -> test -> summed readings
   // Score (owner: a number to show others, in the units GPU spec lists use): fp32 TFLOPS from the reference
-  // fma, fp16 TFLOPS from mad16 (min16float; 0 when the driver runs it at 32 bits), special functions from
+  // fma or the one-constant fma1, whichever is faster, fp16 TFLOPS from mad16 (min16float; 0 when the driver runs it at 32 bits), special functions from
   // the rcp step's time (one rcp per step; the fma beside it runs in parallel where the GPU can).
   auto driftOf = [&](const char* cname) {
     const std::vector<double>& v = mads[cname];
@@ -786,8 +789,12 @@ int main(int argc, char** argv) {
     auto units = [&](const char* name) {
       return results["tput"].count(name) && !results["tput"][name].readings.empty() ? results["tput"][name].units.value : 0.0;
     };
-    if (half16 && units("mad16") > 0.0) sc.fp16 = sc.fp32 * 4.0 / units("mad16");
-    if (units("rcp") > 0.0) sc.special = sc.fp32 * 1000.0 / 2.0 * 4.0 / units("rcp");  // G fma/s * 4 / cost
+    const double ref = sc.fp32;  // the reference's rate: fp16 and rcp are relative to it
+    if (half16 && units("mad16") > 0.0) sc.fp16 = ref * 4.0 / units("mad16");
+    if (units("rcp") > 0.0) sc.special = ref * 1000.0 / 2.0 * 4.0 / units("rcp");  // G fma/s * 4 / cost
+    // fp32: the faster of the two fma forms (owner, 2026-10-05: GCN APUs showed a third of their rate, the
+    // reference's second constant costing an instruction there).
+    if (units("fma1") > 0.0) sc.fp32 = std::max(sc.fp32, ref * 4.0 / units("fma1"));
     return sc;
   };
   // CSV: the GPU once in header lines, then one row per configuration and test. Written again whenever a
@@ -895,11 +902,10 @@ int main(int argc, char** argv) {
 
 
   // Summary: banner and the GPU (the sections are shown above).
-  const double fmaRate = 1.0 / madNs["tput"];  // per ns
   std::printf("\n");
   printBox(st, std::string("OpBench ") + SOPT_VERSION + "  -  " + gpuName);
   std::printf("  driver %s, vendor 0x%04X, device 0x%04X, %.1f TFLOPS fp32 (measured)\n", driver.c_str(), desc.VendorId,
-              desc.DeviceId, fmaRate * 2.0 / 1000.0);
+              desc.DeviceId, score().fp32);
   std::printf("  min16float runs at %s\n", half16 ? "16 bits" : "32 bits on this driver (the half precision tests measure fp32)");
   // How to read the summary, for people who are not programmers (owner's wording review, 2026-10-04).
   std::printf("\n  %sHow to read this%s\n"

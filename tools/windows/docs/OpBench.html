@@ -62,6 +62,7 @@
 <table>
   <tr><td><code>min</code>, <code>max</code>, <code>step</code></td><td>min / max / compare; NVIDIA Turing runs one of them beside an fma.</td></tr>
   <tr><td><code>add</code>, <code>sub</code></td><td>one add.</td></tr>
+  <tr><td><code>fma1</code></td><td><code>mad(x, x, c)</code>: one fma with a single constant. On AMD GCN the reference's two constants cost a second instruction, so this is the true fp32 rate there (the score uses whichever is faster).</td></tr>
   <tr><td><code>mad2</code>, <code>contract</code></td><td>a second mad, and <code>x * a + b</code> written out (compiled to one fma?).</td></tr>
   <tr><td><code>max3</code>, <code>minmax</code></td><td><code>max(max())</code>, <code>min(max())</code>: AMD has 3-operand instructions for these.</td></tr>
   <tr><td><code>clamp</code></td><td><code>clamp(x, a, b)</code>: AMD v_med3 does it in one instruction, others need two.</td></tr>
@@ -187,7 +188,7 @@
 
 <h2>The score</h2>
 <table>
-  <tr><td>fp32</td><td>TFLOPS from the reference multiply-add (2 floating point operations each).</td></tr>
+  <tr><td>fp32</td><td>TFLOPS from the reference multiply-add or <code>fma1</code>, whichever is faster (2 floating point operations each).</td></tr>
   <tr><td>fp16 (min16float)</td><td>TFLOPS of the half precision multiply-add ("runs at fp32" when the driver does not run min16float at 16 bits).</td></tr>
   <tr><td>Special functions</td><td>rcp per second (Gops/s); sqrt, exp2, sin and the like usually run at the same rate.</td></tr>
 </table>

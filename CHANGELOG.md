@@ -15,6 +15,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 - **Beep** when a run is done, before the "press a key" pause (it used to come after the key press).
 - **Results start sooner:** OpBench and TexBench compile the shaders in the background, section by section, while the previous section is measured (no compiling pause at the start).
 - **Clearer headings:** the three ways of measuring are called "Cost, many in parallel", "Cost, one dependent chain" and "Latency, one at a time" (every number is a cost: lower is better).
+- **fp32 score on AMD GCN:** a new test, `fma1` (one fma with a single constant), gives the score its real rate where the reference fma's two constants cost a second instruction (Radeon Vega APUs showed about a third of their fp32 rate).
 - **TexBench is shorter:** the formats × filtering table no longer runs the dependent-chain mode (it matched the first mode on every card tested), about 25-30 seconds less.
 
 ## 0.5.0
