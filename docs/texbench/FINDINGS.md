@@ -6,7 +6,7 @@ parallel), so they compare directly with the cost models. Lower is better.
 
 Cards so far (16): NVIDIA Maxwell (GTX 860M, Quadro M5000M), Pascal (GTX 1050), Turing (GTX 1660, GTX 1660 Ti, RTX
 2060), Ampere / Ada (RTX 3050 Laptop, RTX 4060 Ti, RTX 4090 Laptop), Blackwell (RTX 5080); AMD GCN 5 (Vega 8), RDNA 2 (Ryzen 7000 iGPU), RDNA 4
-(RX 9070 XT); Intel Gen7.5 (HD Graphics 4600), Gen9 (Iris 540, UHD 630). Laptop runs are often throttled: their
+(RX 9070 XT); Intel Gen7.5 (HD Graphics 4600), Gen9 (Iris 540, UHD 630), Gen12 (Iris Xe). Laptop runs are often throttled: their
 absolute numbers are low, their ratios still match their desktop family.
 
 TexBench 0.6.0 measures the comparisons directly (the same result read different ways, side by side). So far it has
@@ -49,6 +49,9 @@ shows only when the pass does more work. On the Iris 540 (slower memory) the bil
 - *Estimated:* **but not for 64- and 128-bit formats on Ampere / Ada:** there a Load is slower than a point sample (RTX
   4060 Ti RGBA16F 25.6 vs 20.1, RGBA32F 45.7 vs 22.5).
 - Elsewhere (NVIDIA Maxwell, Pascal, Turing; AMD GCN 5; Intel Gen7.5, Gen9) a Load and a point sample cost the same.
+- *Estimated:* **Intel Gen12 (Iris Xe): use a point sample, not Load,** for formats of up to 64 bits: in dependent reads
+  a Load costs ~1.7x a point sample (RGBA8 17 vs 10 fma units). Whole copy passes take the same time either way there
+  (RGBA8 2.28 ms both, RGBA16F 5.07 vs 5.13: memory bound).
 
 Measured as whole full-screen copy passes (3840 × 2160): the GTX 1660 copies in the same time with Sample and with Load
 in every format (RGBA8 0.42 ms, RGBA16F 0.85 ms); the UHD 630 too, except RGBA16F, where Load is 11% slower (5.65 vs
@@ -124,7 +127,8 @@ the target as cleared instead of writing it. Clear instead of drawing a flat col
   **Exception: NVIDIA Blackwell in compute shaders** (RTX 5080, dependent reads): RGBA8 point 5.3, Load 12.8, bilinear
   19 fma units; in the pixel shader point and bilinear cost the same there too.
   **Exception: Intel Gen9** filters RGBA8 sRGB, RGB10A2 and RG11B10F at about a third of the rate (UHD 630: point 8.7,
-  bilinear 23); its 8-bit, R16F, RG16F and R32F formats filter for free like everywhere else.
+  bilinear 23); its 8-bit, R16F, RG16F and R32F formats filter for free like everywhere else. Intel Gen12 (Iris Xe)
+  no longer has this: sRGB, RGB10A2 and RG11B10F filter at full rate there.
 - **64-bit formats (RGBA16F, RGBA16, RG32F):** bilinear and gather run at half rate on NVIDIA and Intel Gen9 (about 2.5×
   a point read), at full rate on AMD RDNA, and slowly on AMD GCN 5 (about 5×). Point reads and Loads stay at full rate
   everywhere.

@@ -1250,6 +1250,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   aniso 2x round, aniso 2x 2:1 2.2x; ddx_fine 24 vs ddx 52; copy Sample = Load; blend state RGBA8 add 25% faster, RGBA32F 20%
   slower; LUT 64: 3D 8% faster; stencil / tile discard halve the heavy pass. Pixel order 4 x 8 warp blocks. ShaderInfo statistics
   only (like every NVIDIA). FINDINGS.md updated (Blackwell rows; gathers are not the 2 x 2 answer there).
+  Iris Xe (Gen12 / Xe-LP, 0x9A49, driver 32.0.101.7084; OpBench / TexBench 0.5.0 sent by the owner in chat 2026-10-06,
+  docs/opbench/intel-iris-xe.csv, docs/texbench/intel-iris-xe.csv; no PNGs): drift ~8%, all tests consensus in both. OpBench:
+  Gen9-like for most simple ops (add / min / max / floor / round / frac 3.6-4, clamp / select / lerp 7.6, max3 / minmax
+  +3.6, iadd / iand / utof / ftou ~4, imul 7.9, mad16 -1.8 = fp16 2x, fp32 1.84 / fp16 3.42 TFLOPS) but its own in 33 of
+  156 tests vs the intel-gen9 family table: math unit 10.7 for all of rcp ... cos and exp / log (Gen9 12.2, exp 14.7: the
+  scale mul hides), step 7.2 (Gen9 4.2), sign 17.6 (14.5), dot3 / dot4 19.4 / 25.1 (14.4 / 18.2), normalize 21.6 (28.4),
+  ldexp 7.5 (14.5), f16round 4.3 (16.6), irot 11.4 (18); compute very different (groupshared reads / writes / barriers
+  cheaper, groupshared atomics 18 vs 27, one address 455 vs 250, local array write 16500 vs 116: spills). The family
+  rules have no Gen12 entry (no "usually" marks for it). TexBench (139 s; 56.0 GTexels/s, 25.3 GPixels/s, 26.6 GB/s):
+  sRGB / RGB10A2 / RG11B10F filter at full rate (Gen9 1/3), dependent Load ~1.7x a point sample (RGBA8 Load 17 vs point 10
+  fma units; Gen9 equal), 16 / 32-bit float aniso 2x Gen9's relative cost, ddx / ddy cheaper (3.5), cache knee 4 MB
+  (L3) then DRAM; copy passes Sample = Load (memory bound); pixel order 4 x 4 blocks (SIMD16) like Gen9.
   Owner's decisions (2026-10-06): ECT level 5 stays (best ratio in the benchmark; -4 is close and faster, but the
   optimizer runs in the background); ShaderInfo as a measured source: wait for more reports; integer / bit tricks and
   casts in the search: yes (plan first); expected costs per cost model in OpBench / TexBench: yes, if it does not bloat
