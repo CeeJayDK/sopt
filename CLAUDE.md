@@ -1125,7 +1125,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   GPU-Blueprint-<v>.zip, GPU-Blueprint-Reports.zip; OpBench / TexBench / ShaderInfo keep their names); sopt is now
   SweetOpt (owner: one name, "the super sweet shader optimizer" as the tagline): title boxes, --version ("sopt-fx
   (SweetOpt) <v>"), SweetOpt.bat / SweetOpt.ini (was sopt-menu), SweetOpt-<v>-windows-x64.zip / -linux-x64.tar.gz, docs,
-  version resources (ProductName per target: SweetOpt / GPU Blueprint). Kept on purpose: program names sopt / sopt-fx,
+  version resources (ProductName per target: SweetOpt / GPU Blueprint), release titles "SweetOpt <v>" (owner, from 0.6.0). Kept on purpose: program names sopt / sopt-fx,
   SOPT_* switches, output files (sopt-out, sopt-report.md, sopt-facts.txt, sopt-found.txt), the repo name, CI artifact
   names. GPU Blueprint menu (owner): key 1 = every card, 2 main, 3 another; after a run it offers to send the reports
   (Y opens the upload page); key 9 blinks (ESC[5m) while the zip has not been sent (hidden marker Reports\.sent, made
@@ -1225,6 +1225,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   the 1660, UHD 630 RGBA16F Load 11% slower; half-size downsample passes bilinear = 4 Loads (memory bound); blend fix
   confirmed (lerp / min now 0.41 ms like add, plain 0.32), blend state 2-3% faster than the shader on the 1660 except RGBA32F
   (~10% slower), UHD 630 +-10%. OpBench fma1 = mad on both (4.02 / 3.98). FINDINGS.md updated (measured vs *estimated*).
+  Release build check (owner, 2026-10-05, 0.6.0 from main; docs/opbench/*-v8.csv, docs/texbench/*-v9.csv, docs/shaderinfo/*-3.txt):
+  headers say 0.6.0, all tests consensus; UHD 630 = the previous run within 10% on every test, GTX 1660 too except 15 of 993
+  TexBench tests at 10-20% (71% reference drift); findings unchanged.
+  0.6.0 released 2026-10-05 (PR #15 merged, tag v0.6.0, title renamed to SweetOpt by the owner). Next test build: 0.6.1.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):

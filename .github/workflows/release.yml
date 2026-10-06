@@ -160,7 +160,7 @@ jobs:
           if [ "$SIGNED" = yes ]; then signing="signed through SignPath Foundation."
           else signing="not signed yet (SignPath application pending); Windows Defender may warn. Check the files against SHA256SUMS.txt."; fi
           {
-            echo "sopt $VERSION."
+            echo "SweetOpt $VERSION."
             echo
             echo "## What's new"
             cat whatsnew.md
@@ -180,6 +180,6 @@ jobs:
           draft: ${{ github.event_name == 'workflow_dispatch' }}
           prerelease: ${{ contains(github.ref_name, '-') }}
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', needs.windows.outputs.version) }}
-          name: sopt ${{ needs.windows.outputs.version }}
+          name: SweetOpt ${{ needs.windows.outputs.version }}
           files: release/*
           body_path: notes.md
