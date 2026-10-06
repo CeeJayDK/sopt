@@ -244,6 +244,27 @@ inline const Family kFamilies[] = {
      "signmad 8.0 signsat 12.1 signsel 12.1 signsel2 0.1 sin 12.0 sincos 24.0 sinh 28.0 smoothstep 20.1 "
      "sqrt 12.0 sqrt16 16.0 step 0.7 sub 4.0 tan 43.6 tanh 44.1 trunc 12.0 udiv 65.1 umod 71.0 unitf 4.0 "
      "utof 11.9 "},
+    {"rdna3", "RDNA 3", 1,
+     "aAdd 14.5 aAdd1 900.4 aAnd 14.3 aAnd1 904.0 aCmpXchg 29.3 aCmpXchg1 896.2 aMax 14.9 aMax1 902.5 "
+     "aMin 14.3 aMin1 900.4 aOr 14.6 aOr1 900.6 aXchg 15.3 aXchg1 903.6 aXor 14.8 aXor1 901.9 abs -0.0 "
+     "acos 54.4 add 3.7 add16 3.7 arraybase 31.3 arrayread 381.0 arraywrite 626.7 asin 58.7 atan 87.4 "
+     "atan2 102.9 atombase 11.5 barrier 1.5 bitcast 0.1 bitor 7.9 bitrev 7.2 branchdiv 239.3 "
+     "branchuni 117.6 ceil 7.8 clamp 7.8 constarray 10.4 contract 3.9 cos 28.4 cosh 59.6 cross 27.6 "
+     "cvt1 7.6 det3 34.6 distance 55.8 div 25.8 divxy 25.0 dot2 8.8 dot3 13.9 dot4 20.5 exp 28.5 exp2 26.8 "
+     "exp2_16 25.5 f16round 3.3 faceforward 42.4 fbh 25.4 fbl 7.3 floor 7.8 flooradd 22.2 fma+cvt -4.1 "
+     "fma+fma 0.0 fma+half 1.3 fma+int -1.8 fma+minmax -1.7 fma+rcp -14.0 fma1 3.7 fmod 29.9 frac 7.8 "
+     "fracadd 22.0 frexp 55.0 ftoitof 25.6 ftou 7.3 groupbarrier -0.3 gsbase 30.4 gsbase32 30.8 gsread 7.6 "
+     "gsread32 358.2 gswrite 25.2 gswrite32 429.1 gswriteread 33.8 half1 0.0 iadd 7.3 iand 7.2 "
+     "icmpsel 18.1 idiv 208.7 imin 7.2 imod 145.6 imul 29.3 int 3.3 irot 7.0 ishr 7.4 isinf 18.0 "
+     "isnan 10.9 itof 7.1 ixmul 32.3 ldexp 23.2 length 38.2 lerp 9.6 log 27.4 log10 27.2 log2 26.7 mad 4.0 "
+     "mad16 0.2 mad2 3.9 mad2v 3.9 mad3v 8.0 mad4v 11.7 matmul4 65.8 max 4.6 max3 3.0 membarrier -0.1 "
+     "min 4.7 minmax 3.2 minmax1 3.2 modf 15.1 mul 0.3 mul16 1.8 neg 0.0 negabs -0.0 normalize 31.1 "
+     "omod0.125 2.4 omod0.25 2.5 omod2 -0.1 omod3 2.4 omod4 -0.1 omod8 2.4 omodhalf -0.1 popc -0.1 "
+     "pow 57.1 radians 3.3 rcp 26.8 rcp1 25.4 rcp16 25.7 rcpmax 29.4 reflect 23.5 refract 71.0 round 7.8 "
+     "roundadd 10.4 rsqrt 27.3 satmad -0.0 saturate 1.2 select 10.9 selectboth 234.4 sign 35.5 "
+     "signbits 14.2 signclamp 11.0 signmad 7.2 signsat 9.9 signsel 23.3 signsel2 10.8 sin 28.6 sincos 51.1 "
+     "sinh 59.6 smoothstep 18.1 sqrt 26.9 sqrt16 26.1 step 12.1 sub 4.5 tan 85.9 tanh 95.3 trunc 7.9 "
+     "udiv 168.2 umod 112.1 unitf 19.0 utof 7.1 "},
 };
 
 // Card name (without (R) / (TM)) -> family, first match wins (ECMAScript regex search).

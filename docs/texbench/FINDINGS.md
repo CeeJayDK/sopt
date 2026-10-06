@@ -45,7 +45,8 @@ shows only when the pass does more work. On the Iris 540 (slower memory) the bil
 ### A 1:1 copy: Load or point sample?
 
 - *Estimated:* **AMD RDNA and NVIDIA Ada / Ampere: use Load (`tex2Dfetch`) for formats of up to 32 bits per texel.**
-  A single Load is much cheaper there than a sample: RDNA 2 2.9 vs 7.1, RX 9070 XT 10.5 vs 22, RTX 4060 Ti 14.3 vs 20.
+  A single Load is much cheaper there than a sample: RDNA 2 2.9 vs 7.1, RX 7900 GRE (RDNA 3) 9.0 vs 30, RX 9070 XT 10.5 vs
+  22, RTX 4060 Ti 14.3 vs 20.
 - *Estimated:* **but not for 64- and 128-bit formats on Ampere / Ada:** there a Load is slower than a point sample (RTX
   4060 Ti RGBA16F 25.6 vs 20.1, RGBA32F 45.7 vs 22.5).
 - Elsewhere (NVIDIA Maxwell, Pascal, Turing; AMD GCN 5; Intel Gen7.5, Gen9) a Load and a point sample cost the same.

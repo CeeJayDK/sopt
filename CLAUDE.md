@@ -1262,6 +1262,19 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   sRGB / RGB10A2 / RG11B10F filter at full rate (Gen9 1/3), dependent Load ~1.7x a point sample (RGBA8 Load 17 vs point 10
   fma units; Gen9 equal), 16 / 32-bit float aniso 2x Gen9's relative cost, ddx / ddy cheaper (3.5), cache knee 4 MB
   (L3) then DRAM; copy passes Sample = Load (memory bound); pixel order 4 x 4 blocks (SIMD16) like Gen9.
+  RX 7900 GRE (RDNA 3, Navi 31, 0x744C, driver 32.0.32015.2008 / LLPC 2.0.406; owner sent the reports zip in chat 2026-10-06;
+  docs/opbench|texbench|shaderinfo/amd-radeon-rx-7900-gre.*, order PNGs; the same zip had a ShaderInfo report of a Raphael
+  iGPU (0x164E, "AMD proprietary shader compiler" 2.0.353): docs/shaderinfo/amd-radeon-raphael.txt): first RDNA 3 measured
+  with OpBench (the rdna3 model is from RGA). OpBench 0.6.0, drift 21 / 39 / 12%, all consensus: = the RX 9070 XT (RDNA 4,
+  amd-rdna4) within ~10% on nearly every tput test (dual-issue fma base: add 3.7, min / max 4.7, floor / ceil / round / frac
+  7.8, clamp 7.8, select 10.9, step 12, lerp 9.6, MUFU 26.8-28.6, pow 57, sign 35.5 vs signmad 7.3, imul 29, iadd / ishr /
+  utof ~7.2, popc free); omod2 / omodhalf / omod4 free (-0.1), omod8 = control 2.4; max3 / minmax +3; fp32 51.4 / fp16 45.2
+  TFLOPS (min16float no faster). So in measured units the rdna3 model (VALU 4, MUFU 16, floor 4, step 8, select 4) is off;
+  amd-rdna4's row fits it. ShaderInfo: full RDNA 3 ISA (v_max3_f32, saturate as the fma clamp bit, GLSL sign = 2 x v_cmp +
+  v_cndmask, v_mad_u64_u32 for integer mul + add). TexBench 0.6.0 (86 s; 693 GTexels/s, 205 GPixels/s, 814 GB/s; 3 random
+  store tests without consensus, drift 70%): RGBA8 Load 9.0 vs point 30 fma units (Load much cheaper, as on RDNA 2 / 4),
+  RGBA16F bilinear 30 (~RGBA8 25), pixel order 8 x 8 blocks of 64 (wave64) like RDNA 4; 99 of 304 tput tests differ > 30%
+  from the 9070 XT (memory / caches).
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
