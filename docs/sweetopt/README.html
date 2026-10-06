@@ -67,7 +67,7 @@ input b : float in [0, 1] grid 255
 output r = 1.0 - (1.0 - a) * (1.0 - b)
 budget r : color8</pre>
 <p><code>bin\sopt screen.sopt</code> lists the cheaper forms it found and verified. <code>--help</code> lists the options of both programs (cost models for other GPUs: <code>--cost-model amd-rdna2</code>, <code>nvidia-turing</code>, <code>intel-gen9</code>, &hellip;).</p>
-<p><code>bin\sopt-fxc.exe</code> is Microsoft's shader compiler (the one ReShade uses for Direct3D 10-12) for <code>sopt-fx --backends</code>: set <code>SOPT_FXC</code> to its path, and the report shows each variant's DXBC instruction count and whether fxc already makes the same code.</p>
+<p><code>bin\sopt-fxc.exe</code> is Microsoft's shader compiler (the one ReShade uses for Direct3D 10-12) for <code>sopt-fx --backends</code>, which finds it next to itself: the report then shows each variant's DXBC instruction count and whether fxc already makes the same code.</p>
 
 <h2>Requirements</h2>
 <ul>

@@ -243,6 +243,8 @@ std::string exeDir() {
 
 }  // namespace
 
+std::string executableDir() { return exeDir(); }
+
 Library parseLibrary(std::string_view text, const std::string& name) {
   Library lib;
   lib.path = name;

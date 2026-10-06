@@ -83,7 +83,8 @@ void usage() {
       "  --backends        compile original and variants per backend and compare after the\n"
       "                    compilers' optimizers: SPIR-V (fxstat, $SOPT_FXSTAT; spirv-dis,\n"
       "                    $SOPT_SPIRV_DIS) and DXBC via Microsoft's fxc ($SOPT_FXC =\n"
-      "                    sopt-fxc.exe, run with $SOPT_WINE, default wine, off Windows)\n"
+      "                    sopt-fxc.exe, default: next to sopt-fx; run with $SOPT_WINE,\n"
+      "                    default wine, off Windows)\n"
       "  --export-spirv DIR  write original and variants as the SPIR-V ReShade hands the driver\n"
       "                    (fxstat, $SOPT_FXSTAT) to DIR, for ShaderInfo --batch DIR on a PC\n"
       "  --driver-stats F  the driver statistics ShaderInfo --batch wrote (F, with the export's\n"
@@ -197,6 +198,13 @@ int main(int argc, char** argv) {
   backCfg.spirvDis = "spirv-dis";
   if (const char* v = std::getenv("SOPT_SPIRV_DIS")) backCfg.spirvDis = v;
   if (const char* v = std::getenv("SOPT_FXC")) backCfg.fxc = v;
+  else {
+    // The SweetOpt download ships sopt-fxc.exe next to sopt-fx (owner, 2026-10-06).
+    const std::string dir = executableDir();
+    std::error_code ec;
+    if (!dir.empty() && std::filesystem::exists(std::filesystem::path(dir) / "sopt-fxc.exe", ec))
+      backCfg.fxc = (std::filesystem::path(dir) / "sopt-fxc.exe").string();
+  }
 #ifndef _WIN32
   backCfg.wine = "wine";
 #endif

@@ -103,7 +103,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   every / one API, an Effects\ effect on every API, the host with ReShade on a chosen API by hand, the benchmark,
   Results\ / Effects\ / guide); scripts bin\run-test.ps1 / run-bench.ps1 / common.ps1 (ReShade per API: d3d9.dll,
   dxgi.dll for dx10-12, opengl32.dll, Vulkan layer env); package staged as Test-Host\ (CI artifact Test-Host
-  (owner, 2026-10-06: three downloads, SweetOpt / GPU Blueprint / Test Host; was sopt-windows-tools; sopt-fxc.exe moved to SweetOpt's bin\), release Test-Host-<v>.zip; docs/TestHost.html = README.html; run-bench.bat gone).
+  (owner, 2026-10-06: three downloads, SweetOpt / GPU Blueprint / Test Host; was sopt-windows-tools; sopt-fxc.exe moved to SweetOpt's bin\, sopt-fx finds it next to itself when $SOPT_FXC is unset: executableDir()), release Test-Host-<v>.zip; docs/TestHost.html = README.html; run-bench.bat gone).
   sopt-host `--api dx9|dx10|dx11|dx12|vulkan|gl` (d3d12.dll loaded at run time; depth pass on all but GL: depth9.hlsl
   float math vs_3_0 + ps_3_0, depth.hlsl as vs_4_0 / vs_5_0). sopt-timer shot mode (ShotAfter / SOPT_TIMER_SHOT=N: N
   frames with a rendered technique and 7 s for ReShade's banner, save_screenshot, WM_CLOSE 3 s later; 60 s timeout).

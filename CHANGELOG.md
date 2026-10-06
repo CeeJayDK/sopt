@@ -14,6 +14,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 - **Cheaper divides in fits:** a fitted `p * rcp(x + c) + q` is also tried as `p / (x + c) + q`; where a divide costs the same as rcp (measured on RDNA 3, the multiply hides under it) the scale and the add come for free (ReShade's reversed depth: 35 -> 32, `--no-div-form` turns it off).
 - **Logical and / or / not:** conditions joined with `&&`, `||` and `!` are read, searched and verified now (in shaders too), so `a == 0.0 && b == 0.0` becomes the one-compare `abs(a) == -abs(b)` and the two-sided [0, 1] checks become the wiki's `mad(x, x, -x)` forms. Verification tests such conditions with all their inputs at the thresholds together (one at a time rarely makes them all hold).
 - **More library rules:** CeeJay's zero comparison tricks (`abs(a) == -abs(b)` for "both zero", without abs where the signs are known), the [0, 1] range check `mad(x, x, -x) <= 0.0`, and the rsqrt forms of `pow(x, 1.5)` and `sqrt(x)`.
+- **`--backends` works out of the box:** `sopt-fxc.exe` (Microsoft's shader compiler, for the DXBC counts) now comes with SweetOpt and `sopt-fx` finds it next to itself.
 
 ### Test Host (was the bench tools zip)
 - **One test host for every API:** `Test-Host.bat` (a menu) runs ReShade on Direct3D 9, 10, 11 and 12, Vulkan and OpenGL without a game: a window with a fixed test image and a depth buffer like a game's.
