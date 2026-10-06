@@ -65,7 +65,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   Harness (M4, Windows): `sopt-host --api dx11|vulkan --bench` with ReShade (full add-on
   support) and `sopt-timer.addon64`; one click: `run-bench.bat` (tools/windows/README.md: ReShade64.dll or
   the ReShade add-on setup exe + a test package next to it; DX11 + Vulkan, screenshots, results zip);
-  CI artifact sopt-windows-tools (flat folder).
+  CI artifact Test-Host.
   Tools: ReShade-Testing-Initiative (`build_reshade_testing_initiative.sh`, needs
   spirv-tools, flex, bison) and RGA 2.14 (`rga-linux-2.14.tgz` from GitHub releases).
 
@@ -102,8 +102,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
 - Test Host (owner, 2026-10-06: "one test host to rule them all", ease of use): `Test-Host.bat` menu (IEEE 754 test on
   every / one API, an Effects\ effect on every API, the host with ReShade on a chosen API by hand, the benchmark,
   Results\ / Effects\ / guide); scripts bin\run-test.ps1 / run-bench.ps1 / common.ps1 (ReShade per API: d3d9.dll,
-  dxgi.dll for dx10-12, opengl32.dll, Vulkan layer env); package staged as Test-Host\ (CI artifact name
-  sopt-windows-tools kept, release Test-Host-<v>.zip; docs/TestHost.html = README.html; run-bench.bat gone).
+  dxgi.dll for dx10-12, opengl32.dll, Vulkan layer env); package staged as Test-Host\ (CI artifact Test-Host
+  (owner, 2026-10-06: three downloads, SweetOpt / GPU Blueprint / Test Host; was sopt-windows-tools), release Test-Host-<v>.zip; docs/TestHost.html = README.html; run-bench.bat gone).
   sopt-host `--api dx9|dx10|dx11|dx12|vulkan|gl` (d3d12.dll loaded at run time; depth pass on all but GL: depth9.hlsl
   float math vs_3_0 + ps_3_0, depth.hlsl as vs_4_0 / vs_5_0). sopt-timer shot mode (ShotAfter / SOPT_TIMER_SHOT=N: N
   frames with a rendered technique and 7 s for ReShade's banner, save_screenshot, WM_CLOSE 3 s later; 60 s timeout).

@@ -74,5 +74,5 @@ jobs:
         if: matrix.name == 'msvc'
         uses: actions/upload-artifact@v4
         with:
-          name: sopt-windows-tools
+          name: Test-Host
           path: stage/Test-Host/

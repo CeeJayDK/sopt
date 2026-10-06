@@ -22,7 +22,7 @@ DLLs (same preset, same frame content) and compare them (or send them for a pixe
 
 ## 1. D3D11 copy path (sopt-host --msaa)
 
-sopt-host.exe (CI artifact `sopt-windows-tools`) shows a fixed image; `--msaa 4` gives it a
+sopt-host.exe (CI artifact `Test-Host`) shows a fixed image; `--msaa 4` gives it a
 4x multisampled back buffer, so ReShade's copy shader runs every frame.
 
 1. Folder with `sopt-host.exe`, the DLL under test as `dxgi.dll` and a `reshade-shaders` folder
@@ -37,7 +37,7 @@ sopt-host.exe (CI artifact `sopt-windows-tools`) shows a fixed image; `--msaa 4`
 ## 2. OpenGL mipmaps (sopt_MipTest.fx)
 
 Simplest: `sopt-host.exe --api gl --width 1920 --height 1080` with the DLL as `opengl32.dll` next
-to it (sopt-windows-tools artifact). Any other OpenGL 4.3 program works too (GZDoom with the OpenGL
+to it (Test-Host artifact). Any other OpenGL 4.3 program works too (GZDoom with the OpenGL
 renderer, RetroArch with the `gl` video driver, ...).
 
 1. ReShade.log must not contain "Failed to compile bilinear mipmap generation shader" (that warning

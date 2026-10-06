@@ -8,7 +8,7 @@ effect with a screenshot per API, opens the host with ReShade on a chosen API fo
 
 ## Quick start
 
-1. Download the `sopt-windows-tools` artifact of the latest CI run (GitHub, Actions, the run's Artifacts) or the
+1. Download the `Test-Host` artifact of the latest CI run (GitHub, Actions, the run's Artifacts) or the
    release's `Test-Host-<version>.zip`, and extract it into a folder. It contains everything, `ReShade64.dll` included
    (ReShade 6.8.0 with full add-on support, built by CI from crosire's unchanged source; an official add-on build or
    `ReShade_Setup_*_Addon.exe` next to `Test-Host.bat` works too).
@@ -35,7 +35,7 @@ Scripts (in `bin\`; Windows PowerShell 5.1): `run-test.ps1 [-Apis all|dx9,dx10,d
 
 Since 0.6.0 (owner, 2026-10-05) every Windows download has only its launcher and `README.html` in the main
 folder, the programs in `bin\` and the other pages / licenses in `Docs\` (`tools/windows/stage.ps1` stages all
-three for CI and the release). This one (CI artifact `sopt-windows-tools`, release `Test-Host-<version>.zip`):
+three for CI and the release). This one (CI artifact `Test-Host`, release `Test-Host-<version>.zip`):
 
 | file | what |
 |---|---|
@@ -68,7 +68,7 @@ support*: the standard build skips `.addon` files.
 **sopt-host** (`sopt-host.exe`) is a window that shows one fixed image with vsync off (DX11 or
 Vulkan). It lets you run the bench without a game.
 
-Both are built by CMake on Windows. CI uploads them as the `sopt-windows-tools` artifact of the
+Both are built by CMake on Windows. CI uploads them as the `Test-Host` artifact of the
 MSVC job.
 
 ## What sopt-timer measures
