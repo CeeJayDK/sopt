@@ -33,26 +33,26 @@ inline const Family kFamilies[] = {
      "select 6.3 selectboth 75.7 sign 10.2 signbits 4.2 signclamp 3.8 signmad 4.4 signsat 4.9 signsel 7.5 "
      "signsel2 3.4 sin 10.4 sincos 17.3 sinh 18.5 smoothstep 9.1 sqrt 7.9 sqrt16 8.0 step 3.9 sub 2.0 "
      "tan 25.4 tanh 29.1 trunc 1.7 udiv 41.0 umod 34.2 unitf 5.2 utof 1.8 "},
-    {"amd-rdna2", "RDNA 2", 4,
-     "aAdd 3.4 aAdd1 331.1 aAnd 3.4 aAnd1 331.3 aCmpXchg 6.5 aCmpXchg1 331.6 aMax 3.4 aMax1 330.9 aMin 3.4 "
-     "aMin1 331.2 aOr 3.4 aOr1 331.1 aXchg 3.4 aXchg1 330.9 aXor 3.4 aXor1 331.3 abs -0.0 acos 32.9 "
-     "add 3.0 add16 1.5 arraybase 12.6 arrayread 286.3 arraywrite 363.2 asin 35.8 atan 52.7 atan2 61.4 "
-     "atombase 7.6 barrier 3.0 bitcast 0.0 bitor 2.9 bitrev 2.8 branchdiv 82.7 branchuni 40.4 ceil 3.0 "
-     "clamp 5.9 constarray 0.3 contract 4.0 cos 7.9 cosh 18.1 cross 11.6 cvt1 1.8 det3 15.9 distance 24.5 "
-     "div 7.8 divxy 6.5 dot2 2.0 dot3 2.1 dot4 2.2 exp 7.9 exp2 7.7 exp2_16 10.3 f16round -0.2 "
-     "faceforward 15.8 fbh 11.9 fbl 2.7 floor 3.0 flooradd 16.7 fma+cvt -1.5 fma+fma -0.0 fma+half 0.8 "
-     "fma+int 0.0 fma+minmax -1.5 fma+rcp -5.4 fmod 14.3 frac 3.0 fracadd 16.7 frexp 23.4 ftoitof 12.7 "
-     "ftou 3.0 groupbarrier 4.3 gsbase 14.8 gsbase32 14.9 gsread 3.9 gsread32 133.3 gswrite 7.0 "
-     "gswrite32 154.9 gswriteread 10.9 half1 -2.5 iadd 2.9 iand 2.9 icmpsel 8.1 idiv 73.8 imin 2.9 "
-     "imod 57.8 imul 11.6 int -0.2 irot 2.8 ishr 3.0 isinf 7.2 isnan 4.5 itof 2.7 ixmul 10.7 ldexp 5.6 "
-     "length 14.7 lerp 7.0 log 7.8 log10 6.9 log2 7.7 mad 4.0 mad16 -2.5 mad2 4.0 mad2v 5.9 mad3v 11.7 "
-     "mad4v 17.6 matmul4 34.6 max 3.0 max3 1.1 membarrier 4.3 min 3.0 minmax 2.9 minmax1 1.8 modf 8.2 "
-     "mul -1.0 mul16 1.5 neg -0.0 negabs 0.0 normalize 8.5 omod0.125 1.1 omod0.25 1.1 omod2 0.0 omod3 1.1 "
-     "omod4 0.0 omod8 1.1 omodhalf 0.0 popc -0.0 pow 19.4 radians 1.7 rcp 7.8 rcp1 6.9 rcp16 10.2 "
-     "rcpmax 7.8 reflect 12.0 refract 38.5 round 3.0 roundadd 7.7 rsqrt 7.8 satmad -0.0 saturate 0.2 "
-     "select 5.0 selectboth 82.4 sign 14.0 signbits 5.9 signclamp 5.9 signmad 5.8 signsat 7.8 signsel 10.9 "
-     "signsel2 4.9 sin 7.9 sincos 16.6 sinh 18.1 smoothstep 13.8 sqrt 7.7 sqrt16 10.1 step 4.9 sub 3.0 "
-     "tan 32.3 tanh 28.7 trunc 2.8 udiv 57.7 umod 44.3 unitf 8.8 utof 2.9 "},
+    {"amd-rdna2", "RDNA 2", 5,
+     "aAdd 3.7 aAdd1 337.6 aAnd 3.7 aAnd1 337.5 aCmpXchg 6.7 aCmpXchg1 338.2 aMax 3.7 aMax1 337.3 aMin 3.7 "
+     "aMin1 337.4 aOr 3.7 aOr1 337.4 aXchg 3.7 aXchg1 337.3 aXor 3.7 aXor1 337.5 abs -0.0 acos 32.5 "
+     "add 3.0 add16 1.5 arraybase 12.9 arrayread 291.8 arraywrite 370.2 asin 35.3 atan 52.3 atan2 60.4 "
+     "atombase 7.8 barrier 3.0 bitcast 0.1 bitor 3.0 bitrev 2.8 branchdiv 84.4 branchuni 41.3 ceil 3.0 "
+     "clamp 5.8 constarray 0.3 contract 4.0 cos 7.9 cosh 18.5 cross 11.5 cvt1 1.9 det3 16.2 distance 24.5 "
+     "div 7.8 divxy 6.3 dot2 1.9 dot3 2.0 dot4 2.2 exp 7.9 exp2 7.6 exp2_16 10.2 f16round -0.2 "
+     "faceforward 16.1 fbh 11.8 fbl 2.8 floor 3.0 flooradd 16.6 fma+cvt -1.6 fma+fma 0.1 fma+half 0.8 "
+     "fma+int 0.0 fma+minmax -1.6 fma+rcp -5.5 fma1 3.0 fmod 14.3 frac 3.0 fracadd 16.7 frexp 23.9 "
+     "ftoitof 12.7 ftou 3.0 groupbarrier 4.4 gsbase 15.2 gsbase32 15.3 gsread 4.0 gsread32 135.9 "
+     "gswrite 7.2 gswrite32 158.0 gswriteread 11.1 half1 -2.5 iadd 2.9 iand 2.9 icmpsel 8.2 idiv 75.3 "
+     "imin 2.8 imod 58.9 imul 11.4 int -0.1 irot 2.8 ishr 2.9 isinf 7.4 isnan 4.7 itof 2.8 ixmul 10.7 "
+     "ldexp 5.7 length 14.6 lerp 6.9 log 7.7 log10 7.1 log2 7.7 mad 4.0 mad16 -2.5 mad2 4.0 mad2v 5.9 "
+     "mad3v 11.7 mad4v 17.7 matmul4 35.3 max 3.0 max3 1.1 membarrier 4.4 min 3.0 minmax 2.9 minmax1 1.9 "
+     "modf 8.4 mul -1.0 mul16 1.5 neg -0.0 negabs -0.0 normalize 8.1 omod0.125 1.0 omod0.25 1.0 omod2 0.0 "
+     "omod3 1.0 omod4 0.0 omod8 1.0 omodhalf 0.0 popc 0.0 pow 19.3 radians 1.9 rcp 7.8 rcp1 7.1 rcp16 10.2 "
+     "rcpmax 7.8 reflect 11.9 refract 39.2 round 3.0 roundadd 7.7 rsqrt 7.7 satmad -0.0 saturate 0.2 "
+     "select 5.0 selectboth 84.1 sign 13.8 signbits 5.9 signclamp 5.9 signmad 5.8 signsat 7.8 signsel 10.8 "
+     "signsel2 4.9 sin 7.9 sincos 16.5 sinh 18.5 smoothstep 13.8 sqrt 7.6 sqrt16 10.1 step 4.9 sub 3.0 "
+     "tan 32.0 tanh 29.4 trunc 3.0 udiv 58.8 umod 45.1 unitf 8.7 utof 2.8 "},
     {"amd-rdna4", "RDNA 4", 1,
      "aAdd 15.1 aAdd1 878.3 aAnd 14.6 aAnd1 877.9 aCmpXchg 28.2 aCmpXchg1 882.8 aMax 16.6 aMax1 871.0 "
      "aMin 15.6 aMin1 887.5 aOr 15.0 aOr1 883.9 aXchg 16.4 aXchg1 875.7 aXor 16.5 aXor1 872.8 abs 0.0 "
@@ -281,7 +281,7 @@ inline const Rule kRules[] = {
     {R"(GTX (9\d\d|8\d\dM)|Quadro M\d)", "nvidia-maxwell"},
     {R"(RX 9\d\d\d)", "amd-rdna4"},
     {R"(RX 7\d\d\d)", "rdna3"},
-    {R"(RX 6\d\d\d|Radeon 6[68]0M|Raphael)", "amd-rdna2"},
+    {R"(RX 6\d\d\d|Radeon 6[68]0M|Raphael|Granite Ridge)", "amd-rdna2"},
     {R"(Vega)", "amd-gcn5"},
     {R"(HD [67]\d\d\dM?\b)", "amd-terascale2"},
     {R"(Iris\S* Xe|UHD Graphics 7\d\d)", "intel-gen12"},
@@ -295,6 +295,7 @@ struct Device {
   const char* model;
 };
 inline const Device kDevices[] = {
+    {0x13C0, "amd-rdna2"},
     {0x1636, "amd-gcn5"},
     {0x164E, "amd-rdna2"},
     {0x1681, "amd-rdna2"},

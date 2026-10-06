@@ -1338,6 +1338,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   ShaderInfo statistics only (Register Count / Binary Size), like every NVIDIA. AMD iGPU ShaderInfo (0x13C0, "AMD
   Radeon(TM) Graphics", likely Granite Ridge (Ryzen 9000, RDNA 2); driver 25.11.1, compiler 2.0.353;
   docs/shaderinfo/amd-radeon-granite-ridge.txt): VGPRs / SGPRs and disassembly like the Raphael report; no OpBench.
+  Then its OpBench / TexBench 0.6.0 (2026-10-06, driver 32.0.21033.3005; docs/opbench|texbench/amd-radeon-granite-ridge.*,
+  order PNGs; the zip's RTX 4090 files were the ones already saved): drift 0.1%, all consensus; = Raphael on all 164 tput tests
+  within max(25%, 1.5) (one VALU op 2.98, max3 1.0, omod2 / 4 free, omod8 = control, mad16 -2.45, fma1 3.0 vs mad 4: the second
+  constant costs extra on RDNA 2): fifth RDNA 2 device, amd-rdna2 unchanged (site NAME_BY_DEVICE 0x13C0 + MODEL_RULES, expected.hpp
+  regenerated); fp32 0.53 / fp16 1.03 TFLOPS. TexBench 139 s, 17.6 GTexels/s, 16.3 GPixels/s, 62.1 GB/s, pixel order 8 x 8 (wave64).
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
