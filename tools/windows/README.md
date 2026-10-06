@@ -45,7 +45,6 @@ three for CI and the release). This one (CI artifact `Test-Host`, release `Test-
 | `bin\sopt-host.exe` | the test window: fixed image, synthetic depth, vsync off, `--api dx9\|dx10\|dx11\|dx12\|vulkan\|gl` |
 | `bin\sopt-timer.addon64` / `.addon32` | the ReShade add-on: technique timings, the benchmark, the test screenshots |
 | `bin\run-test.ps1`, `bin\run-bench.ps1`, `bin\common.ps1` | the scripts behind the menu |
-| `bin\sopt-fxc.exe` | Microsoft's fxc -O3 on one HLSL entry point (for `sopt-fx --backends`, see tools/fxc) |
 | `bin\timings.py` | merges several CSVs into one Markdown table |
 | `bin\ReShade64.dll`, `Docs\ReShade-LICENSE.md` | ReShade 6.8.0, full add-on support, unchanged (CI build) |
 | `Docs\IEEE754.md` | what the IEEE 754 test found in ReShade 6.8.0 |

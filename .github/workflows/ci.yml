@@ -70,7 +70,7 @@ jobs:
           name: SweetOpt-windows
           path: stage/SweetOpt/
       - name: Upload Test Host
-        # Test-Host.bat (menu), sopt-host (every API), sopt-timer, the test effects, ReShade64.dll, sopt-fxc
+        # Test-Host.bat (menu), sopt-host (every API), sopt-timer, the test effects, ReShade64.dll
         if: matrix.name == 'msvc'
         uses: actions/upload-artifact@v4
         with:

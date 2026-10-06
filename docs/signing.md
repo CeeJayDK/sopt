@@ -43,6 +43,7 @@ Foundation signs it for free. Their review is done by people and can take days.
       <pe-file-set>
         <include path="bin/sopt.exe"/>
         <include path="bin/sopt-fx.exe"/>
+        <include path="bin/sopt-fxc.exe"/>
         <for-each><authenticode-sign/></for-each>
       </pe-file-set>
     </zip-file>
@@ -57,7 +58,6 @@ Foundation signs it for free. Their review is done by people and can take days.
     <zip-file path="Test-Host-*.zip">
       <pe-file-set>
         <include path="bin/sopt-host.exe"/>
-        <include path="bin/sopt-fxc.exe"/>
         <include path="bin/sopt-timer.addon64"/>
         <include path="bin/sopt-timer.addon32"/>
         <for-each><authenticode-sign/></for-each>

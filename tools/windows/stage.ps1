@@ -1,10 +1,11 @@
 # Stages the three Windows downloads, used by CI (artifacts) and release.yml (zips), so both have the same layout.
 # Owner, 2026-10-05: the main folder holds only the launcher and the guide (README.html); the programs go in bin\,
 # the other pages, the stylesheet and the licenses in Docs\.
-#   SweetOpt\       SweetOpt.bat, README.html; bin\ sopt.exe, sopt-fx.exe; Docs\ style.css, LICENSE.txt
+#   SweetOpt\       SweetOpt.bat, README.html; bin\ sopt.exe, sopt-fx.exe, sopt-fxc.exe (for sopt-fx --backends);
+#                   Docs\ style.css, LICENSE.txt
 #   GPU-Blueprint\  GPU-Blueprint.bat, README.html; bin\ OpBench.exe, TexBench.exe, ShaderInfo.exe, zip-reports.ps1;
 #                   Docs\ OpBench.html, TexBench.html, ShaderInfo.html, style.css, LICENSE.txt
-#   Test-Host\      Test-Host.bat, README.html; bin\ sopt-host.exe, sopt-timer.addon64 / .addon32, sopt-fxc.exe,
+#   Test-Host\      Test-Host.bat, README.html; bin\ sopt-host.exe, sopt-timer.addon64 / .addon32,
 #                   common.ps1, run-test.ps1, run-bench.ps1, timings.py, ReShade64.dll; Effects\ the test effects
 #                   (sopt_IEEE754.fx, sopt_MipTest.fx); Docs\ style.css, LICENSE.txt, ReShade-LICENSE.md, IEEE754.md
 param(
@@ -28,7 +29,7 @@ function Stage($name, $launcher, $readme, $bins, $docs) {
 }
 
 Stage "SweetOpt" (Join-Path $win "SweetOpt.bat") (Join-Path $root "docs/sweetopt/README.html") `
-  @("$Build/sopt.exe", "$Build/sopt-fx.exe") `
+  @("$Build/sopt.exe", "$Build/sopt-fx.exe", "$Build/sopt-fxc.exe") `
   @((Join-Path $win "docs/style.css"))
 
 Stage "GPU-Blueprint" (Join-Path $win "GPU-Blueprint.bat") (Join-Path $win "docs/README.html") `
@@ -37,7 +38,7 @@ Stage "GPU-Blueprint" (Join-Path $win "GPU-Blueprint.bat") (Join-Path $win "docs
 
 # Test Host (owner, 2026-10-06: one test host for every API ReShade supports, a menu, test effects in Effects\).
 Stage "Test-Host" (Join-Path $win "Test-Host.bat") (Join-Path $win "docs/TestHost.html") `
-  @("$Build/sopt-host.exe", "$Build/sopt-timer.addon64", "$Build32/sopt-timer.addon32", "$Build/sopt-fxc.exe", (Join-Path $win "common.ps1"), (Join-Path $win "run-test.ps1"), (Join-Path $win "run-bench.ps1"), (Join-Path $win "timer/timings.py"), "$ReShadeBin/ReShade64.dll") `
+  @("$Build/sopt-host.exe", "$Build/sopt-timer.addon64", "$Build32/sopt-timer.addon32", (Join-Path $win "common.ps1"), (Join-Path $win "run-test.ps1"), (Join-Path $win "run-bench.ps1"), (Join-Path $win "timer/timings.py"), "$ReShadeBin/ReShade64.dll") `
   @((Join-Path $win "docs/style.css"), "$ReShadeBin/ReShade-LICENSE.md", (Join-Path $root "tools/reshade/IEEE754.md"))
 $fx = Join-Path $Out "Test-Host/Effects"
 New-Item -ItemType Directory -Force -Path $fx | Out-Null
