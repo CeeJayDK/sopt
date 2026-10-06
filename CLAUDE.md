@@ -1235,6 +1235,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   blend plain: readings falling as the GPU warmed). New tests = UHD 630 within ~2% (2 x 2 texels, trilinear vs aniso,
   ps spread): Gen9 / Gen9.5 behave alike. Passes 1.5-2.5x slower than the UHD 630 (memory), and there half-size
   downsampling by bilinear beats 4 Loads (RGBA8 1.44 vs 1.67 ms, RGB10A2 1.37 vs 1.87); FINDINGS.md updated.
+  RTX 5080 (Blackwell, 0x2C02, driver 32.0.16.1714 / 617.14; docs/opbench/nvidia-rtx-5080-v6.csv, docs/texbench/nvidia-rtx-5080.csv
+  + PNGs, docs/shaderinfo/nvidia-rtx-5080.txt): first Blackwell report with OpBench 0.6.0 / TexBench. OpBench = the v1 5080
+  runs within ~1 unit (add 3.5, min 3.4, clamp 7.9, select 8.2, MUFU / floor 22.5-24.4, sign 17.9, pow 51), all consensus
+  at 55% drift; nvidia-blackwell holds. Integer (first data; the model's integer costs were Ampere's): iadd 0.2, iand 0.7,
+  imul 0.7, ishr 6.8, utof / itof 6.8, ftou 14.7 = the RTX 4060 Ti's: the Ampere values fit. fma1 3.6, mad16 -0.4 (fp16 =
+  fp32), signmad 7.2 / signsel2 3.0 vs sign 17.9; fp32 58 TFLOPS. TexBench 259 s, 972 GTexels/s, 327 GPixels/s, 843 GB/s; all
+  consensus. New: in compute (dependent reads) RGBA8 point 21, Load 51, bilinear 76 units (point = bilinear on every other
+  card; the pixel shader's Sample point = bilinear here too); 2 x 2 each: 4 Loads beat 3 gathers for RGBA8 / RGBA16F (141 vs
+  187, 207 vs 351), gathers win RGBA32F (352 vs 680), 4 points slowest; 2 x 2 average: 1 bilinear 73 vs 4 Loads 141; trilinear =
+  aniso 2x round, aniso 2x 2:1 2.2x; ddx_fine 24 vs ddx 52; copy Sample = Load; blend state RGBA8 add 25% faster, RGBA32F 20%
+  slower; LUT 64: 3D 8% faster; stencil / tile discard halve the heavy pass. Pixel order 4 x 8 warp blocks. ShaderInfo statistics
+  only (like every NVIDIA). FINDINGS.md updated (Blackwell rows; gathers are not the 2 x 2 answer there).
   Owner's decisions (2026-10-06): ECT level 5 stays (best ratio in the benchmark; -4 is close and faster, but the
   optimizer runs in the background); ShaderInfo as a measured source: wait for more reports; integer / bit tricks and
   casts in the search: yes (plan first); expected costs per cost model in OpBench / TexBench: yes, if it does not bloat
