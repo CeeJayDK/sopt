@@ -26,7 +26,7 @@
 #include <windows.h>
 #include <objbase.h>
 #include <d3d9.h>
-#include <d3d10.h>
+#include <d3d10_1.h>  // includes d3d10.h (the SDK wants d3d10_1.h first)
 #include <d3d11.h>
 #include <d3d12.h>
 #include <dxgi1_5.h>
@@ -45,6 +45,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cctype>
+#include <climits>
 #include <cstring>
 #include <string>
 #include <vector>
