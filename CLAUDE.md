@@ -1279,6 +1279,17 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   store tests without consensus, drift 70%): RGBA8 Load 9.0 vs point 30 fma units (Load much cheaper, as on RDNA 2 / 4),
   RGBA16F bilinear 30 (~RGBA8 25), pixel order 8 x 8 blocks of 64 (wave64) like RDNA 4; 99 of 304 tput tests differ > 30%
   from the 9070 XT (memory / caches).
+  Owner's go (2026-10-06, "update rdna3 too"): `rdna3` = the RX 7900 GRE's OpBench costs (kRdna3, dual-issue units like
+  amd-rdna4: VALU 4, floor 8, MUFU 27, div 27 (measured c / x 25.8: the mul hides under the rcp), step 12, select 5, sign
+  36, pow 57, imul 29; amd folds / max3 / minmax kept); the old RGA-based row stays as `rdna3-rga` (mechanics tests use
+  it). Bench (time 30, before = old rdna3; costs in new units, planted problems differ since they are generated per
+  model): examples all found except depth_reversed (goal 32 = 1000 / mad(t, 998001, 999) - c, best 35 even in 120 s and
+  with any order model; old model 24 < goal 25): the inner fit emits p * rcp(v + c) + q (35), not the div form whose mul
+  and add fold (32); rsqrt first hit 2.2 -> 23.5 s, step_lerp / length_squared faster; planted 0 not recovered.
+  NaN (owner, 2026-10-06): fxc compiles isnan(x) and x != x alike (ne); ReShade 6.8.0's SPIR-V codegen emits float != as
+  OpFOrdNotEqual (effect_codegen_spirv.cpp line 2195; also line 1723, float -> bool as != 0), false for NaN, where IEEE
+  754 / HLSL != is unordered (OpFUnordNotEqual): a ReShade codegen bug, not a driver one (read from source, not tested);
+  isnan -> OpIsNan is fine. Library !(a == b) -> a != b rules removed for this reason.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
