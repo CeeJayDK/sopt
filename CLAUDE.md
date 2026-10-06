@@ -461,7 +461,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   the other threads stop too: a shared lowest-failing-index, so the merged result is unchanged; bench identical, no
   measurable gain: stage 2 already rejects nearly everything (depth_reversed: 798 at stage 2, 0 in V1) and verify time
   is V2 / V1 over accepted candidates, which must see every point),
-  sopt-fx maxAlternatives 20 and one search per distinct region. Overflow (default,
+  sopt-fx maxAlternatives 20 and one search per distinct region. 2026-10-06 (owner's go, identical results):
+  prepare() unpacks operands once, dedup reads only the type byte, and an affine pre-check (SearchConfig::
+  affinePrecheck, `--no-affine-precheck`: three test points' accepted intervals, pairwise slope test; ~99.5% of failing
+  affine fits fail at test point 0, so point order does not help) skips fits that cannot pass: -4..-10% instructions,
+  details in docs/performance-ideas.md. Overflow (default,
   owner; `--no-overflow`): when the bank is full, keep combining stored entries and only
   check new values as hits; bench +2 found (length_squared, planted_1), none lost; every
   search runs to --time, which now covers all CEGIS iterations together (tests that

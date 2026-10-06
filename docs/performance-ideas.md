@@ -46,6 +46,19 @@ must stay exact (quantized OE lost variants); open: fewer test points (24 instea
 measure), recomputing the top levels' fingerprints (flag), and a disk-backed bank for
 long single-region runs (option, not default; owner 2026-09-28).
 
+## 2026-10-06: where candidates fail, operand unpacking, affine pre-check
+
+Owner: early outs to get through the haystack. Measured (instrumented build): of the affine fits that fail, ~99.5%
+fail at the first test point, so the point order does not matter; the cost is the fit itself (sums over all points
+before the check). Callgrind (rational, bank 150k, one thread): prepare 39% inclusive with 17% in entry() (bank
+entries unpacked 6-8 times per candidate), goalCheck 20% with fitWrap 15%, innerFit 2%. Done, identical results
+(generated / deduped / bank / hits equal on 7 examples with a fixed bank): prepare() unpacks each operand once, dedup
+reads only the type byte (typeOf); affine pre-check (SearchConfig::affinePrecheck, default, `--no-affine-precheck`):
+three test points with a finite interval of accepted values (acceptHull: budget, accuracy rule, loose budget; color
+budgets open-ended at the code edges), and every wrapper is some p * v + q, so if the pairwise slope intervals (with
+a generous rounding allowance, u = 1e-6) do not overlap, no wrapper can pass and the sums are skipped. Instructions
+(callgrind, bank 100k): rational -4%, sqrt_product -10.5%; prepare -37%; wall time 3-17% less search time.
+
 ## Where the time went (2026-09-24)
 
 Search (one thread):

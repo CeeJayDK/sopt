@@ -183,6 +183,20 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
       monoTol_[i] = a + 4.0 * std::fabs(t) * 0x1p-23;
     }
   }
+  // Affine pre-check points: index 0 first (most candidates already fail there), then spread out.
+  if (cfg_.affinePrecheck && tn_ >= 3) {
+    std::vector<size_t> order = {0, tn_ / 3, (2 * tn_) / 3};
+    for (size_t i = 0; i < tn_; ++i) order.push_back(i);
+    for (size_t i : order) {
+      if (pre_.size() == 3) break;
+      if (!targetFinite_[i] || std::any_of(pre_.begin(), pre_.end(), [&](const PrePoint& p) { return p.i == i; }))
+        continue;
+      double lo, hi;
+      acceptHull(i, lo, hi);
+      if (std::isfinite(lo) && std::isfinite(hi)) pre_.push_back({i, 0.5 * (lo + hi), 0.5 * (hi - lo)});
+    }
+    if (pre_.size() < 2) pre_.clear();
+  }
   table_.assign(1u << 16, kEmpty);
   // The bank grows to maxBank: reserve it (pages are only touched when used) so that
   // appending does not copy hundreds of MB, and size the table for it.
@@ -371,6 +385,10 @@ Enumerator::Packed Enumerator::pack(const Entry& e) {
   return p;
 }
 
+Type Enumerator::typeOf(uint32_t idx) const {
+  return opTypeCodes().pair[static_cast<unsigned>(bank_[idx].w0 >> 56)].second;
+}
+
 Enumerator::Entry Enumerator::entry(uint32_t idx) const {
   constexpr uint64_t m = (uint64_t{1} << kIndexBits) - 1;
   const Packed& p = bank_[idx];
@@ -503,7 +521,7 @@ void Enumerator::growTable() {
   const size_t mask = table_.size() - 1;
   for (uint32_t idx : old) {
     if (idx == kEmpty) continue;
-    size_t pos = (diskMode_ ? hashes_[idx][0] : hashFp(fpOf(idx), entry(idx).type)) & mask;
+    size_t pos = (diskMode_ ? hashes_[idx][0] : hashFp(fpOf(idx), typeOf(idx))) & mask;
     while (table_[pos] != kEmpty) pos = (pos + 1) & mask;
     table_[pos] = idx;
   }
@@ -516,7 +534,7 @@ bool Enumerator::insert(const Entry& e, const float* fp, SearchStats& stats) {
   size_t pos = h1 & mask;
   while (table_[pos] != kEmpty) {
     const uint32_t idx = table_[pos];
-    if (entry(idx).type == e.type && sameAs(idx, fp, len, h1, h2)) {
+    if (typeOf(idx) == e.type && sameAs(idx, fp, len, h1, h2)) {
       ++stats.deduped;
       // Same fingerprint as a hit: not needed in the bank, but it may differ from the
       // hit outside the test points, so keep it as an alternative for verification.
@@ -597,6 +615,92 @@ bool Enumerator::amdFolds(const CostModel& m, Op op, Type type, uint32_t a, uint
 // check on the float result of the wrapper. Cheaper wrappers (v + q, v * p, q - v) are
 // preferred when they also pass. top is v's op (a mul/div under an add/sub contracts)
 // and baseObj its objective cost.
+// The values accepts(i, .) can accept lie in [lo, hi] (a hull: the budget, the accuracy rule and the loose
+// budget, each an interval containing the target; color budgets open-ended where the codes reach 0 or the top).
+void Enumerator::acceptHull(size_t i, double& lo, double& hi) const {
+  const Budget& b = prog_.budget;
+  const double t = target_[i];
+  lo = hi = t;
+  auto band = [&](double c, double d) {
+    lo = std::min(lo, c - d);
+    hi = std::max(hi, c + d);
+  };
+  auto codeBand = [&](int bits, int k, int d) {
+    const double m = double((1 << bits) - 1);
+    lo = std::min(lo, k - d <= 0 ? -INFINITY : (k - d - 0.5) / m);
+    hi = std::max(hi, k + d >= int(m) ? INFINITY : (k + d + 0.5) / m);
+  };
+  auto codeOf = [](double v, int bits) {
+    const double c = v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
+    return static_cast<int>(c * ((1 << bits) - 1) + 0.5);
+  };
+  auto within = [&](const Budget& bb, double s) {
+    switch (bb.kind) {
+      case Budget::Kind::Exact: break;
+      case Budget::Kind::Color8:
+      case Budget::Kind::Color10: codeBand(bb.codeBits(), codeN(target_[i], bb.codeBits()), bb.maxCodeDiff); break;
+      case Budget::Kind::Texcoord:
+      case Budget::Kind::Abs: band(t, bb.eps); break;
+      case Budget::Kind::Rel: band(t, bb.eps * relBase(t, s)); break;
+    }
+  };
+  auto accurate = [&](const Budget& bb, double scale, double s) {  // pointAccurate's set
+    if (!rule_ || bb.kind == Budget::Kind::Exact) return;
+    const double x = exact_[i];
+    if (!std::isfinite(x)) return;
+    switch (bb.kind) {
+      case Budget::Kind::Exact: break;
+      case Budget::Kind::Color8:
+      case Budget::Kind::Color10: {
+        const int bits = bb.codeBits(), kx = codeOf(x, bits);
+        const int orig = std::abs(codeN(target_[i], bits) - kx) + (scale > 1.0 ? 1 : 0);
+        codeBand(bits, kx, std::max(bb.maxCodeDiff, orig));
+        break;
+      }
+      case Budget::Kind::Texcoord:
+      case Budget::Kind::Abs: band(x, std::max(bb.eps, scale * std::fabs(t - x))); break;
+      case Budget::Kind::Rel: band(x, std::max(bb.eps * relBase(x, s), scale * std::fabs(t - x))); break;
+    }
+  };
+  within(b, scale_[i]);
+  accurate(b, 1.0, scale_[i]);
+  if (b.loose > 1.0 && b.kind != Budget::Kind::Exact) {
+    const Budget lb = looseBudget(b);
+    within(lb, 0.0);
+    accurate(lb, b.loose, 0.0);
+  }
+  const double pad = 1e-9 * std::max(std::fabs(lo), std::fabs(hi)) + 1e-38;  // double vs float edges
+  lo -= pad;
+  hi += pad;
+}
+
+// Necessary condition for any wrapper (v + q, v * p, q - v and p * v + q are all p * v + q): some p, q put
+// p * v + q into the accepted interval at the pre-check points, allowing for float rounding (generously: the
+// unit u is 1e-6, the float32 one 6e-8). For each pair, |p dv - dc| <= w_i + w_j + rounding fixes p to an
+// interval; the intervals must overlap.
+bool Enumerator::affineFeasible(const float* v) const {
+  constexpr double u = 1e-6;
+  double pLo = -INFINITY, pHi = INFINITY;
+  for (size_t a = 0; a < pre_.size(); ++a)
+    for (size_t b = a + 1; b < pre_.size(); ++b) {
+      const PrePoint &P = pre_[a], &Q = pre_[b];
+      const double vi = v[P.i], vj = v[Q.i];
+      if (!std::isfinite(vi) || !std::isfinite(vj)) return false;  // fitWrap rejects non-finite values too
+      const double dv = vj - vi, S = std::fabs(vi) + std::fabs(vj);
+      if (std::fabs(dv) <= 8.0 * u * S || dv == 0.0) continue;  // (nearly) equal v: no slope information
+      const double dc = Q.c - P.c;
+      const double w0 = P.w + Q.w + 2.0 * u * (std::fabs(P.c) + P.w + std::fabs(Q.c) + Q.w);
+      const double pMax = (std::fabs(dc) + w0) / (std::fabs(dv) - 4.0 * u * S);
+      const double w = w0 + 4.0 * u * S * pMax;
+      double l = (dc - w) / dv, h = (dc + w) / dv;
+      if (l > h) std::swap(l, h);
+      pLo = std::max(pLo, l);
+      pHi = std::min(pHi, h);
+      if (pLo > pHi) return false;
+    }
+  return true;
+}
+
 bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& out) const {
   const CostModel& model = *cfg_.model;
   const unsigned W = width(targetType_);  // the wrapper applies to every component
@@ -608,6 +712,7 @@ bool Enumerator::fitWrap(const float* v, Op top, uint32_t baseObj, AffineHit& ou
   if (baseObj + std::min({wrapCost(Op::Add), wrapCost(Op::Mul), wrapCost(Op::Sub), wrapCost(Op::Mad)}) >=
       objLimit_)
     return false;
+  if (!pre_.empty() && !affineFeasible(v)) return false;
   double mv = 0, mg = 0, svg0 = 0, svv0 = 0;
   size_t m = 0;
   for (size_t i = 0; i < tn_; ++i) {
@@ -1073,8 +1178,10 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   const uint32_t a = it.a, b = it.b, c = it.c, aux = it.aux;
   const auto& oi = info(op);
   const uint32_t args[3] = {a, b, c};
+  Entry ea[3];  // the operands, unpacked once
+  for (uint8_t k = 0; k < oi.arity; ++k) ea[k] = entry(args[k]);
   bool allConst = true;
-  for (uint8_t k = 0; k < oi.arity; ++k) allConst = allConst && entry(args[k]).isConst;
+  for (uint8_t k = 0; k < oi.arity; ++k) allConst = allConst && ea[k].isConst;
   if (allConst) return Prep::ConstSkipped;
   // Result type: componentwise ops take the widest operand (float1 operands broadcast).
   Type type = Type::Float;
@@ -1085,7 +1192,7 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   } else if (oi.shape == Shape::Comp || oi.shape == Shape::Select) {
     unsigned w = 1;
     for (uint8_t k = oi.shape == Shape::Select ? 1 : 0; k < oi.arity; ++k)
-      w = std::max<unsigned>(w, width(entry(args[k]).type));
+      w = std::max<unsigned>(w, width(ea[k].type));
     type = floatType(w);
   }
   const unsigned w = width(type);
@@ -1096,27 +1203,27 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
     // map is solved at the goal check, so only single steps (needed inside nonlinear
     // ops, e.g. rcp(t + c)) are kept: no chains, no two-constant mad/lerp.
     int nonConst = 0;
-    uint32_t base = 0;
+    int base = 0;
     for (uint8_t k = 0; k < oi.arity; ++k)
-      if (!entry(args[k]).isConst) {
+      if (!ea[k].isConst) {
         ++nonConst;
-        base = args[k];
+        base = k;
       }
     const bool step = nonConst == 1 &&
                       (op == Op::Neg || op == Op::Add || op == Op::Sub || op == Op::Mul ||
-                       op == Op::Mad || op == Op::Lerp || (op == Op::Div && entry(b).isConst));
+                       op == Op::Mad || op == Op::Lerp || (op == Op::Div && ea[1].isConst));
     // A pure sign flip (-v, 0 - v, v * -1) is absorbed by the outer map and by the
     // consumer (sub for add, max for min, ...), so it is not stored either.
-    auto isConst = [&](uint32_t i, float val) {
-      return entry(i).isConst && entry(i).type == Type::Float && constValue(i) == val;
+    auto isConst = [&](int k, float val) {
+      return ea[k].isConst && ea[k].type == Type::Float && constValue(args[k]) == val;
     };
-    const bool flip = op == Op::Neg || (op == Op::Sub && isConst(a, 0.0f)) ||
-                      (op == Op::Mul && (isConst(a, -1.0f) || isConst(b, -1.0f))) ||
-                      (op == Op::Div && isConst(b, -1.0f));
+    const bool flip = op == Op::Neg || (op == Op::Sub && isConst(0, 0.0f)) ||
+                      (op == Op::Mul && (isConst(0, -1.0f) || isConst(1, -1.0f))) ||
+                      (op == Op::Div && isConst(1, -1.0f));
     // c / v is a scaled 1 / v: keep only the reciprocal itself.
-    if (op == Op::Div && nonConst == 1 && entry(a).isConst && !isConst(a, 1.0f)) return Prep::AffinePruned;
+    if (op == Op::Div && nonConst == 1 && ea[0].isConst && !isConst(0, 1.0f)) return Prep::AffinePruned;
     if (step) {
-      if (oi.arity == 3 || entry(base).affine || flip) return Prep::AffinePruned;
+      if (oi.arity == 3 || ea[base].affine || flip) return Prep::AffinePruned;
       affine = true;
     }
   }
@@ -1125,12 +1232,12 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   const CostModel& model = *cfg_.model;
   // Only constants and compile-time inputs: folded by the compiler, free.
   bool ctime = true;
-  for (uint8_t k = 0; k < oi.arity; ++k) ctime = ctime && (entry(args[k]).isConst || entry(args[k]).ctime);
+  for (uint8_t k = 0; k < oi.arity; ++k) ctime = ctime && (ea[k].isConst || ea[k].ctime);
   uint32_t obj = 0;
-  for (uint8_t k = 0; k < oi.arity; ++k) obj += entry(args[k]).obj;
+  for (uint8_t k = 0; k < oi.arity; ++k) obj += ea[k].obj;
   // A mul that is an output modifier is not contracted as well (dagCost counts the fma).
-  auto fuses = [&](uint32_t x) {
-    const Entry& ex = entry(x);
+  auto fuses = [&](int k) {
+    const Entry& ex = ea[k];
     return !ex.ctime && model.fusesIntoAdd(ex.op) && ex.type == type &&
            !(model.amdFolds && amdFolds(model, ex.op, ex.type, ex.args[0], ex.args[1]));
   };
@@ -1138,7 +1245,7 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
     obj = 0;
   else if (model.amdFolds && amdFolds(model, op, type, a, b))
     obj += w;
-  else if (model.fusedAdd && (op == Op::Add || op == Op::Sub) && (fuses(a) || fuses(b)))
+  else if (model.fusedAdd && (op == Op::Add || op == Op::Sub) && (fuses(0) || fuses(1)))
     obj += w * model.fusedAdd;
   else
     obj += model.opCost(op, w);
@@ -1150,7 +1257,7 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
     for (unsigned comp = 0; comp < w; ++comp) {
       const float* p[3] = {nullptr, nullptr, nullptr};
       for (uint8_t k = 0; k < oi.arity; ++k)
-        p[k] = fpOf(args[k]) + (width(entry(args[k]).type) == 1 ? 0 : comp * n_);
+        p[k] = fpOf(args[k]) + (width(ea[k].type) == 1 ? 0 : comp * n_);
       evalArray(op, p[0], p[1], p[2], out + comp * n_, n_, kProfileRef);
     }
   }
@@ -1224,7 +1331,7 @@ void Enumerator::flush(SearchStats& stats) {
       batchDup_[k] = kEmpty;
       for (size_t pos = batchHash_[k] & mask; table_[pos] != kEmpty; pos = (pos + 1) & mask) {
         const uint32_t idx = table_[pos];
-        if (entry(idx).type == t && sameAs(idx, fp, len, batchHash_[k], diskMode_ ? batchH2_[k] : 0)) {
+        if (typeOf(idx) == t && sameAs(idx, fp, len, batchHash_[k], diskMode_ ? batchH2_[k] : 0)) {
           batchDup_[k] = idx;
           break;
         }
@@ -1264,7 +1371,7 @@ void Enumerator::flush(SearchStats& stats) {
     if (dupIdx == kEmpty)
       for (; localTable_[lpos] != kEmpty; lpos = (lpos + 1) & localMask) {
         const uint32_t idx = localTable_[lpos];
-        if (entry(idx).type == e.type && sameAs(idx, fp, len, batchHash_[k], diskMode_ ? batchH2_[k] : 0)) {
+        if (typeOf(idx) == e.type && sameAs(idx, fp, len, batchHash_[k], diskMode_ ? batchH2_[k] : 0)) {
           dupIdx = idx;
           break;
         }

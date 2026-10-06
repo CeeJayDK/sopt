@@ -78,6 +78,9 @@ struct SearchConfig {
   bool rational = true;
   // Skip inner fits for entries the target is not monotonic in (see innerFit).
   bool innerPrefilter = true;
+  // Before an affine fit, a 3-point test that some p, q can put p * v + q into the accepted range at all
+  // (identical results: it only skips fits that cannot pass).
+  bool affinePrecheck = true;
   // When the bank is full, keep enumerating with the stored entries as operands and only
   // check the new values as hits (not stored): one more level of reach, no more memory.
   // Runs until the time limit. Default (owner): bench +2 found, none lost.
@@ -315,6 +318,15 @@ class Enumerator {
   // Direction changes of the target along v (sorted), beyond monoTol_; 2 = none fits.
   int monotoneBreaks(const float* v, std::vector<uint32_t>& keysBuf) const;
   std::vector<double> monoTol_;
+  // Affine pre-check (SearchConfig::affinePrecheck): up to three test points with a finite interval of
+  // accepted values (centre, half width), and the test itself.
+  struct PrePoint {
+    size_t i;
+    double c, w;
+  };
+  std::vector<PrePoint> pre_;
+  void acceptHull(size_t i, double& lo, double& hi) const;
+  bool affineFeasible(const float* v) const;
   FitScratch serialScratch_;
   std::vector<FitScratch> threadScratch_;
   std::vector<AffineHit> fitOut_;
@@ -385,6 +397,7 @@ class Enumerator {
   Chunked<Packed> bank_;
   static Packed pack(const Entry& e);
   Entry entry(uint32_t idx) const;
+  Type typeOf(uint32_t idx) const;  // entry(idx).type without unpacking the rest
   bool isHit(uint32_t idx) const { return (bank_[idx].w1 >> 31) & 1u; }
   void setHit(uint32_t idx) { bank_[idx].w1 |= uint64_t{1} << 31; }
   FpArena fp_;
