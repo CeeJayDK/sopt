@@ -365,8 +365,7 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
 0. M3 done (2026-09-26): owner's manual test of the variants in ReShade passed on DX11
    and Vulkan (package sopt-compare-2026-09-26c, all presets black; the per-step presets
    made it much easier).
-1. Optional (owner: "could"): after search, try re-writing the best candidates with pure
-   helpers (mad(t, b - a, a) -> lerp(a, b, t)) for readability only.
+1. Dropped (owner, 2026-10-06): no readability rewrites back to pure helpers (lerp etc.).
 2. M4: backend normalization done; harness written (sopt-timer + sopt-host + one-click
    run-bench.bat), waiting for the owner's first runs on Windows (AMD/NVIDIA, DX11/Vulkan;
    owner, 2026-10-01: remind them to test it, resend the artifact link and a test package). Then: new test package
@@ -1229,6 +1228,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   headers say 0.6.0, all tests consensus; UHD 630 = the previous run within 10% on every test, GTX 1660 too except 15 of 993
   TexBench tests at 10-20% (71% reference drift); findings unchanged.
   0.6.0 released 2026-10-05 (PR #15 merged, tag v0.6.0, title renamed to SweetOpt by the owner). Next test build: 0.6.1.
+  Owner's decisions (2026-10-06): ECT level 5 stays (best ratio in the benchmark; -4 is close and faster, but the
+  optimizer runs in the background); ShaderInfo as a measured source: wait for more reports; integer / bit tricks and
+  casts in the search: yes (plan first); expected costs per cost model in OpBench / TexBench: yes, if it does not bloat
+  the programs; pruning sopt / sopt-fx options: only after much more experience.
   OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
   pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
