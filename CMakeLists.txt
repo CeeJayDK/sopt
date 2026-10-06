@@ -205,6 +205,7 @@ if(SOPT_BUILD_TESTS)
     tests/test_main.cpp
     tests/test_eval.cpp
     tests/test_parser.cpp
+    tests/test_bits.cpp
     tests/test_rewrites.cpp
     tests/test_isa.cpp
     tests/test_sass.cpp

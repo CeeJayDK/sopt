@@ -1,13 +1,44 @@
 #include "verify/exact.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
+#include <cstdint>
 
 namespace sopt {
 namespace {
 
+// Integer ops (bit tricks): a uint value is held as its integer value (exact in a double);
+// bit casts and float -> int conversions act on the operand rounded to float32, as the GPU
+// sees it, and uint -> float conversions give the exact integer.
+inline uint32_t toU(double v) { return static_cast<uint32_t>(v); }
+inline double fromBits(uint32_t u) { return static_cast<double>(std::bit_cast<float>(u)); }
+inline uint32_t bitsOf(double v) { return std::bit_cast<uint32_t>(static_cast<float>(v)); }
+
 double exactOp(Op op, double x, double y, double z) {
   switch (op) {
+    case Op::AsUint: return static_cast<double>(bitsOf(x));
+    case Op::AsFloat: return fromBits(toU(x));
+    case Op::FToU: {
+      const float f = static_cast<float>(x);
+      return !(f > 0.0f) ? 0.0 : f >= 4294967296.0f ? 4294967295.0 : static_cast<double>(static_cast<uint32_t>(f));
+    }
+    case Op::FToI: {
+      const float f = static_cast<float>(x);
+      const int32_t i = f != f ? 0 : f >= 2147483648.0f ? INT32_MAX : f <= -2147483648.0f ? INT32_MIN : static_cast<int32_t>(f);
+      return static_cast<double>(static_cast<uint32_t>(i));
+    }
+    case Op::UToF: return x;
+    case Op::IToF: return static_cast<double>(static_cast<int32_t>(toU(x)));
+    case Op::UAnd: return static_cast<double>(toU(x) & toU(y));
+    case Op::UOr: return static_cast<double>(toU(x) | toU(y));
+    case Op::UXor: return static_cast<double>(toU(x) ^ toU(y));
+    case Op::UShl: return static_cast<double>(toU(x) << (toU(y) & 31u));
+    case Op::UShr: return static_cast<double>(toU(x) >> (toU(y) & 31u));
+    case Op::IShr: return static_cast<double>(static_cast<uint32_t>(static_cast<int32_t>(toU(x)) >> (toU(y) & 31u)));
+    case Op::UAdd: return static_cast<double>(toU(x) + toU(y));
+    case Op::USub: return static_cast<double>(toU(x) - toU(y));
+    case Op::UMul: return static_cast<double>(toU(x) * toU(y));
     case Op::Neg: return -x;
     case Op::Abs: return std::fabs(x);
     case Op::Saturate: return x < 0.0 ? 0.0 : (x > 1.0 ? 1.0 : x);
@@ -64,6 +95,9 @@ double scaleOp(Op op, double x, double y, double z, double sx, double sy, double
     case Op::Min: return y < x ? sy : sx;
     case Op::Max: return x < y ? sy : sx;
     case Op::Select: return x != 0.0 ? sy : sz;
+    case Op::AsUint: case Op::AsFloat: case Op::FToU: case Op::FToI: case Op::UAnd: case Op::UOr: case Op::UXor:
+    case Op::UShl: case Op::UShr: case Op::IShr: case Op::UAdd: case Op::USub: case Op::UMul:
+      return 0.0;  // bit-level: no error scale (the operands are taken as float32 values)
     case Op::Floor: case Op::Sign: case Op::Step: case Op::Round: case Op::Ceil:
     case Op::Lt: case Op::Le: case Op::Gt: case Op::Ge: case Op::Eq: case Op::Ne:
       return 0.0;  // piecewise constant: errors move the steps, they do not scale
@@ -138,7 +172,9 @@ const ExactEvaluator::Cols& ExactEvaluator::eval(const Expr& e, const PointSet& 
         continue;
       }
       case Op::Const:
-        for (unsigned c = 0; c < w; ++c) std::fill(out[c], out[c] + count, double(n.value[c]));
+        for (unsigned c = 0; c < w; ++c)
+          std::fill(out[c], out[c] + count,
+                    n.type == Type::Uint ? double(std::bit_cast<uint32_t>(n.value[c])) : double(n.value[c]));
         continue;
       case Op::Swizzle:
         for (unsigned c = 0; c < w; ++c) {

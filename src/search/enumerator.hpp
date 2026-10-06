@@ -370,7 +370,7 @@ class Enumerator {
   std::vector<Type> types_;  // float types ops are enumerated for: float1, then the target's
 
   // The bank: 16 bytes per entry (owner's idea: op and type as one codebook byte, flags as
-  // bits): w0 = a (28 bits) | b (28) | code (8, op * kNumTypes + type), w1 = c (28) |
+  // bits): w0 = a (28 bits) | b (28) | code (8, the op/type codebook, see OpTypeCodes), w1 = c (28) |
   // isConst, affine, ctime, isHit (4 bits) | cost (16) | obj (16). Entry is its unpacked
   // form; entry() and pack() convert.
   struct Packed {

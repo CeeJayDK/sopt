@@ -519,6 +519,10 @@ BoundResult proveBound(const Program& prog, const Expr& cand, const BoundOptions
   const unsigned n = static_cast<unsigned>(slots.size());
   const Type rt = prog.target.nodes[prog.target.root].type;
   if (b.kind == Budget::Kind::Exact || n > kMaxSlots || cand.nodes[cand.root].type != rt) return res;
+  // No interval model for integer ops / bit casts (bit tricks): no proof.
+  for (const Expr* x : {&prog.target, &cand})
+    for (const Node& nd : x->nodes)
+      if (isIntShape(info(nd.op).shape)) return res;
   const unsigned w = width(rt);
   const bool rule = accuracyRule(b);
 

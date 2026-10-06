@@ -56,19 +56,38 @@ const std::array<OpInfo, static_cast<size_t>(Op::Count)> kInfo = {{
   {"distance",  "",   Syntax::Call,      2, Shape::Reduce,   true,  true,  true,  9},
   {"swizzle",   ".",  Syntax::Swizzle,   1, Shape::Swizzle,  false, true,  true,  10},
   {"construct", "",   Syntax::Construct, 0, Shape::Construct,false, true,  true,  9},
+  // integers and bit casts: not enumerated unless --bits (or present in the target). itof,
+  // int and ishr print as float(asint(a)), asuint(int(a)) and asuint(asint(a) >> b).
+  {"asuint",    "",   Syntax::Call,      1, Shape::ToUint,   false, true,  false, 9},
+  {"asfloat",   "",   Syntax::Call,      1, Shape::ToFloat,  false, true,  false, 9},
+  {"uint",      "",   Syntax::Call,      1, Shape::ToUint,   false, true,  false, 9},
+  {"int",       "",   Syntax::Call,      1, Shape::ToUint,   false, true,  false, 9},
+  {"float",     "",   Syntax::Call,      1, Shape::ToFloat,  false, true,  false, 9},
+  {"itof",      "",   Syntax::Call,      1, Shape::ToFloat,  false, true,  false, 9},
+  {"and",       "&",  Syntax::Infix,     2, Shape::Int,      true,  true,  false, 4},
+  {"or",        "|",  Syntax::Infix,     2, Shape::Int,      true,  true,  false, 4},
+  {"xor",       "^",  Syntax::Infix,     2, Shape::Int,      true,  true,  false, 4},
+  {"shl",       "<<", Syntax::Infix,     2, Shape::Int,      false, true,  false, 4},
+  {"shr",       ">>", Syntax::Infix,     2, Shape::Int,      false, true,  false, 4},
+  {"ishr",      ">>", Syntax::Infix,     2, Shape::Int,      false, true,  false, 4},
+  {"iadd",      "+",  Syntax::Infix,     2, Shape::Int,      true,  true,  false, 4},
+  {"isub",      "-",  Syntax::Infix,     2, Shape::Int,      false, true,  false, 4},
+  {"imul",      "*",  Syntax::Infix,     2, Shape::Int,      true,  true,  false, 4},
 }};
 
 // Per-op costs in Op order (input, const, neg, abs, saturate, floor, frac, sign, sqrt,
 // rsqrt, rcp, exp, log, sin, cos, exp2, log2, round, ceil, add, sub, mul, div, min, max,
 // step, pow, lt, le, gt, ge, eq, ne, mad, lerp, clamp, select, smoothstep, dot, length,
-// normalize, distance, swizzle, construct). Costs are per float1; CostModel::opCost
+// normalize, distance, swizzle, construct, then the integer ops: asuint, asfloat, uint, int,
+// float, itof, and, or, xor, shl, shr, ishr, iadd, isub, imul). Costs are per float1; CostModel::opCost
 // scales them to floatN; smoothstep and dot..distance are computed there (their entries
 // are placeholders >= 1).
 const CostModel kGeneric{"generic",
   {0, 0, 1, 1, 1, 2, 3, 2, 5,
    5, 5, 6, 6, 6, 6, 5, 5, 2, 2, 2, 2, 3, 5, 2, 2, 2, 8,
    2, 2, 2, 2, 2, 2, 4, 6, 3, 2, 1,
-   3, 8, 11, 10, 1, 1},
+   3, 8, 11, 10, 1, 1,
+   1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3},
   0, false};
 
 // Quarter-VALU units, checked op by op against RGA gfx1100 ISA (fxstat COST x 4):
@@ -83,7 +102,8 @@ const CostModel kRdna3{"rdna3",
   {0, 0, 1, 1, 1, 4, 4, 16, 16,
    16, 16, 20, 20, 20, 20, 16, 16, 4, 4, 4, 4, 4, 20, 4, 4, 8, 36,
    4, 4, 4, 4, 4, 4, 4, 8, 4, 4, 1,
-   4, 20, 24, 24, 1, 1},
+   4, 20, 24, 24, 1, 1,
+   1, 1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 16},
   1, true, true};
 // NVIDIA Ada (sm_89) SASS via ptxas + nvdisasm, in quarter-ALU units (4 = one FP32
 // instruction), MUFU at 8x (FP32 : MUFU throughput 128 : 16 per SM per clock).
@@ -95,7 +115,8 @@ const CostModel kNvidia{"nvidia",
   {0, 0, 1, 1, 1, 4, 8, 12, 32,
    32, 32, 36, 36, 36, 36, 32, 32, 4, 4, 4, 4, 4, 36, 4, 4, 4, 68,
    4, 4, 4, 4, 4, 4, 4, 8, 8, 4, 1,
-   4, 36, 40, 40, 1, 1},
+   4, 36, 40, 40, 1, 1,
+   1, 1, 14, 14, 7, 7, 2, 2, 2, 5, 5, 5, 2, 2, 2},
   1, true};
 
 // Intel Gen9 (Iris 540, Skylake), measured with sopt-opbench on the owner's NUC (D3D11,
@@ -108,7 +129,8 @@ const CostModel kIntelGen9{"intel-gen9",
   {0, 0, 1, 1, 1, 4, 4, 14, 12,
    12, 12, 14, 12, 13, 12, 12, 12, 4, 4, 4, 4, 4, 12, 4, 4, 4, 30,
    4, 4, 4, 4, 4, 4, 4, 8, 8, 4, 1,
-   4, 16, 20, 20, 1, 1},
+   4, 16, 20, 20, 1, 1,
+   1, 1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 7},
   1, true};
 
 // Intel Gen7.5 (HD Graphics 4600, Haswell; docs/opbench/intel-hd-graphics-4600.csv, OpBench 0.5.0, clean: drift 0.6%;
@@ -121,7 +143,8 @@ const CostModel kIntelGen75{"intel-gen7.5",
   {0, 0, 1, 1, 1, 4, 4, 15, 4,
    4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 7, 7, 7, 12,
    4, 4, 4, 4, 4, 4, 4, 7, 12, 3, 1,
-   4, 8, 12, 12, 1, 1},
+   4, 8, 12, 12, 1, 1,
+   1, 1, 6, 6, 7, 7, 7, 7, 7, 9, 9, 9, 7, 7, 23},
   1, true};
 
 // NVIDIA Turing (GTX 1660, TU116, sm_75), measured with sopt-opbench on the owner's PC (D3D11,
@@ -135,7 +158,8 @@ const CostModel kNvidiaTuring{"nvidia-turing",
   {0, 0, 1, 1, 1, 12, 12, 8, 12,
    12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 4, 4, 4, 12, 2, 2, 2, 28,
    2, 2, 2, 2, 2, 2, 4, 8, 4, 2, 1,
-   4, 16, 20, 20, 1, 1},
+   4, 16, 20, 20, 1, 1,
+   1, 1, 8, 8, 12, 12, 2, 2, 2, 3, 3, 3, 2, 2, 2},
   1, true};
 
 // NVIDIA Pascal (GT 1030 = GP108 and GTX 1060 6GB = GP106, docs/opbench/nvidia-gt-1030.csv /
@@ -156,14 +180,16 @@ const CostModel kNvidiaMaxwell{"nvidia-maxwell",
   {0, 0, 1, 4, 1, 10, 10, 10, 10,
    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 4, 4, 10, 5, 5, 5, 24,
    5, 5, 5, 5, 5, 5, 4, 8, 12, 7, 1,
-   4, 14, 18, 18, 1, 1},
+   4, 14, 18, 18, 1, 1,
+   1, 1, 2, 2, 2, 2, 4, 4, 4, 2, 2, 2, 2, 2, 6},
   1, true};
 
 const CostModel kNvidiaPascal{"nvidia-pascal",
   {0, 0, 1, 4, 1, 10, 10, 10, 10,
    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 4, 4, 10, 7, 7, 7, 24,
    7, 7, 7, 7, 7, 7, 4, 8, 14, 5, 1,
-   4, 14, 18, 18, 1, 1},
+   4, 14, 18, 18, 1, 1,
+   1, 1, 2, 2, 2, 2, 4, 4, 4, 2, 2, 2, 2, 2, 6},
   1, true};
 
 // NVIDIA Ampere (RTX 3050, docs/opbench/nvidia-rtx-3050.csv) and Blackwell (RTX 5080 / 5090,
@@ -178,13 +204,15 @@ const CostModel kNvidiaAmpere{"nvidia-ampere",
   {0, 0, 1, 1, 1, 24, 24, 28, 24,
    24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 4, 4, 4, 24, 5, 5, 5, 52,
    5, 5, 5, 5, 5, 5, 4, 8, 10, 5, 1,
-   4, 28, 32, 32, 1, 1},
+   4, 28, 32, 32, 1, 1,
+   1, 1, 14, 14, 7, 7, 2, 2, 2, 5, 5, 5, 2, 2, 2},
   1, true};
 const CostModel kNvidiaBlackwell{"nvidia-blackwell",
   {0, 0, 1, 1, 1, 23, 23, 18, 23,
    23, 23, 24, 23, 25, 24, 23, 23, 23, 23, 4, 4, 4, 23, 4, 4, 3, 50,
    3, 3, 3, 3, 3, 3, 4, 8, 8, 5, 1,
-   4, 27, 31, 31, 1, 1},
+   4, 27, 31, 31, 1, 1,
+   1, 1, 14, 14, 7, 7, 2, 2, 2, 5, 5, 5, 2, 2, 2},
   1, true};
 
 // Enumeration order for the measured objectives (rdna3, the nvidia models, intel-gen9): rdna3's cheap ops,
@@ -197,7 +225,8 @@ const CostModel kSearch{"search",
   {0, 0, 1, 1, 1, 4, 4, 8, 8,
    8, 8, 12, 12, 12, 12, 8, 8, 4, 4, 4, 4, 4, 12, 4, 4, 8, 20,
    4, 4, 4, 4, 4, 4, 4, 8, 4, 4, 1,
-   4, 12, 16, 16, 1, 1},
+   4, 12, 16, 16, 1, 1,
+   1, 1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 8},
   1, true};
 // clang-format on
 
@@ -247,7 +276,8 @@ const CostModel kAmdRdna2{"amd-rdna2",
   {0, 0, 1, 1, 1, 4, 4, 19, 10,
    10, 10, 11, 11, 11, 11, 10, 10, 4, 4, 4, 4, 4, 11, 4, 4, 7, 26,
    4, 4, 4, 4, 4, 4, 4, 9, 8, 3, 1,
-   4, 14, 18, 18, 1, 1},
+   4, 14, 18, 18, 1, 1,
+   1, 1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 16},
   1, true, true, true};
 // RDNA 4 (RX 9070 XT, amd-radeon-rx-9070-xt.csv; one card): OpBench's fma base dual-issues, and
 // one plain add also measures 4, so units are used as measured: ops that cannot dual-issue cost
@@ -258,7 +288,8 @@ const CostModel kAmdRdna4{"amd-rdna4",
   {0, 0, 1, 1, 1, 8, 8, 38, 26,
    26, 26, 26, 26, 26, 26, 26, 26, 8, 8, 4, 5, 4, 26, 5, 5, 12, 58,
    5, 5, 5, 5, 5, 5, 4, 10, 8, 7, 1,
-   4, 30, 34, 34, 1, 1},
+   4, 30, 34, 34, 1, 1,
+   1, 1, 8, 8, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 28},
   1, true, true};
 // GCN 5 (Vega iGPU in Renoir, amd-radeon-vega-renoir.csv; one card): plain ops 4, neg / abs /
 // saturate free, the transcendental unit 16 (quarter rate), exp / sin / cos 20, pow 35, sign 20,
@@ -268,7 +299,8 @@ const CostModel kAmdGcn5{"amd-gcn5",
   {0, 0, 1, 1, 1, 4, 4, 20, 16,
    16, 16, 20, 16, 20, 20, 16, 16, 4, 4, 4, 4, 4, 16, 4, 4, 8, 35,
    4, 4, 4, 4, 4, 4, 4, 12, 8, 4, 1,
-   4, 20, 24, 24, 1, 1},
+   4, 20, 24, 24, 1, 1,
+   1, 1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 16},
   1, true, true, true};
 // TeraScale 2 (VLIW5: Radeon HD 7400M, amd-radeon-hd-7400m-as-intel-hd-3000.csv; one card): every
 // ALU op one slot (4), abs included (not a free modifier here; compiledCost still treats it as one),
@@ -278,7 +310,8 @@ const CostModel kAmdTerascale2{"amd-terascale2",
   {0, 0, 1, 4, 1, 4, 4, 17, 16,
    16, 16, 16, 16, 25, 21, 16, 16, 4, 4, 4, 4, 4, 16, 4, 4, 4, 37,
    4, 4, 4, 4, 4, 4, 4, 8, 8, 4, 1,
-   4, 20, 24, 24, 1, 1},
+   4, 20, 24, 24, 1, 1,
+   1, 1, 16, 16, 16, 16, 4, 4, 4, 4, 4, 4, 4, 4, 16},
   1, true};
 
 const CostModel& costGeneric() { return kGeneric; }

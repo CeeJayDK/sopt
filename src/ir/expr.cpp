@@ -4,6 +4,7 @@
 #include <bit>
 #include <charconv>
 #include <cmath>
+#include <cstdio>
 #include <stdexcept>
 
 namespace sopt {
@@ -63,6 +64,15 @@ std::vector<uint32_t> inputSlots(const std::vector<InputDecl>& inputs) {
 }
 
 std::optional<Type> inferType(Op op, const Type* args, unsigned nargs, unsigned swzCount) {
+  switch (info(op).shape) {
+    case Shape::Int:
+      for (unsigned k = 0; k < nargs; ++k)
+        if (args[k] != Type::Uint) return std::nullopt;
+      return Type::Uint;
+    case Shape::ToUint: return nargs == 1 && args[0] == Type::Float ? std::optional<Type>(Type::Uint) : std::nullopt;
+    case Shape::ToFloat: return nargs == 1 && args[0] == Type::Uint ? std::optional<Type>(Type::Float) : std::nullopt;
+    default: break;
+  }
   for (unsigned k = 0; k < nargs; ++k)
     if (!isFloat(args[k]) && !(info(op).shape == Shape::Select && k == 0)) return std::nullopt;
   switch (info(op).shape) {
@@ -94,6 +104,9 @@ std::optional<Type> inferType(Op op, const Type* args, unsigned nargs, unsigned 
       if (w < 2 || w > 4) return std::nullopt;
       return floatType(w);
     }
+    case Shape::Int:
+    case Shape::ToUint:
+    case Shape::ToFloat: break;
   }
   return std::nullopt;
 }
@@ -124,9 +137,14 @@ uint32_t ExprBuilder::constant(Type type, const float* v) {
   Node n;
   n.op = Op::Const;
   n.type = type;
-  for (unsigned k = 0; k < width(type); ++k)
-    n.value[k] = (v[k] == 0.0f) ? 0.0f : v[k];  // no signed zero constants
+  for (unsigned k = 0; k < width(type); ++k)  // no signed zero constants (a uint keeps its bits)
+    n.value[k] = (type != Type::Uint && v[k] == 0.0f) ? 0.0f : v[k];
   return intern(n);
+}
+
+uint32_t ExprBuilder::constantU(uint32_t v) {
+  const float f = std::bit_cast<float>(v);
+  return constant(Type::Uint, &f);
 }
 
 uint32_t ExprBuilder::op(Op op, uint32_t a, uint32_t b, uint32_t c) {
@@ -398,6 +416,13 @@ bool needsPrecise(const Expr& e) {
 
 Type nodeType(const Expr& e, uint32_t node) { return e.nodes[node].type; }
 
+std::string formatUint(uint32_t v) {
+  if (v < 65536u) return std::to_string(v) + "u";
+  char buf[16];
+  std::snprintf(buf, sizeof(buf), "0x%08Xu", v);
+  return buf;
+}
+
 std::string formatFloat(float v) {
   if (std::isnan(v)) return "(0.0 / 0.0)";
   if (std::isinf(v)) return v > 0 ? "(1.0 / 0.0)" : "(-1.0 / 0.0)";
@@ -412,7 +437,7 @@ namespace {
 
 uint8_t precOf(const Expr& e, uint32_t idx) {
   const auto& n = e.nodes[idx];
-  if (n.op == Op::Const && width(n.type) == 1 && (n.value[0] < 0.0f || std::signbit(n.value[0])))
+  if (n.op == Op::Const && n.type != Type::Uint && width(n.type) == 1 && (n.value[0] < 0.0f || std::signbit(n.value[0])))
     return 7;
   return info(n.op).prec;
 }
@@ -452,10 +477,34 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
     const uint8_t p = info(Op::Sub).prec;
     return sub(v, precOf(e, v) < p) + " - " + formatFloat(-c.value[0]);
   }
+  // Integer ops: operands of infix ones always in parentheses unless leaves or calls (C puts
+  // & ^ | below the comparisons); shift counts print without the u suffix.
+  if (isIntShape(oi.shape)) {
+    auto intSub = [&](uint32_t child, bool count) {
+      const Node& c = e.nodes[child];
+      if (count && c.op == Op::Const) return std::to_string(std::bit_cast<uint32_t>(c.value[0]));
+      const Syntax cs = info(c.op).syntax;
+      const bool bare = cs == Syntax::Leaf || cs == Syntax::Call || c.op == Op::IShr ||
+                        (c.op == Op::Const && !(c.type != Type::Uint && c.value[0] < 0.0f));
+      return bare ? print(e, inputs, child) : "(" + print(e, inputs, child) + ")";
+    };
+    switch (n.op) {
+      case Op::IToF: return "float(asint(" + print(e, inputs, n.args[0]) + "))";
+      case Op::FToI: return "asuint(int(" + print(e, inputs, n.args[0]) + "))";
+      case Op::IShr: return "asuint(asint(" + print(e, inputs, n.args[0]) + ") >> " + intSub(n.args[1], true) + ")";
+      default: break;
+    }
+    if (oi.syntax == Syntax::Infix) {
+      const bool shift = n.op == Op::UShl || n.op == Op::UShr;
+      return intSub(n.args[0], false) + " " + std::string(oi.symbol) + " " + intSub(n.args[1], shift);
+    }
+    return std::string(oi.name) + "(" + print(e, inputs, n.args[0]) + ")";
+  }
   switch (oi.syntax) {
     case Syntax::Leaf:
       if (n.op == Op::Input)
         return n.input < inputs.size() ? inputs[n.input].name : "in" + std::to_string(n.input);
+      if (n.type == Type::Uint) return formatUint(std::bit_cast<uint32_t>(n.value[0]));
       if (width(n.type) == 1) return formatFloat(n.value[0]);
       {
         std::string s = "float" + std::to_string(width(n.type)) + "(";

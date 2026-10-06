@@ -6,13 +6,15 @@
 
 namespace sopt {
 
-// Float is float1; FloatN are HLSL floatN vectors. Bool is a scalar condition.
-enum class Type : uint8_t { Float, Bool, Float2, Float3, Float4 };
-inline constexpr size_t kNumTypes = 5;
+// Float is float1; FloatN are HLSL floatN vectors. Bool is a scalar condition. Uint is a
+// scalar 32-bit unsigned integer (bit tricks, --bits); its value is stored in the float slot
+// as the same bits (std::bit_cast), never as a converted number.
+enum class Type : uint8_t { Float, Bool, Float2, Float3, Float4, Uint };
+inline constexpr size_t kNumTypes = 6;
 inline constexpr uint8_t width(Type t) {
   return t == Type::Float2 ? 2 : t == Type::Float3 ? 3 : t == Type::Float4 ? 4 : 1;
 }
-inline constexpr bool isFloat(Type t) { return t != Type::Bool; }
+inline constexpr bool isFloat(Type t) { return t != Type::Bool && t != Type::Uint; }
 inline constexpr Type floatType(unsigned w) {
   return w == 2 ? Type::Float2 : w == 3 ? Type::Float3 : w == 4 ? Type::Float4 : Type::Float;
 }
@@ -31,6 +33,12 @@ enum class Op : uint8_t {
   // vectors: pure helpers (dot = mul + fmas, length = sqrt(dot), normalize = v *
   // rsqrt(dot(v, v)), distance = length(a - b)), component selection and construction
   Dot, Length, Normalize, Distance, Swizzle, Construct,
+  // integers and bit casts (scalar; owner, 2026-10-06: bit tricks are hard for people to find).
+  // AsUint / AsFloat reinterpret the bits; FToU / FToI convert (truncate, D3D clamps out of range:
+  // NaN -> 0); UToF / IToF convert the unsigned / signed value; IShr is the arithmetic shift of
+  // the signed value. Shift counts use their low 5 bits, as on GPUs.
+  AsUint, AsFloat, FToU, FToI, UToF, IToF,
+  UAnd, UOr, UXor, UShl, UShr, IShr, UAdd, USub, UMul,
   Count
 };
 
@@ -44,7 +52,11 @@ enum class Syntax : uint8_t { Leaf, Call, Prefix, Infix, Ternary, Swizzle, Const
 //   Same:    floatN -> floatN (normalize).
 //   Swizzle: components of one operand (Node::swz), result width = count.
 //   Construct: operands concatenated, result width = sum (2..4).
-enum class Shape : uint8_t { Leaf, Comp, Cmp, Select, Reduce, Same, Swizzle, Construct };
+//   Int:     uint operands, uint result.
+//   ToUint:  float1 -> uint (bit cast or conversion).
+//   ToFloat: uint -> float1.
+enum class Shape : uint8_t { Leaf, Comp, Cmp, Select, Reduce, Same, Swizzle, Construct, Int, ToUint, ToFloat };
+inline constexpr bool isIntShape(Shape s) { return s == Shape::Int || s == Shape::ToUint || s == Shape::ToFloat; }
 
 struct OpInfo {
   std::string_view name;    // FX function name (Call) or internal name

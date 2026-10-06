@@ -83,6 +83,7 @@ class ExprBuilder {
   uint32_t input(uint32_t index, Type type = Type::Float);
   uint32_t constant(float v);
   uint32_t constant(Type type, const float* v);
+  uint32_t constantU(uint32_t v);  // a Type::Uint constant
   // Throws std::invalid_argument if the operand types don't fit the op.
   uint32_t op(Op op, uint32_t a, uint32_t b = 0, uint32_t c = 0);
   uint32_t swizzle(uint32_t a, const uint8_t* comps, unsigned count);
@@ -125,6 +126,7 @@ Type nodeType(const Expr& e, uint32_t node);
 unsigned operandCount(const Node& n);
 std::string toString(const Expr& e, const std::vector<InputDecl>& inputs);
 std::string formatFloat(float v);
+std::string formatUint(uint32_t v);  // 13u, 0x3F800000u
 
 // HLSL intrinsics that are not ops but written out the way DXC lowers them: radians(x) =
 // x * (pi / 180), degrees(x) = x * (180 / pi), log10(x) = log2(x) * (ln 2 / ln 10), tan(x) =

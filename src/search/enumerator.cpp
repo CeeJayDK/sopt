@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <stdexcept>
 #include <filesystem>
 #include <string>
 #include <functional>
@@ -307,11 +308,43 @@ size_t bankBudget(const SearchConfig& cfg) {
   return total / n;
 }
 
-static_assert(static_cast<size_t>(Op::Count) * kNumTypes <= 256, "op/type codebook must fit one byte");
+// The op/type codebook: one byte for every (op, result type) pair an entry can have (dense, built
+// from the op table: the full product op x type no longer fits a byte).
+struct OpTypeCodes {
+  std::array<std::array<uint8_t, kNumTypes>, static_cast<size_t>(Op::Count)> code{};
+  std::vector<std::pair<Op, Type>> pair;
+  OpTypeCodes() {
+    for (size_t o = 0; o < static_cast<size_t>(Op::Count); ++o)
+      for (size_t t = 0; t < kNumTypes; ++t) {
+        const Shape sh = info(static_cast<Op>(o)).shape;
+        const Type ty = static_cast<Type>(t);
+        bool ok = false;
+        switch (sh) {
+          case Shape::Leaf: ok = true; break;
+          case Shape::Cmp: ok = ty == Type::Bool; break;
+          case Shape::Reduce: ok = ty == Type::Float; break;
+          case Shape::Int:
+          case Shape::ToUint: ok = ty == Type::Uint; break;
+          case Shape::ToFloat: ok = ty == Type::Float; break;
+          default: ok = isFloat(ty); break;
+        }
+        code[o][t] = 0xFF;
+        if (!ok) continue;
+        if (pair.size() >= 255) throw std::logic_error("op/type codebook must fit one byte");
+        code[o][t] = static_cast<uint8_t>(pair.size());
+        pair.emplace_back(static_cast<Op>(o), ty);
+      }
+  }
+};
+// kInfo (ops.cpp) is constant-initialized, so this namespace-scope table can read it.
+const OpTypeCodes kOpTypeCodes;
+inline const OpTypeCodes& opTypeCodes() { return kOpTypeCodes; }
 
 Enumerator::Packed Enumerator::pack(const Entry& e) {
   constexpr uint64_t m = (uint64_t{1} << kIndexBits) - 1;
-  const uint64_t code = static_cast<uint64_t>(e.op) * kNumTypes + static_cast<uint64_t>(e.type);
+  const uint8_t c8 = opTypeCodes().code[static_cast<size_t>(e.op)][static_cast<size_t>(e.type)];
+  if (c8 == 0xFF) throw std::logic_error("op/type pair missing from the codebook");
+  const uint64_t code = c8;
   Packed p;
   p.w0 = (e.args[0] & m) | ((e.args[1] & m) << 28) | (code << 56);
   p.w1 = (e.args[2] & m) | (uint64_t{e.isConst} << 28) | (uint64_t{e.affine} << 29) | (uint64_t{e.ctime} << 30) |
@@ -327,8 +360,8 @@ Enumerator::Entry Enumerator::entry(uint32_t idx) const {
   e.args[0] = static_cast<uint32_t>(p.w0 & m);
   e.args[1] = static_cast<uint32_t>((p.w0 >> 28) & m);
   e.args[2] = static_cast<uint32_t>(p.w1 & m);
-  e.op = static_cast<Op>(code / kNumTypes);
-  e.type = static_cast<Type>(code % kNumTypes);
+  e.op = opTypeCodes().pair[code].first;
+  e.type = opTypeCodes().pair[code].second;
   e.isConst = (p.w1 >> 28) & 1u;
   e.affine = (p.w1 >> 29) & 1u;
   e.ctime = (p.w1 >> 30) & 1u;
