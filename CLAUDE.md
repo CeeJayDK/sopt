@@ -1228,6 +1228,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   headers say 0.6.0, all tests consensus; UHD 630 = the previous run within 10% on every test, GTX 1660 too except 15 of 993
   TexBench tests at 10-20% (71% reference drift); findings unchanged.
   0.6.0 released 2026-10-05 (PR #15 merged, tag v0.6.0, title renamed to SweetOpt by the owner). Next test build: 0.6.1.
+  Iris 540 with the 0.6.0 release (owner's NUC, driver 31.0.101.2121; docs/opbench/intel-iris-540-v7.csv,
+  docs/texbench/intel-iris-540-v2.csv + PNGs, docs/shaderinfo/intel-iris-540-2.txt = the earlier report): OpBench = its
+  first 0.6.0 run within 10% except noise-level tests (omod half / 0.25 1.8 -> 0.4, transpose, barriers), all consensus,
+  drift 13-26%; TexBench 348 s, 10.7 GTexels/s, 6.7 GPixels/s, 22.8 GB/s, 2 tests without consensus (copy Sample RGBA8,
+  blend plain: readings falling as the GPU warmed). New tests = UHD 630 within ~2% (2 x 2 texels, trilinear vs aniso,
+  ps spread): Gen9 / Gen9.5 behave alike. Passes 1.5-2.5x slower than the UHD 630 (memory), and there half-size
+  downsampling by bilinear beats 4 Loads (RGBA8 1.44 vs 1.67 ms, RGB10A2 1.37 vs 1.87); FINDINGS.md updated.
   Owner's decisions (2026-10-06): ECT level 5 stays (best ratio in the benchmark; -4 is close and faster, but the
   optimizer runs in the background); ShaderInfo as a measured source: wait for more reports; integer / bit tricks and
   casts in the search: yes (plan first); expected costs per cost model in OpBench / TexBench: yes, if it does not bloat

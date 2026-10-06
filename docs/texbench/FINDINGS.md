@@ -10,8 +10,9 @@ Cards so far (15): NVIDIA Maxwell (GTX 860M, Quadro M5000M), Pascal (GTX 1050), 
 absolute numbers are low, their ratios still match their desktop family.
 
 TexBench 0.6.0 measures the comparisons directly (the same result read different ways, side by side). So far it has
-run on the GTX 1660 (Turing) and the UHD 630 (Gen9.5); for other cards the advice is *estimated* from single-read
-costs until their reports come in. The direct tests already corrected two estimates: several reads in a row do not cost
+run on the GTX 1660 (Turing), the UHD 630 (Gen9.5) and the Iris 540 (Gen9; within ~2% of the UHD 630 in every shader
+test, so the Intel numbers below hold for both); for other cards the advice is *estimated* from single-read costs until
+their reports come in. The direct tests already corrected two estimates: several reads in a row do not cost
 the sum of single reads, so only the side-by-side tests decide.
 
 ## Do this, not that
@@ -33,9 +34,10 @@ Two to six times cheaper than four reads, for every format. Four point samples c
 exceptions: AMD GCN 5 (Vega) filters wide formats slowly, so four reads may win there for RGBA16F and RGBA32F, and RDNA 2
 for RGBA32F.
 
-As a whole half-size downsample pass (3840 × 2160 to 1920 × 1080) both ways take the same time on both cards (GTX 1660
-RGBA8 0.25 ms either way): a pass that only downsamples is limited by memory, so the cheaper read shows only when the
-pass does more work.
+As a whole half-size downsample pass (3840 × 2160 to 1920 × 1080) both ways take the same time on the GTX 1660 and the
+UHD 630 (GTX 1660 RGBA8 0.25 ms either way): a pass that only downsamples is limited by memory, so the cheaper read
+shows only when the pass does more work. On the Iris 540 (slower memory) the bilinear pass is clearly faster: RGBA8
+1.44 vs 1.67 ms, RGB10A2 1.37 vs 1.87 ms, RGBA32F 12.8 vs 14.0 ms.
 
 ### A 1:1 copy: Load or point sample?
 
