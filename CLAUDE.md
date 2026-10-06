@@ -457,7 +457,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   OOM-killed next to test runs). Several processes at once: give each --max-mem.
 - Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,
   proposals and status in docs/performance-ideas.md. Done: inner-fit monotonicity
-  prefilter (`innerPrefilter`), compare() stops at a rejected candidate's first failure,
+  prefilter (`innerPrefilter`), compare() stops at a rejected candidate's first failure (and, owner's go 2026-10-06,
+  the other threads stop too: a shared lowest-failing-index, so the merged result is unchanged; bench identical, no
+  measurable gain: stage 2 already rejects nearly everything (depth_reversed: 798 at stage 2, 0 in V1) and verify time
+  is V2 / V1 over accepted candidates, which must see every point),
   sopt-fx maxAlternatives 20 and one search per distinct region. Overflow (default,
   owner; `--no-overflow`): when the bank is full, keep combining stored entries and only
   check new values as hits; bench +2 found (length_squared, planted_1), none lost; every
