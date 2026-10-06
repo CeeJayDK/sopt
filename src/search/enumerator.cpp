@@ -61,15 +61,26 @@ void canonicalize(float* v, size_t n) {
 struct ConstPool {
   std::vector<float> scalars;
   std::vector<std::pair<Type, std::array<float, 4>>> vectors;  // vector constants of the target
+  std::vector<uint32_t> uints;  // integer constants (SearchConfig::bits, or in the target)
 };
 
 // Scalars: a few basics plus, for every constant (component) c of the target, c, -c,
 // c^2 and 1/c. Vector constants of the target are leaves as they are.
-ConstPool constantPool(const Expr& target) {
+ConstPool constantPool(const Expr& target, bool bits) {
   ConstPool p;
   std::vector<float> pool = {0.0f, 0.5f, 1.0f, 2.0f, -1.0f};
+  // Integer constants (bit tricks): the float format's masks and fields, shift counts, and
+  // the classic magic numbers (fast rsqrt / rcp / sqrt seeds); then the target's own.
+  if (bits)
+    p.uints = {1u, 9u, 23u, 31u, 0x80000000u, 0x7FFFFFFFu, 0x3F800000u, 0x007FFFFFu, 0x7F800000u,
+               0x5F3759DFu, 0x7EF311C7u, 0x1FBD1DF5u};
   for (const auto& n : target.nodes) {
     if (n.op != Op::Const) continue;
+    if (n.type == Type::Uint) {
+      const uint32_t u = std::bit_cast<uint32_t>(n.value[0]);
+      if (std::find(p.uints.begin(), p.uints.end(), u) == p.uints.end()) p.uints.push_back(u);
+      continue;
+    }
     const unsigned w = width(n.type);
     if (w > 1) {
       std::array<float, 4> v{};
@@ -138,8 +149,12 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
     const Op op = static_cast<Op>(i);
     if (op == Op::Input || op == Op::Const || op == Op::Swizzle || op == Op::Construct) continue;
     if (!cfg.helpers && isPureHelper(op)) continue;
-    if (info(op).base || containsOp(prog.target, op)) ops_.push_back(op);
+    if (info(op).base || containsOp(prog.target, op) || (cfg.bits && isIntShape(info(op).shape))) ops_.push_back(op);
   }
+  // Quantized dedup would merge different integers (their bits are not a float's).
+  bool anyInt = cfg.bits;
+  for (Op op : ops_) anyInt = anyInt || isIntShape(info(op).shape);
+  if (anyInt) cfg_.quantBits = 0;
   scratch_.resize(4 * n_);
   serialScratch_.fit.resize(tn_);
   // How far a hit may be from the target at each test point (budget, loose factor,
@@ -1061,6 +1076,8 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   Type type = Type::Float;
   if (oi.shape == Shape::Cmp) {
     type = Type::Bool;
+  } else if (oi.shape == Shape::Int || oi.shape == Shape::ToUint) {
+    type = Type::Uint;
   } else if (oi.shape == Shape::Comp || oi.shape == Shape::Select) {
     unsigned w = 1;
     for (uint8_t k = oi.shape == Shape::Select ? 1 : 0; k < oi.arity; ++k)
@@ -1133,7 +1150,7 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
       evalArray(op, p[0], p[1], p[2], out + comp * n_, n_, kProfileRef);
     }
   }
-  canonicalize(out, w * n_);
+  if (type != Type::Uint) canonicalize(out, w * n_);  // integers keep every bit pattern
   e = Entry::make(op, type, cost, false, a, b, c, aux, affine, static_cast<uint16_t>(obj), ctime);
   return Prep::Ok;
 }
@@ -1361,9 +1378,13 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
       insert(s, fpOf(vec) + k * n_, stats);
     }
   }
-  const ConstPool pool = constantPool(prog_.target);
+  const ConstPool pool = constantPool(prog_.target, cfg_.bits);
   for (float cv : pool.scalars) addConst(Type::Float, &cv, stats);
   for (const auto& [t, v] : pool.vectors) addConst(t, v.data(), stats);
+  for (uint32_t u : pool.uints) {
+    const float f = std::bit_cast<float>(u);
+    addConst(Type::Uint, &f, stats);
+  }
   if (cfg_.sharedLeaves) addSharedLeaves(stats);
   for (auto& list : byCost_[0])
     std::stable_sort(list.begin(), list.end(), [&](uint32_t x, uint32_t y) { return obj(x) < obj(y); });
@@ -1392,6 +1413,29 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
     for (Op op : ops_) {
       if (stop_) break;
       const auto& oi = info(op);
+      if (isIntShape(oi.shape)) {  // integers and bit casts: scalar
+        const uint32_t opc = ord.opCost(op, 1);
+        if (opc > cost) continue;
+        const uint32_t r = cost - opc;
+        if (oi.arity == 1) {
+          const Type ta = oi.shape == Shape::ToFloat ? Type::Uint : F;
+          const auto& la = byCost_[r][static_cast<size_t>(ta)];
+          const uint32_t objOp = model.opCost(op, 1);
+          if (diskMode_ && hasDisk(r, ta)) {
+            for (const Seg& sg : listSegs(r, ta)) {
+              requireTiles({sg.tile}, stats);
+              for (size_t i = sg.begin; i < sg.end && !stop_; ++i)
+                if (obj(la[i]) + objOp < objLimit_) tryAdd(op, c16, la[i], 0, 0, stats);
+            }
+          } else {
+            for (size_t i = 0; i < la.size() && !stop_ && obj(la[i]) + objOp < objLimit_; ++i)
+              tryAdd(op, c16, la[i], 0, 0, stats);
+          }
+        } else {
+          enumerateBinary(op, c16, r, -1, Type::Uint, Type::Uint, stats);
+        }
+        continue;
+      }
       if (oi.shape == Shape::Cmp) {  // scalar comparisons
         if (ord.opCost(op, 1) <= cost) enumerateBinary(op, c16, cost - ord.opCost(op, 1), -1, F, F, stats);
         continue;
@@ -1682,7 +1726,9 @@ void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Ty
                                  SearchStats& stats) {
   const auto& oi = info(op);
   const CostModel& model = order();
-  const Type rt = oi.shape == Shape::Cmp ? Type::Bool : floatType(std::max(width(ta), width(tb)));
+  const Type rt = oi.shape == Shape::Cmp ? Type::Bool
+                  : oi.shape == Shape::Int ? Type::Uint
+                                           : floatType(std::max(width(ta), width(tb)));
   // Lowest objective cost the op can add (a fused add/sub is cheaper).
   const CostModel& objective = *cfg_.model;
   const unsigned w = width(rt);

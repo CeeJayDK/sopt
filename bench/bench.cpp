@@ -200,6 +200,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-exact-rule") opt.exactRule = false;
     else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
     else if (a == "--helpers") opt.search.helpers = true;
+    else if (a == "--bits") opt.search.bits = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
       if (!opt.search.order) {
@@ -215,7 +216,7 @@ int main(int argc, char** argv) {
       }
     } else {
       std::puts("usage: sopt-bench [--examples DIR] [--planted N --size K --inputs I] [--seed S]\n"
-                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model M] [--order-model M] [--no-affine] [--no-inner] [--helpers] [--no-exact-rule] [--no-accuracy-variants]");
+                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model M] [--order-model M] [--no-affine] [--no-inner] [--helpers] [--bits] [--no-exact-rule] [--no-accuracy-variants]");
       return 2;
     }
   }
@@ -227,6 +228,7 @@ int main(int argc, char** argv) {
                                                              : defaultOrderFor(model)).name)).c_str(),
               opt.search.affine ? (opt.search.inner ? ", affine, inner" : ", affine") : "");
   if (opt.search.helpers) std::printf("helpers: lerp/step enumerated\n");
+  if (opt.search.bits) std::printf("bits: integer ops and bit casts enumerated\n");
 
   int failures = 0, knownLimit = 0;
   printHeader();

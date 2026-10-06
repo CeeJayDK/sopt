@@ -109,6 +109,7 @@ void usage() {
       "  --no-two-phase    one phase with the slack (default: only strictly cheaper hits first,\n"
       "                    the deepest search, then the slack's alternatives near the best in\n"
       "                    the last quarter of the time)\n"
+      "  --bits            also enumerate integer ops and bit casts (asuint, asfloat, & | ^ << >>)\n"
       "  --no-library      no rule library (default: rewrite with library/rewrites.txt or\n"
       "                    $SOPT_LIBRARY before the search; the forms are candidates and seed it)\n"
       "  --library-file F  the rule library in F\n"
@@ -248,6 +249,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-top-down") opt.search.topDown = false;
     else if (a == "--library") opt.library = true;
     else if (a == "--no-library") opt.library = false;
+    else if (a == "--bits") opt.search.bits = true;
     else if (a == "--two-phase") opt.search.twoPhase = true;
     else if (a == "--no-two-phase") opt.search.twoPhase = false;
     else if (a == "--no-amd-folds") noAmdFolds = true;

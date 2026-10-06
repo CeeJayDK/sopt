@@ -84,6 +84,7 @@ void usage() {
       "  --loose F         also list less accurate candidates: within F times the budget or\n"
       "                    the original's error vs exact math (default 100, 0 = off)\n"
       "  --helpers         also enumerate pure helper intrinsics (lerp, step)\n"
+      "  --bits            also enumerate integer ops and bit casts (asuint, asfloat, & | ^ << >>)\n"
       "  --cost-model M    objective: rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-terascale2 | nvidia | nvidia-maxwell | nvidia-pascal | nvidia-turing | nvidia-ampere | nvidia-blackwell | intel-gen9 | intel-gen7.5 | generic (default: rdna3)\n"
       "  --order-model M   enumeration order (default: search for rdna3/nvidia, else the model)\n"
       "  --stats           print search statistics\n"
@@ -310,6 +311,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--helpers") opt.search.helpers = true;
+    else if (a == "--bits") opt.search.bits = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
       if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, intel-gen7.5, generic, search)\n"); return 2; }

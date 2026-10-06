@@ -76,8 +76,9 @@ uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<Input
     if (folded[i] && (!ct[n.args[0]] || e.nodes[n.args[0]].op == Op::Const) &&
         (!ct[n.args[1]] || e.nodes[n.args[1]].op == Op::Const))
       continue;
-    // Source modifiers of the consuming instruction.
+    // Source modifiers of the consuming instruction; bit casts are no instruction at all.
     if ((n.op == Op::Neg || n.op == Op::Abs) && i != e.root) continue;
+    if (n.op == Op::AsUint || n.op == Op::AsFloat) continue;
     // Output modifier of the producing instruction (clamp(x, 0, 1) is saturate).
     const bool sat = n.op == Op::Saturate ||
                      (n.op == Op::Clamp && isConst(n.args[1], 0.0f) && isConst(n.args[2], 1.0f));

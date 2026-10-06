@@ -90,6 +90,10 @@ struct SearchConfig {
   // builds anyway, so trying both wastes time. Single-instruction intrinsics (mad = fma,
   // clamp = med3, saturate = modifier, rcp, rsqrt) are always enumerated.
   bool helpers = false;
+  // Bit tricks (--bits; owner, 2026-10-06): also enumerate the integer ops and bit casts
+  // (asuint, asfloat, conversions, and / or / xor, shifts, iadd / isub / imul) with a pool of
+  // float-format constants (sign / exponent / mantissa masks, 1.0's bits, shift counts).
+  bool bits = false;
   // Shared leaves (M7, flag): the target's own subexpressions (up to maxShared, most
   // expensive first) are extra level-0 leaves at no cost, so rewrites that use one of the
   // original's intermediate values twice (u * u for pow(abs(u), 2.0)) are reached although

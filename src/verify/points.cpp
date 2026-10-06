@@ -53,6 +53,9 @@ std::vector<float> specialValues(const InputDecl& d, const Expr& target) {
   }
   std::sort(v.begin(), v.end());
   v.erase(std::unique(v.begin(), v.end()), v.end());
+  // -0 next to +0 (compares equal, so after the dedup): bit casts and the sign bit tell them
+  // apart (x >= 0 ? 1 : -1 is 1 at -0, copying x's sign bit onto 1.0 gives -1).
+  if (!d.compileTime && d.lo <= 0.0 && 0.0 <= d.hi && d.grid == 0) v.push_back(-0.0f);
   return v;
 }
 
