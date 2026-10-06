@@ -124,6 +124,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   Owner's 0.6.4 run (GTX 1660): all six APIs OK and closed by themselves (Vulkan with our layer); totals = cells (D3D 7 / 21 / 5);
   Vulkan / GL / D3D9 identical to the first run; D3D's `inf - inf is NaN` (Literal) flipped to FAIL in the first pass (fxc
   folds by context). Task 76 waits only on showing crosire (IEEE754.md + results/).
+  DX9 text (owner, 2026-10-06: only if a DX9 test is needed again): CeeJay's ASCII.fx stores 5x5 glyphs in floats (24 mantissa
+  bits + the sign bit, pixel = frac(abs(n * exp2(-x - 1))) >= 0.5), usable to give the IEEE test's SM3 path real text (7x13 font =
+  4 floats per glyph, ~60 used glyphs + text 3 chars per float, fits ps_3_0's 224 constant registers).
 - `tools/windows` (Windows bench, owner 2026-10-01: one folder, documented in its README.md;
   `run-bench.ps1` / `.bat`: own run folder and ReShade.ini, ReShade as dxgi.dll for DX11 and as a
   Vulkan layer via VK_ADD_LAYER_PATH / VK_INSTANCE_LAYERS, sopt-timer Screenshots=1).
