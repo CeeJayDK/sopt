@@ -86,7 +86,7 @@ Direct3D 10, 11 and 12 give identical screens (only the API name differs).
 | `rsqrt(+0) == +inf` at run time | FAIL                                         | ok                                      | ok                                       |
 | min / max / saturate / clamp with NaN, round ties | as Direct3D at run time    | as Direct3D at run time (this driver)   | `clamp(NaN, 0, 1)` not 0 at run time      |
 | Denormals (`1e-40 kept`)       | no at run time                                | no                                      | no                                       |
-| Totals (Folded / Literal / Run time wrong) | 7 / 11 / 0 (totals line; cells show more, see above) | 18 / 30 / 18                  | 11 / 22 / 4                              |
+| Totals (Folded / Literal / Run time wrong) | 7 / 21 / 5                                    | 18 / 30 / 18                            | 11 / 22 / 4                              |
 
 - `!(a < b)` -> `a >= b` is fxc's (checked: `ps_5_0`, flags 0x8800 give `ge`; with `D3DCOMPILE_IEEE_STRICTNESS` it keeps
   `lt` + `movc`). NVIDIA's GLSL and Vulkan compilers do the same.
@@ -96,7 +96,9 @@ Direct3D 10, 11 and 12 give identical screens (only the API name differs).
 - Direct3D 9 (run time only; SM3 does not require IEEE NaN): `isnan`, `x != x`, `(bool)NaN`, `NaN + 1`, `inf - inf`,
   `sqrt(inf)`, `rsqrt(+0)`, `sqrt(-1)`, `2^24 + 1 == 2^24`, round ties and min with NaN all differ; signed zero and
   infinity comparisons are right.
-- The Vulkan run used an installed ReShade 6.8.0 (build 2158, implicit Vulkan layer in `C:\ProgramData\ReShade`), not the
-  test host's copy: the loader picked the installed layer of the same name. Fixed in the test host (own layer name, the
-  installed layer disabled for the run).
+- Rerun with the two-pass effect and the test host's own ReShade 6.8.0 on Vulkan (0.6.4): Vulkan, OpenGL and
+  Direct3D 9 identical to the first run (that Vulkan run had loaded an installed ReShade 6.8.0, same results), and every
+  total now equals its column. Direct3D changed in one cell: `inf - inf is NaN` (Literal) is now FAIL, so fxc folded it
+  differently once the test moved into the first pass: the same code gives different results depending on what is
+  compiled around it.
 - Screens (cropped): `results/nvidia-gtx-1660-dx11.png` (= Direct3D 10 / 12), `-vulkan.png`, `-gl.png`.

@@ -121,6 +121,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   Fixed (owner's go): pass 1 runs every test once into a 62 x 1 RGBA8 texture, cells and totals read it (0.6.4). Owner: D3D9 not
   following IEEE 754 is a ReShade issue (effects should behave the same on every API; ReShade has built-in workarounds,
   more may be needed), not a sopt issue.
+  Owner's 0.6.4 run (GTX 1660): all six APIs OK and closed by themselves (Vulkan with our layer); totals = cells (D3D 7 / 21 / 5);
+  Vulkan / GL / D3D9 identical to the first run; D3D's `inf - inf is NaN` (Literal) flipped to FAIL in the first pass (fxc
+  folds by context). Task 76 waits only on showing crosire (IEEE754.md + results/).
 - `tools/windows` (Windows bench, owner 2026-10-01: one folder, documented in its README.md;
   `run-bench.ps1` / `.bat`: own run folder and ReShade.ini, ReShade as dxgi.dll for DX11 and as a
   Vulkan layer via VK_ADD_LAYER_PATH / VK_INSTANCE_LAYERS, sopt-timer Screenshots=1).
