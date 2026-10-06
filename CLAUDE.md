@@ -14,6 +14,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
 ## Working with the owner
 - No personal data in the repository (owner, 2026-10-05: GDPR): no names, handles or other details of testers or
   other people next to reports, results or notes; a report is described by its hardware and driver only.
+  Owner (2026-10-06): telling him in chat who uploaded a report (name, email) is welcome, so he can thank them; never
+  outside the chat (repo, commits, notes, site).
 - Owner's principle (2026-09-26): fewer instructions at equal measured speed are still
   better (less power; faster once the bottleneck moves). Timings (M4 harness) inform, they
   do not veto such variants. ReShade's own performance statistics need a look too (owner is
