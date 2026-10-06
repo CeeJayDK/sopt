@@ -97,15 +97,25 @@ const CostModel kGeneric{"generic",
    2, 2, 1},
   0, false};
 
-// Quarter-VALU units, checked op by op against RGA gfx1100 ISA (fxstat COST x 4):
-// VALU ops 4 (floor, frac, min, max, mad, clamp = v_med3), transcendentals 16,
-// exp/log/sin/cos 20 (scale + transcendental), div 20 (rcp + mul), pow 36 (log, mul,
-// exp), sign 16 (4 VALU), step 8 and comparison + select 8 (v_cmp + v_cndmask),
-// lerp 8 (sub + fma). neg/abs/saturate are free modifiers in context (1 VALU only
-// when applied to a bare input), so 1. Not modeled (the ISA ranking catches these):
-// min(max(a, b), c) is one v_med3, x < y ? x : y is one v_min, and some constant
-// combinations need an extra v_mov (a * 999.0 + 1.0 is 2 VALU, a * 0.3 + 0.7 is 1).
+// RDNA 3 measured with OpBench (RX 7900 GRE, Navi 31, docs/opbench/amd-radeon-rx-7900-gre.csv, 0.6.0, all consensus;
+// owner's go 2026-10-06; until then this model came from RGA gfx1100 instruction counts). Units as measured, like
+// amd-rdna4 (= the RX 9070 XT within ~10%): OpBench's fma base dual-issues, so ops that cannot dual-issue cost more:
+// add / mul / mad 4, sub / min / max 5, floor / ceil / round / frac / clamp 8, compare 5 + select 6 (v_cmp +
+// v_cndmask 10.9), step 12, lerp 10, the transcendental unit 27-29 (rcp / rsqrt / sqrt / exp2 / log2 27, exp 28, sin 29,
+// div 27 = rcp: its mul hides), pow 57, sign 36; integer ops ~7, imul 29. neg / abs / saturate free modifiers (1); output modifier (x2 / x4 /
+// x0.5) free; v_max3 / v_minmax exist (folded, amdFolds). The RGA-era model counted instructions (VALU 4, MUFU 16).
 const CostModel kRdna3{"rdna3",
+  {0, 0, 1, 1, 1, 8, 8, 36, 27,
+   27, 27, 28, 27, 29, 28, 27, 27, 8, 8, 4, 5, 4, 27, 5, 5, 12, 57,
+   5, 5, 5, 5, 5, 5, 4, 10, 8, 6, 1,
+   4, 30, 34, 34, 1, 1,
+   1, 1, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 29,
+   7, 7, 1},
+  1, true, true};
+// The RGA-era rdna3 (until 2026-10-06): quarter-VALU units checked op by op against RGA gfx1100 ISA (fxstat COST x 4):
+// VALU ops 4, transcendentals 16, exp / log / sin / cos / div 20, pow 36, sign 16, step and compare + select 8, lerp 8.
+// Kept as `rdna3-rga` (instruction counts, not timings) for comparisons and for the tests of search mechanics.
+const CostModel kRdna3Rga{"rdna3-rga",
   {0, 0, 1, 1, 1, 4, 4, 16, 16,
    16, 16, 20, 20, 20, 20, 16, 16, 4, 4, 4, 4, 4, 20, 4, 4, 8, 36,
    4, 4, 4, 4, 4, 4, 4, 8, 4, 4, 1,
@@ -351,6 +361,7 @@ const CostModel kAmdTerascale2{"amd-terascale2",
 
 const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }
+const CostModel& costRdna3Rga() { return kRdna3Rga; }
 const CostModel& costNvidia() { return kNvidia; }
 const CostModel& costNvidiaMaxwell() { return kNvidiaMaxwell; }
 const CostModel& costNvidiaPascal() { return kNvidiaPascal; }
@@ -373,7 +384,7 @@ const CostModel kRdna3NoFolds = [] {
 }();
 
 const CostModel& defaultOrderFor(const CostModel& objective) {
-  return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kNvidia ||
+  return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kRdna3Rga || &objective == &kNvidia ||
                  &objective == &kNvidiaMaxwell || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
                  &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kIntelGen12 || &objective == &kAmdRdna2 ||
                  &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
@@ -386,6 +397,7 @@ const CostModel* withoutAmdFolds(const CostModel* m) { return m == &kRdna3 ? &kR
 const CostModel* costModelByName(std::string_view name) {
   if (name == kGeneric.name) return &kGeneric;
   if (name == kRdna3.name) return &kRdna3;
+  if (name == kRdna3Rga.name) return &kRdna3Rga;
   if (name == kSearch.name || name == "rdna3-search") return &kSearch;
   if (name == kNvidia.name) return &kNvidia;
   if (name == kNvidiaMaxwell.name) return &kNvidiaMaxwell;

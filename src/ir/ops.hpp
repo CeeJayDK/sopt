@@ -112,11 +112,12 @@ struct CostModel {
 };
 
 // generic: the M1 placeholder weights, no contraction.
-// rdna3: AMD RDNA3 ISA (RGA gfx1100) in quarter-VALU units: 4 = one VALU op,
-//   transcendentals 16 (VALU + 3 for quarter rate, as fxstat's COST), free source
-//   and output modifiers (neg, abs, saturate) 1, clamp = v_med3, contraction on.
+// rdna3: AMD RDNA 3 measured with OpBench (RX 7900 GRE), units as measured (4 = one dual-issued fma; ops that
+//   cannot dual-issue cost more), free source and output modifiers, contraction on.
 const CostModel& costGeneric();
 const CostModel& costRdna3();
+// rdna3-rga: the earlier rdna3 from RGA gfx1100 instruction counts (VALU 4, MUFU 16), for comparisons and tests.
+const CostModel& costRdna3Rga();
 // nvidia: NVIDIA Ada SASS (ptxas + nvdisasm) in quarter-ALU units, MUFU at 8x.
 const CostModel& costNvidia();
 // nvidia-maxwell: NVIDIA Maxwell (GTX 860M, Quadro M5000M) from OpBench timings, quarter units.

@@ -159,3 +159,15 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
 - **fxc writes `clamp` as `max` + `min`.** Only AMD's driver turns that back into one v_med3.
 - **fxc writes `sign` as lt, lt, iadd, itof.** The int -> float conversion is what makes sign
   slow on Ampere / Blackwell (see the 1e38 forms above).
+
+## NaN tests and `!=` (2026-10-06)
+
+`(x != x)` as `isnan(x)`: on Direct3D (DX9-DX11 via fxc) it compiles to the very same instruction as `isnan(x)` (`ne r, x,
+x`: D3D's `ne` is unordered, true for NaN), so it is neither faster nor slower there. On ReShade's Vulkan path it does
+not work: ReShade 6.8.0's SPIR-V generator writes a float `!=` as `OpFOrdNotEqual`, which is false when either side is
+NaN, while `isnan()` becomes `OpIsNan`. Use `isnan()`. The bit test `(asuint(x) & 0x7FFFFFFF) > 0x7F800000` is exact
+everywhere but one instruction longer (`and` + `ult`). For the same reason `!(a == b)` and `a != b` differ on ReShade's
+Vulkan path when an operand is NaN, so the library has no rule turning one into the other.
+
+NaN ordering: every ordered comparison with NaN is false (`NaN > +Inf` is false). Only the raw bits are ordered: read
+as signed integers, +NaN is above +Inf and -NaN below -Inf.

@@ -242,8 +242,6 @@ x >= 0.0 && x <= 1.0 -> mad(x, x, -x) <= 0.0
 x < 0.0 || x > 1.0 -> mad(x, x, -x) > 0.0
 x >= 0.0 && x <= 1.0 && y >= 0.0 && y <= 1.0 -> saturate(mad(x, x, -x)) == -saturate(mad(y, y, -y))
 x < 0.0 || x > 1.0 || y < 0.0 || y > 1.0 -> saturate(mad(x, x, -x)) != -saturate(mad(y, y, -y))
-!(a == b) -> a != b
-!(a != b) -> a == b
 # The wiki's identities: rsqrt has its own instruction, sqrt is rsqrt + rcp on some drivers.
 pow(x, 1.5) -> (x * x) * rsqrt(x)   where x in [1e-15, 1e15]
 sqrt(x) -> x * rsqrt(x)   where x in [1e-30, 1e30]

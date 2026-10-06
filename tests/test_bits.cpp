@@ -67,7 +67,7 @@ TEST(bits_costs) {
     CHECK(m != nullptr);
     for (Op op = Op::AsUint; op < Op::Count; op = static_cast<Op>(static_cast<int>(op) + 1)) CHECK((*m)[op] >= 1);
   }
-  CHECK(dagCost(parseExpr("asfloat(asuint(x) & 0x7FFFFFFFu)", xy()), costRdna3()) == 1 + 4 + 1);
+  CHECK(dagCost(parseExpr("asfloat(asuint(x) & 0x7FFFFFFFu)", xy()), costRdna3()) == 1 + 7 + 1);
 }
 
 TEST(logic_ops) {
@@ -83,6 +83,6 @@ TEST(logic_ops) {
   CHECK(eval1("x != 0.0 || y != 0.0 ? 1.0 : 2.0", 0.0f, 1.0f) == 1.0f);
   CHECK(eval1("!(x < y) ? 1.0 : 2.0", 1.0f, 2.0f) == 2.0f);
   CHECK(eval1("abs(x) == -abs(y) ? 1.0 : 2.0", -0.0f, 0.0f) == 1.0f);  // the wiki's both-zero test
-  // a && b: two comparisons (4 + 4), the and (4) and the select (4) in rdna3.
-  CHECK(dagCost(parseExpr("x == 0.0 && y == 0.0 ? x : y", xy()), costRdna3()) == 16);
+  // a && b: two comparisons (5 + 5), the and (7) and the select (6) in rdna3.
+  CHECK(dagCost(parseExpr("x == 0.0 && y == 0.0 ? x : y", xy()), costRdna3()) == 23);
 }

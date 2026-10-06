@@ -20,7 +20,7 @@ void expectRewrite(const char* file, bool affine = false, size_t maxBank = 2'000
   const Program prog = loadProgram(path);
   const std::string expect = readExpect(path);
   CHECK(!expect.empty());
-  if (!model) model = &defaultCostModel();
+  if (!model) model = &costRdna3Rga();  // the expectations were tuned on the RGA-era rdna3
   const uint32_t expectCost = dagCost(parseExpr(expect, prog.inputs), *model, prog.inputs);
 
   Options opt;
@@ -69,19 +69,19 @@ TEST(affine_factor) { expectRewrite("factor.sopt", true); }
 TEST(affine_depth_reversed) { expectRewrite("depth_reversed.sopt", true, 300'000); }
 // rdna3 objective with generic enumeration order: reaches rcp(t + c) (5 VALU-equivalents).
 TEST(order_generic_depth_rdna3) {
-  expectRewrite("depth_reversed.sopt", true, 300'000, &costRdna3(), &costGeneric());
+  expectRewrite("depth_reversed.sopt", true, 300'000, &costRdna3Rga(), &costGeneric());
 }
 // Inner constants (--inner): the pole / shift is solved, not taken from the pool.
 TEST(inner_rational) { expectRewrite("rational.sopt", true, 50'000, nullptr, nullptr, true); }
 TEST(inner_rsqrt_affine) { expectRewrite("rsqrt_affine.sopt", true, 50'000, nullptr, nullptr, true); }
 // rdna3 without --order-model: rcp(t + c) is solved directly on the input.
 TEST(inner_depth_rdna3) {
-  expectRewrite("depth_reversed.sopt", true, 50'000, &costRdna3(), nullptr, true);
+  expectRewrite("depth_reversed.sopt", true, 50'000, &costRdna3Rga(), nullptr, true);
 }
 // rdna3 with its default order (search): sqrt at half order cost is reached
 // after two-input products (plain rdna3 order stops before it).
 TEST(order_rdna3_search_sqrt_product) {
-  expectRewrite("sqrt_product.sopt", true, 2'000'000, &costRdna3(), nullptr, true);
+  expectRewrite("sqrt_product.sopt", true, 2'000'000, &costRdna3Rga(), nullptr, true);
 }
 // nvidia objective (default search order): the select is cheaper on NVIDIA (FSETP + FSEL
 // vs FSET + FADD + FFMA).
@@ -91,7 +91,7 @@ TEST(nvidia_step_lerp) {
 // Compile-time input (far plane F): found at F = 1000, constants generalized into
 // expressions of F and verified over F in [2, 1000].
 TEST(specialize_depth_far) {
-  expectRewrite("depth_far.sopt", true, 50'000, &costRdna3(), nullptr, true);
+  expectRewrite("depth_far.sopt", true, 50'000, &costRdna3Rga(), nullptr, true);
 }
 
 TEST(shared_leaves_reuse) {
@@ -205,6 +205,7 @@ TEST(disk_bank) {
   opt.search.timeLimitSec = 1.0;
   opt.subtrees = opt.cuts = opt.v3 = false;
   opt.search.memBudget = size_t{24} << 20;
+  opt.search.model = &costRdna3Rga();
   const RunResult ram = optimize(p, opt);
   const std::string dir = std::string(SOPT_EXAMPLES_DIR) + "/../build-disk-test";
   opt.search.diskDir = dir;

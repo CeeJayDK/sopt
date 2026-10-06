@@ -134,7 +134,7 @@ std::vector<ModelEntry> publishedModels() {
       {&costNvidiaPascal(), "NVIDIA", "Pascal", "OpBench"},
       {&costNvidiaMaxwell(), "NVIDIA", "Maxwell", "OpBench"},
       {&costAmdRdna4(), "AMD", "RDNA 4", "OpBench"},
-      {&costRdna3(), "AMD", "RDNA 3", "AMD's compiler (RGA, gfx1100), not yet measured with OpBench"},
+      {&costRdna3(), "AMD", "RDNA 3", "OpBench"},
       {&costAmdRdna2(), "AMD", "RDNA 2", "OpBench"},
       {&costAmdGcn5(), "AMD", "GCN 5 (Vega)", "OpBench"},
       {&costAmdTerascale2(), "AMD", "TeraScale 2", "OpBench"},
