@@ -31,7 +31,7 @@
       {"name": "Gen8", "examples": "HD Graphics 5500 / 6000, Iris 6100 (Broadwell)", "model": null},
       {"name": "Gen9 / Gen9.5", "examples": "HD / UHD Graphics 500 / 600, Iris 540 / 640 / 655", "model": "intel-gen9"},
       {"name": "Gen11", "examples": "Iris Plus G4 / G7 (Ice Lake)", "model": null},
-      {"name": "Xe-LP", "examples": "Iris Xe, UHD Graphics 700 (Tiger Lake - Raptor Lake)", "model": null},
+      {"name": "Xe-LP", "examples": "Iris Xe, UHD Graphics 700 (Tiger Lake - Raptor Lake)", "model": "intel-gen12"},
       {"name": "Xe-LPG", "examples": "Intel Arc Graphics in Meteor Lake / Arrow Lake", "model": null},
       {"name": "Xe-HPG (Alchemist)", "examples": "Intel Arc A-series", "model": null},
       {"name": "Xe2 (Battlemage)", "examples": "Intel Arc B-series, Arc 130V / 140V (Lunar Lake)", "model": null},

@@ -79,6 +79,26 @@ inline const Family kFamilies[] = {
      "floor 2.6 frac 2.6 lerp 5.2 log 10.7 log2 10.6 mad 4.0 mad2 2.6 max 2.6 max3 2.6 min 2.6 minmax 2.6 "
      "mul 2.6 neg 0.0 negabs 2.6 omod2 0.2 omod3 0.2 omodhalf 0.2 pow 23.9 rcp 10.6 rcpmax 10.7 round 2.6 "
      "rsqrt 10.6 satmad 0.0 saturate 0.2 select 5.2 sign 10.9 sin 16.1 sqrt 10.6 step 2.6 sub 2.6 "},
+    {"intel-gen12", "Xe-LP", 1,
+     "aAdd 18.0 aAdd1 47.5 aAnd 17.8 aAnd1 455.0 aCmpXchg 32.5 aCmpXchg1 2261.6 aMax 18.3 aMax1 458.2 "
+     "aMin 18.1 aMin1 451.7 aOr 17.8 aOr1 456.4 aXchg 18.4 aXchg1 448.1 aXor 18.6 aXor1 456.8 abs 0.0 "
+     "acos 40.2 add 3.8 add16 1.9 arraybase 23.0 arrayread 60.4 arraywrite 16508.2 asin 45.5 atan 65.2 "
+     "atan2 77.1 atombase 13.1 barrier 31.2 bitcast 0.0 bitor 3.5 bitrev 3.8 branchdiv 112.7 "
+     "branchuni 54.2 ceil 3.7 clamp 7.7 constarray 90.8 contract 3.9 cos 10.5 cosh 26.0 cross 25.0 "
+     "cvt1 3.5 det3 31.9 distance 40.6 div 10.7 divxy 6.8 dot2 8.1 dot3 19.4 dot4 25.1 exp 10.7 exp2 10.7 "
+     "exp2_16 12.3 f16round 4.3 faceforward 27.1 fbh 13.2 fbl 4.2 floor 3.8 flooradd 19.5 fma+cvt -1.7 "
+     "fma+fma -0.0 fma+half 0.9 fma+int -1.9 fma+minmax -2.1 fma+rcp -7.3 fmod 15.3 frac 3.8 fracadd 20.8 "
+     "frexp 40.1 ftoitof 15.2 ftou 4.1 groupbarrier 1.9 gsbase 27.3 gsbase32 25.7 gsread -0.4 gsread32 1.7 "
+     "gswrite 11.7 gswrite32 15.2 gswriteread 16.7 half1 -1.9 iadd 4.1 iand 4.2 icmpsel 8.1 idiv 135.6 "
+     "imin 4.1 imod 137.9 imul 7.9 int 3.7 irot 11.4 ishr 7.8 isinf 11.2 isnan 7.6 itof 4.0 ixmul 7.5 "
+     "ldexp 7.5 length 28.4 lerp 7.6 log 10.7 log10 10.6 log2 10.7 mad 4.0 mad16 -1.8 mad2 4.1 mad2v 4.1 "
+     "mad3v 7.9 mad4v 12.6 matmul4 70.9 max 4.0 max3 3.6 membarrier 16.1 min 4.0 minmax 3.7 minmax1 3.8 "
+     "modf 7.3 mul 0.0 mul16 0.2 neg -0.1 negabs 0.0 normalize 21.6 omod0.125 -0.0 omod0.25 0.4 omod2 0.5 "
+     "omod3 0.2 omod4 0.2 omod8 0.3 omodhalf 0.3 popc 3.9 pow 25.2 radians 0.0 rcp 10.7 rcp1 10.8 "
+     "rcp16 12.5 rcpmax 10.9 reflect 29.6 refract 65.8 round 3.6 roundadd 7.1 rsqrt 10.7 satmad -0.1 "
+     "saturate 0.2 select 7.7 selectboth 112.8 sign 17.6 signbits 7.4 signclamp 11.0 signmad 7.6 "
+     "signsat 11.2 signsel 14.1 signsel2 3.7 sin 10.6 sincos 21.5 sinh 25.6 smoothstep 18.8 sqrt 10.9 "
+     "sqrt16 12.5 step 7.2 sub 3.9 tan 39.8 tanh 39.6 trunc 3.9 udiv 141.2 umod 138.1 unitf 11.2 utof 4.1 "},
     {"intel-gen7.5", "Gen7.5", 1,
      "aAdd 47.5 aAdd1 200.6 aAnd 48.0 aAnd1 241.6 aCmpXchg 67.4 aCmpXchg1 239.3 aMax 46.2 aMax1 242.4 "
      "aMin 45.6 aMin1 240.0 aOr 45.5 aOr1 242.0 aXchg 47.5 aXchg1 240.0 aXor 45.7 aXor1 238.1 abs 0.3 "
@@ -242,6 +262,7 @@ inline const Rule kRules[] = {
     {R"(RX 6\d\d\d|Radeon 6[68]0M|Raphael)", "amd-rdna2"},
     {R"(Vega)", "amd-gcn5"},
     {R"(HD [67]\d\d\dM?\b)", "amd-terascale2"},
+    {R"(Iris\S* Xe|UHD Graphics 7\d\d)", "intel-gen12"},
     {R"(Iris\S* (Graphics )?5\d\d|U?HD Graphics 6\d\d|HD Graphics 5\d\d)", "intel-gen9"},
     {R"(HD Graphics 4[2-6]\d\d|Iris\S* (Pro )?(Graphics )?5[12]00)", "intel-gen7.5"},
 };

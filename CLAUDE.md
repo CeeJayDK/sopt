@@ -8,7 +8,7 @@ facts, budgets, variant .fx; owner's ReShade test passed on DX11 and Vulkan); pl
 ranking via fxstat + RGA, solved outer and inner constants (affine + inner, default),
 a separate enumeration order model (`--order-model`; rdna3 and the nvidia / intel models default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
-cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `intel-gen7.5`, `nvidia-maxwell`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
+cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, `intel-gen9`, `intel-gen7.5`, `nvidia-maxwell`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
 `nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3; plain HLSL SM5 pixel and compute shaders, ReShade FX compute shaders.
 
 ## Working with the owner
@@ -1262,6 +1262,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   sRGB / RGB10A2 / RG11B10F filter at full rate (Gen9 1/3), dependent Load ~1.7x a point sample (RGBA8 Load 17 vs point 10
   fma units; Gen9 equal), 16 / 32-bit float aniso 2x Gen9's relative cost, ddx / ddy cheaper (3.5), cache knee 4 MB
   (L3) then DRAM; copy passes Sample = Load (memory bound); pixel order 4 x 4 blocks (SIMD16) like Gen9.
+  Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
+  "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
+  step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
+  clamp / select nothing cheaper.
   Owner's decisions (2026-10-06): ECT level 5 stays (best ratio in the benchmark; -4 is close and faster, but the
   optimizer runs in the background); ShaderInfo as a measured source: wait for more reports; integer / bit tricks and
   casts in the search: yes (plan first); expected costs per cost model in OpBench / TexBench: yes, if it does not bloat

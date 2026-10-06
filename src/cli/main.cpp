@@ -85,7 +85,7 @@ void usage() {
       "                    the original's error vs exact math (default 100, 0 = off)\n"
       "  --helpers         also enumerate pure helper intrinsics (lerp, step)\n"
       "  --bits            also enumerate integer ops and bit casts (asuint, asfloat, & | ^ << >>)\n"
-      "  --cost-model M    objective: rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-terascale2 | nvidia | nvidia-maxwell | nvidia-pascal | nvidia-turing | nvidia-ampere | nvidia-blackwell | intel-gen9 | intel-gen7.5 | generic (default: rdna3)\n"
+      "  --cost-model M    objective: rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-terascale2 | nvidia | nvidia-maxwell | nvidia-pascal | nvidia-turing | nvidia-ampere | nvidia-blackwell | intel-gen12 | intel-gen9 | intel-gen7.5 | generic (default: rdna3)\n"
       "  --order-model M   enumeration order (default: search for rdna3/nvidia, else the model)\n"
       "  --stats           print search statistics\n"
       "  --isa             rank the shown alternatives by real GPU ISA cost (fxstat + RGA)\n"
@@ -138,6 +138,7 @@ std::vector<ModelEntry> publishedModels() {
       {&costAmdRdna2(), "AMD", "RDNA 2", "OpBench"},
       {&costAmdGcn5(), "AMD", "GCN 5 (Vega)", "OpBench"},
       {&costAmdTerascale2(), "AMD", "TeraScale 2", "OpBench"},
+      {&costIntelGen12(), "Intel", "Gen12 (Xe-LP)", "OpBench"},
       {&costIntelGen9(), "Intel", "Gen9 / Gen9.5", "OpBench"},
       {&costIntelGen75(), "Intel", "Gen7.5", "OpBench"},
   };
@@ -266,7 +267,7 @@ int main(int argc, char** argv) {
     else if (a == "--seed") opt.seed = std::strtoull(next(), nullptr, 10);
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
-      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, intel-gen7.5, generic, search)\n"); return 2; }
+      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen12, intel-gen9, intel-gen7.5, generic, search)\n"); return 2; }
     }
     else if (a == "--stats") stats = true;
     else if (a == "--no-affine") opt.search.affine = false;
@@ -314,7 +315,7 @@ int main(int argc, char** argv) {
     else if (a == "--bits") opt.search.bits = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
-      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, intel-gen7.5, generic, search)\n"); return 2; }
+      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen12, intel-gen9, intel-gen7.5, generic, search)\n"); return 2; }
     }
     else if (a == "--isa") isa = true;
     else if (a == "--fxstat") isaCfg.fxstat = next();

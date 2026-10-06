@@ -46,6 +46,7 @@ MODEL_RULES = [
     (r"RX 6\d\d\d|Radeon 6[68]0M|Raphael", "amd-rdna2"),
     (r"Vega", "amd-gcn5"),
     (r"HD [67]\d\d\dM?\b", "amd-terascale2"),
+    (r"Iris\S* Xe|UHD Graphics 7\d\d", "intel-gen12"),
     (r"Iris\S* (Graphics )?5\d\d|U?HD Graphics 6\d\d|HD Graphics 5\d\d", "intel-gen9"),
     (r"HD Graphics 4[2-6]\d\d|Iris\S* (Pro )?(Graphics )?5[12]00", "intel-gen7.5"),
 ]
