@@ -118,6 +118,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   identical; fxc rewrites !(x < 1) to ge (NaN wrong; IEEE strictness keeps lt + movc), NVIDIA GL / Vulkan too; Vulkan run-time
   inf comparisons fail (no SignedZeroInfNanPreserve: the driver may assume no inf / NaN) plus the ordered != bug; the effect's
   totals line disagrees with its cells on D3D (fxc compiles the loop differently: context-dependent folding).
+  Fixed (owner's go): pass 1 runs every test once into a 62 x 1 RGBA8 texture, cells and totals read it (0.6.4). Owner: D3D9 not
+  following IEEE 754 is a ReShade issue (effects should behave the same on every API; ReShade has built-in workarounds,
+  more may be needed), not a sopt issue.
 - `tools/windows` (Windows bench, owner 2026-10-01: one folder, documented in its README.md;
   `run-bench.ps1` / `.bat`: own run folder and ReShade.ini, ReShade as dxgi.dll for DX11 and as a
   Vulkan layer via VK_ADD_LAYER_PATH / VK_INSTANCE_LAYERS, sopt-timer Screenshots=1).
