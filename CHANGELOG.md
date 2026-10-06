@@ -3,6 +3,13 @@
 What is new in each release, newest first. The release workflow copies the section of the version it
 builds (`## <version>` up to the next `## `) into the release notes, so add to the top section as things land.
 
+## 0.7.0
+
+### SweetOpt
+- **Bit tricks (`--bits`):** SweetOpt can now build integer and bit-cast code (`asuint`, `asfloat`, `uint` / `int` conversions, `& | ^ << >>`, integer add / sub / mul) and finds tricks that are hard to spot by hand: the exponent of x (`floor(log2(x))`) from its bits in two cheap forms, exp2 of an integer, a signed power by OR-ing the sign bit (Turing 41 -> 36), frac / floor through a uint conversion on Pascal. Off by default (it slows the search); the tricks it found are also library rules, used in every run.
+- **"Differs at x = -0.0":** variants that are exact except for a negative zero input (bit tricks that read the sign bit) are kept and marked, like the other problem inputs; you decide.
+- **More library rules:** CeeJay's zero comparison tricks (`abs(a) == -abs(b)` for "both zero", without abs where the signs are known), the [0, 1] range check `mad(x, x, -x) <= 0.0`, and the rsqrt forms of `pow(x, 1.5)` and `sqrt(x)`.
+
 ## 0.6.0
 
 ### Web page

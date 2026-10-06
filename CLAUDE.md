@@ -1297,6 +1297,38 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   are int loop counters / indices. Real bit code (shifts, asuint / asfloat, reversebits) is almost all
   iMMERSE (LAUNCHPAD, mmx_qmc / mmx_sfc / mmx_hash: hashes, QMC sequences, space-filling curves; it
   already uses asfloat((u >> 9) | 0x3F800000) - 1 for uint -> [0, 1)).
+  Done (owner's go 2026-10-06, "plan first", then: bit tricks first, expected costs next): Type::Uint (scalar; the value
+  is held in the float slot as its bits), ops AsUint / AsFloat / FToU / FToI / UToF / IToF / UAnd / UOr / UXor / UShl /
+  UShr / IShr / UAdd / USub / UMul (Shape::Int / ToUint / ToFloat, base = false; D3D conversion rules, shift counts & 31),
+  parser (hex / u literals, & | ^ << >> with C precedence, asint / int mark signedness for float(...) and >>), printer
+  (float(asint(a)), asuint(int(a)), asuint(asint(a) >> b)), exact evaluator (uint values as exact integers, casts on the
+  float32-rounded operand), PTX (%r registers), V3 gives up on them, compiledCost counts bit casts free; costs in every
+  model from the OpBench integer tests (bit casts 1 = the minimum; conversions Turing 8 / 12, Ampere 14 / 7, Pascal /
+  Maxwell 2, AMD 4, imul quarter rate on AMD 16). The bank's op/type code is a dense table now (OpTypeCodes; op x type no
+  longer fits a byte). `--bits` (SearchConfig::bits; sopt, sopt-fx, bench): integer ops enumerated with a constant pool
+  (1, 9, 23, 31, 127, sign / abs / exponent / mantissa masks, 1.0's bits, 0x5F3759DF / 0x7EF311C7 / 0x1FBD1DF5; floats
+  127, 2^23, 2^-23); integer entries are not canonicalized and quantized dedup is off. Bench (examples, time 30): without
+  --bits identical bests and first hits; with --bits the same bests but slower (rsqrt first hit 2.1 -> 22.9 s,
+  length_squared 3.1 -> 18.2 s): stays a flag. -0.0 (owner: keep, mark, the user decides): findProblemRanges checks every
+  scalar input whose range holds 0 at -0.0 for candidates with integer ops (ProblemRange::negZero, "differs at x = -0.0",
+  never SOPT_AUTO); random sampling never draws -0. Found: x >= 0 ? 1 : -1 -> asfloat(0x3F800000u | (0x80000000u &
+  asuint(x))) (Ampere 10 -> 6, differs at -0.0); exp2(n) for integer n -> asfloat(0x3F800000u + (asuint(int(n)) << 23))
+  (rdna3 16 -> 13, Ampere 24 -> 22; exact, the GPU exp2 1 ulp off under gpu+/-); floor(log2(x)) -> mad(float(0x007FFFFFu |
+  asuint(x)), 2^-23, -128) (rdna3 20 -> 13, Gen9 16 -> 13) and mad(asfloat(0x3F800000u - (asuint(x) >> 23)), -2^24, 2^24 -
+  127) (Turing 24 -> 11, no int -> float conversion): "too exact" (the float32 original rounds wrong just below powers of
+  2, so an exact budget rejects them); ldexp not reached in 60 s (one level too deep). Targeted searches (scratchpad
+  ffb/, 16 intrinsics x 9 models, 20 s): bits help only the signed power (asfloat(asuint(pow(abs(x), g)) | (asuint(x) &
+  0x80000000u)): Turing 41 -> 36, Pascal 42 -> 39, Blackwell 73 -> 58; Ampere 85 -> 63 via a sign-bit 1.0) and Pascal's
+  frac (x - float(uint(x)) for x >= 0, 10 -> 8: conversions are cheap there); exp2 / log2 / rcp / rsqrt / sqrt / pow /
+  exp / floor / ceil / clamp / select: no exact bit form; the earlier fast forms found again. Library (183 rules, all
+  pass): the bit tricks above (exp2 of an integer, ldexp, three floor(log2) forms, abs mask, sign-bit copies, signed power,
+  floor / frac via uint for x >= 0) and the owner's wiki tricks (Shader Tips, Tricks and Optimizations: abs(a) ==
+  -abs(b) for both zero, a == -b / a == b where the signs are known (owner: abs is not free on every card), mad(x, x, -x)
+  <= 0 for x in [0, 1], the saturated two-value form; pow(x, 1.5) / sqrt via rsqrt); the wiki's `a == 0 && b == 0` /
+  any / all forms need logical and / or on bools, which the IR lacks (not decided). Exhaustive C check (every positive
+  normal float): the three floor(log2) forms, floor / frac via uint and exp2 of an integer are exact. ReShade's FX parser
+  accepts the written syntax (asuint / asfloat / asint / hex u literals); sopt-fx does not read integer code in shaders as
+  regions (skipped as before).
 - Back buffer size inputs (owner's go 2026-10-02; sopt-fx default since 2026-10-02 by the owner's decision, `--no-buffer-inputs`): BUFFER_WIDTH /
   BUFFER_HEIGHT symbolic as `uniform int __sopt_...` (int keeps BUFFER_WIDTH / 3 an integer division;
   only int -> float conversions of them become compile-time float inputs, range [1, --max-width] as a

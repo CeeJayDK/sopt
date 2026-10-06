@@ -253,3 +253,7 @@ x < 0.0 ? -y : y -> asfloat(asuint(y) ^ (asuint(x) & 0x80000000u))
 # Signed power: OR x's sign bit into the (non-negative) result instead of multiplying by sign(x)
 # (sopt --bits on Turing: 41 -> 36; exact, also at x = 0 where the power is 0)
 sign(x) * pow(abs(x), c) -> asfloat(asuint(pow(abs(x), c)) | (asuint(x) & 0x80000000u))   where c const, c in [0.01, 16]
+# floor / frac through a float -> uint conversion and back, for x >= 0 (truncation = floor there);
+# cheaper where conversions are (sopt --bits on Pascal: frac 10 -> 8)
+floor(x) -> float(uint(x))   where x in [0, 4e9]
+frac(x) -> x - float(uint(x))   where x in [0, 4e9]

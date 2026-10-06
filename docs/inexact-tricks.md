@@ -19,6 +19,19 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
 - **Safe when** the result is multiplied by something that is 0 at x = 0, e.g. the signed power
   `sign(x) * pow(abs(x), g)` with g > 0. That case is a library rule; sopt finds it on Turing.
 
+### Copying x's sign bit: `asfloat((asuint(x) & 0x80000000u) | 0x3F800000u)` for `x >= 0.0 ? 1.0 : -1.0`
+- Bit trick (sopt `--bits`, library): and + or, no compare, no select; also `y` with x's sign
+  (`asfloat(asuint(y) ^ (asuint(x) & 0x80000000u))` for `x >= 0.0 ? y : -y`).
+- **What's wrong:** differs at x = -0.0 (-0 >= 0 is true, but its sign bit is set): -1 instead of 1.
+- **Safe when** x is never -0.0 (-0 comes from negating or multiplying a zero, e.g. `-a` with a = 0,
+  `x * -1` at 0). sopt keeps such variants marked "differs at x = -0.0"; never picked by SOPT_AUTO.
+
+### Magic-constant approximations (`0x5F3759DF` rsqrt, `0x7EF311C7` rcp, `0x1FBD1DF5` sqrt)
+- Integer subtracts / shifts on the bits give a rough first guess (a few percent off); they need
+  Newton steps to be usable and are never within sopt's budgets without `--loose`. The constants are
+  in the `--bits` pool so the search can combine them, but on every measured GPU the hardware
+  rcp / rsqrt / sqrt is cheaper than a guess plus one Newton step.
+
 ### The `* 1e38` saturate forms (sign, and the floor / ceil / frac forms below)
 - `sign(x) -> mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0)` (mad_sat + mad, 2 instructions; found
   by sopt), `saturate(x * 1e38) - saturate(x * -1e38)`, `clamp(x * 1e38, -1.0, 1.0)`.
