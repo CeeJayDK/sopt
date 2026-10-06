@@ -215,3 +215,21 @@ pow(pow(x, y), z) -> pow(x, y * z)   where x in [1e-6, 1e6], y in [-2, 2], z in 
 sqrt(exp(x)) -> exp(x * 0.5)   where x in [-8, 8]
 sqrt(exp2(x)) -> exp2(x * 0.5)   where x in [-8, 8]
 sqrt(pow(x, y)) -> pow(abs(x), y * 0.5)   where x > 0, y in [-4, 4]
+
+# Zero comparisons (CeeJay's ReShade wiki, Shader Tips, Tricks and Optimizations): "are both 0?"
+# as one compare, abs and negation being free source modifiers on most cards. Where the signs
+# are known no abs is needed: one value >= 0 and the other <= 0 (or negated) is enough.
+a == 0.0 ? (b == 0.0 ? x : y) : y -> abs(a) == -abs(b) ? x : y
+a != 0.0 ? y : (b == 0.0 ? x : y) -> abs(a) == -abs(b) ? x : y
+a == 0.0 ? (b == 0.0 ? x : y) : y -> a == -b ? x : y   where a >= 0, b >= 0
+a == 0.0 ? (b == 0.0 ? x : y) : y -> a == b ? x : y   where a >= 0, b <= 0
+max(abs(a), abs(b)) == 0.0 ? x : y -> abs(a) == -abs(b) ? x : y
+abs(a) + abs(b) == 0.0 ? x : y -> abs(a) == -abs(b) ? x : y
+# Inside [0, 1]: x * x - x is <= 0 exactly there (one mad, one compare); for two values
+# saturate it and compare the two (both 0 = inside), as in the wiki's uv check.
+x >= 0.0 ? (x <= 1.0 ? p : q) : q -> mad(x, x, -x) <= 0.0 ? p : q
+x < 0.0 ? q : (x > 1.0 ? q : p) -> mad(x, x, -x) <= 0.0 ? p : q
+x >= 0.0 ? (x <= 1.0 ? (y >= 0.0 ? (y <= 1.0 ? p : q) : q) : q) : q -> saturate(mad(x, x, -x)) == -saturate(mad(y, y, -y)) ? p : q
+# The wiki's identities: rsqrt has its own instruction, sqrt is rsqrt + rcp on some drivers.
+pow(x, 1.5) -> (x * x) * rsqrt(x)   where x in [1e-15, 1e15]
+sqrt(x) -> x * rsqrt(x)   where x in [1e-30, 1e30]
