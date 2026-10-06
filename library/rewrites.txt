@@ -250,3 +250,6 @@ abs(x) -> asfloat(asuint(x) & 0x7FFFFFFFu)
 x >= 0.0 ? 1.0 : -1.0 -> asfloat((asuint(x) & 0x80000000u) | 0x3F800000u)
 x >= 0.0 ? y : -y -> asfloat(asuint(y) ^ (asuint(x) & 0x80000000u))
 x < 0.0 ? -y : y -> asfloat(asuint(y) ^ (asuint(x) & 0x80000000u))
+# Signed power: OR x's sign bit into the (non-negative) result instead of multiplying by sign(x)
+# (sopt --bits on Turing: 41 -> 36; exact, also at x = 0 where the power is 0)
+sign(x) * pow(abs(x), c) -> asfloat(asuint(pow(abs(x), c)) | (asuint(x) & 0x80000000u))   where c const, c in [0.01, 16]
