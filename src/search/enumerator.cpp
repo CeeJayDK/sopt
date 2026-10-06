@@ -71,9 +71,12 @@ ConstPool constantPool(const Expr& target, bool bits) {
   std::vector<float> pool = {0.0f, 0.5f, 1.0f, 2.0f, -1.0f};
   // Integer constants (bit tricks): the float format's masks and fields, shift counts, and
   // the classic magic numbers (fast rsqrt / rcp / sqrt seeds); then the target's own.
-  if (bits)
-    p.uints = {1u, 9u, 23u, 31u, 0x80000000u, 0x7FFFFFFFu, 0x3F800000u, 0x007FFFFFu, 0x7F800000u,
+  if (bits) {
+    p.uints = {1u, 9u, 23u, 31u, 127u, 0x80000000u, 0x7FFFFFFFu, 0x3F800000u, 0x007FFFFFu, 0x7F800000u,
                0x5F3759DFu, 0x7EF311C7u, 0x1FBD1DF5u};
+    // The exponent bias and the mantissa scale as floats (float(asuint(x) >> 23) - 127.0).
+    for (float c : {127.0f, 8388608.0f, 1.0f / 8388608.0f}) pool.push_back(c);
+  }
   for (const auto& n : target.nodes) {
     if (n.op != Op::Const) continue;
     if (n.type == Type::Uint) {
