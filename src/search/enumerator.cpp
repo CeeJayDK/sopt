@@ -1056,6 +1056,39 @@ bool Enumerator::innerFit(const Entry& e, const float* v, uint32_t idx, std::vec
         found = true;
       }
     }
+    if (u == Op::Rcp && cfg_.divForm) {
+      // p / (v + c) + q and p / (v + c): p, q by least squares on w = rcp(v + c), checked as the division.
+      const uint32_t base = e.obj + addCost + model.opCost(Op::Div, W);
+      const uint32_t qCost = model.fusesIntoAdd(Op::Div) ? W * model.fusedAdd : model.opCost(Op::Add, W);
+      double sw = 0, sg = 0, sww = 0, swg = 0;
+      size_t m = 0;
+      for (size_t i = 0; i < tn_; ++i) {
+        if (!targetFinite_[i]) continue;
+        const double w = s.fit[i];
+        sw += w; sg += fit_[i]; sww += w * w; swg += w * fit_[i]; ++m;
+      }
+      const double den = double(m) * sww - sw * sw;
+      AffineHit tries[2] = {{idx, Op::Mul, sww > 0 ? static_cast<float>(swg / sww) : 0.0f, 0.0f, u, c},
+                            {idx, Op::Mad, den > 0 ? static_cast<float>((double(m) * swg - sw * sg) / den) : 0.0f,
+                             0.0f, u, c}};
+      tries[1].q = m ? static_cast<float>((sg - double(tries[1].p) * sw) / double(m)) : 0.0f;
+      for (AffineHit& dh : tries) {
+        dh.divForm = true;
+        dh.cost = base + (dh.wrap == Op::Mad ? qCost : 0);
+        if (dh.cost >= objLimit_ || dh.p == 0.0f || !std::isfinite(dh.p) || !std::isfinite(dh.q)) continue;
+        bool ok = true;
+        for (size_t i = 0; i < tn_ && ok; ++i) {
+          if (!targetFinite_[i]) continue;
+          const float d = dh.p / (v[i] + c);
+          ok = accepts(i, dh.wrap == Op::Mad ? d + dh.q : d);
+        }
+        if (ok) {
+          out.push_back(dh);
+          found = true;
+          break;  // the plain p / (v + c) is the cheaper one
+        }
+      }
+    }
     AffineHit h{idx, Op::Mad, 0.0f, 0.0f, u, c};
     if (!fitWrap(s.fit.data(), u, baseObj, h)) continue;
     out.push_back(h);
@@ -2073,6 +2106,11 @@ Expr Enumerator::extract(const AffineHit& h) const {
     const uint32_t num = h.r < 0.0f ? b.op(Op::Add, v, k(-h.r)) : b.op(Op::Sub, v, k(h.r));
     const uint32_t den = b.op(Op::Mad, v, k(h.a), k(h.b));
     return b.finish(b.op(Op::Mul, num, b.op(Op::Rcp, den)));
+  }
+  if (h.divForm) {
+    v = h.c < 0.0f ? b.op(Op::Sub, v, k(-h.c)) : b.op(Op::Add, v, k(h.c));
+    v = b.op(Op::Div, k(h.p), v);
+    return b.finish(h.wrap == Op::Mad ? b.op(Op::Add, v, k(h.q)) : v);
   }
   if (h.inner != Op::Count) {
     v = h.c < 0.0f ? b.op(Op::Sub, v, k(-h.c)) : b.op(Op::Add, v, k(h.c));

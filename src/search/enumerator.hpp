@@ -76,6 +76,9 @@ struct SearchConfig {
   // With an inner rcp fit p / (v + c) + q, also emit (v - r) * rcp(mad(v, 1/q, c/q)): the
   // same function without the final cancellation (accuracy variants, owner 2026-09-26).
   bool rational = true;
+  // With an inner rcp fit, also emit it as p / (v + c) + q (owner's go 2026-10-06): where a divide costs about an rcp
+  // (measured rdna3: the mul hides under the rcp), the scale and the add fold into it (div + fma).
+  bool divForm = true;
   // Skip inner fits for entries the target is not monotonic in (see innerFit).
   bool innerPrefilter = true;
   // Before an affine fit, a 3-point test that some p, q can put p * v + q into the accepted range at all
@@ -263,6 +266,8 @@ class Enumerator {
     // SearchConfig::rational: (v - r) * rcp(mad(v, a, b)) instead of the wrapper.
     bool rational = false;
     float r = 0.0f, a = 0.0f, b = 0.0f;
+    // SearchConfig::divForm: p / (v + c) (+ q for wrap Mad) instead of p * rcp(v + c) + q.
+    bool divForm = false;
     uint32_t cost = 0;  // objective cost of the whole hit (base + wrapper)
   };
 

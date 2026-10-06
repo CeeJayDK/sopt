@@ -162,12 +162,19 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
 
 ## NaN tests and `!=` (2026-10-06)
 
-`(x != x)` as `isnan(x)`: on Direct3D (DX9-DX11 via fxc) it compiles to the very same instruction as `isnan(x)` (`ne r, x,
-x`: D3D's `ne` is unordered, true for NaN), so it is neither faster nor slower there. On ReShade's Vulkan path it does
-not work: ReShade 6.8.0's SPIR-V generator writes a float `!=` as `OpFOrdNotEqual`, which is false when either side is
-NaN, while `isnan()` becomes `OpIsNan`. Use `isnan()`. The bit test `(asuint(x) & 0x7FFFFFFF) > 0x7F800000` is exact
-everywhere but one instruction longer (`and` + `ult`). For the same reason `!(a == b)` and `a != b` differ on ReShade's
-Vulkan path when an operand is NaN, so the library has no rule turning one into the other.
+`(x != x)` as `isnan(x)`: on Direct3D 10-12 both compile to the same `ne r, x, x` where they survive, so neither is
+faster. But ReShade compiles with fxc -O3 without `D3DCOMPILE_IEEE_STRICTNESS`, and fxc then assumes inputs (constant
+buffers, textures) are never NaN or infinite: `isnan(x)` and `x != x` on such a value compile to `false`, `x / x` to 1,
+`x - x` to 0, `isnan(inf - inf)` to false. A NaN from a division of different values survives, and `precise` keeps any
+check (`precise float v = x; isnan(v)`). On ReShade's Vulkan path `x != x` does not work either: ReShade 6.8.0's SPIR-V
+generator writes a float `!=` as `OpFOrdNotEqual`, false when either side is NaN, while `isnan()` becomes `OpIsNan`. So:
+use `isnan()` on a `precise` value. The bit test `(asuint(x) & 0x7FFFFFFF) > 0x7F800000` is exact on every backend but one
+instruction longer (`and` + `ult`), and fxc folds it too when it assumes the value cannot be NaN. `!(a == b)` and `a != b`
+differ on ReShade's Vulkan path when an operand is NaN. That is ReShade's bug, not the rewrite's (IEEE 754 `!=` is
+unordered, as on D3D): the library keeps `!(a == b) -> a != b` and `!(a != b) -> a == b` (owner, 2026-10-06: do not rule
+out variants for a ReShade bug). The same generator converts float -> bool (`if (x)`) as `x != 0` with `OpFOrdNotEqual`
+too, so a NaN counts as false on Vulkan and true on D3D. Test effect and findings: tools/reshade/sopt_IEEE754.fx,
+tools/reshade/IEEE754.md.
 
 NaN ordering: every ordered comparison with NaN is false (`NaN > +Inf` is false). Only the raw bits are ordered: read
 as signed integers, +NaN is above +Inf and -NaN below -Inf.

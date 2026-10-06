@@ -274,6 +274,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-inner") opt.search.inner = false;
     else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
     else if (a == "--no-affine-precheck") opt.search.affinePrecheck = false;
+    else if (a == "--no-div-form") opt.search.divForm = false;
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
