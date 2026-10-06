@@ -20,6 +20,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 - **IEEE 754 test:** `sopt_IEEE754.fx` checks 62 float rules (NaN, infinity, signed zero, rounding, conversions), each from literals, as a literal in the generated code and made on the GPU, and shows ok / FAIL per rule with the API and ReShade version on screen. One key runs it on every API and saves a screenshot per API; the results are zipped. It found ReShade 6.8.0 writing float `!=` on Vulkan so that `x != x` is false for NaN, infinity literals with the wrong sign in the Direct3D and OpenGL code, and Microsoft's compiler (at ReShade's settings) removing NaN checks; details in `Docs\IEEE754.md`.
 - **Your own effects:** put them in the `Effects` folder and test them on every API (a screenshot each, and a note when one does not compile), or open the host with ReShade on any API and try them by hand.
 - **Benchmark** of SweetOpt test packages as before (now from the menu; results in the `Results` folder).
+- **Works next to an installed ReShade:** Vulkan runs use the test host's own ReShade even when ReShade is installed for Vulkan games (its global Vulkan layer is switched off for the run).
 
 ### GPU Blueprint
 - **Compared with other cards:** OpBench knows what the cards of each family measured so far (Turing, Ampere / Ada, RDNA 2, Gen9 ...) and marks every test where yours differs by more than 25% ("usually 12.0"), with a list at the end: such reports are especially interesting. A card from a family nobody has measured yet is told so too.

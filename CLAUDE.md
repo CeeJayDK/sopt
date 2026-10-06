@@ -109,6 +109,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   with ReShade + IEEE test screenshots for dx9 / dx10 / dx11 / gl; dx12 crashes in Wine's vkd3d with ReShade loaded
   (also without the add-on), Vulkan layer does not load under Wine: both need the owner's Windows run. PowerShell parse
   checks and a stub-host dry run with pwsh 7 (scratchpad pwsh/pwsh).
+  Owner's first Windows run (0.6.2, GTX 1660, 2026-10-06): all six APIs ran and saved screenshots; Vulkan loaded the installed
+  ReShade (implicit layer VK_LAYER_reshade in C:\ProgramData\ReShade, limited add-on build: sopt-timer skipped, no auto shot,
+  window not closed): our layer is now VK_LAYER_sopt_reshade and DISABLE_VK_LAYER_reshade_1=1 keeps the installed one off
+  (0.6.3); run-test.ps1 flags "Skipped loading add-on". Results in tools/reshade/IEEE754.md (+ results/*.png): D3D10/11/12
+  identical; fxc rewrites !(x < 1) to ge (NaN wrong; IEEE strictness keeps lt + movc), NVIDIA GL / Vulkan too; Vulkan run-time
+  inf comparisons fail (no SignedZeroInfNanPreserve: the driver may assume no inf / NaN) plus the ordered != bug; the effect's
+  totals line disagrees with its cells on D3D (fxc compiles the loop differently: context-dependent folding).
 - `tools/windows` (Windows bench, owner 2026-10-01: one folder, documented in its README.md;
   `run-bench.ps1` / `.bat`: own run folder and ReShade.ini, ReShade as dxgi.dll for DX11 and as a
   Vulkan layer via VK_ADD_LAYER_PATH / VK_INSTANCE_LAYERS, sopt-timer Screenshots=1).

@@ -66,3 +66,36 @@ values that are checked for NaN / inf, not the global flag.
 Predicted Direct3D 11 results for the run-time column (fxc output, before the GPU runs anything): wrong for `inf - inf is
 NaN`, `inf * 0 is NaN`, `rsqrt(+0) == +inf`; `1e-40 kept` folds to "no". Everything else in that column is left to the
 GPU. The Folded and Literal columns show fxc's folding.
+
+The prediction was off: the same expression compiles differently depending on the code around it (the measured run
+below fails other tests than the per-test compiles predicted, and even within one effect the totals line, which runs every
+test in a loop, counts 0 run-time failures where the cells show 5).
+
+## Measured: NVIDIA GeForce GTX 1660, driver 617.14 (32.0.16.1714), ReShade 6.8.0, 1920 x 1080 (2026-10-06)
+
+Direct3D 10, 11 and 12 give identical screens (only the API name differs).
+
+| Test group                     | Direct3D 10 / 11 / 12                         | Vulkan                                  | OpenGL                                   |
+|--------------------------------|-----------------------------------------------|-----------------------------------------|------------------------------------------|
+| `isnan(NaN)`, `x != x`, `NaN != 1` at run time | ok                             | `x != x`, `!= another NaN`, `!= 1`, `!(x == x)`, NaN bit test FAIL | ok |
+| `!(NaN < 1)`, `>`, `<=`, `>=` at run time | FAIL (fxc: `!(x < 1)` -> `ge x, 1`)  | FAIL                                    | FAIL (driver's GLSL compiler, same rewrite) |
+| `(bool)NaN`, `(bool)-NaN`, `NaN ? 1 : 0` at run time | ok                    | FAIL (ordered `!=`, bug 1)              | ok                                        |
+| Infinity at run time           | ok                                            | `1 / 0 > FLT_MAX`, `-1 / 0 < -FLT_MAX`, `+inf > -inf`, `1 / inf == 0`, `1 / (1 / -inf) < 0`, `sqrt(inf) == inf` FAIL | ok |
+| Infinity literals              | FAIL (swapped signs, bug 2)                   | FAIL                                    | FAIL (swapped signs, bug 2)              |
+| `rsqrt(+0) == +inf` at run time | FAIL                                         | ok                                      | ok                                       |
+| min / max / saturate / clamp with NaN, round ties | as Direct3D at run time    | as Direct3D at run time (this driver)   | `clamp(NaN, 0, 1)` not 0 at run time      |
+| Denormals (`1e-40 kept`)       | no at run time                                | no                                      | no                                       |
+| Totals (Folded / Literal / Run time wrong) | 7 / 11 / 0 (totals line; cells show more, see above) | 18 / 30 / 18                  | 11 / 22 / 4                              |
+
+- `!(a < b)` -> `a >= b` is fxc's (checked: `ps_5_0`, flags 0x8800 give `ge`; with `D3DCOMPILE_IEEE_STRICTNESS` it keeps
+  `lt` + `movc`). NVIDIA's GLSL and Vulkan compilers do the same.
+- Vulkan's run-time infinity failures are not in ReShade's SPIR-V: without the `SignedZeroInfNanPreserve` execution mode
+  (`VK_KHR_shader_float_controls`) a Vulkan driver may assume that no value is infinite or NaN. ReShade could declare it
+  where the driver supports it.
+- Direct3D 9 (run time only; SM3 does not require IEEE NaN): `isnan`, `x != x`, `(bool)NaN`, `NaN + 1`, `inf - inf`,
+  `sqrt(inf)`, `rsqrt(+0)`, `sqrt(-1)`, `2^24 + 1 == 2^24`, round ties and min with NaN all differ; signed zero and
+  infinity comparisons are right.
+- The Vulkan run used an installed ReShade 6.8.0 (build 2158, implicit Vulkan layer in `C:\ProgramData\ReShade`), not the
+  test host's copy: the loader picked the installed layer of the same name. Fixed in the test host (own layer name, the
+  installed layer disabled for the run).
+- Screens (cropped): `results/nvidia-gtx-1660-dx11.png` (= Direct3D 10 / 12), `-vulkan.png`, `-gl.png`.

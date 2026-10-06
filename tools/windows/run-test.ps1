@@ -105,6 +105,9 @@ foreach ($api in $apiList) {
     Copy-Item $log (Join-Path $results "ReShade-$api.log") -Force
     $text = Get-Content -Raw $log
     if ($text -match "Failed to compile") { $status = "the effect did not compile (see ReShade-$api.log)" }
+    elseif ($text -match "Skipped loading add-on") {
+      $status = "another ReShade without full add-on support was loaded, so no automatic screenshot (see ReShade-$api.log)"
+    }
   } else {
     $status = "ReShade did not start"
   }

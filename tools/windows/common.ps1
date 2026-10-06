@@ -64,12 +64,14 @@ function New-RunFolder([string]$reshade) {
   Copy-Item (Join-Path $Bin "sopt-timer.addon64") $run -Force
   Copy-Item $reshade (Join-Path $run "ReShade64.dll") -Force
   # The Vulkan layer manifest: the loader finds it through VK_ADD_LAYER_PATH, VK_INSTANCE_LAYERS enables it for
-  # sopt-host only.
+  # sopt-host only. Its own name: an installed ReShade registers an implicit layer called VK_LAYER_reshade (in
+  # C:\ProgramData\ReShade, often a build with limited add-on support), and with the same name the loader used that
+  # one instead (owner's GTX 1660 run, 2026-10-06: sopt-timer skipped, the window never closed).
   $json = @"
 {
   "file_format_version": "1.0.0",
   "layer": {
-    "name": "VK_LAYER_reshade",
+    "name": "VK_LAYER_sopt_reshade",
     "type": "GLOBAL",
     "library_path": ".\\ReShade64.dll",
     "api_version": "1.3.268",
@@ -93,7 +95,9 @@ function Enable-ReShade([string]$run, [string]$api) {
     "gl" { Copy-Item $dll (Join-Path $run "opengl32.dll") -Force }
     "vulkan" {
       $env:VK_ADD_LAYER_PATH = $run
-      $env:VK_INSTANCE_LAYERS = "VK_LAYER_reshade"
+      $env:VK_INSTANCE_LAYERS = "VK_LAYER_sopt_reshade"
+      # Keeps an installed ReShade's implicit layer out (its manifest's disable_environment), so ReShade runs once.
+      $env:DISABLE_VK_LAYER_reshade_1 = "1"
     }
     default { Copy-Item $dll (Join-Path $run "dxgi.dll") -Force }
   }
@@ -103,6 +107,7 @@ function Disable-ReShade([string]$run) {
   foreach ($n in @("d3d9.dll", "dxgi.dll", "opengl32.dll")) { Remove-Item (Join-Path $run $n) -ErrorAction SilentlyContinue }
   Remove-Item Env:VK_INSTANCE_LAYERS -ErrorAction SilentlyContinue
   Remove-Item Env:VK_ADD_LAYER_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:DISABLE_VK_LAYER_reshade_1 -ErrorAction SilentlyContinue
 }
 
 # ReShade.ini for a run. $sections: extra sections as a hashtable of name -> ordered hashtable of key -> value.
