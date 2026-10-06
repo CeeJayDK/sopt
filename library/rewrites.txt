@@ -233,3 +233,20 @@ x >= 0.0 ? (x <= 1.0 ? (y >= 0.0 ? (y <= 1.0 ? p : q) : q) : q) : q -> saturate(
 # The wiki's identities: rsqrt has its own instruction, sqrt is rsqrt + rcp on some drivers.
 pow(x, 1.5) -> (x * x) * rsqrt(x)   where x in [1e-15, 1e15]
 sqrt(x) -> x * rsqrt(x)   where x in [1e-30, 1e30]
+
+# Bit tricks (sopt --bits finds these; owner, 2026-10-06: hard for people to find). A float is
+# sign | 8-bit exponent (bias 127) | 23-bit mantissa; asuint / asfloat cost no instruction.
+# exp2 of an integer: build the exponent field directly (exact; the GPU's exp2 may be 1 ulp off)
+exp2(floor(x)) -> asfloat(0x3F800000u + (asuint(int(floor(x))) << 23))   where x in [-126, 127]
+# x * 2^n for an integer n: add n to x's exponent field (x normal, result normal)
+x * exp2(floor(n)) -> asfloat(asuint(x) + (asuint(int(floor(n))) << 23))   where x in [1e-6, 1e6], n in [-32, 32]
+# The exponent of x (exact for normal x > 0; the float32 original rounds wrong just below powers of 2)
+floor(log2(x)) -> float(asuint(x) >> 23) - 127.0   where x in [1.2e-38, 3e38]
+floor(log2(x)) -> mad(float(0x007FFFFFu | asuint(x)), 1.1920929e-07, -128.0)   where x in [1.2e-38, 3e38]   # sopt: the conversion rounds up to (e + 1) * 2^23
+floor(log2(x)) -> mad(asfloat(0x3F800000u - (asuint(x) >> 23)), -16777216.0, 16777089.0)   where x in [1.2e-38, 3e38]   # sopt (Turing): no int -> float conversion
+# abs as a mask (where abs is not a free modifier: Pascal, Maxwell, TeraScale)
+abs(x) -> asfloat(asuint(x) & 0x7FFFFFFFu)
+# Copy x's sign bit (differ at x = -0.0: -0 >= 0 is true, its sign bit is set; marked when used)
+x >= 0.0 ? 1.0 : -1.0 -> asfloat((asuint(x) & 0x80000000u) | 0x3F800000u)
+x >= 0.0 ? y : -y -> asfloat(asuint(y) ^ (asuint(x) & 0x80000000u))
+x < 0.0 ? -y : y -> asfloat(asuint(y) ^ (asuint(x) & 0x80000000u))
