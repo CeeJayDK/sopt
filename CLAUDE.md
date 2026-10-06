@@ -1315,6 +1315,14 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   +5-60% DXBC instructions (SMAA 247 -> 310). My earlier "fxc compiles isnan and x != x alike" held only for computed
   values. Owner (2026-10-06): do not rule out variants because of a ReShade bug: !(a == b) <-> a != b back in the
   library. Signalling NaNs: no use on GPUs (no traps, payloads not preserved); (bool)-NaN = (bool)NaN.
+  Intake 2026-10-06 (Dropbox, one zip): RTX 4090 desktop (AD102, 0x2684, driver 32.0.16.1047; docs/opbench|texbench|
+  shaderinfo/nvidia-rtx-4090.*, order PNGs): OpBench 0.6.0, drift 28 / 37 / 22%, all consensus; = RTX 4060 Ti on 160 of
+  163 tput tests within max(25%, 1.5) (add 3.4, min 4.5, clamp 9.9, select 11, floor 23.6, sign 27.7, pow 48.7, iand 2.1,
+  imul 1.3; rcp 21.8 like the 4090 Laptop's 21.9): nvidia-ampere holds, now 5 cards (expected.hpp regenerated); fp32 83.4 /
+  fp16 79.0 TFLOPS. TexBench 315 s, 1323 GTexels/s, 409 GPixels/s, 904 GB/s, all consensus; pixel order 4 x 8 warp blocks.
+  ShaderInfo statistics only (Register Count / Binary Size), like every NVIDIA. AMD iGPU ShaderInfo (0x13C0, "AMD
+  Radeon(TM) Graphics", likely Granite Ridge (Ryzen 9000, RDNA 2); driver 25.11.1, compiler 2.0.353;
+  docs/shaderinfo/amd-radeon-granite-ridge.txt): VGPRs / SGPRs and disassembly like the Raphael report; no OpBench.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
