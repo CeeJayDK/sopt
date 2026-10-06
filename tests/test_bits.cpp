@@ -69,3 +69,20 @@ TEST(bits_costs) {
   }
   CHECK(dagCost(parseExpr("asfloat(asuint(x) & 0x7FFFFFFFu)", xy()), costRdna3()) == 1 + 4 + 1);
 }
+
+TEST(logic_ops) {
+  // && / || / ! on conditions: C precedence, printed with parentheses around a different nested op.
+  CHECK(roundtrip("x < 0.0 && y < 0.0 ? 1.0 : 0.0") == "(x < 0.0 && y < 0.0) ? 1.0 : 0.0");
+  CHECK(roundtrip("x < 0.0 || y < 0.0 && x > y ? x : y") == "(x < 0.0 || (y < 0.0 && x > y)) ? x : y");
+  CHECK(roundtrip("(x < 0.0 || y < 0.0) && x > y ? x : y") == "((x < 0.0 || y < 0.0) && x > y) ? x : y");
+  CHECK(roundtrip("!(x < y) ? x : y") == "!(x < y) ? x : y");
+  for (const char* f : {"(x < 0.0 || (y < 0.0 && x > y)) ? x : y", "((x < 0.0 || y < 0.0) && x > y) ? x : y"})
+    CHECK(roundtrip(roundtrip(f).c_str()) == roundtrip(f));
+  CHECK(eval1("x == 0.0 && y == 0.0 ? 1.0 : 2.0", 0.0f, 0.0f) == 1.0f);
+  CHECK(eval1("x == 0.0 && y == 0.0 ? 1.0 : 2.0", 0.0f, 1.0f) == 2.0f);
+  CHECK(eval1("x != 0.0 || y != 0.0 ? 1.0 : 2.0", 0.0f, 1.0f) == 1.0f);
+  CHECK(eval1("!(x < y) ? 1.0 : 2.0", 1.0f, 2.0f) == 2.0f);
+  CHECK(eval1("abs(x) == -abs(y) ? 1.0 : 2.0", -0.0f, 0.0f) == 1.0f);  // the wiki's both-zero test
+  // a && b: two comparisons (4 + 4), the and (4) and the select (4) in rdna3.
+  CHECK(dagCost(parseExpr("x == 0.0 && y == 0.0 ? x : y", xy()), costRdna3()) == 16);
+}

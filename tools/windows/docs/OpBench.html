@@ -183,8 +183,12 @@
   <tr><td><code>vs_base_fwd</code>, <code>vs_base_bwd</code></td><td>the same for the forward and the backward pass alone</td></tr>
   <tr><td><code>passes</code>, <code>consensus</code>, <code>readings</code></td><td>how many passes the test needed, whether most readings agreed, and every reading (units, ';'-separated)</td></tr>
   <tr><td><code>step</code>, <code>note</code></td><td>the HLSL step, and what it is about</td></tr>
+  <tr><td><code>expected</code></td><td>what other cards of the same family measured (tput only, see below)</td></tr>
 </table>
 <p>The CSV is written again after every section, so a run stopped early still leaves its results.</p>
+
+<h2>Compared with other cards</h2>
+<p>OpBench knows what the cards measured so far cost in each test, per family (architecture: Turing, RDNA 2, Gen9 ...): the median over the family's cards, one report each. A test where your card is more than 25% (and more than 1.5 units) away from that is marked <em>usually N</em> in its section, and the end of the run lists them. Such differences are what make a report especially interesting: a new driver doing something better, a card that belongs in a family of its own, or a run whose clock moved. A card from a family nobody has measured yet says so. The CSV has the family in a <code>#</code> line, the differences in another and the expected cost per test in the <code>expected</code> column. The table is built into OpBench and grows with every release as reports come in.</p>
 
 <h2>The score</h2>
 <table>

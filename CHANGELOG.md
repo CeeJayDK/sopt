@@ -8,7 +8,11 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 ### SweetOpt
 - **Bit tricks (`--bits`):** SweetOpt can now build integer and bit-cast code (`asuint`, `asfloat`, `uint` / `int` conversions, `& | ^ << >>`, integer add / sub / mul) and finds tricks that are hard to spot by hand: the exponent of x (`floor(log2(x))`) from its bits in two cheap forms, exp2 of an integer, a signed power by OR-ing the sign bit (Turing 41 -> 36), frac / floor through a uint conversion on Pascal. Off by default (it slows the search); the tricks it found are also library rules, used in every run.
 - **"Differs at x = -0.0":** variants that are exact except for a negative zero input (bit tricks that read the sign bit) are kept and marked, like the other problem inputs; you decide.
+- **Logical and / or / not:** conditions joined with `&&`, `||` and `!` are read, searched and verified now (in shaders too), so `a == 0.0 && b == 0.0` becomes the one-compare `abs(a) == -abs(b)` and the two-sided [0, 1] checks become the wiki's `mad(x, x, -x)` forms. Verification tests such conditions with all their inputs at the thresholds together (one at a time rarely makes them all hold).
 - **More library rules:** CeeJay's zero comparison tricks (`abs(a) == -abs(b)` for "both zero", without abs where the signs are known), the [0, 1] range check `mad(x, x, -x) <= 0.0`, and the rsqrt forms of `pow(x, 1.5)` and `sqrt(x)`.
+
+### GPU Blueprint
+- **Compared with other cards:** OpBench knows what the cards of each family measured so far (Turing, Ampere / Ada, RDNA 2, Gen9 ...) and marks every test where yours differs by more than 25% ("usually 12.0"), with a list at the end: such reports are especially interesting. A card from a family nobody has measured yet is told so too.
 
 ## 0.6.0
 

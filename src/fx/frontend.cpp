@@ -680,6 +680,10 @@ struct Unsupported : std::runtime_error {
 class Extractor {
  public:
   ~Extractor() { tlBracketFetches = nullptr; }
+  bool isScalarBool(uint32_t id) const {
+    const auto& t = cg_.values.at(id).type;
+    return t.is_boolean() && t.is_scalar();
+  }
   Extractor(const Effect& fx, const RegionOptions& opt) : fx_(fx), cg_(*fx.cg), opt_(opt) {
     tlBracketFetches = fx.hlsl ? &fx.hlslFetchNames : nullptr;
     for (const auto& [id, v] : cg_.values)
@@ -987,11 +991,23 @@ void Extractor::collect(uint32_t id) {
       chainMask(v.chain, 0, 4);  // validates
       return;
     case K::Unary:
+      if (v.op == tokenid::exclaim) {  // !c on a scalar condition
+        if (!(v.type.is_boolean() && v.type.is_scalar() && isScalarBool(v.args[0]))) throw Unsupported("vector logic");
+        collect(v.args[0]);
+        return;
+      }
       if (v.op != tokenid::minus && v.op != tokenid::plus) throw Unsupported("unary operator");
       if (!isFloatType(v.type)) throw Unsupported("non-float arithmetic");
       collect(v.args[0]);
       return;
     case K::Binary: {
+      if (v.op == tokenid::ampersand_ampersand || v.op == tokenid::pipe_pipe) {  // a && b on scalar conditions
+        if (!(v.type.is_boolean() && v.type.is_scalar() && isScalarBool(v.args[0]) && isScalarBool(v.args[1])))
+          throw Unsupported("vector logic");
+        collect(v.args[0]);
+        collect(v.args[1]);
+        return;
+      }
       const bool cmp = v.op == tokenid::less || v.op == tokenid::less_equal ||
                        v.op == tokenid::greater || v.op == tokenid::greater_equal ||
                        v.op == tokenid::equal_equal || v.op == tokenid::exclaim_equal;
@@ -1137,11 +1153,15 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       }
       break;
     case K::Unary:
-      r = v.op == tokenid::minus ? b.op(Op::Neg, build(v.args[0], b)) : build(v.args[0], b);
+      r = v.op == tokenid::minus     ? b.op(Op::Neg, build(v.args[0], b))
+          : v.op == tokenid::exclaim ? b.op(Op::LNot, build(v.args[0], b))
+                                     : build(v.args[0], b);
       break;
     case K::Binary: {
       Op op = Op::Add;
       switch (v.op) {
+        case tokenid::ampersand_ampersand: op = Op::LAnd; break;
+        case tokenid::pipe_pipe: op = Op::LOr; break;
         case tokenid::plus: case tokenid::plus_equal: op = Op::Add; break;
         case tokenid::minus: case tokenid::minus_equal: op = Op::Sub; break;
         case tokenid::star: case tokenid::star_equal: op = Op::Mul; break;

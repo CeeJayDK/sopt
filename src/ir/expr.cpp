@@ -71,6 +71,10 @@ std::optional<Type> inferType(Op op, const Type* args, unsigned nargs, unsigned 
       return Type::Uint;
     case Shape::ToUint: return nargs == 1 && args[0] == Type::Float ? std::optional<Type>(Type::Uint) : std::nullopt;
     case Shape::ToFloat: return nargs == 1 && args[0] == Type::Uint ? std::optional<Type>(Type::Float) : std::nullopt;
+    case Shape::Logic:
+      for (unsigned k = 0; k < nargs; ++k)
+        if (args[k] != Type::Bool) return std::nullopt;
+      return Type::Bool;
     default: break;
   }
   for (unsigned k = 0; k < nargs; ++k)
@@ -106,7 +110,8 @@ std::optional<Type> inferType(Op op, const Type* args, unsigned nargs, unsigned 
     }
     case Shape::Int:
     case Shape::ToUint:
-    case Shape::ToFloat: break;
+    case Shape::ToFloat:
+    case Shape::Logic: break;
   }
   return std::nullopt;
 }
@@ -499,6 +504,16 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
       return intSub(n.args[0], false) + " " + std::string(oi.symbol) + " " + intSub(n.args[1], shift);
     }
     return std::string(oi.name) + "(" + print(e, inputs, n.args[0]) + ")";
+  }
+  // && and ||: a nested && / || / ?: in parentheses unless it is the same op on the left (C: && binds tighter
+  // than ||, but the parentheses make it plain).
+  if (n.op == Op::LAnd || n.op == Op::LOr) {
+    auto logicSub = [&](uint32_t child, bool left) {
+      const Op co = e.nodes[child].op;
+      const bool paren = co == Op::Select || ((co == Op::LAnd || co == Op::LOr) && !(left && co == n.op));
+      return sub(child, paren);
+    };
+    return logicSub(n.args[0], true) + " " + std::string(oi.symbol) + " " + logicSub(n.args[1], false);
   }
   switch (oi.syntax) {
     case Syntax::Leaf:

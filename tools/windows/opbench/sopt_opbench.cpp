@@ -39,12 +39,15 @@
 // "(shorter is better)" under each section; the progress bar stays within 70 characters.
 
 #include "../benchkit.hpp"
+#include "../expected.hpp"
 #include <d3dcompiler.h>
 
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <regex>
+#include <sstream>
 
 namespace {
 
@@ -509,6 +512,37 @@ const char* const kDisplayOrder[] = {
     "#Parallel issue: an fma and X together (Cost = both; % = of the two one after the other)", "fma+fma", "fma+int",
     "fma+minmax", "fma+cvt", "fma+rcp", "fma+half"};
 
+// What other cards of this card's family measure (expected.hpp, from the reports in docs/opbench; owner,
+// 2026-10-06: a card that differs from its family makes an interesting report).
+struct FamilyCosts {
+  const expected::Family* family = nullptr;
+  std::map<std::string, double> cost;  // test -> throughput cost
+};
+
+FamilyCosts familyOf(const std::string& gpuName, unsigned deviceId) {
+  FamilyCosts fc;
+  std::string name = std::regex_replace(gpuName, std::regex(R"(\((R|TM)\))"), "");
+  name = std::regex_replace(name, std::regex(R"(\s+)"), " ");
+  const char* model = nullptr;
+  for (const expected::Device& d : expected::kDevices)
+    if (d.id == deviceId) model = d.model;
+  for (const expected::Rule& r : expected::kRules)
+    if (!model && std::regex_search(name, std::regex(r.pattern))) model = r.model;
+  if (!model) return fc;
+  for (const expected::Family& f : expected::kFamilies)
+    if (std::strcmp(f.model, model) == 0) fc.family = &f;
+  if (!fc.family) return fc;
+  std::istringstream in(fc.family->costs);
+  std::string test;
+  double v;
+  while (in >> test >> v) fc.cost[test] = v;
+  return fc;
+}
+
+// Off by more than 25% (and more than 1.5 units: small costs are noisy).
+bool differs(double measured, double expected) {
+  return std::fabs(measured - expected) > std::max(0.25 * std::fabs(expected), 1.5);
+}
 
 }  // namespace
 
@@ -554,6 +588,7 @@ int main(int argc, char** argv) {
   const DXGI_ADAPTER_DESC1& desc = ad.desc;
   const std::string& gpuName = ad.name;
   const std::string& driver = ad.driver;
+  const FamilyCosts fam = familyOf(gpuName, desc.DeviceId);
 
   Gpu g;
   const D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;
@@ -725,6 +760,12 @@ int main(int argc, char** argv) {
   const int kBarWidth = std::clamp(cols - 1 - (2 + nameW + 1 + 6 + 2 + 2 + 5 + 2 + 10 + 10), 10, 40);
   std::map<std::string, std::map<std::string, Measured>> results;  // config -> test -> result
   std::vector<std::string> unstable;
+  struct Difference {
+    std::string test;
+    double measured, expected;
+  };
+  std::vector<Difference> different;  // tests where this card differs from its family
+  int compared = 0;                   // tests compared with the family
   auto printSection = [&](const Group& gr) {
     std::printf("\n  %s%s%s\n  %s%-*s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1;96m"), gr.title, st.reset(), st.c("\x1b[90m"),
                 nameW, "Test", "Cost", kBarWidth, "Graph", "Ops", "Comment", st.reset());
@@ -757,6 +798,14 @@ int main(int argc, char** argv) {
       if (shaky) note = st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus";
       else if (x.readings.size() > 2)
         note = std::string("  ") + st.c("\x1b[90m") + std::to_string(x.readings.size()) + " passes" + st.reset();
+      const auto e = fam.cost.find(name);
+      if (!shaky && !pair && e != fam.cost.end()) ++compared;
+      if (!shaky && !pair && e != fam.cost.end() && differs(v, e->second)) {
+        different.push_back({name, v, e->second});
+        char buf[48];
+        std::snprintf(buf, sizeof(buf), "  usually %.1f", e->second);
+        note += std::string(st.c("\x1b[95m")) + buf + st.reset();
+      }
       const double shown = std::fabs(v) < 0.05 ? 0.0 : v;  // no "-0.0"
       const double ops = std::fabs(v / 4.0) < 0.05 ? 0.0 : v / 4.0;
       std::printf("  %-*s %6.1f  %s  %5.1f  %s%s%s%s\n", nameW, name, shown, b.c_str(), ops, color.c_str(), comment,
@@ -812,11 +861,19 @@ int main(int argc, char** argv) {
   std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
   for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, driftOf(c.name));
   const Score sc = score();
+  if (fam.family) {
+    std::fprintf(csv, "# family: %s (%s, %d card%s)\n", fam.family->model, fam.family->label, fam.family->cards,
+                 fam.family->cards == 1 ? "" : "s");
+    std::fprintf(csv, "# differs from the family:");
+    for (const Difference& d : different) std::fprintf(csv, " %s %.1f (usually %.1f);", d.test.c_str(), d.measured, d.expected);
+    std::fprintf(csv, "\n");
+  } else
+    std::fprintf(csv, "# family: none yet\n");
   std::fprintf(csv, "# fp32: %.3f TFLOPS\n# fp16 (min16float): %.3f TFLOPS\n# special functions (rcp): %.1f Gops/s\n", sc.fp32,
                sc.fp16, sc.special);
   std::fprintf(csv,
                "config,test,base,iters,ms,ns_per_step,units,units_vs_base,vs_base_fwd,vs_base_bwd,passes,consensus,readings,"
-               "step,note\n");
+               "step,note,expected\n");
   for (const Config& c : kConfigs)
     for (const Test* t : tests) {
       if (!results[c.name].count(t->name) || results[c.name][t->name].readings.empty()) continue;
@@ -827,10 +884,16 @@ int main(int argc, char** argv) {
         std::snprintf(buf, sizeof(buf), "%s%.3f", readings.empty() ? "" : ";", v);
         readings += buf;
       }
-      std::fprintf(csv, "%s,%s,%s,%u,%.4f,%.6f,%.3f,%.3f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\"\n", c.name, t->name,
+      std::string expect;
+      if (const auto e = fam.cost.find(t->name); e != fam.cost.end() && std::strcmp(c.name, "tput") == 0 && !t->pairStep) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.1f", e->second);
+        expect = buf;
+      }
+      std::fprintf(csv, "%s,%s,%s,%u,%.4f,%.6f,%.3f,%.3f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\",%s\n", c.name, t->name,
                    t->base ? t->base : "", x.r.iters, x.r.ms, x.r.nsPerStep, x.units.value, x.vsBase, x.vsBasePass[0],
                    x.vsBasePass[1], x.readings.size(), x.units.ok ? "yes" : "no", readings.c_str(), t->step,
-                   t->note ? t->note : "");
+                   t->note ? t->note : "", expect.c_str());
     }
   std::fclose(csv);
   };
@@ -918,6 +981,7 @@ int main(int argc, char** argv) {
               "  Ops     Operations: the cost counted in multiply-adds.\n"
               "          2.0 means \"takes as long as two multiply-adds\".\n"
               "  Graph   Longer bar = slower. Free operations have no bar; a full bar is 25 multiply-adds or more.\n"
+              "  usually The cost other cards of the same family measured, where this card differs by more than 25%%.\n"
               "\n"
               "  The numbers show how fast the GPU is when it is fully busy (as in a game).\n"
               "  Docs\\OpBench.html (README.html next to this program) explains every test in plain words.\n",
@@ -941,6 +1005,33 @@ int main(int argc, char** argv) {
   if (warned)
     std::printf("  For steadier numbers: close other programs, plug in a laptop, set \"Prefer maximum performance\"\n"
                 "  (NVIDIA) or lock the clocks, and run it again.\n");
+  // Compared with the family (owner, 2026-10-06): differences make the report interesting.
+  std::printf("\n  %sCompared with other cards%s\n", st.c("\x1b[1;96m"), st.reset());
+  if (!fam.family)
+    std::printf("  No reports from this GPU's family yet: this report is especially interesting, please send it.\n");
+  else {
+    const int n = fam.family->cards;
+    std::printf("  %s: %d card%s measured so far. ", fam.family->label, n, n == 1 ? "" : "s");
+    if (different.empty())
+      std::printf("This card matches %s in all %d tests compared.\n", n == 1 ? "it" : "them", compared);
+    else {
+      std::printf("This card differs in %s%zu of %d test%s%s (\"usually\" above):\n", st.c("\x1b[95m"),
+                  different.size(), compared, compared == 1 ? "" : "s", st.reset());
+      std::string line = "   ";
+      for (const Difference& d : different) {
+        char buf[80];
+        std::snprintf(buf, sizeof(buf), " %s %.1f (usually %.1f)", d.test.c_str(), d.measured, d.expected);
+        if (line.size() + std::strlen(buf) > size_t(std::max(40, cols - 2))) {
+          std::printf("%s\n", line.c_str());
+          line = "   ";
+        }
+        line += buf;
+      }
+      std::printf("%s\n", line.c_str());
+      if (warned) std::printf("  The warnings above may explain some of them.\n");
+      std::printf("  Such reports are especially interesting: please send this one.\n");
+    }
+  }
   std::printf("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
   if (const Score sc = score(); sc.fp32 > 0.0) {
     std::vector<std::pair<std::string, std::string>> more;

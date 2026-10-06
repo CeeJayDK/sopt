@@ -134,6 +134,9 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
     case Op::Ge: SOPT_LOOP2(fBool(x >= y))
     case Op::Eq: SOPT_LOOP2(fBool(x == y))
     case Op::Ne: SOPT_LOOP2(fBool(x != y))
+    case Op::LAnd: SOPT_LOOP2(fBool(x != 0.0f && y != 0.0f))
+    case Op::LOr: SOPT_LOOP2(fBool(x != 0.0f || y != 0.0f))
+    case Op::LNot: SOPT_LOOP1(fBool(x == 0.0f))
     case Op::Mad:
       if (profile.madFused) { SOPT_LOOP3(std::fma(x, y, z)) }
       SOPT_LOOP3(x * y + z)
@@ -190,6 +193,7 @@ void evalNode(const Node& node, const Type* argTypes, const float* const (*arg)[
     case Shape::Comp:
     case Shape::Select:
     case Shape::Cmp:
+    case Shape::Logic:
       for (unsigned c = 0; c < w; ++c) {
         const float* p[3] = {nullptr, nullptr, nullptr};
         for (unsigned k = 0; k < node.nargs; ++k) p[k] = arg[k][width(argTypes[k]) == 1 ? 0 : c];

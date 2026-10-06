@@ -193,6 +193,48 @@ std::vector<std::vector<float>> thresholdPoints(const Program& prog, Rng& rng) {
       }
     }
   }
+  // Several conditions at once (a == 0 && b == 0, nested selects): points with every compared input at its
+  // threshold together (all comparisons, or a random half), then each one moved to its neighbours. One input
+  // at a time almost never makes all of them hold.
+  struct Cmp { uint32_t node, in, other; int slot; };
+  std::vector<Cmp> cmps;
+  for (const Pair& p : pairs) {
+    const Node& n = e.nodes[p.node];
+    if (n.op < Op::Lt || n.op > Op::Ne) continue;
+    const int s = inputSlot(n.args[p.in], 0);
+    if (s >= 0) cmps.push_back({p.node, n.args[p.in], n.args[p.other], s});
+  }
+  if (cmps.size() < 2) return pts;
+  auto valueAt = [&](const std::vector<float>& pt, uint32_t node) {
+    for (size_t k = 0; k < pt.size(); ++k) one.cols[k].assign(1, pt[k]);
+    ev.eval(e, one, 0, 1, kProfileRef);
+    return ev.ptr[node][0][0];
+  };
+  for (int base = 0; base < 8 && pts.size() < 2 * maxPoints; ++base) {
+    std::vector<float> pt(slots.size());
+    for (size_t k = 0; k < pt.size(); ++k) pt[k] = sampleInput(slots[k], rng);
+    std::vector<const Cmp*> used;
+    for (const Cmp& c : cmps) {
+      if (base >= 4 && (rng.next() & 1)) continue;
+      const InputDecl& d = slots[c.slot];
+      const float v = valueAt(pt, c.other);
+      if (!std::isfinite(v) || v < d.lo || v > d.hi) continue;
+      pt[c.slot] = d.grid > 0 && d.hi > d.lo ? snap(d, v) : v;
+      used.push_back(&c);
+    }
+    if (used.empty()) continue;
+    pts.push_back(pt);
+    for (const Cmp* c : used) {
+      const InputDecl& d = slots[c->slot];
+      const double step = d.grid > 0 && d.hi > d.lo ? (d.hi - d.lo) / d.grid : 0.0;
+      for (int dir : {-1, 1}) {
+        std::vector<float> q = pt;
+        const float x = q[c->slot];
+        q[c->slot] = step > 0.0 ? snap(d, x + dir * step) : std::nextafter(x, dir < 0 ? -INFINITY : INFINITY);
+        if (q[c->slot] >= d.lo && q[c->slot] <= d.hi) pts.push_back(q);
+      }
+    }
+  }
   return pts;
 }
 

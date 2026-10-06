@@ -339,7 +339,8 @@ struct OpTypeCodes {
         bool ok = false;
         switch (sh) {
           case Shape::Leaf: ok = true; break;
-          case Shape::Cmp: ok = ty == Type::Bool; break;
+          case Shape::Cmp:
+          case Shape::Logic: ok = ty == Type::Bool; break;
           case Shape::Reduce: ok = ty == Type::Float; break;
           case Shape::Int:
           case Shape::ToUint: ok = ty == Type::Uint; break;
@@ -1077,7 +1078,7 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   if (allConst) return Prep::ConstSkipped;
   // Result type: componentwise ops take the widest operand (float1 operands broadcast).
   Type type = Type::Float;
-  if (oi.shape == Shape::Cmp) {
+  if (oi.shape == Shape::Cmp || oi.shape == Shape::Logic) {
     type = Type::Bool;
   } else if (oi.shape == Shape::Int || oi.shape == Shape::ToUint) {
     type = Type::Uint;
@@ -1439,6 +1440,28 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
         }
         continue;
       }
+      if (oi.shape == Shape::Logic) {  // && / || / ! on conditions (only when the target has them)
+        const uint32_t opc = ord.opCost(op, 1);
+        if (opc > cost) continue;
+        if (oi.arity == 2) {
+          enumerateBinary(op, c16, cost - opc, -1, Type::Bool, Type::Bool, stats);
+        } else {
+          const uint32_t r = cost - opc;
+          const auto& la = byCost_[r][static_cast<size_t>(Type::Bool)];
+          const uint32_t objOp = model.opCost(op, 1);
+          if (diskMode_ && hasDisk(r, Type::Bool)) {
+            for (const Seg& sg : listSegs(r, Type::Bool)) {
+              requireTiles({sg.tile}, stats);
+              for (size_t i = sg.begin; i < sg.end && !stop_; ++i)
+                if (obj(la[i]) + objOp < objLimit_) tryAdd(op, c16, la[i], 0, 0, stats);
+            }
+          } else {
+            for (size_t i = 0; i < la.size() && !stop_ && obj(la[i]) + objOp < objLimit_; ++i)
+              tryAdd(op, c16, la[i], 0, 0, stats);
+          }
+        }
+        continue;
+      }
       if (oi.shape == Shape::Cmp) {  // scalar comparisons
         if (ord.opCost(op, 1) <= cost) enumerateBinary(op, c16, cost - ord.opCost(op, 1), -1, F, F, stats);
         continue;
@@ -1729,7 +1752,7 @@ void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Ty
                                  SearchStats& stats) {
   const auto& oi = info(op);
   const CostModel& model = order();
-  const Type rt = oi.shape == Shape::Cmp ? Type::Bool
+  const Type rt = oi.shape == Shape::Cmp || oi.shape == Shape::Logic ? Type::Bool
                   : oi.shape == Shape::Int ? Type::Uint
                                            : floatType(std::max(width(ta), width(tb)));
   // Lowest objective cost the op can add (a fused add/sub is cheaper).

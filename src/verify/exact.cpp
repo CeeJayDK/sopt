@@ -39,6 +39,9 @@ double exactOp(Op op, double x, double y, double z) {
     case Op::UAdd: return static_cast<double>(toU(x) + toU(y));
     case Op::USub: return static_cast<double>(toU(x) - toU(y));
     case Op::UMul: return static_cast<double>(toU(x) * toU(y));
+    case Op::LAnd: return x != 0.0 && y != 0.0 ? 1.0 : 0.0;
+    case Op::LOr: return x != 0.0 || y != 0.0 ? 1.0 : 0.0;
+    case Op::LNot: return x == 0.0 ? 1.0 : 0.0;
     case Op::Neg: return -x;
     case Op::Abs: return std::fabs(x);
     case Op::Saturate: return x < 0.0 ? 0.0 : (x > 1.0 ? 1.0 : x);
@@ -100,6 +103,7 @@ double scaleOp(Op op, double x, double y, double z, double sx, double sy, double
       return 0.0;  // bit-level: no error scale (the operands are taken as float32 values)
     case Op::Floor: case Op::Sign: case Op::Step: case Op::Round: case Op::Ceil:
     case Op::Lt: case Op::Le: case Op::Gt: case Op::Ge: case Op::Eq: case Op::Ne:
+    case Op::LAnd: case Op::LOr: case Op::LNot:
       return 0.0;  // piecewise constant: errors move the steps, they do not scale
     case Op::Frac: return sx;
     case Op::Add: case Op::Sub: s = sx + sy + av; break;

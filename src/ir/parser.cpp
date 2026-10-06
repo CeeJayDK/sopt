@@ -65,7 +65,7 @@ std::vector<Token> tokenize(std::string_view s, int line) {
       i = j;
       continue;
     }
-    static const char* two[] = {"<<", ">>", "<=", ">=", "==", "!="};
+    static const char* two[] = {"<<", ">>", "<=", ">=", "==", "!=", "&&", "||"};
     bool matched = false;
     for (const char* t : two) {
       if (s.substr(i, 2) == t) {
@@ -76,7 +76,7 @@ std::vector<Token> tokenize(std::string_view s, int line) {
       }
     }
     if (matched) continue;
-    if (std::string_view("+-*/()<>?:,=[].&|^").find(ch) != std::string_view::npos) {
+    if (std::string_view("+-*/()<>?:,=[].&|^!").find(ch) != std::string_view::npos) {
       out.push_back({Tok::Punct, std::string(1, ch), 0.0});
       ++i;
       continue;
@@ -227,7 +227,7 @@ class ExprParser {
   }
 
   uint32_t ternary() {
-    const uint32_t cond = bitOr();
+    const uint32_t cond = logicOr();
     if (!isPunct("?")) return cond;
     ++p_;
     const uint32_t x = ternary();
@@ -237,7 +237,23 @@ class ExprParser {
     return make(Op::Select, cond, x, y);
   }
 
-  // C precedence: | below ^ below & below the comparisons below the shifts.
+  // C precedence: || below && below | below ^ below & below the comparisons below the shifts.
+  uint32_t logicOr() {
+    uint32_t lhs = logicAnd();
+    while (isPunct("||")) {
+      ++p_;
+      lhs = make(Op::LOr, lhs, logicAnd());
+    }
+    return lhs;
+  }
+  uint32_t logicAnd() {
+    uint32_t lhs = bitOr();
+    while (isPunct("&&")) {
+      ++p_;
+      lhs = make(Op::LAnd, lhs, bitOr());
+    }
+    return lhs;
+  }
   uint32_t bitOr() {
     uint32_t lhs = bitXor();
     while (isPunct("|")) {
@@ -309,6 +325,10 @@ class ExprParser {
   }
 
   uint32_t unary() {
+    if (isPunct("!")) {
+      ++p_;
+      return make(Op::LNot, unary());
+    }
     if (isPunct("-")) {
       ++p_;
       return make(Op::Neg, unary());

@@ -1256,10 +1256,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
   fma+fma (control), fma+int, fma+minmax, fma+cvt, fma+rcp, fma+half; solo tests int, minmax1, cvt1, rcp1,
   half1. dep / lat are meaningless for pair tests (one chain = the mad chain).
-  Owner's ideas (2026-10-04, not decided): expected costs per cost model built into
-  OpBench / TexBench, telling the user when their card does not match its model ("your report is very
-  interesting"); driver recommendations once data shows a driver version changing a family's numbers (needs
-  more data first).
+  Expected costs (owner's idea 2026-10-04, go 2026-10-06 "if it won't bloat the benchmarks"): OpBench only so far
+  (TexBench costs follow memory / clocks too much for a 25% rule; not done). tools/windows/gen_expected.py ->
+  tools/windows/expected.hpp (~22 KB source; RERUN IT WHEN OPBENCH REPORTS ARE ADDED): families = cost models by
+  tools/site/build.py MODEL_RULES / NAME_BY_DEVICE / NAME_BY_FILE, expected = median tput units_vs_base over the
+  family's cards (newest report per card, clean ones only: |neg| <= 0.3, not in UNRELIABLE; readings with consensus;
+  transpose left out as noise). OpBench (familyOf: device table, then regex on the name without (R) / (TM)) marks a
+  test "usually N" (magenta) when |measured - expected| > max(25%, 1.5 units), pair tests and no-consensus tests not
+  compared; summary "Compared with other cards" (family, cards, "matches them in all N tests compared" or the list,
+  "please send this one"; no family: "especially interesting"); CSV "# family:", "# differs from the family:" and an
+  `expected` column (last). Checked against every report in docs/opbench: clean in-family runs flag 0-2 tests (the
+  GTX 1660's iand on the old driver, Maxwell's sqrt driver split, Iris 540 / UHD 630 groupbarrier), the clock-distorted
+  runs 15-33. Driver recommendations (owner's idea) need more data first.
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
@@ -1343,8 +1351,16 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen9`, `
   pass): the bit tricks above (exp2 of an integer, ldexp, three floor(log2) forms, abs mask, sign-bit copies, signed power,
   floor / frac via uint for x >= 0) and the owner's wiki tricks (Shader Tips, Tricks and Optimizations: abs(a) ==
   -abs(b) for both zero, a == -b / a == b where the signs are known (owner: abs is not free on every card), mad(x, x, -x)
-  <= 0 for x in [0, 1], the saturated two-value form; pow(x, 1.5) / sqrt via rsqrt); the wiki's `a == 0 && b == 0` /
-  any / all forms need logical and / or on bools, which the IR lacks (not decided). Exhaustive C check (every positive
+  <= 0 for x in [0, 1], the saturated two-value form; pow(x, 1.5) / sqrt via rsqrt); logical and / or / not (owner's go
+  2026-10-06): ops LAnd / LOr / LNot (Shape::Logic, Bool -> Bool, base = false: enumerated only when the target has
+  them; cost of the integer and, ! 1), parser && || ! with C precedence, printer parenthesizes a nested different
+  && / || / ?:, eval / exact / V3 (a deciding operand settles it) / PTX (and.pred ...) / sopt-fx (tokenid
+  ampersand_ampersand / pipe_pipe / exclaim on scalar bools; RESHADEFX_SHORT_CIRCUIT is 0, so they are plain binary
+  ops). Library: the wiki rules in && / || form and !(a == b) -> a != b (195 rules, all pass). Found a verification gap
+  with it: (A == 0 && B == 0) ? c.r : c.g -> c.g passed as "bit-exact" (no sample has A = B = 0); thresholdPoints now
+  adds joint points (every compared input at its threshold together, or a random half, plus each one's neighbours) when
+  the target has >= 2 comparisons with an input operand; the variant is then abs(A) == -abs(B) ? c.r : c.g (18 -> 13).
+  any / all on vectors: not yet (vector comparisons are not in the IR). Exhaustive C check (every positive
   normal float): the three floor(log2) forms, floor / frac via uint and exp2 of an integer are exact. ReShade's FX parser
   accepts the written syntax (asuint / asfloat / asint / hex u literals); sopt-fx does not read integer code in shaders as
   regions (skipped as before).

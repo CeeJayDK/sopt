@@ -78,6 +78,12 @@ std::string emitPtx(const Expr& e, const std::vector<InputDecl>& inputs, int sm)
              << d[0] << ", " << in(0, 0) << ", " << in(1, 0) << ";\n";
         continue;
       }
+      case Shape::Logic: {
+        d[0] = "%p" + std::to_string(np++);
+        if (n.op == Op::LNot) body << "  not.pred " << d[0] << ", " << in(0, 0) << ";\n";
+        else body << "  " << (n.op == Op::LAnd ? "and" : "or") << ".pred " << d[0] << ", " << in(0, 0) << ", " << in(1, 0) << ";\n";
+        continue;
+      }
       case Shape::Reduce:
       case Shape::Same: {
         const unsigned aw = width(e.nodes[n.args[0]].type);

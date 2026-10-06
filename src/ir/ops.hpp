@@ -39,6 +39,8 @@ enum class Op : uint8_t {
   // the signed value. Shift counts use their low 5 bits, as on GPUs.
   AsUint, AsFloat, FToU, FToI, UToF, IToF,
   UAnd, UOr, UXor, UShl, UShr, IShr, UAdd, USub, UMul,
+  // logical and / or / not on Bool conditions (a < b && c < d)
+  LAnd, LOr, LNot,
   Count
 };
 
@@ -55,7 +57,8 @@ enum class Syntax : uint8_t { Leaf, Call, Prefix, Infix, Ternary, Swizzle, Const
 //   Int:     uint operands, uint result.
 //   ToUint:  float1 -> uint (bit cast or conversion).
 //   ToFloat: uint -> float1.
-enum class Shape : uint8_t { Leaf, Comp, Cmp, Select, Reduce, Same, Swizzle, Construct, Int, ToUint, ToFloat };
+//   Logic:   Bool operands, Bool result (&&, ||, !).
+enum class Shape : uint8_t { Leaf, Comp, Cmp, Select, Reduce, Same, Swizzle, Construct, Int, ToUint, ToFloat, Logic };
 inline constexpr bool isIntShape(Shape s) { return s == Shape::Int || s == Shape::ToUint || s == Shape::ToFloat; }
 
 struct OpInfo {
