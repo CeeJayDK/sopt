@@ -67,7 +67,8 @@ Predicted Direct3D 11 results for the run-time column (fxc output, before the GP
 NaN`, `inf * 0 is NaN`, `rsqrt(+0) == +inf`; `1e-40 kept` folds to "no". Everything else in that column is left to the
 GPU. The Folded and Literal columns show fxc's folding.
 
-The prediction was off: the same expression compiles differently depending on the code around it (the measured run
+(Since 2026-10-06 a first pass runs every test once into a small texture and the cells and totals read it, so they
+always agree.) The prediction was off: the same expression compiles differently depending on the code around it (the measured run
 below fails other tests than the per-test compiles predicted, and even within one effect the totals line, which runs every
 test in a loop, counts 0 run-time failures where the cells show 5).
 

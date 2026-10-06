@@ -678,6 +678,20 @@ uint runTest(int id, float4 zz, float one)
 	return r;
 }
 
+// Pass 1 runs every test once, one pixel each, into this texture; the screen and the totals read it, so both show
+// the same results (fxc compiles a test inside the totals loop differently than in a cell: different folds).
+texture2D sopt_IEEE754Results { Width = 62; Height = 1; Format = RGBA8; };
+sampler2D sopt_IEEE754ResultsS { Texture = sopt_IEEE754Results; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+
+float4 IEEE754RunPS(float4 vpos : SV_Position) : SV_Target
+{
+	float4 zz = floor(sopt_timer * float4(1e-12, 1.1e-12, 1.2e-12, 1.3e-12)); // run-time +0s nothing can fold
+	float one = zz.x + 1.0;
+	return float(runTest(int(vpos.x), zz, one)) / 255.0;
+}
+
+uint result(int id) { return uint(tex2Dfetch(sopt_IEEE754ResultsS, int2(id, 0)).x * 255.0 + 0.5); }
+
 #if SOPT_SM4
 
 static const uint kFont[380] = {
@@ -822,8 +836,6 @@ float drawNumber(uint n, int last, int cell, int2 p)
 
 float3 IEEE754PS(float4 vpos : SV_Position) : SV_Target
 {
-	float4 zz = floor(sopt_timer * float4(1e-12, 1.1e-12, 1.2e-12, 1.3e-12)); // run-time +0s nothing can fold
-	float one = zz.x + 1.0;
 	int s = max(1, min(BUFFER_HEIGHT / 540, BUFFER_WIDTH / 800)); // pixel scale
 	int cw = kGlyphW * s;
 	int lh = kGlyphH * s;
@@ -866,7 +878,7 @@ float3 IEEE754PS(float4 vpos : SV_Position) : SV_Target
 		uint3 notd3d = uint3(0u, 0u, 0u);
 		[loop] for (int i = 0; i < kTests; ++i)
 		{
-			uint r = runTest(i, zz, one);
+			uint r = result(i);
 			if (r == 8u) continue;
 			uint3 fails = uint3((r & 1u) ^ 1u, ((r >> 1) & 1u) ^ 1u, ((r >> 2) & 1u) ^ 1u);
 			int k = kindOf(i);
@@ -899,7 +911,7 @@ float3 IEEE754PS(float4 vpos : SV_Position) : SV_Target
 	if (c0 % 8 == 7 || box > 2) return col;
 	int py = px.y - line * lh;
 	if (py < s / 2 || py >= lh - s / 2) return col;
-	uint r = runTest(id, zz, one);
+	uint r = result(id);
 	int k = kindOf(id);
 	bool good = (r & (1u << uint(box))) != 0u;
 	float3 bg;
@@ -919,12 +931,10 @@ float3 IEEE754PS(float4 vpos : SV_Position) : SV_Target
 // = needs shader model 4).
 float3 IEEE754PS(float4 vpos : SV_Position) : SV_Target
 {
-	float4 zz = floor(sopt_timer * float4(1e-12, 1.1e-12, 1.2e-12, 1.3e-12));
-	float one = zz.x + 1.0;
 	float2 c = floor(vpos.xy / float2(48.0, 14.0));
 	int id = int(c.y) - 1;
 	if (id < 0 || id >= kTests || c.x != 1.0) return float3(0.08, 0.09, 0.11);
-	float r = float(runTest(id, zz, one));
+	float r = float(result(id));
 	if (r > 7.5) return float3(0.25, 0.25, 0.27);
 	return r > 3.5 ? float3(0.12, 0.6, 0.18) : float3(0.8, 0.12, 0.1);
 }
@@ -940,7 +950,13 @@ void IEEE754VS(in uint id : SV_VertexID, out float4 position : SV_Position)
 technique sopt_IEEE754 < ui_tooltip = "IEEE 754 / HLSL float rules as ReShade compiles them for this API.\n"
 	"Folded = literals only, Literal = NaN / inf / -0 written as literals, Run time = made on the GPU."; >
 {
-	pass
+	pass Run
+	{
+		VertexShader = IEEE754VS;
+		PixelShader = IEEE754RunPS;
+		RenderTarget = sopt_IEEE754Results;
+	}
+	pass Show
 	{
 		VertexShader = IEEE754VS;
 		PixelShader = IEEE754PS;
