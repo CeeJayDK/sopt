@@ -30,7 +30,7 @@ jobs:
           cmake -S . -B build32 -A Win32 -DSOPT_BUILD_TESTS=OFF
           cmake --build build32 --config Release --target sopt-timer
       - name: Cache ReShade build
-        # ReShade 6.8.0, 64-bit, full add-on support, unchanged: run-bench.bat needs it next to
+        # ReShade 6.8.0, 64-bit, full add-on support, unchanged: the Test Host needs it next to
         # sopt-host (built once, then cached).
         if: matrix.name == 'msvc'
         id: reshade-cache
@@ -69,10 +69,10 @@ jobs:
         with:
           name: SweetOpt-windows
           path: stage/SweetOpt/
-      - name: Upload Windows tools
-        # sopt-host, sopt-timer (M4 harness), the one-click bench, ReShade64.dll, sopt-fxc
+      - name: Upload Test Host
+        # Test-Host.bat (menu), sopt-host (every API), sopt-timer, the test effects, ReShade64.dll, sopt-fxc
         if: matrix.name == 'msvc'
         uses: actions/upload-artifact@v4
         with:
           name: sopt-windows-tools
-          path: stage/tools/
+          path: stage/Test-Host/

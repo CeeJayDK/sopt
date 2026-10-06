@@ -26,81 +26,82 @@
 //   12 [ieee] NaN + 1 is NaN               isnan(N + ONE)
 //   13 [ieee] NaN * 0 is NaN               isnan(N * Z)
 //   14 [ieee] (bool)NaN is true            (bool)(N)
-//   15 [ieee] NaN ? 1 : 0 is 1             ((N) ? 1.0 : 0.0) == 1.0
-//   16 [d3d ] int(NaN) == 0                (int)(N) == 0
-//   17 [d3d ] min(NaN, 1) == 1             min(N, ONE) == 1.0
-//   18 [d3d ] max(NaN, 1) == 1             max(N, ONE) == 1.0
-//   19 [d3d ] min(1, NaN) == 1             min(ONE, N) == 1.0
-//   20 [d3d ] saturate(NaN) == 0           saturate(N) == 0.0
-//   21 [d3d ] clamp(NaN, 0, 1) == 0        clamp(N, 0.0, ONE) == 0.0
-//   22 [ieee] -0 == +0                     (NZ == Z)
-//   23 [ieee] !(-0 < +0)                   !(NZ < Z)
-//   24 [ieee] 1 / -0 < 0                   (ONE / NZ) < 0.0
-//   25 [ieee] 1 / +0 > 0                   (ONE / Z) > 0.0
-//   26 [ieee] rcp(-0) < 0                  rcp(NZ) < 0.0
-//   27 [ieee] rcp(+0) > 0                  rcp(Z) > 0.0
-//   28 [ieee] 1 / (-0 + +0) > 0            (ONE / (NZ + Z)) > 0.0
-//   29 [ieee] 1 / abs(-0) > 0              (ONE / abs(NZ)) > 0.0
-//   30 [ieee] -0 has the sign bit          asuint(NZ) == 0x80000000u
-//   31 [ieee] sign(-0) == 0                sign(NZ) == 0.0
-//   32 [ieee] 1 / 0 > FLT_MAX              PINF > 3.402823466e38
-//   33 [ieee] -1 / 0 < -FLT_MAX            NINF < -3.402823466e38
-//   34 [ieee] +inf > -inf                  (PINF > NINF)
-//   35 [ieee] isinf(+inf) && isinf(-inf)   (isinf(PINF) && isinf(NINF))
-//   36 [ieee] inf - inf is NaN             isnan(PINF - PINF2)
-//   37 [ieee] inf * 0 is NaN               isnan(PINF * Z)
-//   38 [ieee] 1 / inf == 0                 (ONE / PINF) == 0.0
-//   39 [ieee] 1 / (1 / -inf) < 0           (ONE / (ONE / NINF)) < 0.0
-//   40 [ieee] sqrt(inf) == inf             sqrt(PINF) == PINF
-//   41 [ieee] exp2(-inf) == 0              exp2(NINF) == 0.0
-//   42 [ieee] exp2(inf) == inf             isinf(exp2(PINF))
-//   43 [ieee] rsqrt(+0) == +inf            rsqrt(Z) > 3.402823466e38
-//   44 [ieee] log2(+0) == -inf             log2(Z) < -3.402823466e38
-//   45 [ieee] sqrt(-1) is NaN              isnan(sqrt(-ONE))
-//   46 [ieee] log2(-1) is NaN              isnan(log2(-ONE))
-//   47 [ieee] 1 + 2^-23 != 1 (fp32)        (ONE + 1.1920929e-7) != ONE
-//   48 [ieee] 0.062499996 != 0.06249999    (Z + 0.062499996) != 0.06249999
-//   49 [ieee] 2^24 + 1 == 2^24 (even)      (16777216.0 * ONE + 1.0) == 16777216.0
-//   50 [d3d ] round(0.5) == 0 (even)       round(0.5 * ONE) == 0.0
-//   51 [ieee] round(1.5) == 2              round(1.5 * ONE) == 2.0
-//   52 [d3d ] round(2.5) == 2 (even)       round(2.5 * ONE) == 2.0
-//   53 [ieee] frac(-0.25) == 0.75          frac(-0.25 * ONE) == 0.75
-//   54 [ieee] -1.5 % 1 == -0.5             ((-1.5 * ONE) % ONE) == -0.5
-//   55 [ieee] trunc(-1.5) == -1            trunc(-1.5 * ONE) == -1.0
-//   56 [ieee] int(-1.5) == -1              (int)(-1.5 * ONE) == -1
-//   57 [d3d ] uint(-1.5) == 0              (uint)(-1.5 * ONE) == 0u
-//   58 [d3d ] int(3e9) == 2147483647       (int)(3e9 * ONE) == 2147483647
-//   59 [info] FLT_MIN / 2 kept             (1.17549435e-38 * ONE * 0.5) > 0.0
-//   60 [info] 1e-40 kept                   (1e-40 * ONE) > 0.0
+//   15 [ieee] (bool)-NaN is true           (bool)(-N)
+//   16 [ieee] NaN ? 1 : 0 is 1             ((N) ? 1.0 : 0.0) == 1.0
+//   17 [d3d ] int(NaN) == 0                (int)(N) == 0
+//   18 [d3d ] min(NaN, 1) == 1             min(N, ONE) == 1.0
+//   19 [d3d ] max(NaN, 1) == 1             max(N, ONE) == 1.0
+//   20 [d3d ] min(1, NaN) == 1             min(ONE, N) == 1.0
+//   21 [d3d ] saturate(NaN) == 0           saturate(N) == 0.0
+//   22 [d3d ] clamp(NaN, 0, 1) == 0        clamp(N, 0.0, ONE) == 0.0
+//   23 [ieee] -0 == +0                     (NZ == Z)
+//   24 [ieee] !(-0 < +0)                   !(NZ < Z)
+//   25 [ieee] 1 / -0 < 0                   (ONE / NZ) < 0.0
+//   26 [ieee] 1 / +0 > 0                   (ONE / Z) > 0.0
+//   27 [ieee] rcp(-0) < 0                  rcp(NZ) < 0.0
+//   28 [ieee] rcp(+0) > 0                  rcp(Z) > 0.0
+//   29 [ieee] 1 / (-0 + +0) > 0            (ONE / (NZ + Z)) > 0.0
+//   30 [ieee] 1 / abs(-0) > 0              (ONE / abs(NZ)) > 0.0
+//   31 [ieee] -0 has the sign bit          asuint(NZ) == 0x80000000u
+//   32 [ieee] sign(-0) == 0                sign(NZ) == 0.0
+//   33 [ieee] 1 / 0 > FLT_MAX              PINF > 3.402823466e38
+//   34 [ieee] -1 / 0 < -FLT_MAX            NINF < -3.402823466e38
+//   35 [ieee] +inf > -inf                  (PINF > NINF)
+//   36 [ieee] isinf(+inf) && isinf(-inf)   (isinf(PINF) && isinf(NINF))
+//   37 [ieee] inf - inf is NaN             isnan(PINF - PINF2)
+//   38 [ieee] inf * 0 is NaN               isnan(PINF * Z)
+//   39 [ieee] 1 / inf == 0                 (ONE / PINF) == 0.0
+//   40 [ieee] 1 / (1 / -inf) < 0           (ONE / (ONE / NINF)) < 0.0
+//   41 [ieee] sqrt(inf) == inf             sqrt(PINF) == PINF
+//   42 [ieee] exp2(-inf) == 0              exp2(NINF) == 0.0
+//   43 [ieee] exp2(inf) == inf             isinf(exp2(PINF))
+//   44 [ieee] rsqrt(+0) == +inf            rsqrt(Z) > 3.402823466e38
+//   45 [ieee] log2(+0) == -inf             log2(Z) < -3.402823466e38
+//   46 [ieee] sqrt(-1) is NaN              isnan(sqrt(-ONE))
+//   47 [ieee] log2(-1) is NaN              isnan(log2(-ONE))
+//   48 [ieee] 1 + 2^-23 != 1 (fp32)        (ONE + 1.1920929e-7) != ONE
+//   49 [ieee] 0.062499996 != 0.06249999    (Z + 0.062499996) != 0.06249999
+//   50 [ieee] 2^24 + 1 == 2^24 (even)      (16777216.0 * ONE + 1.0) == 16777216.0
+//   51 [d3d ] round(0.5) == 0 (even)       round(0.5 * ONE) == 0.0
+//   52 [ieee] round(1.5) == 2              round(1.5 * ONE) == 2.0
+//   53 [d3d ] round(2.5) == 2 (even)       round(2.5 * ONE) == 2.0
+//   54 [ieee] frac(-0.25) == 0.75          frac(-0.25 * ONE) == 0.75
+//   55 [ieee] -1.5 % 1 == -0.5             ((-1.5 * ONE) % ONE) == -0.5
+//   56 [ieee] trunc(-1.5) == -1            trunc(-1.5 * ONE) == -1.0
+//   57 [ieee] int(-1.5) == -1              (int)(-1.5 * ONE) == -1
+//   58 [d3d ] uint(-1.5) == 0              (uint)(-1.5 * ONE) == 0u
+//   59 [d3d ] int(3e9) == 2147483647       (int)(3e9 * ONE) == 2147483647
+//   60 [info] FLT_MIN / 2 kept             (1.17549435e-38 * ONE * 0.5) > 0.0
+//   61 [info] 1e-40 kept                   (1e-40 * ONE) > 0.0
 
 uniform float sopt_timer < source = "timer"; >;
 
 #define SOPT_SM4 (__RENDERER__ >= 0xa000)
 
-static const int kTests = 61;
-static const int kRows = 36;
+static const int kTests = 62;
+static const int kRows = 37;
 static const int kGlyphW = 7;
 static const int kGlyphH = 13;
-static const int2 kT_title = int2(1099, 21);
-static const int2 kT_cols = int2(1120, 24);
-static const int2 kT_legend1 = int2(1144, 82);
-static const int2 kT_legend2 = int2(1226, 96);
-static const int2 kT_wrong = int2(1322, 23);
-static const int2 kT_d3d = int2(1345, 15);
-static const int2 kT_api_d3d9 = int2(1360, 10);
-static const int2 kT_api_d3d10 = int2(1370, 11);
-static const int2 kT_api_d3d11 = int2(1381, 11);
-static const int2 kT_api_d3d12 = int2(1392, 11);
-static const int2 kT_api_gl = int2(1403, 6);
-static const int2 kT_api_vk = int2(1409, 6);
-static const int2 kT_api_other = int2(1415, 5);
-static const int2 kT_reshade = int2(1420, 7);
-static const int2 kT_ok = int2(1427, 4);
-static const int2 kT_fail = int2(1431, 5);
-static const int2 kT_d3dw = int2(1436, 5);
-static const int2 kT_yes = int2(1441, 4);
-static const int2 kT_no = int2(1445, 4);
-static const int2 kT_na = int2(1449, 3);
+static const int2 kT_title = int2(1117, 21);
+static const int2 kT_cols = int2(1138, 24);
+static const int2 kT_legend1 = int2(1162, 82);
+static const int2 kT_legend2 = int2(1244, 96);
+static const int2 kT_wrong = int2(1340, 23);
+static const int2 kT_d3d = int2(1363, 15);
+static const int2 kT_api_d3d9 = int2(1378, 10);
+static const int2 kT_api_d3d10 = int2(1388, 11);
+static const int2 kT_api_d3d11 = int2(1399, 11);
+static const int2 kT_api_d3d12 = int2(1410, 11);
+static const int2 kT_api_gl = int2(1421, 6);
+static const int2 kT_api_vk = int2(1427, 6);
+static const int2 kT_api_other = int2(1433, 5);
+static const int2 kT_reshade = int2(1438, 7);
+static const int2 kT_ok = int2(1445, 4);
+static const int2 kT_fail = int2(1449, 5);
+static const int2 kT_d3dw = int2(1454, 5);
+static const int2 kT_yes = int2(1459, 4);
+static const int2 kT_no = int2(1463, 4);
+static const int2 kT_na = int2(1467, 3);
 
 // Workarounds where the compiler assumes no NaN (fxc without D3DCOMPILE_IEEE_STRICTNESS removes isnan(x) and
 // x != x): a precise value, or the bit test.
@@ -250,7 +251,16 @@ uint runTest(int id, float4 zz, float one)
 		r = (((bool)((zz.x / zz.y))) ? 4u : 0u);
 #endif
 		break;
-	case 15: // NaN ? 1 : 0 is 1
+	case 15: // (bool)-NaN is true
+#if SOPT_SM4
+		r = (((bool)(-(0.0 / 0.0))) ? 1u : 0u)
+		  + (((bool)(-((0.0 / 0.0) * one))) ? 2u : 0u)
+		  + (((bool)(-(zz.x / zz.y))) ? 4u : 0u);
+#else
+		r = (((bool)(-(zz.x / zz.y))) ? 4u : 0u);
+#endif
+		break;
+	case 16: // NaN ? 1 : 0 is 1
 #if SOPT_SM4
 		r = (((((0.0 / 0.0)) ? 1.0 : 0.0) == 1.0) ? 1u : 0u)
 		  + ((((((0.0 / 0.0) * one)) ? 1.0 : 0.0) == 1.0) ? 2u : 0u)
@@ -259,7 +269,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((((zz.x / zz.y)) ? 1.0 : 0.0) == 1.0) ? 4u : 0u);
 #endif
 		break;
-	case 16: // int(NaN) == 0
+	case 17: // int(NaN) == 0
 #if SOPT_SM4
 		r = (((int)((0.0 / 0.0)) == 0) ? 1u : 0u)
 		  + (((int)(((0.0 / 0.0) * one)) == 0) ? 2u : 0u)
@@ -268,7 +278,7 @@ uint runTest(int id, float4 zz, float one)
 		r = 8u;
 #endif
 		break;
-	case 17: // min(NaN, 1) == 1
+	case 18: // min(NaN, 1) == 1
 #if SOPT_SM4
 		r = ((min((0.0 / 0.0), 1.0) == 1.0) ? 1u : 0u)
 		  + ((min(((0.0 / 0.0) * one), one) == 1.0) ? 2u : 0u)
@@ -277,7 +287,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((min((zz.x / zz.y), one) == 1.0) ? 4u : 0u);
 #endif
 		break;
-	case 18: // max(NaN, 1) == 1
+	case 19: // max(NaN, 1) == 1
 #if SOPT_SM4
 		r = ((max((0.0 / 0.0), 1.0) == 1.0) ? 1u : 0u)
 		  + ((max(((0.0 / 0.0) * one), one) == 1.0) ? 2u : 0u)
@@ -286,7 +296,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((max((zz.x / zz.y), one) == 1.0) ? 4u : 0u);
 #endif
 		break;
-	case 19: // min(1, NaN) == 1
+	case 20: // min(1, NaN) == 1
 #if SOPT_SM4
 		r = ((min(1.0, (0.0 / 0.0)) == 1.0) ? 1u : 0u)
 		  + ((min(one, ((0.0 / 0.0) * one)) == 1.0) ? 2u : 0u)
@@ -295,7 +305,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((min(one, (zz.x / zz.y)) == 1.0) ? 4u : 0u);
 #endif
 		break;
-	case 20: // saturate(NaN) == 0
+	case 21: // saturate(NaN) == 0
 #if SOPT_SM4
 		r = ((saturate((0.0 / 0.0)) == 0.0) ? 1u : 0u)
 		  + ((saturate(((0.0 / 0.0) * one)) == 0.0) ? 2u : 0u)
@@ -304,7 +314,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((saturate((zz.x / zz.y)) == 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 21: // clamp(NaN, 0, 1) == 0
+	case 22: // clamp(NaN, 0, 1) == 0
 #if SOPT_SM4
 		r = ((clamp((0.0 / 0.0), 0.0, 1.0) == 0.0) ? 1u : 0u)
 		  + ((clamp(((0.0 / 0.0) * one), 0.0, one) == 0.0) ? 2u : 0u)
@@ -313,7 +323,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((clamp((zz.x / zz.y), 0.0, one) == 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 22: // -0 == +0
+	case 23: // -0 == +0
 #if SOPT_SM4
 		r = ((((-0.0) == 0.0)) ? 1u : 0u)
 		  + ((((-0.0 * one) == (0.0 * one))) ? 2u : 0u)
@@ -322,7 +332,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((((-zz.z) == zz.w)) ? 4u : 0u);
 #endif
 		break;
-	case 23: // !(-0 < +0)
+	case 24: // !(-0 < +0)
 #if SOPT_SM4
 		r = ((!((-0.0) < 0.0)) ? 1u : 0u)
 		  + ((!((-0.0 * one) < (0.0 * one))) ? 2u : 0u)
@@ -331,7 +341,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((!((-zz.z) < zz.w)) ? 4u : 0u);
 #endif
 		break;
-	case 24: // 1 / -0 < 0
+	case 25: // 1 / -0 < 0
 #if SOPT_SM4
 		r = (((1.0 / (-0.0)) < 0.0) ? 1u : 0u)
 		  + (((one / (-0.0 * one)) < 0.0) ? 2u : 0u)
@@ -340,7 +350,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((one / (-zz.z)) < 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 25: // 1 / +0 > 0
+	case 26: // 1 / +0 > 0
 #if SOPT_SM4
 		r = (((1.0 / 0.0) > 0.0) ? 1u : 0u)
 		  + (((one / (0.0 * one)) > 0.0) ? 2u : 0u)
@@ -349,7 +359,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((one / zz.w) > 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 26: // rcp(-0) < 0
+	case 27: // rcp(-0) < 0
 #if SOPT_SM4
 		r = ((rcp((-0.0)) < 0.0) ? 1u : 0u)
 		  + ((rcp((-0.0 * one)) < 0.0) ? 2u : 0u)
@@ -358,7 +368,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((rcp((-zz.z)) < 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 27: // rcp(+0) > 0
+	case 28: // rcp(+0) > 0
 #if SOPT_SM4
 		r = ((rcp(0.0) > 0.0) ? 1u : 0u)
 		  + ((rcp((0.0 * one)) > 0.0) ? 2u : 0u)
@@ -367,7 +377,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((rcp(zz.w) > 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 28: // 1 / (-0 + +0) > 0
+	case 29: // 1 / (-0 + +0) > 0
 #if SOPT_SM4
 		r = (((1.0 / ((-0.0) + 0.0)) > 0.0) ? 1u : 0u)
 		  + (((one / ((-0.0 * one) + (0.0 * one))) > 0.0) ? 2u : 0u)
@@ -376,7 +386,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((one / ((-zz.z) + zz.w)) > 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 29: // 1 / abs(-0) > 0
+	case 30: // 1 / abs(-0) > 0
 #if SOPT_SM4
 		r = (((1.0 / abs((-0.0))) > 0.0) ? 1u : 0u)
 		  + (((one / abs((-0.0 * one))) > 0.0) ? 2u : 0u)
@@ -385,7 +395,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((one / abs((-zz.z))) > 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 30: // -0 has the sign bit
+	case 31: // -0 has the sign bit
 #if SOPT_SM4
 		r = ((asuint((-0.0)) == 0x80000000u) ? 1u : 0u)
 		  + ((asuint((-0.0 * one)) == 0x80000000u) ? 2u : 0u)
@@ -394,7 +404,7 @@ uint runTest(int id, float4 zz, float one)
 		r = 8u;
 #endif
 		break;
-	case 31: // sign(-0) == 0
+	case 32: // sign(-0) == 0
 #if SOPT_SM4
 		r = ((sign((-0.0)) == 0.0) ? 1u : 0u)
 		  + ((sign((-0.0 * one)) == 0.0) ? 2u : 0u)
@@ -403,7 +413,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((sign((-zz.z)) == 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 32: // 1 / 0 > FLT_MAX
+	case 33: // 1 / 0 > FLT_MAX
 #if SOPT_SM4
 		r = (((1.0 / 0.0) > 3.402823466e38) ? 1u : 0u)
 		  + ((((1.0 / 0.0) * one) > 3.402823466e38) ? 2u : 0u)
@@ -412,7 +422,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((one / zz.x) > 3.402823466e38) ? 4u : 0u);
 #endif
 		break;
-	case 33: // -1 / 0 < -FLT_MAX
+	case 34: // -1 / 0 < -FLT_MAX
 #if SOPT_SM4
 		r = (((-1.0 / 0.0) < -3.402823466e38) ? 1u : 0u)
 		  + ((((-1.0 / 0.0) * one) < -3.402823466e38) ? 2u : 0u)
@@ -421,7 +431,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((-one / zz.z) < -3.402823466e38) ? 4u : 0u);
 #endif
 		break;
-	case 34: // +inf > -inf
+	case 35: // +inf > -inf
 #if SOPT_SM4
 		r = ((((1.0 / 0.0) > (-1.0 / 0.0))) ? 1u : 0u)
 		  + (((((1.0 / 0.0) * one) > ((-1.0 / 0.0) * one))) ? 2u : 0u)
@@ -430,7 +440,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((((one / zz.x) > (-one / zz.z))) ? 4u : 0u);
 #endif
 		break;
-	case 35: // isinf(+inf) && isinf(-inf)
+	case 36: // isinf(+inf) && isinf(-inf)
 #if SOPT_SM4
 		r = (((isinf((1.0 / 0.0)) && isinf((-1.0 / 0.0)))) ? 1u : 0u)
 		  + (((isinf(((1.0 / 0.0) * one)) && isinf(((-1.0 / 0.0) * one)))) ? 2u : 0u)
@@ -439,7 +449,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((isinf((one / zz.x)) && isinf((-one / zz.z)))) ? 4u : 0u);
 #endif
 		break;
-	case 36: // inf - inf is NaN
+	case 37: // inf - inf is NaN
 #if SOPT_SM4
 		r = ((isnan((1.0 / 0.0) - (1.0 / 0.0))) ? 1u : 0u)
 		  + ((isnan(((1.0 / 0.0) * one) - ((1.0 / 0.0) * one))) ? 2u : 0u)
@@ -448,7 +458,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((isnan((one / zz.x) - (one / zz.w))) ? 4u : 0u);
 #endif
 		break;
-	case 37: // inf * 0 is NaN
+	case 38: // inf * 0 is NaN
 #if SOPT_SM4
 		r = ((isnan((1.0 / 0.0) * 0.0)) ? 1u : 0u)
 		  + ((isnan(((1.0 / 0.0) * one) * (0.0 * one))) ? 2u : 0u)
@@ -457,7 +467,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((isnan((one / zz.x) * zz.w)) ? 4u : 0u);
 #endif
 		break;
-	case 38: // 1 / inf == 0
+	case 39: // 1 / inf == 0
 #if SOPT_SM4
 		r = (((1.0 / (1.0 / 0.0)) == 0.0) ? 1u : 0u)
 		  + (((one / ((1.0 / 0.0) * one)) == 0.0) ? 2u : 0u)
@@ -466,7 +476,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((one / (one / zz.x)) == 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 39: // 1 / (1 / -inf) < 0
+	case 40: // 1 / (1 / -inf) < 0
 #if SOPT_SM4
 		r = (((1.0 / (1.0 / (-1.0 / 0.0))) < 0.0) ? 1u : 0u)
 		  + (((one / (one / ((-1.0 / 0.0) * one))) < 0.0) ? 2u : 0u)
@@ -475,7 +485,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((one / (one / (-one / zz.z))) < 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 40: // sqrt(inf) == inf
+	case 41: // sqrt(inf) == inf
 #if SOPT_SM4
 		r = ((sqrt((1.0 / 0.0)) == (1.0 / 0.0)) ? 1u : 0u)
 		  + ((sqrt(((1.0 / 0.0) * one)) == ((1.0 / 0.0) * one)) ? 2u : 0u)
@@ -484,7 +494,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((sqrt((one / zz.x)) == (one / zz.x)) ? 4u : 0u);
 #endif
 		break;
-	case 41: // exp2(-inf) == 0
+	case 42: // exp2(-inf) == 0
 #if SOPT_SM4
 		r = ((exp2((-1.0 / 0.0)) == 0.0) ? 1u : 0u)
 		  + ((exp2(((-1.0 / 0.0) * one)) == 0.0) ? 2u : 0u)
@@ -493,7 +503,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((exp2((-one / zz.z)) == 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 42: // exp2(inf) == inf
+	case 43: // exp2(inf) == inf
 #if SOPT_SM4
 		r = ((isinf(exp2((1.0 / 0.0)))) ? 1u : 0u)
 		  + ((isinf(exp2(((1.0 / 0.0) * one)))) ? 2u : 0u)
@@ -502,7 +512,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((isinf(exp2((one / zz.x)))) ? 4u : 0u);
 #endif
 		break;
-	case 43: // rsqrt(+0) == +inf
+	case 44: // rsqrt(+0) == +inf
 #if SOPT_SM4
 		r = ((rsqrt(0.0) > 3.402823466e38) ? 1u : 0u)
 		  + ((rsqrt((0.0 * one)) > 3.402823466e38) ? 2u : 0u)
@@ -511,7 +521,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((rsqrt(zz.w) > 3.402823466e38) ? 4u : 0u);
 #endif
 		break;
-	case 44: // log2(+0) == -inf
+	case 45: // log2(+0) == -inf
 #if SOPT_SM4
 		r = ((log2(0.0) < -3.402823466e38) ? 1u : 0u)
 		  + ((log2((0.0 * one)) < -3.402823466e38) ? 2u : 0u)
@@ -520,7 +530,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((log2(zz.w) < -3.402823466e38) ? 4u : 0u);
 #endif
 		break;
-	case 45: // sqrt(-1) is NaN
+	case 46: // sqrt(-1) is NaN
 #if SOPT_SM4
 		r = ((isnan(sqrt(-1.0))) ? 1u : 0u)
 		  + ((isnan(sqrt(-one))) ? 2u : 0u)
@@ -529,7 +539,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((isnan(sqrt(-one))) ? 4u : 0u);
 #endif
 		break;
-	case 46: // log2(-1) is NaN
+	case 47: // log2(-1) is NaN
 #if SOPT_SM4
 		r = ((isnan(log2(-1.0))) ? 1u : 0u)
 		  + ((isnan(log2(-one))) ? 2u : 0u)
@@ -538,7 +548,7 @@ uint runTest(int id, float4 zz, float one)
 		r = 8u;
 #endif
 		break;
-	case 47: // 1 + 2^-23 != 1 (fp32)
+	case 48: // 1 + 2^-23 != 1 (fp32)
 #if SOPT_SM4
 		r = (((1.0 + 1.1920929e-7) != 1.0) ? 1u : 0u)
 		  + (((one + 1.1920929e-7) != one) ? 2u : 0u)
@@ -547,7 +557,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((one + 1.1920929e-7) != one) ? 4u : 0u);
 #endif
 		break;
-	case 48: // 0.062499996 != 0.06249999
+	case 49: // 0.062499996 != 0.06249999
 #if SOPT_SM4
 		r = (((0.0 + 0.062499996) != 0.06249999) ? 1u : 0u)
 		  + ((((0.0 * one) + 0.062499996) != 0.06249999) ? 2u : 0u)
@@ -556,7 +566,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((zz.w + 0.062499996) != 0.06249999) ? 4u : 0u);
 #endif
 		break;
-	case 49: // 2^24 + 1 == 2^24 (even)
+	case 50: // 2^24 + 1 == 2^24 (even)
 #if SOPT_SM4
 		r = (((16777216.0 * 1.0 + 1.0) == 16777216.0) ? 1u : 0u)
 		  + (((16777216.0 * one + 1.0) == 16777216.0) ? 2u : 0u)
@@ -565,7 +575,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((16777216.0 * one + 1.0) == 16777216.0) ? 4u : 0u);
 #endif
 		break;
-	case 50: // round(0.5) == 0 (even)
+	case 51: // round(0.5) == 0 (even)
 #if SOPT_SM4
 		r = ((round(0.5 * 1.0) == 0.0) ? 1u : 0u)
 		  + ((round(0.5 * one) == 0.0) ? 2u : 0u)
@@ -574,7 +584,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((round(0.5 * one) == 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 51: // round(1.5) == 2
+	case 52: // round(1.5) == 2
 #if SOPT_SM4
 		r = ((round(1.5 * 1.0) == 2.0) ? 1u : 0u)
 		  + ((round(1.5 * one) == 2.0) ? 2u : 0u)
@@ -583,7 +593,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((round(1.5 * one) == 2.0) ? 4u : 0u);
 #endif
 		break;
-	case 52: // round(2.5) == 2 (even)
+	case 53: // round(2.5) == 2 (even)
 #if SOPT_SM4
 		r = ((round(2.5 * 1.0) == 2.0) ? 1u : 0u)
 		  + ((round(2.5 * one) == 2.0) ? 2u : 0u)
@@ -592,7 +602,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((round(2.5 * one) == 2.0) ? 4u : 0u);
 #endif
 		break;
-	case 53: // frac(-0.25) == 0.75
+	case 54: // frac(-0.25) == 0.75
 #if SOPT_SM4
 		r = ((frac(-0.25 * 1.0) == 0.75) ? 1u : 0u)
 		  + ((frac(-0.25 * one) == 0.75) ? 2u : 0u)
@@ -601,7 +611,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((frac(-0.25 * one) == 0.75) ? 4u : 0u);
 #endif
 		break;
-	case 54: // -1.5 % 1 == -0.5
+	case 55: // -1.5 % 1 == -0.5
 #if SOPT_SM4
 		r = ((((-1.5 * 1.0) % 1.0) == -0.5) ? 1u : 0u)
 		  + ((((-1.5 * one) % one) == -0.5) ? 2u : 0u)
@@ -610,7 +620,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((((-1.5 * one) % one) == -0.5) ? 4u : 0u);
 #endif
 		break;
-	case 55: // trunc(-1.5) == -1
+	case 56: // trunc(-1.5) == -1
 #if SOPT_SM4
 		r = ((trunc(-1.5 * 1.0) == -1.0) ? 1u : 0u)
 		  + ((trunc(-1.5 * one) == -1.0) ? 2u : 0u)
@@ -619,7 +629,7 @@ uint runTest(int id, float4 zz, float one)
 		r = ((trunc(-1.5 * one) == -1.0) ? 4u : 0u);
 #endif
 		break;
-	case 56: // int(-1.5) == -1
+	case 57: // int(-1.5) == -1
 #if SOPT_SM4
 		r = (((int)(-1.5 * 1.0) == -1) ? 1u : 0u)
 		  + (((int)(-1.5 * one) == -1) ? 2u : 0u)
@@ -628,7 +638,7 @@ uint runTest(int id, float4 zz, float one)
 		r = 8u;
 #endif
 		break;
-	case 57: // uint(-1.5) == 0
+	case 58: // uint(-1.5) == 0
 #if SOPT_SM4
 		r = (((uint)(-1.5 * 1.0) == 0u) ? 1u : 0u)
 		  + (((uint)(-1.5 * one) == 0u) ? 2u : 0u)
@@ -637,7 +647,7 @@ uint runTest(int id, float4 zz, float one)
 		r = 8u;
 #endif
 		break;
-	case 58: // int(3e9) == 2147483647
+	case 59: // int(3e9) == 2147483647
 #if SOPT_SM4
 		r = (((int)(3e9 * 1.0) == 2147483647) ? 1u : 0u)
 		  + (((int)(3e9 * one) == 2147483647) ? 2u : 0u)
@@ -646,7 +656,7 @@ uint runTest(int id, float4 zz, float one)
 		r = 8u;
 #endif
 		break;
-	case 59: // FLT_MIN / 2 kept
+	case 60: // FLT_MIN / 2 kept
 #if SOPT_SM4
 		r = (((1.17549435e-38 * 1.0 * 0.5) > 0.0) ? 1u : 0u)
 		  + (((1.17549435e-38 * one * 0.5) > 0.0) ? 2u : 0u)
@@ -655,7 +665,7 @@ uint runTest(int id, float4 zz, float one)
 		r = (((1.17549435e-38 * one * 0.5) > 0.0) ? 4u : 0u);
 #endif
 		break;
-	case 60: // 1e-40 kept
+	case 61: // 1e-40 kept
 #if SOPT_SM4
 		r = (((1e-40 * 1.0) > 0.0) ? 1u : 0u)
 		  + (((1e-40 * one) > 0.0) ? 2u : 0u)
@@ -720,7 +730,7 @@ static const uint kFont[380] = {
 	0x01020408u, 0x01020408u, 0x01020408u, 0x00000000u, 0x0102040Eu, 0x01061818u, 0x00038408u, 0x00000000u,
 	0x00000000u, 0x000E2700u, 0x00000000u, 0x00000000u,
 };
-static const uint kText[363] = {
+static const uint kText[368] = {
 	0x204E614Eu, 0x706D6F63u, 0x73697261u, 0x20736E6Fu, 0x45454928u, 0x35372045u, 0x73692934u, 0x286E616Eu,
 	0x294E614Eu, 0x616E7369u, 0x614E286Eu, 0x202C294Eu, 0x204E614Eu, 0x63657270u, 0x4E657369u, 0x62204E61u,
 	0x74207469u, 0x78747365u, 0x203D2120u, 0x78282078u, 0x4E203D20u, 0x4E294E61u, 0x21204E61u, 0x6E61203Du,
@@ -728,59 +738,60 @@ static const uint kText[363] = {
 	0x294E614Eu, 0x614E2821u, 0x203C204Eu, 0x28212931u, 0x204E614Eu, 0x2931203Eu, 0x614E2821u, 0x3D3C204Eu,
 	0x21293120u, 0x4E614E28u, 0x203D3E20u, 0x69212931u, 0x666E6973u, 0x4E614E28u, 0x4E614E29u, 0x31202B20u,
 	0x20736920u, 0x4E4E614Eu, 0x2A204E61u, 0x69203020u, 0x614E2073u, 0x4E614E4Eu, 0x206F7420u, 0x6C6F6F62u,
-	0x69202F20u, 0x6228746Eu, 0x296C6F6Fu, 0x204E614Eu, 0x74207369u, 0x4E657572u, 0x3F204E61u, 0x3A203120u,
-	0x69203020u, 0x69312073u, 0x4E28746Eu, 0x20294E61u, 0x30203D3Du, 0x204E614Eu, 0x6D206E69u, 0x2F206E69u,
-	0x78616D20u, 0x73202F20u, 0x72757461u, 0x6D657461u, 0x4E286E69u, 0x202C4E61u, 0x3D202931u, 0x6D31203Du,
-	0x4E287861u, 0x202C4E61u, 0x3D202931u, 0x6D31203Du, 0x31286E69u, 0x614E202Cu, 0x3D20294Eu, 0x7331203Du,
-	0x72757461u, 0x28657461u, 0x294E614Eu, 0x203D3D20u, 0x616C6330u, 0x4E28706Du, 0x202C4E61u, 0x31202C30u,
-	0x3D3D2029u, 0x69533020u, 0x64656E67u, 0x72657A20u, 0x20302D6Fu, 0x2B203D3Du, 0x2D282130u, 0x203C2030u,
-	0x3129302Bu, 0x2D202F20u, 0x203C2030u, 0x2F203130u, 0x20302B20u, 0x7230203Eu, 0x2D287063u, 0x3C202930u,
-	0x63723020u, 0x302B2870u, 0x203E2029u, 0x2F203130u, 0x302D2820u, 0x2B202B20u, 0x3E202930u, 0x20313020u,
-	0x6261202Fu, 0x302D2873u, 0x203E2029u, 0x20302D30u, 0x20736168u, 0x20656874u, 0x6E676973u, 0x74696220u,
-	0x6E676973u, 0x29302D28u, 0x203D3D20u, 0x666E4930u, 0x74696E69u, 0x2F203179u, 0x3E203020u, 0x544C4620u,
-	0x58414D5Fu, 0x2F20312Du, 0x3C203020u, 0x4C462D20u, 0x414D5F54u, 0x6E692B58u, 0x203E2066u, 0x666E692Du,
-	0x6E697369u, 0x692B2866u, 0x2029666Eu, 0x69202626u, 0x666E6973u, 0x6E692D28u, 0x6E692966u, 0x202D2066u,
-	0x20666E69u, 0x4E207369u, 0x6E694E61u, 0x202A2066u, 0x73692030u, 0x4E614E20u, 0x202F2031u, 0x20666E69u,
-	0x30203D3Du, 0x202F2031u, 0x2F203128u, 0x6E692D20u, 0x3C202966u, 0x71733020u, 0x69287472u, 0x2029666Eu,
-	0x69203D3Du, 0x7865666Eu, 0x2D283270u, 0x29666E69u, 0x203D3D20u, 0x70786530u, 0x6E692832u, 0x3D202966u,
-	0x6E69203Du, 0x74614D66u, 0x74612068u, 0x65687420u, 0x67646520u, 0x73727365u, 0x28747271u, 0x2029302Bu,
-	0x2B203D3Du, 0x6C666E69u, 0x2832676Fu, 0x2029302Bu, 0x2D203D3Du, 0x73666E69u, 0x28747271u, 0x2029312Du,
-	0x4E207369u, 0x6F6C4E61u, 0x2D283267u, 0x69202931u, 0x614E2073u, 0x756F524Eu, 0x6E69646Eu, 0x6E612067u,
-	0x6F632064u, 0x7265766Eu, 0x6E6F6973u, 0x202B2031u, 0x322D5E32u, 0x3D212033u, 0x28203120u, 0x32337066u,
-	0x302E3029u, 0x39343236u, 0x36393939u, 0x203D2120u, 0x36302E30u, 0x39393432u, 0x5E323939u, 0x2B203432u,
-	0x3D203120u, 0x5E32203Du, 0x28203432u, 0x6E657665u, 0x756F7229u, 0x3028646Eu, 0x2029352Eu, 0x30203D3Du,
-	0x76652820u, 0x72296E65u, 0x646E756Fu, 0x352E3128u, 0x3D3D2029u, 0x6F723220u, 0x28646E75u, 0x29352E32u,
-	0x203D3D20u, 0x65282032u, 0x296E6576u, 0x63617266u, 0x2E302D28u, 0x20293532u, 0x30203D3Du, 0x2D35372Eu,
-	0x20352E31u, 0x20312025u, 0x2D203D3Du, 0x74352E30u, 0x636E7572u, 0x2E312D28u, 0x3D202935u, 0x312D203Du,
-	0x28746E69u, 0x352E312Du, 0x3D3D2029u, 0x75312D20u, 0x28746E69u, 0x352E312Du, 0x3D3D2029u, 0x6E693020u,
-	0x65332874u, 0x3D202939u, 0x3132203Du, 0x38343734u, 0x37343633u, 0x6F6E6544u, 0x6C616D72u, 0x65282073u,
-	0x65687469u, 0x73692072u, 0x6C6C6120u, 0x6465776Fu, 0x544C4629u, 0x4E494D5Fu, 0x32202F20u, 0x70656B20u,
-	0x2D653174u, 0x6B203034u, 0x52747065u, 0x61685365u, 0x49206564u, 0x20454545u, 0x20343537u, 0x74736574u,
-	0x6C6F4620u, 0x20646564u, 0x6574694Cu, 0x206C6172u, 0x206E7552u, 0x656D6974u, 0x3D206B6Fu, 0x67697220u,
-	0x20207468u, 0x41462020u, 0x3D204C49u, 0x6F727720u, 0x2820676Eu, 0x45454549u, 0x34353720u, 0x48202F20u,
-	0x294C534Cu, 0x20202020u, 0x20443344u, 0x6964203Du, 0x72656666u, 0x72662073u, 0x44206D6Fu, 0x63657269u,
-	0x27443374u, 0x75722073u, 0x6F46656Cu, 0x6465646Cu, 0x696C203Au, 0x61726574u, 0x6F20736Cu, 0x20796C6Eu,
-	0x694C2020u, 0x61726574u, 0x4E203A6Cu, 0x2F204E61u, 0x666E6920u, 0x2D202F20u, 0x72772030u, 0x65747469u,
-	0x7361206Eu, 0x6C206120u, 0x72657469u, 0x20206C61u, 0x6E755220u, 0x6D697420u, 0x6D203A65u, 0x20656461u,
-	0x74206E6Fu, 0x47206568u, 0x72775550u, 0x20676E6Fu, 0x45454928u, 0x35372045u, 0x202F2034u, 0x4C534C48u,
-	0x746F6E29u, 0x20736120u, 0x65726944u, 0x44337463u, 0x65726944u, 0x44337463u, 0x69443920u, 0x74636572u,
-	0x31204433u, 0x72694430u, 0x33746365u, 0x31312044u, 0x65726944u, 0x44337463u, 0x4F323120u, 0x476E6570u,
-	0x6C75564Cu, 0x416E616Bu, 0x3F204950u, 0x68536552u, 0x20656461u, 0x206B6F20u, 0x4C494146u, 0x33442020u,
-	0x65792044u, 0x6E202073u, 0x2D20206Fu,
+	0x69202F20u, 0x6228746Eu, 0x296C6F6Fu, 0x204E614Eu, 0x74207369u, 0x28657572u, 0x6C6F6F62u, 0x614E2D29u,
+	0x7369204Eu, 0x75727420u, 0x4E614E65u, 0x31203F20u, 0x30203A20u, 0x20736920u, 0x746E6931u, 0x4E614E28u,
+	0x3D3D2029u, 0x614E3020u, 0x6E69204Eu, 0x6E696D20u, 0x6D202F20u, 0x2F207861u, 0x74617320u, 0x74617275u,
+	0x6E696D65u, 0x4E614E28u, 0x2931202Cu, 0x203D3D20u, 0x78616D31u, 0x4E614E28u, 0x2931202Cu, 0x203D3D20u,
+	0x6E696D31u, 0x202C3128u, 0x294E614Eu, 0x203D3D20u, 0x74617331u, 0x74617275u, 0x614E2865u, 0x3D20294Eu,
+	0x6330203Du, 0x706D616Cu, 0x4E614E28u, 0x2C30202Cu, 0x20293120u, 0x30203D3Du, 0x6E676953u, 0x7A206465u,
+	0x2D6F7265u, 0x3D3D2030u, 0x21302B20u, 0x20302D28u, 0x302B203Cu, 0x2F203129u, 0x20302D20u, 0x3130203Cu,
+	0x2B202F20u, 0x203E2030u, 0x70637230u, 0x29302D28u, 0x30203C20u, 0x28706372u, 0x2029302Bu, 0x3130203Eu,
+	0x28202F20u, 0x2B20302Du, 0x29302B20u, 0x30203E20u, 0x202F2031u, 0x28736261u, 0x2029302Du, 0x2D30203Eu,
+	0x61682030u, 0x68742073u, 0x69732065u, 0x62206E67u, 0x69737469u, 0x2D286E67u, 0x3D202930u, 0x4930203Du,
+	0x6E69666Eu, 0x31797469u, 0x30202F20u, 0x46203E20u, 0x4D5F544Cu, 0x312D5841u, 0x30202F20u, 0x2D203C20u,
+	0x5F544C46u, 0x2B58414Du, 0x20666E69u, 0x692D203Eu, 0x7369666Eu, 0x28666E69u, 0x666E692Bu, 0x26262029u,
+	0x69736920u, 0x2D28666Eu, 0x29666E69u, 0x20666E69u, 0x6E69202Du, 0x73692066u, 0x4E614E20u, 0x20666E69u,
+	0x2030202Au, 0x4E207369u, 0x20314E61u, 0x6E69202Fu, 0x3D3D2066u, 0x20313020u, 0x3128202Fu, 0x2D202F20u,
+	0x29666E69u, 0x30203C20u, 0x74727173u, 0x666E6928u, 0x3D3D2029u, 0x666E6920u, 0x32707865u, 0x6E692D28u,
+	0x3D202966u, 0x6530203Du, 0x28327078u, 0x29666E69u, 0x203D3D20u, 0x4D666E69u, 0x20687461u, 0x74207461u,
+	0x65206568u, 0x73656764u, 0x72717372u, 0x302B2874u, 0x3D3D2029u, 0x6E692B20u, 0x676F6C66u, 0x302B2832u,
+	0x3D3D2029u, 0x6E692D20u, 0x72717366u, 0x312D2874u, 0x73692029u, 0x4E614E20u, 0x32676F6Cu, 0x29312D28u,
+	0x20736920u, 0x524E614Eu, 0x646E756Fu, 0x20676E69u, 0x20646E61u, 0x766E6F63u, 0x69737265u, 0x20316E6Fu,
+	0x5E32202Bu, 0x2033322Du, 0x31203D21u, 0x70662820u, 0x30293233u, 0x3236302Eu, 0x39393934u, 0x21203639u,
+	0x2E30203Du, 0x34323630u, 0x39393939u, 0x34325E32u, 0x31202B20u, 0x203D3D20u, 0x34325E32u, 0x76652820u,
+	0x72296E65u, 0x646E756Fu, 0x352E3028u, 0x3D3D2029u, 0x28203020u, 0x6E657665u, 0x756F7229u, 0x3128646Eu,
+	0x2029352Eu, 0x32203D3Du, 0x6E756F72u, 0x2E322864u, 0x3D202935u, 0x2032203Du, 0x65766528u, 0x7266296Eu,
+	0x2D286361u, 0x35322E30u, 0x3D3D2029u, 0x372E3020u, 0x2E312D35u, 0x20252035u, 0x3D3D2031u, 0x2E302D20u,
+	0x75727435u, 0x2D28636Eu, 0x29352E31u, 0x203D3D20u, 0x6E69312Du, 0x312D2874u, 0x2029352Eu, 0x2D203D3Du,
+	0x6E697531u, 0x312D2874u, 0x2029352Eu, 0x30203D3Du, 0x28746E69u, 0x29396533u, 0x203D3D20u, 0x37343132u,
+	0x36333834u, 0x65443734u, 0x6D726F6Eu, 0x20736C61u, 0x74696528u, 0x20726568u, 0x61207369u, 0x776F6C6Cu,
+	0x46296465u, 0x4D5F544Cu, 0x2F204E49u, 0x6B203220u, 0x31747065u, 0x30342D65u, 0x70656B20u, 0x53655274u,
+	0x65646168u, 0x45454920u, 0x35372045u, 0x65742034u, 0x46207473u, 0x65646C6Fu, 0x694C2064u, 0x61726574u,
+	0x7552206Cu, 0x6974206Eu, 0x6B6F656Du, 0x72203D20u, 0x74686769u, 0x20202020u, 0x4C494146u, 0x77203D20u,
+	0x676E6F72u, 0x45492820u, 0x37204545u, 0x2F203435u, 0x534C4820u, 0x2020294Cu, 0x33442020u, 0x203D2044u,
+	0x66666964u, 0x20737265u, 0x6D6F7266u, 0x72694420u, 0x33746365u, 0x20732744u, 0x656C7572u, 0x646C6F46u,
+	0x203A6465u, 0x6574696Cu, 0x736C6172u, 0x6C6E6F20u, 0x20202079u, 0x6574694Cu, 0x3A6C6172u, 0x4E614E20u,
+	0x69202F20u, 0x2F20666Eu, 0x20302D20u, 0x74697277u, 0x206E6574u, 0x61207361u, 0x74696C20u, 0x6C617265u,
+	0x52202020u, 0x74206E75u, 0x3A656D69u, 0x64616D20u, 0x6E6F2065u, 0x65687420u, 0x55504720u, 0x6E6F7277u,
+	0x49282067u, 0x20454545u, 0x20343537u, 0x4C48202Fu, 0x6E294C53u, 0x6120746Fu, 0x69442073u, 0x74636572u,
+	0x69444433u, 0x74636572u, 0x39204433u, 0x65726944u, 0x44337463u, 0x44303120u, 0x63657269u, 0x20443374u,
+	0x69443131u, 0x74636572u, 0x31204433u, 0x65704F32u, 0x564C476Eu, 0x616B6C75u, 0x4950416Eu, 0x65523F20u,
+	0x64616853u, 0x6F202065u, 0x4146206Bu, 0x20204C49u, 0x20443344u, 0x20736579u, 0x206F6E20u, 0x20202D20u,
 };
-static const uint kLines[72] = {
+static const uint kLines[74] = {
 	0x001A0001u, 0x000A006Au, 0x01170092u, 0x020C00EEu, 0x0310011Eu, 0x0412015Eu, 0x050801A6u, 0x061301C6u,
 	0x070A0212u, 0x080A023Au, 0x090B0262u, 0x0A0B028Eu, 0x0B0B02BAu, 0x0C0E02E6u, 0x0D0E031Eu, 0x00110355u,
-	0x0E11039Au, 0x0F1003DEu, 0x100D041Eu, 0x001B0451u, 0x111004BEu, 0x121004FEu, 0x1310053Eu, 0x1412057Eu,
-	0x151505C6u, 0x000B0619u, 0x16080646u, 0x170A0666u, 0x180A068Eu, 0x190A06B6u, 0x1A0B06DEu, 0x1B0B070Au,
-	0x1C110736u, 0x1D0F077Au, 0x1E1307B6u, 0x1F0D0802u, 0x00080835u, 0x200F0856u, 0x21110892u, 0x220B08D6u,
-	0x231A0902u, 0x2410096Au, 0x250E09AAu, 0x260C09E2u, 0x27120A12u, 0x28100A5Au, 0x290F0A9Au, 0x2A100AD6u,
-	0x00110B15u, 0x2B110B5Au, 0x2C100B9Eu, 0x2D0F0BDEu, 0x2E0F0C1Au, 0x00170C55u, 0x2F150CB2u, 0x30190D06u,
-	0x31170D6Au, 0x32160DC6u, 0x330F0E1Eu, 0x34160E5Au, 0x35130EB2u, 0x36100EFEu, 0x37110F3Eu, 0x380F0F82u,
-	0x390F0FBEu, 0x3A160FFAu, 0x001D1051u, 0x3B1010C6u, 0x3C0A1106u, 0x00000000u, 0x00000000u, 0x00000000u,
+	0x0E11039Au, 0x0F1203DEu, 0x10100426u, 0x110D0466u, 0x001B0499u, 0x12100506u, 0x13100546u, 0x14100586u,
+	0x151205C6u, 0x1615060Eu, 0x000B0661u, 0x1708068Eu, 0x180A06AEu, 0x190A06D6u, 0x1A0A06FEu, 0x1B0B0726u,
+	0x1C0B0752u, 0x1D11077Eu, 0x1E0F07C2u, 0x1F1307FEu, 0x200D084Au, 0x0008087Du, 0x210F089Eu, 0x221108DAu,
+	0x230B091Eu, 0x241A094Au, 0x251009B2u, 0x260E09F2u, 0x270C0A2Au, 0x28120A5Au, 0x29100AA2u, 0x2A0F0AE2u,
+	0x2B100B1Eu, 0x00110B5Du, 0x2C110BA2u, 0x2D100BE6u, 0x2E0F0C26u, 0x2F0F0C62u, 0x00170C9Du, 0x30150CFAu,
+	0x31190D4Eu, 0x32170DB2u, 0x33160E0Eu, 0x340F0E66u, 0x35160EA2u, 0x36130EFAu, 0x37100F46u, 0x38110F86u,
+	0x390F0FCAu, 0x3A0F1006u, 0x3B161042u, 0x001D1099u, 0x3C10110Eu, 0x3D0A114Eu, 0x00000000u, 0x00000000u,
+	0x00000000u, 0x00000000u,
 };
 static const uint kKinds[4] = {
-	0x00000000u, 0x00000555u, 0x00000000u, 0x02940110u,
+	0x00000000u, 0x00001554u, 0x00000000u, 0x0A500440u,
 };
 
 int kindOf(int id) { return int((kKinds[id / 16] >> uint((id % 16) * 2)) & 3u); }

@@ -1,8 +1,9 @@
-// sopt-host: shows one fixed image with vsync off, so ReShade (with the sopt-timer add-on)
-// can be benchmarked without a game (M4 harness). DX11 or Vulkan; Vulkan is loaded at run
-// time (vulkan-1.dll), no SDK needed.
+// sopt-host: the test host. Shows one fixed image with vsync off on any graphics API ReShade supports, so effects
+// can be tested and benchmarked without a game (M4 harness; owner, 2026-10-06: one host for every API). Direct3D 9,
+// 10, 11 and 12, Vulkan and OpenGL; Vulkan and Direct3D 12 are loaded at run time (no SDK needed, and the exe still
+// starts where Direct3D 12 is missing).
 //
-//   sopt-host [--api dx11|vulkan|gl] [--width 3840] [--height 2160] [--image file.png]
+//   sopt-host [--api dx9|dx10|dx11|dx12|vulkan|gl] [--width 3840] [--height 2160] [--image file.png]
 //             [--frames N] [--bench] [--no-depth] [--msaa N]
 //
 // --bench sets SOPT_TIMER_AUTO=1 and SOPT_TIMER_EXIT=1: sopt-timer runs its bench over the
@@ -18,12 +19,16 @@
 // the path its internal copy shader change affects.
 // --api gl: an OpenGL window (compatibility context, the image drawn with glDrawPixels, no depth)
 // for checking ReShade's OpenGL path (opengl32.dll next to the exe); see tools/reshade/TESTING.md.
+// ReShade goes next to the exe as d3d9.dll (dx9), dxgi.dll (dx10 / dx11 / dx12), opengl32.dll (gl) or as a Vulkan layer.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 #include <objbase.h>
+#include <d3d9.h>
+#include <d3d10.h>
 #include <d3d11.h>
+#include <d3d12.h>
 #include <dxgi1_5.h>
 #include <wincodec.h>
 #include <GL/gl.h>
@@ -39,11 +44,14 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
 #include <string>
 #include <vector>
 
 #include "blit_dxbc.h"
+#include "depth10_dxbc.h"
+#include "depth9_dxbc.h"
 #include "depth_dxbc.h"
 #include "depth_spv.h"
 
@@ -209,6 +217,13 @@ void showFps(HWND hwnd, const char* api, uint64_t frame) {
 // per vertex and written through z, no pixel shader: a z prepass.
 constexpr unsigned kGridCols = 256, kGridRows = 144;
 
+// Vertex ids 0, 1, 2, ... for the depth pass (the back ends read them from a buffer).
+std::vector<uint32_t> gridIds() {
+  std::vector<uint32_t> idx(kGridCols * kGridRows * 6);
+  for (uint32_t i = 0; i < idx.size(); ++i) idx[i] = i;
+  return idx;
+}
+
 int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   ID3D11Device* dev = nullptr;
   ID3D11DeviceContext* ctx = nullptr;
@@ -299,8 +314,7 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
     if (FAILED(dev->CreateVertexShader(kDepthVsDxbc, sizeof(kDepthVsDxbc), nullptr, &vs)))
       fail("cannot create the depth vertex shader");
     // Vertex indices in a buffer: SV_VertexID would not include each row's start vertex.
-    std::vector<uint32_t> idx(kGridCols * kGridRows * 6);
-    for (uint32_t i = 0; i < idx.size(); ++i) idx[i] = i;
+    const std::vector<uint32_t> idx = gridIds();
     const D3D11_BUFFER_DESC bd = {UINT(idx.size() * 4), D3D11_USAGE_IMMUTABLE, D3D11_BIND_VERTEX_BUFFER, 0, 0, 0};
     const D3D11_SUBRESOURCE_DATA bdata = {idx.data(), 0, 0};
     if (FAILED(dev->CreateBuffer(&bd, &bdata, &ids))) fail("cannot create the depth vertex buffer");
@@ -366,6 +380,424 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   ctx->Release();
   dev->Release();
   return 0;
+}
+
+// ---- Direct3D 9 ------------------------------------------------------------------------
+
+int runD3d9(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
+  IDirect3D9* d3d = Direct3DCreate9(D3D_SDK_VERSION);
+  if (!d3d) fail("Direct3DCreate9 failed");
+  D3DPRESENT_PARAMETERS pp = {};
+  pp.BackBufferWidth = o.width;
+  pp.BackBufferHeight = o.height;
+  pp.BackBufferFormat = D3DFMT_X8R8G8B8;
+  pp.BackBufferCount = 1;
+  pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+  pp.hDeviceWindow = hwnd;
+  pp.Windowed = TRUE;
+  pp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+  IDirect3DDevice9* dev = nullptr;
+  if (FAILED(d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hwnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &pp, &dev)))
+    fail("IDirect3D9::CreateDevice failed");
+
+  // The image in a default-pool surface (BGRX), copied to the back buffer every frame.
+  IDirect3DSurface9* sys = nullptr;
+  IDirect3DSurface9* img = nullptr;
+  if (FAILED(dev->CreateOffscreenPlainSurface(o.width, o.height, D3DFMT_X8R8G8B8, D3DPOOL_SYSTEMMEM, &sys, nullptr)) ||
+      FAILED(dev->CreateOffscreenPlainSurface(o.width, o.height, D3DFMT_X8R8G8B8, D3DPOOL_DEFAULT, &img, nullptr)))
+    fail("cannot create the image surface");
+  D3DLOCKED_RECT lr;
+  if (FAILED(sys->LockRect(&lr, nullptr, 0))) fail("cannot lock the image surface");
+  for (uint32_t y = 0; y < o.height; ++y)
+    for (uint32_t x = 0; x < o.width; ++x) {
+      const uint8_t* s = &px[(size_t(y) * o.width + x) * 4];
+      uint8_t* d = static_cast<uint8_t*>(lr.pBits) + size_t(y) * lr.Pitch + size_t(x) * 4;
+      d[0] = s[2];
+      d[1] = s[1];
+      d[2] = s[0];
+      d[3] = 255;
+    }
+  sys->UnlockRect();
+  if (FAILED(dev->UpdateSurface(sys, nullptr, img, nullptr))) fail("cannot upload the image");
+  sys->Release();
+
+  // Depth pass: a D24S8 depth surface, the grid from a buffer of float ids (shader model 3 has no integers).
+  IDirect3DSurface9* ds = nullptr;
+  IDirect3DVertexShader9* vs = nullptr;
+  IDirect3DPixelShader9* ps = nullptr;
+  IDirect3DVertexDeclaration9* decl = nullptr;
+  IDirect3DVertexBuffer9* vb = nullptr;
+  if (o.depth) {
+    if (FAILED(dev->CreateDepthStencilSurface(o.width, o.height, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, FALSE, &ds,
+                                              nullptr)))
+      fail("cannot create the depth surface");
+    if (FAILED(dev->CreateVertexShader(reinterpret_cast<const DWORD*>(kDepthVs9), &vs)) ||
+        FAILED(dev->CreatePixelShader(reinterpret_cast<const DWORD*>(kDepthPs9), &ps)))
+      fail("cannot create the depth shaders");
+    const D3DVERTEXELEMENT9 el[] = {{0, 0, D3DDECLTYPE_FLOAT1, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
+                                    D3DDECL_END()};
+    if (FAILED(dev->CreateVertexDeclaration(el, &decl))) fail("cannot create the depth vertex declaration");
+    const UINT n = kGridCols * kGridRows * 6;
+    if (FAILED(dev->CreateVertexBuffer(n * 4, D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED, &vb, nullptr)))
+      fail("cannot create the depth vertex buffer");
+    float* v = nullptr;
+    vb->Lock(0, 0, reinterpret_cast<void**>(&v), 0);
+    for (UINT i = 0; i < n; ++i) v[i] = float(i);
+    vb->Unlock();
+  }
+
+  for (uint64_t frame = 0; pump() && (!o.frames || frame < o.frames); ++frame) {
+    IDirect3DSurface9* bb = nullptr;
+    dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb);
+    dev->StretchRect(img, nullptr, bb, nullptr, D3DTEXF_NONE);
+    if (o.depth) {
+      dev->SetRenderTarget(0, bb);
+      dev->SetDepthStencilSurface(ds);
+      dev->Clear(0, nullptr, D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0, 0.0f, 0);  // reversed Z
+      dev->BeginScene();
+      dev->SetRenderState(D3DRS_ZENABLE, D3DZB_TRUE);
+      dev->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+      dev->SetRenderState(D3DRS_ZFUNC, D3DCMP_GREATEREQUAL);
+      dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+      dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0);  // depth only: the image stays
+      dev->SetVertexDeclaration(decl);
+      dev->SetStreamSource(0, vb, 0, 4);
+      dev->SetVertexShader(vs);
+      dev->SetPixelShader(ps);
+      for (UINT row = 0; row < kGridRows; ++row) dev->DrawPrimitive(D3DPT_TRIANGLELIST, row * kGridCols * 6, kGridCols * 2);
+      dev->EndScene();
+      dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
+    }
+    bb->Release();
+    if (dev->Present(nullptr, nullptr, nullptr, nullptr) == D3DERR_DEVICELOST) break;
+    showFps(hwnd, "dx9", frame);
+  }
+  for (IUnknown* u : std::initializer_list<IUnknown*>{vb, decl, ps, vs, ds, img})
+    if (u) u->Release();
+  dev->Release();
+  d3d->Release();
+  return 0;
+}
+
+// ---- Direct3D 10 -----------------------------------------------------------------------
+
+int runD3d10(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
+  DXGI_SWAP_CHAIN_DESC sd = {};
+  sd.BufferDesc.Width = o.width;
+  sd.BufferDesc.Height = o.height;
+  sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  sd.SampleDesc.Count = 1;
+  sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+  sd.BufferCount = 1;
+  sd.OutputWindow = hwnd;
+  sd.Windowed = TRUE;
+  sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+  ID3D10Device* dev = nullptr;
+  IDXGISwapChain* sc = nullptr;
+  if (FAILED(D3D10CreateDeviceAndSwapChain(nullptr, D3D10_DRIVER_TYPE_HARDWARE, nullptr, 0, D3D10_SDK_VERSION, &sd, &sc,
+                                           &dev)))
+    fail("D3D10CreateDeviceAndSwapChain failed");
+
+  D3D10_TEXTURE2D_DESC td = {};
+  td.Width = o.width;
+  td.Height = o.height;
+  td.MipLevels = td.ArraySize = 1;
+  td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  td.SampleDesc.Count = 1;
+  td.Usage = D3D10_USAGE_IMMUTABLE;
+  td.BindFlags = D3D10_BIND_SHADER_RESOURCE;
+  const D3D10_SUBRESOURCE_DATA init = {px.data(), o.width * 4, 0};
+  ID3D10Texture2D* img = nullptr;
+  if (FAILED(dev->CreateTexture2D(&td, &init, &img))) fail("cannot create image texture");
+
+  ID3D10Texture2D* depthTex = nullptr;
+  ID3D10DepthStencilView* dsv = nullptr;
+  ID3D10VertexShader* vs = nullptr;
+  ID3D10InputLayout* layout = nullptr;
+  ID3D10Buffer* ids = nullptr;
+  ID3D10DepthStencilState* dss = nullptr;
+  ID3D10RasterizerState* rs = nullptr;
+  if (o.depth) {
+    D3D10_TEXTURE2D_DESC dd = td;
+    dd.Format = DXGI_FORMAT_R24G8_TYPELESS;
+    dd.Usage = D3D10_USAGE_DEFAULT;
+    dd.BindFlags = D3D10_BIND_DEPTH_STENCIL | D3D10_BIND_SHADER_RESOURCE;
+    if (FAILED(dev->CreateTexture2D(&dd, nullptr, &depthTex))) fail("cannot create depth buffer");
+    D3D10_DEPTH_STENCIL_VIEW_DESC dvd = {};
+    dvd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dvd.ViewDimension = D3D10_DSV_DIMENSION_TEXTURE2D;
+    if (FAILED(dev->CreateDepthStencilView(depthTex, &dvd, &dsv))) fail("cannot create depth view");
+    if (FAILED(dev->CreateVertexShader(kDepthVs10, sizeof(kDepthVs10), &vs))) fail("cannot create the depth vertex shader");
+    const std::vector<uint32_t> idx = gridIds();
+    const D3D10_BUFFER_DESC bd = {UINT(idx.size() * 4), D3D10_USAGE_IMMUTABLE, D3D10_BIND_VERTEX_BUFFER, 0, 0};
+    const D3D10_SUBRESOURCE_DATA bdata = {idx.data(), 0, 0};
+    if (FAILED(dev->CreateBuffer(&bd, &bdata, &ids))) fail("cannot create the depth vertex buffer");
+    const D3D10_INPUT_ELEMENT_DESC ie = {"TEXCOORD", 0, DXGI_FORMAT_R32_UINT, 0, 0, D3D10_INPUT_PER_VERTEX_DATA, 0};
+    if (FAILED(dev->CreateInputLayout(&ie, 1, kDepthVs10, sizeof(kDepthVs10), &layout)))
+      fail("cannot create the depth input layout");
+    D3D10_DEPTH_STENCIL_DESC dsd = {};
+    dsd.DepthEnable = TRUE;
+    dsd.DepthWriteMask = D3D10_DEPTH_WRITE_MASK_ALL;
+    dsd.DepthFunc = D3D10_COMPARISON_GREATER_EQUAL;
+    if (FAILED(dev->CreateDepthStencilState(&dsd, &dss))) fail("cannot create depth state");
+    D3D10_RASTERIZER_DESC rd = {};
+    rd.FillMode = D3D10_FILL_SOLID;
+    rd.CullMode = D3D10_CULL_NONE;
+    rd.DepthClipEnable = TRUE;
+    if (FAILED(dev->CreateRasterizerState(&rd, &rs))) fail("cannot create rasterizer state");
+  }
+  const D3D10_VIEWPORT vp = {0, 0, o.width, o.height, 0.0f, 1.0f};
+
+  for (uint64_t frame = 0; pump() && (!o.frames || frame < o.frames); ++frame) {
+    ID3D10Texture2D* bb = nullptr;
+    sc->GetBuffer(0, IID_PPV_ARGS(&bb));
+    dev->CopyResource(bb, img);
+    bb->Release();
+    if (o.depth) {
+      dev->ClearDepthStencilView(dsv, D3D10_CLEAR_DEPTH | D3D10_CLEAR_STENCIL, 0.0f, 0);  // reversed Z
+      dev->OMSetRenderTargets(0, nullptr, dsv);
+      dev->OMSetDepthStencilState(dss, 0);
+      dev->RSSetState(rs);
+      dev->RSSetViewports(1, &vp);
+      const UINT stride = 4, offset = 0;
+      dev->IASetInputLayout(layout);
+      dev->IASetVertexBuffers(0, 1, &ids, &stride, &offset);
+      dev->IASetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+      dev->VSSetShader(vs);
+      dev->PSSetShader(nullptr);
+      for (UINT row = 0; row < kGridRows; ++row) dev->Draw(kGridCols * 6, row * kGridCols * 6);
+    }
+    sc->Present(0, 0);
+    showFps(hwnd, "dx10", frame);
+  }
+  dev->ClearState();
+  for (IUnknown* u : std::initializer_list<IUnknown*>{rs, dss, layout, ids, vs, dsv, depthTex, img, sc})
+    if (u) u->Release();
+  dev->Release();
+  return 0;
+}
+
+// ---- Direct3D 12 -----------------------------------------------------------------------
+
+D3D12_RESOURCE_BARRIER transition(ID3D12Resource* r, D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to) {
+  D3D12_RESOURCE_BARRIER b = {};
+  b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+  b.Transition.pResource = r;
+  b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+  b.Transition.StateBefore = from;
+  b.Transition.StateAfter = to;
+  return b;
+}
+
+int runD3d12(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
+  // d3d12.dll is loaded at run time, so sopt-host still starts on systems without it.
+  HMODULE lib = LoadLibraryA("d3d12.dll");
+  if (!lib) fail("d3d12.dll not found (Direct3D 12 needs Windows 10 or later)");
+  auto createDevice = reinterpret_cast<PFN_D3D12_CREATE_DEVICE>(GetProcAddress(lib, "D3D12CreateDevice"));
+  using SerializeRoot = HRESULT(WINAPI*)(const D3D12_ROOT_SIGNATURE_DESC*, D3D_ROOT_SIGNATURE_VERSION, ID3DBlob**,
+                                         ID3DBlob**);  // PFN_D3D12_SERIALIZE_ROOT_SIGNATURE (not in mingw's headers)
+  auto serializeRoot = reinterpret_cast<SerializeRoot>(GetProcAddress(lib, "D3D12SerializeRootSignature"));
+  if (!createDevice || !serializeRoot) fail("d3d12.dll lacks D3D12CreateDevice");
+  ID3D12Device* dev = nullptr;
+  if (FAILED(createDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev)))) fail("D3D12CreateDevice failed");
+  D3D12_COMMAND_QUEUE_DESC qd = {};
+  qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+  ID3D12CommandQueue* queue = nullptr;
+  if (FAILED(dev->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue)))) fail("cannot create the command queue");
+
+  IDXGIFactory2* factory = nullptr;
+  if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) fail("CreateDXGIFactory1 failed");
+  BOOL tearing = FALSE;
+  IDXGIFactory5* f5 = nullptr;
+  if (SUCCEEDED(factory->QueryInterface(IID_PPV_ARGS(&f5)))) {
+    if (FAILED(f5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &tearing, sizeof(tearing)))) tearing = FALSE;
+    f5->Release();
+  }
+  constexpr UINT kBuffers = 3;
+  DXGI_SWAP_CHAIN_DESC1 sd = {};
+  sd.Width = o.width;
+  sd.Height = o.height;
+  sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  sd.SampleDesc.Count = 1;
+  sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+  sd.BufferCount = kBuffers;
+  sd.Scaling = DXGI_SCALING_STRETCH;
+  sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+  sd.Flags = tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+  IDXGISwapChain1* sc1 = nullptr;
+  if (FAILED(factory->CreateSwapChainForHwnd(queue, hwnd, &sd, nullptr, nullptr, &sc1))) fail("cannot create swap chain");
+  factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
+  IDXGISwapChain3* sc = nullptr;
+  if (FAILED(sc1->QueryInterface(IID_PPV_ARGS(&sc)))) fail("IDXGISwapChain3 is not available");
+  sc1->Release();
+  ID3D12Resource* bbs[kBuffers] = {};
+  for (UINT i = 0; i < kBuffers; ++i) sc->GetBuffer(i, IID_PPV_ARGS(&bbs[i]));
+
+  ID3D12CommandAllocator* allocs[kBuffers] = {};
+  for (auto& a : allocs)
+    if (FAILED(dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a))))
+      fail("cannot create a command allocator");
+  ID3D12GraphicsCommandList* list = nullptr;
+  if (FAILED(dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocs[0], nullptr, IID_PPV_ARGS(&list))))
+    fail("cannot create the command list");
+  ID3D12Fence* fence = nullptr;
+  dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+  HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+  uint64_t fenceValue = 0, slotValue[kBuffers] = {};
+  auto waitFor = [&](uint64_t v) {
+    if (fence->GetCompletedValue() < v) {
+      fence->SetEventOnCompletion(v, event);
+      WaitForSingleObject(event, INFINITE);
+    }
+  };
+
+  D3D12_HEAP_PROPERTIES defaultHeap = {D3D12_HEAP_TYPE_DEFAULT};
+  D3D12_HEAP_PROPERTIES uploadHeap = {D3D12_HEAP_TYPE_UPLOAD};
+  auto bufferDesc = [](UINT64 size) {
+    D3D12_RESOURCE_DESC d = {};
+    d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    d.Width = size;
+    d.Height = d.DepthOrArraySize = d.MipLevels = 1;
+    d.SampleDesc.Count = 1;
+    d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    return d;
+  };
+
+  // The image: a default-heap texture filled through an upload buffer, copied to the back buffer every frame.
+  D3D12_RESOURCE_DESC td = {};
+  td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  td.Width = o.width;
+  td.Height = o.height;
+  td.DepthOrArraySize = td.MipLevels = 1;
+  td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  td.SampleDesc.Count = 1;
+  ID3D12Resource* img = nullptr;
+  if (FAILED(dev->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &td, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                          IID_PPV_ARGS(&img))))
+    fail("cannot create image texture");
+  D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp;
+  UINT64 total = 0;
+  dev->GetCopyableFootprints(&td, 0, 1, 0, &fp, nullptr, nullptr, &total);
+  const D3D12_RESOURCE_DESC ud = bufferDesc(total);
+  ID3D12Resource* upload = nullptr;
+  if (FAILED(dev->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &ud, D3D12_RESOURCE_STATE_GENERIC_READ,
+                                          nullptr, IID_PPV_ARGS(&upload))))
+    fail("cannot create the upload buffer");
+  uint8_t* map = nullptr;
+  upload->Map(0, nullptr, reinterpret_cast<void**>(&map));
+  for (uint32_t y = 0; y < o.height; ++y)
+    std::memcpy(map + fp.Offset + size_t(y) * fp.Footprint.RowPitch, &px[size_t(y) * o.width * 4], size_t(o.width) * 4);
+  upload->Unmap(0, nullptr);
+  D3D12_TEXTURE_COPY_LOCATION dst = {img, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
+  dst.SubresourceIndex = 0;
+  D3D12_TEXTURE_COPY_LOCATION src = {upload, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
+  src.PlacedFootprint = fp;
+  list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+  const D3D12_RESOURCE_BARRIER toSource = transition(img, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+  list->ResourceBarrier(1, &toSource);
+
+  // Depth pass: a D24S8 depth buffer (typeless), the DX11 vertex shader, the grid ids in an upload-heap buffer.
+  ID3D12Resource* depth = nullptr;
+  ID3D12DescriptorHeap* dsvHeap = nullptr;
+  ID3D12RootSignature* root = nullptr;
+  ID3D12PipelineState* pso = nullptr;
+  ID3D12Resource* vb = nullptr;
+  D3D12_VERTEX_BUFFER_VIEW vbv = {};
+  D3D12_CPU_DESCRIPTOR_HANDLE dsv = {};
+  if (o.depth) {
+    D3D12_RESOURCE_DESC dd = td;
+    dd.Format = DXGI_FORMAT_R24G8_TYPELESS;
+    dd.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    D3D12_CLEAR_VALUE cv = {};
+    cv.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    cv.DepthStencil = {0.0f, 0};
+    if (FAILED(dev->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &dd, D3D12_RESOURCE_STATE_DEPTH_WRITE, &cv,
+                                            IID_PPV_ARGS(&depth))))
+      fail("cannot create depth buffer");
+    D3D12_DESCRIPTOR_HEAP_DESC hd = {D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1};
+    if (FAILED(dev->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&dsvHeap)))) fail("cannot create the DSV heap");
+    dsv = dsvHeap->GetCPUDescriptorHandleForHeapStart();
+    D3D12_DEPTH_STENCIL_VIEW_DESC dvd = {};
+    dvd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dvd.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dev->CreateDepthStencilView(depth, &dvd, dsv);
+
+    D3D12_ROOT_SIGNATURE_DESC rsd = {};
+    rsd.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    ID3DBlob* blob = nullptr;
+    if (FAILED(serializeRoot(&rsd, D3D_ROOT_SIGNATURE_VERSION_1, &blob, nullptr)) ||
+        FAILED(dev->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&root))))
+      fail("cannot create the root signature");
+    blob->Release();
+    const D3D12_INPUT_ELEMENT_DESC ie = {"TEXCOORD", 0, DXGI_FORMAT_R32_UINT, 0, 0,
+                                         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0};
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pd = {};
+    pd.pRootSignature = root;
+    pd.VS = {kDepthVsDxbc, sizeof(kDepthVsDxbc)};
+    pd.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    pd.SampleMask = UINT_MAX;
+    pd.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    pd.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pd.RasterizerState.DepthClipEnable = TRUE;
+    pd.DepthStencilState.DepthEnable = TRUE;
+    pd.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pd.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;
+    pd.InputLayout = {&ie, 1};
+    pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pd.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    pd.SampleDesc.Count = 1;
+    if (FAILED(dev->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&pso)))) fail("cannot create the depth pipeline");
+    const std::vector<uint32_t> idx = gridIds();
+    const D3D12_RESOURCE_DESC vd = bufferDesc(idx.size() * 4);
+    if (FAILED(dev->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &vd, D3D12_RESOURCE_STATE_GENERIC_READ,
+                                            nullptr, IID_PPV_ARGS(&vb))))
+      fail("cannot create the depth vertex buffer");
+    void* v = nullptr;
+    vb->Map(0, nullptr, &v);
+    std::memcpy(v, idx.data(), idx.size() * 4);
+    vb->Unmap(0, nullptr);
+    vbv = {vb->GetGPUVirtualAddress(), UINT(idx.size() * 4), 4};
+  }
+  list->Close();
+  ID3D12CommandList* lists[] = {list};
+  queue->ExecuteCommandLists(1, lists);
+  queue->Signal(fence, ++fenceValue);
+  waitFor(fenceValue);
+  upload->Release();
+
+  const D3D12_VIEWPORT vp = {0.0f, 0.0f, float(o.width), float(o.height), 0.0f, 1.0f};
+  const D3D12_RECT scissor = {0, 0, LONG(o.width), LONG(o.height)};
+  for (uint64_t frame = 0; pump() && (!o.frames || frame < o.frames); ++frame) {
+    const UINT i = sc->GetCurrentBackBufferIndex();
+    waitFor(slotValue[i]);
+    allocs[i]->Reset();
+    list->Reset(allocs[i], nullptr);
+    D3D12_RESOURCE_BARRIER b = transition(bbs[i], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
+    list->ResourceBarrier(1, &b);
+    list->CopyResource(bbs[i], img);
+    b = transition(bbs[i], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
+    list->ResourceBarrier(1, &b);
+    if (o.depth) {
+      list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0, 0, nullptr);  // reversed Z
+      list->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
+      list->SetGraphicsRootSignature(root);
+      list->SetPipelineState(pso);
+      list->RSSetViewports(1, &vp);
+      list->RSSetScissorRects(1, &scissor);
+      list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+      list->IASetVertexBuffers(0, 1, &vbv);
+      for (UINT row = 0; row < kGridRows; ++row) list->DrawInstanced(kGridCols * 6, 1, row * kGridCols * 6, 0);
+    }
+    list->Close();
+    queue->ExecuteCommandLists(1, lists);
+    if (FAILED(sc->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0))) break;
+    queue->Signal(fence, ++fenceValue);
+    slotValue[i] = fenceValue;
+    showFps(hwnd, "dx12", frame);
+  }
+  queue->Signal(fence, ++fenceValue);
+  waitFor(fenceValue);
+  return 0;   // the process exits; the driver releases the rest
 }
 
 // ---- OpenGL ------------------------------------------------------------------------------
@@ -895,11 +1327,16 @@ int main(int argc, char** argv) {
     else if (a == "--no-depth") o.depth = false;
     else if (a == "--msaa") o.msaa = uint32_t(std::strtoul(next(), nullptr, 10));
     else {
-      std::printf("usage: sopt-host [--api dx11|vulkan|gl] [--width 3840] [--height 2160] [--image file] [--frames N] "
+      std::printf("usage: sopt-host [--api dx9|dx10|dx11|dx12|vulkan|gl] [--width 3840] [--height 2160] [--image file] [--frames N] "
                   "[--bench] [--no-depth] [--msaa N]\n");
       return a == "-h" || a == "--help" ? 0 : 1;
     }
   }
+  // Accepted spellings: dx9 / d3d9, dx10 / d3d10, dx11 / d3d11, dx12 / d3d12, vulkan / vk, gl / opengl.
+  for (auto& c : o.api) c = char(std::tolower(static_cast<unsigned char>(c)));
+  if (o.api.rfind("d3d", 0) == 0) o.api = "dx" + o.api.substr(3);
+  if (o.api == "vk") o.api = "vulkan";
+  if (o.api == "opengl") o.api = "gl";
   if (o.width == 0 || o.height == 0 || o.width > 16384 || o.height > 16384) fail("bad size");
   if (o.msaa < 1 || o.msaa > 8 || (o.msaa & (o.msaa - 1)) != 0) fail("--msaa must be 1, 2, 4 or 8");
   if (o.msaa > 1 && o.api != "dx11") fail("--msaa needs --api dx11");
@@ -910,9 +1347,12 @@ int main(int argc, char** argv) {
   SetProcessDPIAware();   // the client area is in pixels
   const std::vector<uint8_t> px = o.image.empty() ? testImage(o.width, o.height) : loadImage(o.image, o.width, o.height);
   HWND hwnd = makeWindow(o);
+  if (o.api == "dx9") return runD3d9(o, hwnd, px);
+  if (o.api == "dx10") return runD3d10(o, hwnd, px);
   if (o.api == "dx11") return runDx11(o, hwnd, px);
+  if (o.api == "dx12") return runD3d12(o, hwnd, px);
   if (o.api == "vulkan") return runVulkan(o, hwnd, px);
   if (o.api == "gl") return runGl(o, hwnd, px);
-  fail("--api must be dx11, vulkan or gl");
+  fail("--api must be dx9, dx10, dx11, dx12, vulkan or gl");
   return 1;
 }

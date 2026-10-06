@@ -43,6 +43,7 @@ GROUPS = [
     ]),
     ("NaN to bool / int", [
         ("(bool)NaN is true", "(bool)(N)", "ieee", ""),
+        ("(bool)-NaN is true", "(bool)(-N)", "ieee", ""),
         ("NaN ? 1 : 0 is 1", "((N) ? 1.0 : 0.0) == 1.0", "ieee", ""),
         ("int(NaN) == 0", "(int)(N) == 0", "d3d", "sm4"),
     ]),

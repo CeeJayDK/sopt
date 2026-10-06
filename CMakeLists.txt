@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sopt VERSION 0.6.1 LANGUAGES C CXX)
+project(sopt VERSION 0.6.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -124,7 +124,7 @@ if(WIN32)
   target_link_libraries(sopt-fxc PRIVATE d3dcompiler)
 
   # M4 benchmark harness (tools/windows/timer/README.md): sopt-timer, a ReShade add-on (needs
-  # ReShade with full add-on support), and sopt-host, a DX11 / Vulkan window showing one
+  # ReShade with full add-on support), and sopt-host, a Direct3D 9-12 / Vulkan / OpenGL window showing one
   # fixed image with vsync off.
   add_library(sopt-timer SHARED tools/windows/timer/sopt_timer.cpp)
   target_include_directories(sopt-timer PRIVATE third_party/reshade-addon/include third_party/reshade-addon/imgui)
@@ -137,7 +137,7 @@ if(WIN32)
   add_executable(sopt-host tools/windows/host/sopt_host.cpp)
   target_include_directories(sopt-host PRIVATE third_party/vulkan)
   target_compile_features(sopt-host PRIVATE cxx_std_17)
-  target_link_libraries(sopt-host PRIVATE d3d11 dxgi ole32 windowscodecs opengl32)
+  target_link_libraries(sopt-host PRIVATE d3d9 d3d10 d3d11 dxgi ole32 windowscodecs opengl32)
   # OpBench (sopt-opbench until 0.2.0): instruction costs on the local GPU (D3D11 compute,
   # tools/windows/README.md); target opbench, file OpBench.exe.
   add_executable(opbench tools/windows/opbench/sopt_opbench.cpp)
@@ -178,7 +178,7 @@ if(WIN32)
   sopt_version_info(opbench OpBench.exe "OpBench: GPU instruction cost benchmark (GPU Blueprint)" VFT_APP "GPU Blueprint")
   sopt_version_info(texbench TexBench.exe "TexBench: GPU texture cost benchmark (GPU Blueprint)" VFT_APP "GPU Blueprint")
   sopt_version_info(shaderinfo ShaderInfo.exe "ShaderInfo: what GPU drivers report about compiled shaders (GPU Blueprint)" VFT_APP "GPU Blueprint")
-  sopt_version_info(sopt-host sopt-host.exe "SweetOpt benchmark host window (DX11 / Vulkan)" VFT_APP "SweetOpt")
+  sopt_version_info(sopt-host sopt-host.exe "SweetOpt test host (Direct3D 9-12, Vulkan, OpenGL)" VFT_APP "SweetOpt")
   sopt_version_info(sopt-fxc sopt-fxc.exe "SweetOpt helper: HLSL to DXBC with Microsoft fxc" VFT_APP "SweetOpt")
   sopt_version_info(sopt sopt.exe "SweetOpt (sopt): super sweet shader optimizer, single expressions" VFT_APP "SweetOpt")
   sopt_version_info(sopt-fx sopt-fx.exe "SweetOpt (sopt-fx): super sweet shader optimizer for ReShade FX and HLSL" VFT_APP "SweetOpt")

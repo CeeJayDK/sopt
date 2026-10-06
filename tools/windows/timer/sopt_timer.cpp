@@ -12,6 +12,11 @@
 //
 // D3D10/11 frames are dropped when the timestamp counter was disjoint (ReShade reads the
 // frequency once and never checks this).
+//
+// Shot mode (ShotAfter = N, or SOPT_TIMER_SHOT=N in the environment; the test host's runs): after N frames in which
+// ReShade rendered a technique (and 7 s, until ReShade's banner is gone), save one screenshot (ReShade's SavePath / FileNaming) and close the window; after 60 s
+// without a rendered technique (an effect that does not compile) the screenshot is taken anyway. Works on every API,
+// with or without timestamp queries.
 
 #define NOMINMAX
 #include <imgui.h>
@@ -67,6 +72,7 @@ struct Config {
   std::string pattern = "sopt-";
   bool autoRun = false, exitWhenDone = false;
   bool screenshots = false;  // one screenshot per preset once it has warmed up (ReShade's SavePath)
+  int shotAfter = 0;         // shot mode: frames with a rendered technique before the screenshot (0 = off)
 };
 
 enum class Phase { Idle, Switch, Settle, Measure, Done };
@@ -100,6 +106,11 @@ struct State {
   std::vector<std::string> rows;
   std::string status = "idle";
   std::string csvPath;
+  // shot mode
+  bool techThisFrame = false;
+  int shotFrames = 0;
+  ULONGLONG shotStart = 0, shotFirst = 0, shotTaken = 0;
+  bool shotClosed = false;
 };
 
 State g;
@@ -153,6 +164,7 @@ void readConfig() {
   reshade::get_config_value(nullptr, "SOPT_TIMER", "AutoRun", c.autoRun);
   reshade::get_config_value(nullptr, "SOPT_TIMER", "ExitWhenDone", c.exitWhenDone);
   reshade::get_config_value(nullptr, "SOPT_TIMER", "Screenshots", c.screenshots);
+  reshade::get_config_value(nullptr, "SOPT_TIMER", "ShotAfter", c.shotAfter);
   char pat[256] = "";
   size_t n = sizeof(pat);
   if (reshade::get_config_value(nullptr, "SOPT_TIMER", "PresetPattern", pat, &n) && pat[0]) c.pattern = pat;
@@ -161,6 +173,7 @@ void readConfig() {
   if (GetEnvironmentVariableA("SOPT_TIMER_AUTO", env, sizeof(env))) c.autoRun = std::atoi(env) != 0;
   if (GetEnvironmentVariableA("SOPT_TIMER_EXIT", env, sizeof(env))) c.exitWhenDone = std::atoi(env) != 0;
   if (GetEnvironmentVariableA("SOPT_TIMER_SHOTS", env, sizeof(env))) c.screenshots = std::atoi(env) != 0;
+  if (GetEnvironmentVariableA("SOPT_TIMER_SHOT", env, sizeof(env))) c.shotAfter = std::atoi(env);
   c.warmup = std::max(c.warmup, 8);
   c.frames = std::max(c.frames, 10);
   c.repeats = std::clamp(c.repeats, 1, 16);
@@ -522,6 +535,7 @@ void onBeginEffects(effect_runtime* rt, command_list* cmd, resource_view rtv, re
 
 void onRenderTechnique(effect_runtime* rt, effect_technique t, command_list* cmd, resource_view, resource_view) {
   if (rt != g.runtime) return;
+  if (!g.inside) g.techThisFrame = true;
   if (g.inside || !g.cur) return;   // ReShade does not send an add-on the events its own calls cause
   g.cur->chain.push_back(t.handle);
   const uint32_t i = stamp(cmd);
@@ -576,8 +590,33 @@ void onReloaded(effect_runtime* rt) {
   }
 }
 
+// Shot mode: one screenshot once the effects have rendered for a while, then close the window.
+void stepShot(effect_runtime* rt) {
+  const ULONGLONG now = GetTickCount64();
+  if (!g.shotStart) g.shotStart = now;
+  if (g.techThisFrame && !g.shotFrames++) g.shotFirst = now;
+  g.techThisFrame = false;
+  if (!g.shotTaken) {
+    const bool timeout = now - g.shotStart > 60000;
+    // ReShade shows its banner until 5 s after the effects loaded: wait 7 s after the first frame with effects.
+    if ((g.shotFrames >= g.cfg.shotAfter && now - g.shotFirst > 7000) || timeout) {
+      if (timeout) logf("sopt-timer: no technique rendered within 60 s; screenshot taken anyway");
+      rt->save_screenshot();
+      g.shotTaken = now;
+      logf("sopt-timer: screenshot after %d frames with effects", g.shotFrames);
+    }
+  } else if (!g.shotClosed && now - g.shotTaken > 3000) {   // ReShade writes the file on a thread
+    PostMessageW(static_cast<HWND>(rt->get_hwnd()), WM_CLOSE, 0, 0);
+    g.shotClosed = true;
+  }
+}
+
 void onPresent(effect_runtime* rt) {
   if (rt != g.runtime) return;
+  if (g.cfg.shotAfter > 0) {
+    stepShot(rt);
+    return;
+  }
   if (g.phase == Phase::Idle && g.cfg.autoRun && g.frame > 30) {
     g.cfg.autoRun = false;
     startBench(rt);

@@ -21,6 +21,9 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
 - Christian (CeeJay, SweetFX/ReShade). Communicates in Danish; prefers brief, direct answers.
   Hardware (owner, 2026-10-01): NVIDIA GTX 1660 and an Intel NUC; no AMD card (AMD numbers come
   from RGA / ACO only).
+- PNGs (owner, 2026-10-06): run every PNG sent to the owner or committed through ECT -5 first (scratchpad ect/build/ect
+  -5 -strip -quiet; oxipng -o 4 as fallback): a ShaderLab render went from 8.3 MB to 13 KB. Costs no tokens (one quiet
+  local command); image tokens depend on pixel size, not file size.
 - When asking the owner to do or download something, repeat the links/files in that message
   (resend packages, give the CI run link) so nothing has to be searched for in the thread.
 - Versions (owner, 2026-10-05): raise the last digit of `project(sopt VERSION ...)` in every build sent to the
@@ -94,6 +97,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   fewer for 58, more for 2 (Temporal_AA rational forms, faster in AMD/NVIDIA ISA). SPIR-V
   identity is too strict (inputs read from the test texture differently, e.g. Daltonize
   folds to 0 alu in both): counts only; DXBC identity is meaningful.
+- Test Host (owner, 2026-10-06: "one test host to rule them all", ease of use): `Test-Host.bat` menu (IEEE 754 test on
+  every / one API, an Effects\ effect on every API, the host with ReShade on a chosen API by hand, the benchmark,
+  Results\ / Effects\ / guide); scripts bin\run-test.ps1 / run-bench.ps1 / common.ps1 (ReShade per API: d3d9.dll,
+  dxgi.dll for dx10-12, opengl32.dll, Vulkan layer env); package staged as Test-Host\ (CI artifact name
+  sopt-windows-tools kept, release Test-Host-<v>.zip; docs/TestHost.html = README.html; run-bench.bat gone).
+  sopt-host `--api dx9|dx10|dx11|dx12|vulkan|gl` (d3d12.dll loaded at run time; depth pass on all but GL: depth9.hlsl
+  float math vs_3_0 + ps_3_0, depth.hlsl as vs_4_0 / vs_5_0). sopt-timer shot mode (ShotAfter / SOPT_TIMER_SHOT=N: N
+  frames with a rendered technique and 7 s for ReShade's banner, save_screenshot, WM_CLOSE 3 s later; 60 s timeout).
+  Checked under Wine (mingw ReShade, Microsoft d3dcompiler_47, WINEDLLOVERRIDES dxgi=n,b etc.): host alone all six APIs;
+  with ReShade + IEEE test screenshots for dx9 / dx10 / dx11 / gl; dx12 crashes in Wine's vkd3d with ReShade loaded
+  (also without the add-on), Vulkan layer does not load under Wine: both need the owner's Windows run. PowerShell parse
+  checks and a stub-host dry run with pwsh 7 (scratchpad pwsh/pwsh).
 - `tools/windows` (Windows bench, owner 2026-10-01: one folder, documented in its README.md;
   `run-bench.ps1` / `.bat`: own run folder and ReShade.ini, ReShade as dxgi.dll for DX11 and as a
   Vulkan layer via VK_ADD_LAYER_PATH / VK_INSTANCE_LAYERS, sopt-timer Screenshots=1).
@@ -1286,10 +1301,20 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   model): examples all found except depth_reversed (goal 32 = 1000 / mad(t, 998001, 999) - c, best 35 even in 120 s and
   with any order model; old model 24 < goal 25): the inner fit emits p * rcp(v + c) + q (35), not the div form whose mul
   and add fold (32); rsqrt first hit 2.2 -> 23.5 s, step_lerp / length_squared faster; planted 0 not recovered.
-  NaN (owner, 2026-10-06): fxc compiles isnan(x) and x != x alike (ne); ReShade 6.8.0's SPIR-V codegen emits float != as
-  OpFOrdNotEqual (effect_codegen_spirv.cpp line 2195; also line 1723, float -> bool as != 0), false for NaN, where IEEE
-  754 / HLSL != is unordered (OpFUnordNotEqual): a ReShade codegen bug, not a driver one (read from source, not tested);
-  isnan -> OpIsNan is fine. Library !(a == b) -> a != b rules removed for this reason.
+  Div form (owner's go 2026-10-06; SearchConfig::divForm, default, `--no-div-form`): inner rcp fits also emitted as
+  p / (v + c) (+ q), cost add + div (+ fusedAdd). Bench (time 30, on vs off): depth_reversed 35 -> 32 (goal reached
+  again), rational 35 -> 32, everything else and all first hits the same; planted identical.
+  IEEE 754 / NaN (owner, 2026-10-06; tools/reshade/sopt_IEEE754.fx from gen_ieee754.py, 62 tests x Folded / Literal /
+  Run time, built-in DejaVu Sans Mono bitmap font, fits 1920x1080 at scale 2; findings tools/reshade/IEEE754.md): ReShade
+  6.8.0 SPIR-V writes float != and float -> bool as OpFOrdNotEqual (effect_codegen_spirv.cpp 2195 / 1723: false for NaN;
+  fix OpFUnordNotEqual); HLSL / GLSL write infinity literals with swapped signs (effect_codegen_hlsl.cpp 626,
+  effect_codegen_glsl.cpp 536; shown by the Wine D3D11 and GL runs); SM3 rejects NaN / inf literals; FMin / FMax /
+  FClamp / Round on Vulkan leave D3D's NaN / tie rules to the driver. fxc -O3 without D3DCOMPILE_IEEE_STRICTNESS
+  (ReShade's flags) assumes inputs are never NaN / inf: isnan(x) and x != x on cbuffer / texture values -> false, x / x
+  -> 1, x - x -> 0, isnan(inf - inf) / rsqrt(0) == inf -> false; precise keeps the checks; the strictness flag costs
+  +5-60% DXBC instructions (SMAA 247 -> 310). My earlier "fxc compiles isnan and x != x alike" held only for computed
+  values. Owner (2026-10-06): do not rule out variants because of a ReShade bug: !(a == b) <-> a != b back in the
+  library. Signalling NaNs: no use on GPUs (no traps, payloads not preserved); (bool)-NaN = (bool)NaN.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
