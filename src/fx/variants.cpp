@@ -104,6 +104,8 @@ std::string variantClass(const Variant& v, int codeBits) {
   std::string s = klassName(v.klass, codeBits);
   if (v.moreAccurate) s += ", more accurate";
   if (v.fewerRegisters && v.notFaster) s += ", fewer registers";
+  if (v.perfFaster) s += v.perfFirst ? ", faster without performance mode" : ", faster in performance mode";
+  if (v.betterScheduling) s += ", better scheduling";
   if (v.notFaster) s += " (not faster)";
   return s;
 }
@@ -267,17 +269,27 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         // The last variant also takes larger values, so SOPT_ALL = k works for regions
         // with fewer than k variants.
         out += std::string(k == 0 ? "#if " : "#elif ") + cond(k) + "\n";
-        char note[320];
+        char note[640];
         int len = std::snprintf(note, sizeof(note), " // sopt: %s, cost %u -> %u",
                                 variantClass(v, r.prog.budget.codeBits()).c_str(), rr->targetCost, v.cost);
         if ((v.klass == Klass::Accurate || v.klass == Klass::LessAccurate) && rr->targetExactAbs >= 0 && len > 0)
           len += std::snprintf(note + len, sizeof(note) - len, ", max err vs exact %.2g (original %.2g)",
                                v.worst.exactAbs, rr->targetExactAbs);
-        if (v.amd >= 0 && rr->targetAmd >= 0 && len > 0 && len < 200)
+        if (rr->schedule && len > 0 && len < 500 && (v.otherCost != v.cost || rr->targetOtherCost != rr->targetCost))
+          len += std::snprintf(note + len, sizeof(note) - len, ", %s %u -> %u",
+                               v.perfFirst ? "without performance mode" : "performance mode", rr->targetOtherCost,
+                               v.otherCost);
+        if (rr->schedule && len > 0 && len < 500 && v.amdOther >= 0 && rr->targetAmdOther >= 0)
+          len += std::snprintf(note + len, sizeof(note) - len, " (amd %d -> %d)", rr->targetAmdOther, v.amdOther);
+        if (rr->schedule && len > 0 && len < 500 && v.nvOther >= 0 && rr->targetNvOther >= 0)
+          len += std::snprintf(note + len, sizeof(note) - len, " (nv %d -> %d)", rr->targetNvOther, v.nvOther);
+        if (rr->schedule && len > 0 && len < 500 && v.tail != rr->targetTail)
+          len += std::snprintf(note + len, sizeof(note) - len, ", tail %u -> %u", rr->targetTail, v.tail);
+        if (v.amd >= 0 && rr->targetAmd >= 0 && len > 0 && len < 500)
           len += std::snprintf(note + len, sizeof(note) - len, ", amd %d -> %d", rr->targetAmd, v.amd);
-        if (v.nv >= 0 && rr->targetNv >= 0 && len > 0 && len < 200)
+        if (v.nv >= 0 && rr->targetNv >= 0 && len > 0 && len < 500)
           len += std::snprintf(note + len, sizeof(note) - len, ", nv %d -> %d", rr->targetNv, v.nv);
-        if (v.intel >= 0 && rr->targetIntel >= 0 && len > 0 && len < 200)
+        if (v.intel >= 0 && rr->targetIntel >= 0 && len > 0 && len < 500)
           len += std::snprintf(note + len, sizeof(note) - len, ", intel %d -> %d", rr->targetIntel, v.intel);
         std::string back;
         // Register counts only where they change (register pressure).
@@ -359,6 +371,16 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
        "i.e. the compiler already does it on that backend. \"vs exact\" is the max error "
        "against exact math. \"auto\" marks what SOPT_AUTO = 1 selects on that vendor. Ranges "
        "marked *assumed* are defaults, not facts: check them before using a variant.\n\n";
+  if (info.schedule)
+    s += std::string("Scheduling (regions with uniforms or texture fetches): ") +
+         (info.perfFirst ? "cost is the performance mode cost (uniforms are constants there), \"without perf. mode\" "
+                           "the normal one"
+                         : "\"perf. mode\" is the cost with ReShade's performance mode on (uniforms are constants "
+                           "there)") +
+         "; tail: the cost of the work that waits for the last texture fetch (shorter lets the GPU "
+         "do more while the samples arrive). \"faster in performance mode\" / \"better "
+         "scheduling\" variants are not faster otherwise (at most one instruction slower where "
+         "measured); like the other \"(not faster)\" ones, SOPT_AUTO never picks them.\n\n";
   if (!info.failed.empty()) {
     s += "## Effects that failed to parse\n\n";
     for (const auto& [f, e] : info.failed) s += "- `" + f + "`: " + escapeCell(e.substr(0, 300)) + "\n";
@@ -424,6 +446,8 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       return cell;
     };
     s += "\n\n| # | code | cost |";
+    const bool sched = info.schedule && rr.schedule;
+    if (sched) s += info.perfFirst ? " without perf. mode | tail |" : " perf. mode | tail |";
     if (info.amd) s += " amd | amd vgpr |";
     if (info.nv) s += " nv | nv regs |";
     if (info.intel) s += " intel |";
@@ -431,6 +455,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     if (info.dxbc) s += " dxbc |";
     s += std::string(" class | max abs err |") + (exact ? " vs exact |" : "") + " verified |" +
          (autoCol ? " auto |" : "") + "\n|---|---|---|";
+    if (sched) s += "---|---|";
     if (info.amd) s += "---|---|";
     if (info.nv) s += "---|---|";
     if (info.intel) s += "---|";
@@ -438,6 +463,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     if (info.dxbc) s += "---|";
     s += std::string(exact ? "---|---|---|---|" : "---|---|---|") + (autoCol ? "---|" : "") + "\n";
     s += "| 0 | `" + escapeCell(toString(r.prog.target, r.prog.inputs)) + "` | " + std::to_string(rr.targetCost) + " |";
+    if (sched) s += " " + std::to_string(rr.targetOtherCost) + " | " + std::to_string(rr.targetTail) + " |";
     if (info.amd) s += " " + withGain(rr.targetAmd, -1) + " | " + regsCell(rr.targetAmdVgprs, -1) + " |";
     if (info.nv) s += " " + withGain(rr.targetNv, -1) + " | " + regsCell(rr.targetNvRegs, -1) + " |";
     if (info.intel) s += " " + withGain(rr.targetIntel, -1) + " |";
@@ -453,6 +479,9 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       const Variant& v = rr.variants[k];
       s += "| " + std::to_string(k + 1) + " | `" + escapeCell(v.text) + "` | " +
            withGain(static_cast<int>(v.cost), static_cast<int>(rr.targetCost)) + " |";
+      if (sched)
+        s += " " + withGain(static_cast<int>(v.otherCost), static_cast<int>(rr.targetOtherCost)) + " | " +
+             withGain(static_cast<int>(v.tail), static_cast<int>(rr.targetTail)) + " |";
       if (info.amd) s += " " + withGain(v.amd, rr.targetAmd) + " | " + regsCell(v.amdVgprs, rr.targetAmdVgprs) + " |";
       if (info.nv) s += " " + withGain(v.nv, rr.targetNv) + " | " + regsCell(v.nvRegs, rr.targetNvRegs) + " |";
       if (info.intel) s += " " + withGain(v.intel, rr.targetIntel) + " |";

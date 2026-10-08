@@ -1545,6 +1545,29 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   a * ar_raw, ar_raw) in BulgePinch / Ripple / Swirl / SplicedRadials / ZigZag, amd 3 -> 2, nv 3 -> 2,
   blocked before by ar_raw = H / W), OtisFX 4 -> 3 (CinematicDOF 966 had no variant row in the baked
   run either), iMMERSE 7 / 7 (same regions), SweetFX 10 / 10; all variant files parse.
+- Scheduling measures (owner, 2026-10-08: "group calculations by where the data comes from so they can be
+  precalculated, start texture fetches early, minimize their tail"; a secondary measure like registers; go for the plan):
+  InputDecl::rate (Pixel / Uniform / Fetch + fetchOrder; .sopt `input x : uniform|fetch float ...`; sopt-fx: user
+  uniforms of FX effects (no `source` annotation; plain HLSL has no performance mode) and fetch leaves in source order),
+  perfFolded / folds() (uniforms folded like compile-time inputs: perfInputs). scheduleMetrics (expr.cpp): perfCost
+  (dagCost with uniforms folded), tail (cost of the nodes depending on the last fetch), critical path; nodeCosts
+  refactored out of dagCost. search/reshape.cpp reshapeForms: sums / products flattened through single-use same-type
+  nodes, rebuilt in rate order (const, macro, uniform, pixel, fetches in order; product terms as mad), second form
+  multiplies a const / uniform weight into a sum that reads a fetch (the mad chain); forms no better on any measure
+  dropped; candidates like the library's (target + seed). Driver (Options::schedule, default, --no-schedule;
+  Options::perfFirst, --perf-mode-first: recursion with perfInputs): Accepted normalCost / perfCost / tail / critical,
+  ties broken by the other mode's cost, tail, critical path; kept when not cheaper but otherModeFaster (up to
+  accuracySlack above) or betterScheduling (tail shorter at no more cost); value-hash dedup keeps better-scheduled ones.
+  sopt: schedule line and perf / tail columns. sopt-fx: Variant perfFaster / betterScheduling (notFaster, scheduling
+  bucket, max 2, never SOPT_AUTO, not in sopt-found.txt), comments ", performance mode a -> b (amd x -> y) (nv ...), tail
+  t -> u", report columns; with --isa / --sass the other mode is measured too (uniforms as compile-time constants at lo +
+  0.37 (hi - lo) through specializeForCompiler); a perf-faster variant must be measurably faster there where measured.
+  Checked: fxc and AMD's driver issue loads in dependency order (nested mad text order does not matter); test effect:
+  (a + b + c + d) * 0.25 -> mad chain "better scheduling", tail 8 -> 4; color + (color - blur) * S * O -> * (S * O)
+  "faster in performance mode" 14 -> 10, measured amd 2 -> 2 (AMD's compiler already folds it), nv 3 -> 2. Bench
+  (examples, time 10): identical bests (no rates in the examples). Not done: AMD ISA tail (instructions after the last
+  s_waitcnt vmcnt(0), needs RGA ISA text per candidate); corpus A/B after the full corpus run. Owner's next idea (task):
+  hoist per-pixel math that is linear in interpolants to the vertex shader.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

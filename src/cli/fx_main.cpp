@@ -124,6 +124,12 @@ void usage() {
       "                    and search both parts on their own, --cut-time S per part, default 1)\n"
       "  --quant-oe N      quantized dedup: values equal after rounding away the low N\n"
       "                    mantissa bits on the test points count as one (default 0 = bit-exact)\n"
+      "  --no-schedule     no scheduling measures (default: for regions with uniforms or texture\n"
+      "                    fetches, reshaped forms (math grouped by rate, the last fetch entering\n"
+      "                    last) are candidates, ties are broken by the performance mode cost and\n"
+      "                    the tail after the last fetch, and variants faster in performance mode\n"
+      "                    or with a shorter tail are written as \"(not faster)\" variants)\n"
+      "  --perf-mode-first the performance mode cost (uniforms are constants) is the main cost\n"
       "  --no-v3           no V3 (default: prove a formal error bound by interval subdivision\n"
       "                    for the cheapest 3 alternatives where V2 does not apply, --v3-time S\n"
       "                    each, default 2; sopt-fx: for the written variants)\n"
@@ -278,6 +284,8 @@ int main(int argc, char** argv) {
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
     else if (a == "--tests") opt.numTests = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--no-v3") opt.v3 = false;
+    else if (a == "--no-schedule") opt.schedule = false;
+    else if (a == "--perf-mode-first") opt.perfFirst = true;
     else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
     else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);
@@ -326,6 +334,7 @@ int main(int argc, char** argv) {
   // Front end: every effect twice (two resolutions, see extractRegions).
   fx::ReportInfo info;
   info.costModel = std::string(opt.search.model->name);
+  info.perfFirst = opt.perfFirst;
   std::vector<fx::RegionResult> results;
   std::vector<std::pair<fs::path, std::vector<std::string>>> effectFiles;  // effect, its sources
   // Plain HLSL by extension (or --hlsl), with the entry point.
@@ -648,8 +657,15 @@ int main(int argc, char** argv) {
     rr.limitHit = res.search.limitHit;
     rr.completedCost = res.search.completedCost;
     rr.maxLevel = res.search.maxLevel;
-    const uint32_t targetCompiled =
-        fx::compiledCost(rr.region.prog.target, *opt.search.model, rr.region.prog.inputs);
+    // Compiled costs in the main mode and the other one (performance mode: uniforms folded).
+    const std::vector<InputDecl> perfIns = perfInputs(rr.region.prog.inputs);
+    const std::vector<InputDecl>& mainIns = opt.perfFirst ? perfIns : rr.region.prog.inputs;
+    const std::vector<InputDecl>& otherIns = opt.perfFirst ? rr.region.prog.inputs : perfIns;
+    const uint32_t targetCompiled = fx::compiledCost(rr.region.prog.target, *opt.search.model, mainIns);
+    const uint32_t targetOtherCompiled = fx::compiledCost(rr.region.prog.target, *opt.search.model, otherIns);
+    rr.schedule = opt.schedule && hasScheduleInputs(rr.region.prog.inputs);
+    rr.targetOtherCost = opt.perfFirst ? res.targetNormalCost : res.targetPerfCost;
+    rr.targetTail = res.targetTail;
     // A texture fetch input is its call text: a variant must not repeat it more often.
     auto count = [](const std::string& text, const std::string& what) {
       size_t n = 0;
@@ -658,7 +674,7 @@ int main(int argc, char** argv) {
     };
     const std::string targetText = toString(rr.region.prog.target, rr.region.prog.inputs);
     for (const auto& a : res.accepted) {
-      if (a.cost >= res.targetCost && !a.moreAccurate) continue;
+      if (a.cost >= res.targetCost && !a.moreAccurate && !a.otherModeFaster && !a.betterScheduling) continue;
       bool moreFetches = false;
       for (size_t k = 0; k < rr.region.facts.size(); ++k)
         if (rr.region.facts[k].fetch) {
@@ -666,17 +682,27 @@ int main(int argc, char** argv) {
           moreFetches = moreFetches || count(a.text, nm) > count(targetText, nm);
         }
       if (moreFetches) continue;
-      const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, rr.region.prog.inputs);
+      const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, mainIns);
       const bool cheaper = compiled < targetCompiled;
       // Not faster but maybe fewer registers (owner, 2026-10-04): only measurement shows it.
       const bool registerCandidate = (isa || sass) && compiled <= targetCompiled + opt.accuracySlack;
-      if (!cheaper && !(a.moreAccurate && compiled <= targetCompiled + opt.accuracySlack) && !registerCandidate) {
+      // Scheduling (owner, 2026-10-08): faster in the other mode, or a shorter tail at no more cost.
+      const bool perfFaster = rr.schedule && !cheaper && a.otherModeFaster && compiled <= targetCompiled + opt.accuracySlack &&
+                              fx::compiledCost(a.expr, *opt.search.model, otherIns) < targetOtherCompiled;
+      const bool betterScheduling = rr.schedule && !cheaper && a.betterScheduling && compiled <= targetCompiled;
+      if (!cheaper && !(a.moreAccurate && compiled <= targetCompiled + opt.accuracySlack) && !registerCandidate &&
+          !perfFaster && !betterScheduling) {
         ++rr.onlyContraction;
         continue;
       }
       fx::Variant v;
       v.moreAccurate = a.moreAccurate;
       v.notFaster = !cheaper;
+      v.perfFirst = opt.perfFirst;
+      v.perfFaster = perfFaster;
+      v.betterScheduling = betterScheduling;
+      v.otherCost = opt.perfFirst ? a.normalCost : a.perfCost;
+      v.tail = a.tail;
       v.expr = a.expr;
       v.text = a.text;
       v.cost = a.cost;
@@ -691,9 +717,12 @@ int main(int argc, char** argv) {
     if (accuracyRule(rr.region.prog.budget) && opt.exactRule) rr.targetExactAbs = res.targetExact.exactAbs;
     // Accurate variants first (cheapest first); less accurate ones only if cheaper than
     // every accurate one, after them: the user decides from their accuracy.
-    std::vector<fx::Variant> strict, loose, accurate, registers;
+    std::vector<fx::Variant> strict, loose, accurate, registers, scheduling;
     for (auto& v : rr.variants)
-      (v.notFaster ? (v.moreAccurate ? accurate : registers) : (v.klass == Klass::LessAccurate ? loose : strict))
+      (v.notFaster ? (v.moreAccurate                            ? accurate
+                      : v.perfFaster || v.betterScheduling       ? scheduling
+                                                                 : registers)
+                   : (v.klass == Klass::LessAccurate ? loose : strict))
           .push_back(std::move(v));
     auto byCost = [](const fx::Variant& a, const fx::Variant& b) { return a.cost < b.cost; };
     std::stable_sort(strict.begin(), strict.end(), byCost);
@@ -712,10 +741,18 @@ int main(int argc, char** argv) {
                     registers.end());
     std::stable_sort(registers.begin(), registers.end(), byCost);
     if (registers.size() > 2) registers.resize(2);
+    // Scheduling variants: the two best by the other mode's cost, then the tail.
+    std::stable_sort(scheduling.begin(), scheduling.end(), [](const fx::Variant& a, const fx::Variant& b) {
+      if (a.otherCost != b.otherCost) return a.otherCost < b.otherCost;
+      if (a.tail != b.tail) return a.tail < b.tail;
+      return a.cost < b.cost;
+    });
+    if (scheduling.size() > 2) scheduling.resize(2);
     rr.variants = std::move(strict);
     for (auto& v : loose) rr.variants.push_back(std::move(v));
     for (auto& v : accurate) rr.variants.push_back(std::move(v));
     for (auto& v : registers) rr.variants.push_back(std::move(v));
+    for (auto& v : scheduling) rr.variants.push_back(std::move(v));
     rr.sec = searchSec[firstOf[i]] + std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
     std::lock_guard<std::mutex> lock(printMu);
     const size_t n = ++done;
@@ -803,8 +840,31 @@ int main(int argc, char** argv) {
       if (rr.variants.empty()) continue;
       std::vector<InputDecl> ins = rr.region.prog.inputs;
       for (size_t k = 0; k < ins.size(); ++k) ins[k].name = "sopt_in" + std::to_string(k);
+      // Performance mode as the compiler sees it: uniforms are constants (a typical value: not 0, 1 or 0.5,
+      // which would fold more than a user's setting). One mode is measured as the main one, the other
+      // for the scheduling measures (regions with uniforms).
+      std::vector<InputDecl> perfMeas = ins;
+      bool uniforms = false;
+      for (auto& d : perfMeas)
+        if (d.rate == InputDecl::Rate::Uniform) {
+          d.compileTime = true;
+          d.value = d.lo + 0.37 * (d.hi - d.lo);
+          uniforms = true;
+        }
+      const bool otherMode = rr.schedule && uniforms;
+      if (opt.perfFirst && uniforms) std::swap(ins, perfMeas);  // main = performance mode
       std::vector<const Expr*> exprs = {&rr.region.prog.target};
       for (const auto& v : rr.variants) exprs.push_back(&v.expr);
+      if (isa && otherMode) {
+        const auto m = measureIsa(exprs, perfMeas, isaCfg);
+        rr.targetAmdOther = m[0].ok ? m[0].cost : -1;
+        for (size_t k = 0; k < rr.variants.size(); ++k) rr.variants[k].amdOther = m[k + 1].ok ? m[k + 1].cost : -1;
+      }
+      if (sass && otherMode) {
+        const auto m = measureSass(exprs, perfMeas, sassCfg);
+        rr.targetNvOther = m[0].ok ? m[0].cost : -1;
+        for (size_t k = 0; k < rr.variants.size(); ++k) rr.variants[k].nvOther = m[k + 1].ok ? m[k + 1].cost : -1;
+      }
       if (isa) {
         const auto m = measureIsa(exprs, ins, isaCfg);
         rr.targetAmd = m[0].ok ? m[0].cost : -1;
@@ -844,12 +904,23 @@ int main(int argc, char** argv) {
           more = more || c > t;
         }
         v.fewerRegisters = fewer && !more;
-        if (measured && !better && close && (v.moreAccurate || v.fewerRegisters)) {
-          v.notFaster = true;  // accuracy / register variant: not faster, at most 1 instruction slower
+        // Faster in the other mode: where that mode was measured, it must be measurably faster there.
+        if (v.perfFaster) {
+          bool otherMeasured = false, otherBetter = false;
+          for (auto [t, c] : {std::pair{rr.targetAmdOther, v.amdOther}, std::pair{rr.targetNvOther, v.nvOther}}) {
+            if (t < 0 || c < 0) continue;
+            otherMeasured = true;
+            otherBetter = otherBetter || c < t;
+          }
+          if (otherMeasured && !otherBetter) v.perfFaster = false;
+        }
+        const bool scheduling = v.perfFaster || v.betterScheduling;
+        if (measured && !better && close && (v.moreAccurate || v.fewerRegisters || scheduling)) {
+          v.notFaster = true;  // accuracy / register / scheduling variant: not faster, at most 1 instruction slower
           kept.push_back(std::move(v));
         } else if (measured && !better) {
-          if (!v.notFaster || v.moreAccurate) ++rr.measuredNoGain;  // register candidates never claimed a gain
-        } else if (!measured && v.notFaster && !v.moreAccurate) {
+          if (!v.notFaster || v.moreAccurate || scheduling) ++rr.measuredNoGain;  // register candidates never claimed a gain
+        } else if (!measured && v.notFaster && !v.moreAccurate && !scheduling) {
           // a register candidate whose registers could not be measured
         } else {
           v.notFaster = false;
@@ -1070,6 +1141,7 @@ int main(int argc, char** argv) {
   info.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   {
     std::ofstream f(outDir / "sopt-report.md", std::ios::binary);
+    for (const auto& rr : results) info.schedule = info.schedule || rr.schedule;
     f << fx::markdownReport(results, info);
   }
   {

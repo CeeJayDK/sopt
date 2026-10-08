@@ -193,6 +193,8 @@ int main(int argc, char** argv) {
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
     else if (a == "--tests") opt.numTests = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--no-v3") opt.v3 = false;
+    else if (a == "--no-schedule") opt.schedule = false;
+    else if (a == "--perf-mode-first") opt.perfFirst = true;
     else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
     else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);

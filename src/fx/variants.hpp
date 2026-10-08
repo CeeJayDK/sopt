@@ -33,6 +33,16 @@ struct Variant {
   bool moreAccurate = false;
   bool fewerRegisters = false;
   bool notFaster = false;
+  // Scheduling measures (owner, 2026-10-08; scheduleMetrics): the cost in the other mode
+  // (performance mode, or without it when that is the main cost: perfFirst) and the tail after
+  // the last texture fetch. perfFaster: not faster, but faster in the other mode (compiled
+  // costs); betterScheduling: not faster, but a shorter tail. Both are notFaster variants.
+  uint32_t otherCost = 0;
+  uint32_t tail = 0;
+  int amdOther = -1, nvOther = -1;  // measured in the other mode (uniforms as constants, or not)
+  bool perfFirst = false;
+  bool perfFaster = false;
+  bool betterScheduling = false;
   // Backend normalization (--backends): instruction counts after the compilers' optimizers
   // (-1 = not measured) and whether the code is identical to the original's there.
   int spirv = -1, dxbc = -1;
@@ -48,6 +58,11 @@ struct RegionResult {
   Region region;
   std::string effect;  // the .fx it was found in
   uint32_t targetCost = 0;
+  // Scheduling measures of the original (see Variant), for regions with uniforms or fetches.
+  bool schedule = false;
+  uint32_t targetOtherCost = 0;
+  uint32_t targetTail = 0;
+  int targetAmdOther = -1, targetNvOther = -1;  // see Variant
   std::vector<Variant> variants;  // cheapest first; less accurate ones after the others
   // Found, but some input range is assumed (not a fact): only in the report, unless
   // sopt-fx --assumed.
@@ -114,6 +129,8 @@ struct ReportInfo {
   bool amd = false, nv = false;           // ISA measurements ran
   bool intel = false;                     // Intel driver statistics loaded (--driver-stats)
   bool spirv = false, dxbc = false;       // backend normalization ran
+  bool schedule = false;                  // scheduling measures (some region has them)
+  bool perfFirst = false;                 // the performance mode cost is the main cost
 };
 
 std::string markdownReport(const std::vector<RegionResult>& results, const ReportInfo& info);
