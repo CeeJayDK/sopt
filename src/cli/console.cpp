@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -71,8 +72,28 @@ void section(const Style& st, const std::string& title) {
   std::fflush(stdout);
 }
 
-Progress::Progress(const Style& st, size_t total, int width)
-    : st_(st), total_(total), width_(width), start_(std::chrono::steady_clock::now()) {
+void setTitle(const Style& st, const std::string& utf8) {
+  if (!st.vt) return;
+#ifdef _WIN32
+  const int n = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
+  std::wstring w(static_cast<size_t>(std::max(n, 1)), L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, w.data(), n);
+  SetConsoleTitleW(w.c_str());
+#else
+  std::printf("\x1b]0;%s\x07", utf8.c_str());
+  std::fflush(stdout);
+#endif
+}
+
+std::string titleBar(size_t done, size_t total) {
+  const int cells = 10;
+  const int full = total ? static_cast<int>(std::min<size_t>(done * cells / total, cells)) : cells;
+  const int pct = total ? static_cast<int>(std::min<size_t>(100 * done / total, 100)) : 100;
+  return "[" + repeat(kFull, full) + repeat("\xE2\x96\x91", cells - full) + "] " + std::to_string(pct) + "%";  // U+2591
+}
+
+Progress::Progress(const Style& st, size_t total, std::string what, int width)
+    : st_(st), total_(total), what_(std::move(what)), width_(width), start_(std::chrono::steady_clock::now()) {
   if (!st_.vt || total_ == 0) return;
   // The scale: 0% at the bar's first cell, 100% at its last. Each label's marking digit sits on its cell
   // (owner): the 0 of 0%, the 5 of 25%, the 0 of 50%, the 5 of 75% and the first 0 of 100%.
@@ -113,6 +134,12 @@ void Progress::draw() {
   }
   std::printf("\r   %s%s\x1b[K", bar.c_str(), info);
   std::fflush(stdout);
+  // The window title shows the same (owner, 2026-10-08). Rewritten only when its text changes.
+  std::string t = "SweetOpt  -  " + titleBar(done_, total_);
+  if (!what_.empty()) t += "  " + what_;
+  t += "  " + std::to_string(done_) + "/" + std::to_string(total_);
+  if (const char* left = std::strstr(info, "~")) t += "  " + std::string(left);
+  if (t != lastTitle_) setTitle(st_, t), lastTitle_ = t;
 }
 
 void Progress::print(const std::string& line) {

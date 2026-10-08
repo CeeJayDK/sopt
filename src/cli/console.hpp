@@ -25,11 +25,20 @@ void titleBox(const Style& st, const std::string& title);
 // A section heading: "== Searching 318 regions" (bright cyan).
 void section(const Style& st, const std::string& title);
 
+// Sets the console window's title (Windows: SetConsoleTitleW; elsewhere the xterm escape on a
+// terminal). Only on an interactive console.
+void setTitle(const Style& st, const std::string& utf8);
+
+// "[######----] 60%" (block characters): a progress bar as plain text for the window title (owner, 2026-10-08: progress
+// visible in the taskbar / tab while the window is behind others).
+std::string titleBar(size_t done, size_t total);
+
 // A progress bar for a known number of steps with a percentage scale above it and the time left
-// (from the average time per step so far). Thread safe; does nothing without colors.
+// (from the average time per step so far), also shown in the window title as "SweetOpt - [bar] N%  <what>
+// k/n  ~m:ss left". Thread safe; does nothing without colors.
 class Progress {
  public:
-  Progress(const Style& st, size_t total, int width = 40);
+  Progress(const Style& st, size_t total, std::string what = "", int width = 40);
   void step();    // one more step done
   void print(const std::string& line);  // a line of output above the bar (plain without colors)
   void finish();  // ends the bar's line
@@ -37,6 +46,7 @@ class Progress {
   void draw();
   Style st_;
   size_t total_, done_ = 0;
+  std::string what_, lastTitle_;
   int width_;
   bool open_ = false;
   std::chrono::steady_clock::time_point start_;

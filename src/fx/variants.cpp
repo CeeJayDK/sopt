@@ -704,7 +704,8 @@ std::string foundRewrites(const std::vector<RegionResult>& results) {
       "# sopt: faster variants found (sopt-fx), in the rewrite library's format\n"
       "# (library/rewrites.txt). Names are the region's inputs; ranges are what sopt-fx knew\n"
       "# (facts, or assumed where marked). Generalize a rule before adding it to the library\n"
-      "# and check it there with sopt --check-library.\n";
+      "# and check it there with sopt --check-library. Each rule is the original, \"->\", the faster\n"
+      "# form and the ranges, on lines of their own.\n";
   std::set<std::string> seen;
   char buf[256];
   auto ident = [](const std::string& n) {
@@ -735,8 +736,10 @@ std::string foundRewrites(const std::vector<RegionResult>& results) {
     const std::string lhs = toString(r.prog.target, named);
     auto emit = [&](const Variant& v, bool assumed) {
       if (v.notFaster) return;
-      std::string rule = lhs + " -> " + toString(v.expr, named);
-      if (!where.empty()) rule += "   where " + where;
+      // Pattern, arrow and replacement on lines of their own (owner, 2026-10-08: easier to read); the
+      // library parser joins them.
+      std::string rule = lhs + "\n  ->\n" + toString(v.expr, named);
+      if (!where.empty()) rule += "\n  where " + where;
       if (!seen.insert(rule).second) return;
       s += "\n# " + pathFrom(r.file).filename().string() + ":" +
            (r.removed.empty() ? "" : std::to_string(r.removed.front().first) + "-") + std::to_string(r.line) +

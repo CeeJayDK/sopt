@@ -1664,7 +1664,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   Y/N, or expert), key E (easy settings: too exact no/yes, rewrites safe/all/none, reset), MODE / TOOEXACT / REWRITES in
   SweetOpt.ini, default easy; key 2 option 4 picks a GLSL / HLSL file without a Shaders folder (no -I then); file dialog
   lists .hlsli / .frag / .fs / .glsl. cmd gotcha found under Wine: `if A if B (x) else (y)` binds the else to the outer if
-  (toggling setting 2 flipped setting 1): use gotos. Test build 0.6.5 for the owner; the release (GLSL, easy mode) sets 0.7.0.
+  (toggling setting 2 flipped setting 1): use gotos. Owner's 0.6.5 test (Pinball crt-lottes, Turing): "0 of 13 regions have
+  cheaper variants" although two were found (held back: assumed ranges, no facts): result lines now say "(needs value ranges,
+  see below)" and a summary line names the inputs and menu key 8. sopt-found.txt (owner): pattern, "  ->", replacement and
+  "  where ..." on lines of their own; parseLibrary joins a line starting with "->" / "where" or following one ending in "->"
+  (library/rewrites.txt stays one line per rule). Window title progress (owner's idea): console::setTitle / titleBar
+  ("SweetOpt - [##########] 60%  searching k/n  ~m:ss left", SetConsoleTitleW, xterm OSC 0 elsewhere; "done" at the end)
+  and benchkit titleBar in OpBench / TexBench titles. Test build 0.6.6; the release (GLSL, easy mode) sets 0.7.0.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

@@ -248,15 +248,31 @@ std::string executableDir() { return exeDir(); }
 Library parseLibrary(std::string_view text, const std::string& name) {
   Library lib;
   lib.path = name;
-  std::istringstream in{std::string(text)};
-  std::string raw;
-  int lineNo = 0;
-  while (std::getline(in, raw)) {
-    ++lineNo;
+  // A rule may span lines (owner, 2026-10-08: sopt-found.txt writes pattern, "->" and replacement on
+  // lines of their own): a line starting with "->" or the word "where", or following one that ends in
+  // "->", continues the rule before it.
+  std::vector<std::pair<int, std::string>> rules;
+  {
+    std::istringstream in{std::string(text)};
+    std::string raw;
+    int n = 0;
+    auto startsWord = [](const std::string& l, const char* w) {
+      const size_t k = std::strlen(w);
+      return l.compare(0, k, w) == 0 && (l.size() == k || !identChar(l[k]));
+    };
+    while (std::getline(in, raw)) {
+      ++n;
+      std::string l = trim(raw.substr(0, raw.find('#')));
+      if (l.empty()) continue;
+      const bool cont = !rules.empty() && (l.compare(0, 2, "->") == 0 || startsWord(l, "where") ||
+                                           (rules.back().second.size() >= 2 &&
+                                            rules.back().second.compare(rules.back().second.size() - 2, 2, "->") == 0));
+      if (cont) rules.back().second += " " + l;
+      else rules.emplace_back(n, l);
+    }
+  }
+  for (const auto& [lineNo, line] : rules) {
     const std::string where = name + ":" + std::to_string(lineNo);
-    std::string line = raw.substr(0, raw.find('#'));
-    line = trim(line);
-    if (line.empty()) continue;
     const size_t arrow = line.find("->");
     if (arrow == std::string::npos) throw ParseError(where + ": expected 'pattern -> replacement'");
     std::string lhsText = trim(std::string_view(line).substr(0, arrow));

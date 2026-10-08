@@ -695,7 +695,7 @@ int main(int argc, char** argv) {
                   static_cast<unsigned>(std::min<size_t>(jobs, std::max<size_t>(unique.size(), 1))));
     console::section(con, head);
   }
-  console::Progress searchBar(con, unique.size());
+  console::Progress searchBar(con, unique.size(), "searching");
   parallelFor(unique.size(), jobs, [&](size_t u) {
     const size_t i = unique[u];
     const auto s0 = std::chrono::steady_clock::now();
@@ -830,10 +830,13 @@ int main(int argc, char** argv) {
     rr.sec = searchSec[firstOf[i]] + std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
     std::lock_guard<std::mutex> lock(printMu);
     const size_t n = ++done;
-    std::printf("%s[%zu/%zu]%s %s:%u cost %u -> %s%s%s\n", con.c("\x1b[90m"), n, results.size(), con.reset(),
+    bool assumedIn = false;
+    for (const auto& f : rr.region.facts) assumedIn = assumedIn || f.assumed;
+    std::printf("%s[%zu/%zu]%s %s:%u cost %u -> %s%s%s%s\n", con.c("\x1b[90m"), n, results.size(), con.reset(),
                 fs::path(rr.region.file).filename().string().c_str(), rr.region.line, rr.targetCost,
                 rr.variants.empty() ? con.c("\x1b[90m") : con.c("\x1b[1;92m"),
-                rr.variants.empty() ? "-" : std::to_string(rr.variants[0].cost).c_str(), con.reset());
+                rr.variants.empty() ? "-" : std::to_string(rr.variants[0].cost).c_str(), con.reset(),
+                !rr.variants.empty() && assumedIn && !allowAssumed ? "  (needs value ranges, see below)" : "");
     std::fflush(stdout);
   });
 
@@ -912,7 +915,7 @@ int main(int argc, char** argv) {
     if (sass) what += std::string(what.empty() ? "" : ", ") + "NVIDIA: ptxas";
     if (intel) what += std::string(what.empty() ? "" : ", ") + "Intel: driver statistics";
     console::section(con, "Measuring machine code (" + what + ")");
-    console::Progress measureBar(con, toMeasure);
+    console::Progress measureBar(con, toMeasure, "measuring");
     for (auto& rr : results) {
       if (rr.variants.empty()) continue;
       std::vector<InputDecl> ins = rr.region.prog.inputs;
@@ -1365,7 +1368,28 @@ int main(int argc, char** argv) {
   std::printf("%s%zu of %zu regions have cheaper variants%s; wrote %zu files, sopt-report.md and sopt-found.txt to %s\n",
               con.c(improved ? "\x1b[1;92m" : "\x1b[1;97m"), improved, results.size(), con.reset(), files.size(),
               outDir.string().c_str());
+  // Variants held back because an input's range was only assumed (owner, 2026-10-08: "0 of 13" was
+  // misleading when two were found): say how many and what to do.
+  {
+    size_t held = 0;
+    std::set<std::string> names;
+    for (const auto& r : results) {
+      if (r.unwritten.empty()) continue;
+      ++held;
+      for (const auto& f : r.region.facts)
+        if (f.assumed) names.insert(f.input);
+    }
+    if (held) {
+      std::string list;
+      for (const auto& nm : names) list += (list.empty() ? "" : ", ") + nm;
+      std::printf("%s%zu more region%s ha%s cheaper variants that need value ranges%s (inputs without a known range: %s).\n"
+                  "Give their ranges in sopt-facts.txt (SweetOpt.bat: key 8) and run again; until then they are only listed\n"
+                  "in sopt-report.md and sopt-found.txt.\n",
+                  con.c("\x1b[1;93m"), held, held == 1 ? "" : "s", held == 1 ? "s" : "ve", con.reset(), list.c_str());
+    }
+  }
   std::printf("variant check: %s%zu of %zu parses failed%s\n", con.c(checkFailures ? "\x1b[1;91m" : ""), checkFailures,
               checks, con.reset());
+  console::setTitle(con, "SweetOpt  -  done");
   return info.failed.empty() && checkFailures == 0 ? 0 : 1;
 }
