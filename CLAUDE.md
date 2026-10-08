@@ -1579,6 +1579,33 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   33 -> 15; Tonemap 40-42 x4), none lost; 6 "better scheduling" variants (FakeHDR 37 / 48 mad chains, LumaSharpen 109 / 127,
   Sepia 15 / 17), 1 more "fewer registers"; search time identical, wall 3100 vs 2041 s (more variants measured, the other
   mode too); all variant files parse (98 / 56).
+- Classical rewrites (owner, 2026-10-08: "the regular optimizer tricks before we start superoptimizing"; src/fx/classic.cpp,
+  hoist.cpp, blend.cpp; SourceRewrite = line edits under SOPT_<file>_<tag><line>, rewrites take their lines first, regions on
+  them give way; with --isa each is measured alone (RGA, the effect's pixel / compute shaders summed, both modes) and kept on a
+  gain with neither mode worse; without --isa only the table rewrites with non-constant entries). (1) tables (tag T,
+  --no-classic): local arrays of constants indexed at run time -> static const tables; corpus 113 candidates, measured gain
+  only Monochrome (58 -> 15 VALU, scratch 19 -> 0; all-constant arrays are folded by fxc and LLPC already). Proposed SweetFX
+  LumaSharpen 1.6.0 (tools/sweetfx/: patterns from tables, D3D10+ only; 96 -> 58 VALU, 15 -> 5 fetches without performance
+  mode). (2) vertex shader (tag V, --no-hoist): per pixel shader whose passes share one plain void vertex shader, the largest
+  region subexpressions constant per draw (uniforms; flat, nointerpolation, D3D10+) or affine in interpolated inputs, costing
+  more than ~2 / ~3 add units per component, go to float4 outputs of a wrapper sopt_VS_<PS> (calls the original VS); statements
+  whose moved values fold in performance mode switch only with !__RESHADE_PERFORMANCE_MODE__. Test effect 37 -> 6 (perf 11 ->
+  4). Corpus (2026-10-08): 112 candidates in 97 effects, 55 kept (best BasicCRT 32 -> 23, perf 23 -> 19; DPX 168 -> 139;
+  Deconverge 19 -> 15; anamorpho 32 -> 27), 34 worse without performance mode (cheap affine parts in large shaders), 5 dropped
+  for +1 in performance mode only (Phosphor 46 -> 18 but perf 11 -> 12, BaBa_PHDR, AdaptiveTonemapper, FocalDOF, TrackingRays).
+  (3) blend stage (tag B, --no-blend-stage; owner's idea): a pixel shader drawing to the back buffer (PostProcessVS, no blend
+  state, one return) returning per channel A + B * d (d = the back buffer at its own texcoord, a fetch or a never-written local)
+  or min / max(d, X) returns the source: float4(A, B) ONE / SRCALPHA (B scalar, lerp), DESTCOLOR / ZERO, ONE / ONE, ONE /
+  INVSRCCOLOR (B = 1 - A), BlendOp MIN / MAX; destination alpha kept; verified with the source clamped and one more 8-bit code
+  (the blend unit rounds the source), 10-bit / scRGB failures become guards; regions re-extracted with minOps 1. Test effect:
+  2-3 instructions less per pass (the back buffer fetch goes). Corpus: only 2 candidates (Daodan RetroTint screen,
+  LightPersistance max): out-parameter outputs (Layer.fx) and color.rgb = ...; return color are not followed yet.
+  tools/sweetfx/BlendModes.fxh (owner: a blend mode header for everyone, our own formulas): 27 modes (W3C + image editor
+  extras), Blend(mode, b, s, opacity), BLENDMODES_STATE_* + Source_* for the 8 blend-stage modes (+ subtract); SweetOpt forms
+  (overlay / hard light without a select: max(s, mad(2 - 2b, s - 1, 1)) * saturate(2b), pin light clamp(b, 2s - 1, 2s),
+  exclusion mad(2b, 0.5 - s, s), ...), all within one 8-bit step of the W3C formulas; the full switch 238 -> 218 SPIR-V alu.
+  Next (owner): Layer.fx 2.0 with all blend modes, a quad vertex shader (move / rotate / scale), copies as Layer2.fx etc.
+  (questions asked: mouse placement, LAYER_BLEND_STATE macro, quad, per-copy size defines).
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).
