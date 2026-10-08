@@ -29,6 +29,8 @@
 	The blend stage clamps the source to [0, 1] on 8 / 10-bit back buffers and rounds it once more
 	(at most one 8-bit step off the shader version). On an scRGB (FP16) back buffer nothing is clamped,
 	like the shader versions.
+	Add, linear burn and subtract with an opacity below 1 apply it before the clamp, like an image editor's
+	Fill (Blend() applies it after the clamp, like Opacity); normal, multiply, screen and exclusion match.
 
 	History:
 	(*) Feature (+) Improvement	(x) Bugfix (-) Information (!) Compatibility
