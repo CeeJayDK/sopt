@@ -1383,6 +1383,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   desktop (0x2684, driver 32.0.16.1664): throttled (420% drift, 11 tests without consensus, fp32 43 of 83 TFLOPS), otherwise =
   the first 4090 (atomics noise only); left out of expected.hpp (gen_expected UNRELIABLE). UHD Graphics 770 (Alder Lake,
   Gen12): ShaderInfo only (docs/shaderinfo/intel-uhd-770.txt). Files: docs/opbench|texbench|shaderinfo, -v6 / -2 names.
+  RX Vega 11 (Picasso APU, GCN 5, 0x15D8, driver 31.0.21925.1001 / Vulkan 26.5.2; owner sent the reports in chat 2026-10-08;
+  docs/opbench|texbench|shaderinfo/amd-radeon-rx-vega-11-picasso.*, order PNGs): OpBench 0.6.0, drift 60 / 2 / 79%, all 164 tests
+  consensus, = Vega 7 Renoir on every tput test within max(25%, 1.5) (one VALU op 2.07, max3 1.1, minmax 2.1, omod2 / 4 free, omod8 =
+  control, rcp 8.5, sin / cos / sign 10.6, signmad 4.4, mad16 -2.9, fma1 2.1): amd-gcn5 holds, now 3 cards (expected.hpp
+  regenerated; site NAME_BY_DEVICE 0x15D8); fp32 1.91 / fp16 3.68 TFLOPS. TexBench 193 s, drift 581% yet all consensus; 27.7
+  GTexels/s, 10.5 GPixels/s, 40.4 GB/s; RGBA8 bilinear 17.7 / Load 15.8 units, RGBA16F 95 (5x), RGBA32F 270 (15x) like Vega 8;
+  pixel order 8 x 8 (wave64). ShaderInfo: VK_AMD_shader_info + executable properties (compiler 2.0.279), like the other AMDs.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

@@ -30,6 +30,7 @@ NAME_BY_FILE = {
 NAME_BY_DEVICE = {
     "0x1681": "AMD Radeon 680M",
     "0x1636": "AMD Radeon Vega (Renoir)",
+    "0x15D8": "AMD Radeon RX Vega 11 (Picasso)",
     "0x164E": "AMD Radeon Graphics (Raphael)",
     "0x13C0": "AMD Radeon Graphics (Granite Ridge)",
 }

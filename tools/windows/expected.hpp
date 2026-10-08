@@ -13,26 +13,26 @@ struct Family {
 };
 
 inline const Family kFamilies[] = {
-    {"amd-gcn5", "GCN 5 (Vega)", 2,
-     "aAdd 6.2 aAdd1 239.8 aAnd 6.3 aAnd1 234.7 aCmpXchg 11.5 aCmpXchg1 238.2 aMax 6.9 aMax1 242.1 "
-     "aMin 6.5 aMin1 232.7 aOr 7.3 aOr1 231.1 aXchg 6.2 aXchg1 243.2 aXor 5.9 aXor1 243.0 abs -0.1 "
-     "acos 29.3 add 2.0 add16 1.5 arraybase 8.7 arrayread 154.7 arraywrite 250.1 asin 32.2 atan 42.9 "
-     "atan2 49.6 atombase 7.8 barrier 0.0 bitcast -0.1 bitor 2.3 bitrev 1.9 branchdiv 80.1 branchuni 44.5 "
-     "ceil 2.0 clamp 4.1 constarray 109.1 contract 4.0 cos 10.1 cosh 20.1 cross 12.2 cvt1 0.2 det3 12.2 "
-     "distance 24.4 div 8.1 divxy 10.2 dot2 0.1 dot3 0.9 dot4 1.0 exp 10.0 exp2 8.3 exp2_16 8.0 "
-     "f16round 3.0 faceforward 17.4 fbh 7.7 fbl 2.0 floor 2.0 flooradd 12.0 fma+cvt -0.1 fma+fma -0.1 "
-     "fma+half 1.9 fma+int 1.5 fma+minmax 0.0 fma+rcp -3.2 fma1 2.1 fmod 10.9 frac 2.1 fracadd 11.2 "
-     "frexp 20.3 ftoitof 8.0 ftou 1.9 groupbarrier 0.2 gsbase 15.8 gsbase32 15.7 gsread 1.8 gsread32 103.2 "
-     "gswrite 3.7 gswrite32 110.1 gswriteread 7.7 half1 -2.9 iadd 2.0 iand 1.9 icmpsel 6.0 idiv 53.7 "
-     "imin 1.9 imod 40.8 imul 0.7 int -1.6 irot 1.9 ishr 4.3 isinf 8.3 isnan 6.3 itof 2.1 ixmul 6.3 "
-     "ldexp 9.8 length 21.1 lerp 5.9 log 8.1 log10 7.9 log2 8.1 mad 4.0 mad16 -2.8 mad2 4.0 mad2v 4.3 "
-     "mad3v 8.0 mad4v 11.9 matmul4 25.4 max 1.9 max3 1.3 membarrier -0.3 min 2.1 minmax 2.0 minmax1 0.1 "
-     "modf 5.8 mul 0.2 mul16 1.5 neg -0.1 negabs -0.2 normalize 16.3 omod0.125 2.5 omod0.25 2.2 omod2 0.2 "
-     "omod3 2.2 omod4 0.2 omod8 2.7 omodhalf -0.2 popc 0.0 pow 17.9 radians 0.2 rcp 7.9 rcp1 6.3 rcp16 8.2 "
-     "rcpmax 9.9 reflect 11.4 refract 37.7 round 1.9 roundadd 5.0 rsqrt 8.1 satmad -0.9 saturate -1.5 "
-     "select 6.2 selectboth 79.6 sign 10.2 signbits 4.2 signclamp 4.1 signmad 4.3 signsat 5.6 signsel 8.0 "
-     "signsel2 3.8 sin 10.4 sincos 18.0 sinh 19.8 smoothstep 10.3 sqrt 7.9 sqrt16 8.3 step 3.9 sub 2.0 "
-     "tan 29.1 tanh 31.3 trunc 2.0 udiv 42.9 umod 34.3 unitf 5.8 utof 2.0 "},
+    {"amd-gcn5", "GCN 5 (Vega)", 3,
+     "aAdd 6.8 aAdd1 251.6 aAnd 6.8 aAnd1 251.5 aCmpXchg 10.9 aCmpXchg1 251.6 aMax 6.8 aMax1 251.6 "
+     "aMin 6.8 aMin1 251.5 aOr 6.8 aOr1 251.6 aXchg 6.8 aXchg1 251.7 aXor 6.8 aXor1 251.6 abs -0.0 "
+     "acos 33.0 add 2.1 add16 1.5 arraybase 9.3 arrayread 163.2 arraywrite 267.8 asin 35.6 atan 45.9 "
+     "atan2 52.4 atombase 8.2 barrier 0.0 bitcast 0.0 bitor 2.3 bitrev 2.1 branchdiv 83.8 branchuni 44.5 "
+     "ceil 2.2 clamp 4.2 constarray 117.3 contract 4.2 cos 10.6 cosh 21.2 cross 12.4 cvt1 0.2 det3 13.5 "
+     "distance 26.9 div 7.2 divxy 10.0 dot2 0.2 dot3 0.7 dot4 0.9 exp 10.7 exp2 8.5 exp2_16 8.7 "
+     "f16round 3.2 faceforward 17.0 fbh 8.3 fbl 2.1 floor 2.0 flooradd 12.4 fma+cvt -0.1 fma+fma -0.1 "
+     "fma+half 1.8 fma+int 1.6 fma+minmax -0.0 fma+rcp -3.2 fma1 2.1 fmod 10.3 frac 2.2 fracadd 11.9 "
+     "frexp 20.7 ftoitof 9.8 ftou 2.1 groupbarrier 0.0 gsbase 16.0 gsbase32 16.8 gsread 1.9 gsread32 104.5 "
+     "gswrite 3.9 gswrite32 112.7 gswriteread 8.5 half1 -2.8 iadd 2.1 iand 2.1 icmpsel 6.2 idiv 57.1 "
+     "imin 2.1 imod 44.6 imul 0.7 int -1.6 irot 2.1 ishr 4.2 isinf 8.5 isnan 6.3 itof 2.1 ixmul 6.5 "
+     "ldexp 10.5 length 20.7 lerp 6.3 log 8.8 log10 8.8 log2 8.5 mad 4.0 mad16 -2.9 mad2 4.2 mad2v 4.2 "
+     "mad3v 8.7 mad4v 12.8 matmul4 25.7 max 2.2 max3 1.1 membarrier -0.0 min 2.2 minmax 2.1 minmax1 0.2 "
+     "modf 6.3 mul -1.5 mul16 1.5 neg -0.0 negabs -0.0 normalize 11.4 omod0.125 2.4 omod0.25 2.2 omod2 0.0 "
+     "omod3 2.2 omod4 -0.0 omod8 2.4 omodhalf -0.0 popc -0.0 pow 18.9 radians 0.2 rcp 8.5 rcp1 6.5 "
+     "rcp16 8.7 rcpmax 10.4 reflect 12.4 refract 39.6 round 2.2 roundadd 5.5 rsqrt 8.5 satmad -1.0 "
+     "saturate -1.4 select 6.3 selectboth 83.6 sign 10.5 signbits 4.3 signclamp 4.3 signmad 4.4 "
+     "signsat 6.3 signsel 8.5 signsel2 4.1 sin 10.6 sincos 18.8 sinh 21.2 smoothstep 10.9 sqrt 8.5 "
+     "sqrt16 8.6 step 4.2 sub 2.1 tan 32.8 tanh 33.5 trunc 2.2 udiv 44.7 umod 34.2 unitf 6.3 utof 2.1 "},
     {"amd-rdna2", "RDNA 2", 5,
      "aAdd 3.9 aAdd1 344.3 aAnd 4.1 aAnd1 344.0 aCmpXchg 6.8 aCmpXchg1 344.2 aMax 4.1 aMax1 344.0 aMin 4.1 "
      "aMin1 344.2 aOr 4.1 aOr1 344.1 aXchg 4.1 aXchg1 344.0 aXor 4.1 aXor1 344.1 abs -0.0 acos 32.5 "
@@ -297,6 +297,7 @@ struct Device {
 };
 inline const Device kDevices[] = {
     {0x13C0, "amd-rdna2"},
+    {0x15D8, "amd-gcn5"},
     {0x1636, "amd-gcn5"},
     {0x164E, "amd-rdna2"},
     {0x1681, "amd-rdna2"},
