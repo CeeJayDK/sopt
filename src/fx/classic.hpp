@@ -21,6 +21,10 @@ struct SourceRewrite {
   std::string function;
   std::string kind;         // "static const table"
   std::string description;  // one line for the report and the variant comment
+  // Table rewrites: entries that are not constants (a uniform, ...). All-constant local arrays are
+  // made constant data by the compilers already (measured: fxc and AMD's Vulkan compiler unroll and
+  // fold them); a non-constant entry keeps the whole array per pixel (Monochrome: in scratch memory).
+  uint32_t otherEntries = 0;
   std::vector<LineEdit> edits;  // sorted, disjoint
   // Measured (--isa: fxstat + RGA, the pixel / compute shader of the effect it was found in, with the
   // switch off and on), without and with performance mode; -1 = not measured.
@@ -34,7 +38,8 @@ std::string rewriteSwitch(const SourceRewrite& r);
 
 // Local arrays initialized with constants (at most two other entries, e.g. a uniform for a
 // "custom" preset) and indexed at run time are built in every pixel, often in scratch memory
-// (SweetFX Monochrome, RDNA 3 without performance mode: 58 VALU and spills vs 15 VALU). As a
+// (SweetFX Monochrome, RDNA 3 without performance mode: 58 VALU and spills vs 15 VALU). sopt-fx
+// keeps all-constant ones only where --isa measures a gain (SourceRewrite::otherEntries). As a
 // static const table the compiler keeps them in its constant data: the declaration goes away, the
 // table is defined before the function, and every name[i] becomes table[i], with the other entries
 // picked as (i == k ? value : table[i]). Only arrays never written after their initializer, read

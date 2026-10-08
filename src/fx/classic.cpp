@@ -270,6 +270,7 @@ std::optional<SourceRewrite> tableRewrite(const Codegen& cg, const Function& f, 
   r.edits.push_back(std::move(insert));
   r.edits.push_back({declLine, endLine, {}});
   for (auto& [ln, l] : useLines) r.edits.push_back({ln, ln, {l}});
+  r.otherEntries = static_cast<uint32_t>(others);
   r.description = "local array " + var.name + lenText + " (" + std::to_string(consts) + " constants" +
                   (others ? ", " + std::to_string(others) + " other" : "") + ") as a static const table";
   return r;

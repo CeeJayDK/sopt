@@ -1200,10 +1200,15 @@ int main(int argc, char** argv) {
       const bool gain = rw.amdAfter < rw.amdBefore || rw.scratchAfter < rw.scratchBefore ||
                         (rw.amdPerfBefore >= 0 && rw.amdPerfAfter >= 0 && rw.amdPerfAfter < rw.amdPerfBefore);
       const bool worse = rw.amdAfter > rw.amdBefore || (rw.amdPerfAfter > rw.amdPerfBefore && rw.amdPerfBefore >= 0);
-      if (!measured || (gain && !worse)) kept.push_back(std::move(rw));
+      if (measured ? gain && !worse : rw.otherEntries > 0) kept.push_back(std::move(rw));
     }
     std::printf("classical rewrites: %zu of %zu kept (measured gain)\n", kept.size(), rewrites.size());
     rewrites = std::move(kept);
+  } else {
+    // Not measured: only arrays with a non-constant entry (all-constant ones the compilers fold already).
+    rewrites.erase(std::remove_if(rewrites.begin(), rewrites.end(),
+                                  [](const fx::SourceRewrite& rw) { return rw.otherEntries == 0; }),
+                   rewrites.end());
   }
   std::string errors;
   auto files = fx::writeVariants(results, outDir, errors, rewrites);
