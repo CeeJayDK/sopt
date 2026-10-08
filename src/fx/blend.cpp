@@ -219,10 +219,64 @@ std::optional<SourceRewrite> blendShader(const Effect& fx, const Function& ps, c
   const std::vector<std::string>* lines = sourceLines(file);
   if (!lines || ps.loc.line == 0 || ps.loc.line > lines->size()) return std::nullopt;
 
-  // One return statement (an early return would write an unblended color).
+  // Where the color leaves the shader (owner, 2026-10-08: out parameters and color.rgb = ...; return color; too):
+  //   Return:      the region is the return statement (the only one: an early return would write an
+  //                unblended color);
+  //   StoreReturn: the region is the last store to a float4 local, color = ... or color.rgb = ..., and
+  //                the next statement is return color; (its alpha is the back buffer's or unused);
+  //   OutParam:    the region is the last store to an out SV_Target / COLOR parameter (no return).
+  enum class Out { Return, StoreReturn, OutParam } out = Out::Return;
   size_t returns = 0;
   for (const auto& s : ps.stmts) returns += s.kind == Statement::Kind::Return;
-  if (returns != 1) return std::nullopt;
+  const Statement* st = nullptr;   // StoreReturn / OutParam: the region's store
+  const Statement* ret = nullptr;  // StoreReturn: the return after it
+  std::string outName, outSuffix;  // the stored variable and ".rgb" / ""
+  const bool ownStore = [&] {
+    if (r.kind == Region::Kind::Return) return false;
+    if (r.kind != Region::Kind::Store) return true;
+    for (size_t i = 0; i < ps.stmts.size(); ++i) {
+      const Statement& t = ps.stmts[i];
+      if (t.kind == Statement::Kind::Store && t.loc.line >= r.line && t.loc.line <= r.lastLine) {
+        st = &t;
+        if (i + 1 < ps.stmts.size() && ps.stmts[i + 1].kind == Statement::Kind::Return) ret = &ps.stmts[i + 1];
+      }
+    }
+    return false;
+  }();
+  if (ownStore) return std::nullopt;
+  if (r.kind == Region::Kind::Return) {
+    if (returns != 1) return std::nullopt;
+  } else {
+    if (!st) return std::nullopt;
+    const auto v = cg.variables.find(st->var);
+    if (v == cg.variables.end()) return std::nullopt;
+    for (const auto& t : ps.stmts)  // the last store to it
+      if ((t.kind == Statement::Kind::Store || t.kind == Statement::Kind::Init) && t.var == st->var && t.seq > st->seq)
+        return std::nullopt;
+    std::string lhs = trim(r.lhs);
+    if (lhs.empty() || lhs.back() != '=') return std::nullopt;
+    lhs = trim(lhs.substr(0, lhs.size() - 1));
+    const size_t dot = lhs.find('.');
+    outName = lhs.substr(0, dot);
+    outSuffix = dot == std::string::npos ? "" : lhs.substr(dot);
+    if (outName != v->second.name || (outSuffix != "" && outSuffix != ".rgb" && outSuffix != ".xyz")) return std::nullopt;
+    const reshadefx::type& vt = v->second.type;
+    if (!vt.is_floating_point() || vt.rows != 4 || vt.cols != 1) return std::nullopt;
+    std::string sem = v->second.semantic;
+    for (auto& c : sem) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    if (v->second.kind == Variable::Kind::Param && vt.has(reshadefx::type::q_out) &&
+        (sem == "SV_TARGET" || sem == "SV_TARGET0" || sem == "COLOR" || sem == "COLOR0")) {
+      if (returns != 0) return std::nullopt;
+      out = Out::OutParam;
+    } else if (v->second.kind == Variable::Kind::Local && returns == 1 && ret && ret->block == st->block &&
+               ret->loc.line > 0 && ret->loc.line <= lines->size()) {
+      const std::string rl = noSpace((*lines)[ret->loc.line - 1]);
+      if (rl != "return" + outName + ";") return std::nullopt;
+      out = Out::StoreReturn;
+    } else {
+      return std::nullopt;
+    }
+  }
 
   // The pixel shader's texture coordinates (TEXCOORD0 parameters it never writes).
   std::set<std::string> coords;
@@ -256,14 +310,16 @@ std::optional<SourceRewrite> blendShader(const Effect& fx, const Function& ps, c
         if (s.kind != Statement::Kind::Init) continue;
         const auto v = cg.variables.find(s.var);
         if (v == cg.variables.end() || v->second.kind != Variable::Kind::Local || v->second.name != base) continue;
-        bool stored = false;
-        for (const auto& t : ps.stmts) stored = stored || (t.kind == Statement::Kind::Store && t.var == s.var);
+        bool stored = false;  // the region's own store comes after its reads
+        for (const auto& t : ps.stmts)
+          stored = stored || (t.kind == Statement::Kind::Store && t.var == s.var && &t != st);
         if (stored || s.loc.line == 0 || s.loc.line > lines->size()) break;
         const std::string& l = (*lines)[s.loc.line - 1];
         const size_t eq = l.find('='), semi = l.find(';');
         if (eq == std::string::npos || semi == std::string::npos || semi < eq) break;
         const std::vector<int> init = ownBackBufferRead(cg, noSpace(l.substr(eq + 1, semi - eq - 1)), coords, srgb);
-        const std::vector<int> pick = channels(suffix);
+        std::vector<int> pick = channels(suffix);
+        if (suffix.empty()) pick.resize(width(p.inputs[k].type));  // the whole local: its own width
         for (int c : pick)
           if (static_cast<size_t>(c) < init.size()) ch.push_back(init[c]);
         if (ch.size() != pick.size()) ch.clear();
@@ -366,10 +422,15 @@ std::optional<SourceRewrite> blendShader(const Effect& fx, const Function& ps, c
     return b.finish(c);
   };
 
-  if (p.budget.kind != Budget::Kind::Color8) return std::nullopt;
   // The blend unit rounds the source to the target's format before blending: one code more than the
-  // pixel shader output's budget (0 codes).
+  // pixel shader output's budget (0 codes). A store's own budget does not know it is the output.
   Program pb = p;
+  if (out == Out::Return) {
+    if (p.budget.kind != Budget::Kind::Color8) return std::nullopt;
+  } else {
+    pb.budget = Budget{};
+    pb.budget.kind = Budget::Kind::Color8;
+  }
   pb.budget.maxCodeDiff = std::max(pb.budget.maxCodeDiff, 1);
   auto passesAll = [&](const Program& prog, const Expr& cand) {
     const PointSet pts = makeRandomPoints(prog, size_t{1} << 16, seed, true);
@@ -426,11 +487,11 @@ std::optional<SourceRewrite> blendShader(const Effect& fx, const Function& ps, c
   }
   states = "BlendEnable = true; " + states + " SrcBlendAlpha = ZERO; DestBlendAlpha = ONE;";
 
-  // The header's return type: float4 for the premultiplied source.
+  // The header's return type: float4 for the premultiplied source (stores: a float4 variable).
   const std::string& head = (*lines)[ps.loc.line - 1];
   const size_t fn = head.find(ps.name);
   if (fn == std::string::npos) return std::nullopt;
-  const std::string retType = trim(head.substr(0, fn));
+  const std::string retType = out == Out::Return ? trim(head.substr(0, fn)) : "float4";
   if (retType != "float3" && retType != "float4") return std::nullopt;
   if (!float4Out && retType == "float4") src = "float4(" + src + ", 0.0)";
 
@@ -443,9 +504,10 @@ std::optional<SourceRewrite> blendShader(const Effect& fx, const Function& ps, c
   static const char* modeName[] = {"premultiplied: ONE, SRCALPHA", "multiply: DESTCOLOR, ZERO", "add: ONE, ONE",
                                    "screen: ONE, INVSRCCOLOR",     "BlendOp MIN",               "BlendOp MAX"};
   rw.description = std::string("final blend with the back buffer as blend states (") + modeName[static_cast<int>(mode)] +
+                   (out == Out::Return ? "" : "; the back buffer's alpha is kept") +
                    "; check in ReShade: the blend unit is not measured)";
 
-  if (float4Out && retType == "float3") {
+  if (out == Out::Return && float4Out && retType == "float3") {
     std::string h = head;
     const size_t t = h.find("float3");
     h.replace(t, 6, "float4");
@@ -453,7 +515,11 @@ std::optional<SourceRewrite> blendShader(const Effect& fx, const Function& ps, c
   }
   const std::string& first = (*lines)[r.line - 1];
   const std::string ind = first.substr(0, first.find_first_not_of(" \t"));
-  rw.edits.push_back({r.line, r.lastLine, {ind + "return " + src + ";"}, guard});
+  if (out == Out::OutParam)
+    rw.edits.push_back({r.line, r.lastLine, {ind + outName + " = " + src + ";"}, guard});
+  else
+    rw.edits.push_back({r.line, r.lastLine, {ind + "return " + src + ";"}, guard});
+  if (out == Out::StoreReturn) rw.edits.push_back({ret->loc.line, ret->loc.line, {}, guard});
   for (const auto& [a, bb] : r.removed) rw.edits.push_back({a, bb, {}, guard});
 
   // The passes: the states after "PixelShader = <ps>;".
@@ -511,14 +577,21 @@ std::vector<SourceRewrite> blendRewrites(const Effect& fx, const RegionOptions& 
   SkipCount skipped;
   const std::vector<Region> regions = extractRegions(fx, nullptr, ro, skipped);
   for (const Function* f : shaders) {
-    // The return statement's region with the largest window.
-    const Region* best = nullptr;
+    // The return statement's or the final store's region, the largest window first.
+    std::vector<const Region*> cands;
     for (const Region& r : regions)
-      if (r.kind == Region::Kind::Return && r.function == f->name && r.file == f->loc.source && r.guard.empty() &&
-          (!best || r.removed.size() > best->removed.size()))
-        best = &r;
-    if (!best) continue;
-    if (auto rw = blendShader(fx, *f, *best, seed)) out.push_back(std::move(*rw));
+      if ((r.kind == Region::Kind::Return || r.kind == Region::Kind::Store) && r.function == f->name &&
+          r.file == f->loc.source && r.guard.empty())
+        cands.push_back(&r);
+    std::stable_sort(cands.begin(), cands.end(), [](const Region* a, const Region* b) {
+      if ((a->kind == Region::Kind::Return) != (b->kind == Region::Kind::Return)) return a->kind == Region::Kind::Return;
+      return a->removed.size() > b->removed.size();
+    });
+    for (const Region* r : cands)
+      if (auto rw = blendShader(fx, *f, *r, seed)) {
+        out.push_back(std::move(*rw));
+        break;
+      }
   }
   return out;
 }

@@ -1119,8 +1119,10 @@ TEST(fx_blend_rewrite) {
   CHECK(e != nullptr);
   if (!e) return;
   const std::vector<fx::SourceRewrite> rw = fx::blendRewrites(*e, fx::RegionOptions(), 1);
-  CHECK(rw.size() == 3);  // lerp, multiply, min; not the sharpen (B = 1 + Strength)
-  if (rw.size() != 3) return;
+  // lerp, multiply, min, screen (color.rgb = ...; return color;), add (out parameter); not the sharpen
+  // (B = 1 + Strength)
+  CHECK(rw.size() == 5);
+  if (rw.size() != 5) return;
   auto has = [&](const fx::SourceRewrite& r, const char* text) {
     for (const auto& ed : r.edits)
       for (const auto& l : ed.lines)
@@ -1131,6 +1133,8 @@ TEST(fx_blend_rewrite) {
         has(rw[0], "float4 LerpPS(") && has(rw[0], "return float4("));
   CHECK(rw[1].function == "VignettePS" && has(rw[1], "SrcBlend = DESTCOLOR; DestBlend = ZERO;"));
   CHECK(rw[2].function == "DarkenPS" && has(rw[2], "BlendOp = MIN;"));
+  CHECK(rw[3].function == "ScreenPS" && has(rw[3], "SrcBlend = ONE; DestBlend = INVSRCCOLOR;") && has(rw[3], "return float4("));
+  CHECK(rw[4].function == "AddPS" && has(rw[4], "SrcBlend = ONE; DestBlend = ONE;") && has(rw[4], "result = float4("));
   const fs::path out = fs::temp_directory_path() / "sopt-test-blend";
   std::string errors;
   const auto files = fx::writeVariants({}, out, errors, rw);
@@ -1147,7 +1151,7 @@ TEST(fx_blend_rewrite) {
       int blends = 0;
       for (const auto& t : e2->cg->mod().techniques)
         for (const auto& p : t.passes) blends += p.blend_enable[0];
-      CHECK(blends == (on[0] == '1' ? 3 : 0));
+      CHECK(blends == (on[0] == '1' ? 5 : 0));
     }
   }
   fs::remove_all(out);

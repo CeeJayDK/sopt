@@ -438,13 +438,14 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
   if (info.rewrites && !info.rewrites->empty()) {
     s += "## Classical rewrites\n\nSource changes before the superoptimizer, each under its own switch (0 = original, "
          "1 = rewritten; SOPT_ALL sets it like the variants). amd: the effect's pixel / compute shaders measured "
-         "(RGA) with the switch off and on, scratch: spilled registers in memory.\n\n"
-         "| switch | where | rewrite | amd | scratch | amd, performance mode |\n|---|---|---|---|---|---|\n";
+         "(RGA) with the switch off and on, scratch: spilled registers in memory, reads: texture / memory reads.\n\n"
+         "| switch | where | rewrite | amd | scratch | reads | amd, performance mode |\n|---|---|---|---|---|---|---|\n";
     for (const auto& rw : *info.rewrites) {
       auto pair = [](int a, int b) { return a < 0 || b < 0 ? std::string("-") : std::to_string(a) + " -> " + std::to_string(b); };
       s += "| `" + rewriteSwitch(rw) + "` | " + pathFrom(rw.file).filename().string() + ":" + std::to_string(rw.line) +
            " (" + rw.function + ") | " + escapeCell(rw.description) + " | " + pair(rw.amdBefore, rw.amdAfter) + " | " +
-           pair(rw.scratchBefore, rw.scratchAfter) + " | " + pair(rw.amdPerfBefore, rw.amdPerfAfter) + " |\n";
+           pair(rw.scratchBefore, rw.scratchAfter) + " | " + pair(rw.vmemBefore, rw.vmemAfter) + " | " +
+           pair(rw.amdPerfBefore, rw.amdPerfAfter) + " |\n";
     }
     s += "\n";
   }

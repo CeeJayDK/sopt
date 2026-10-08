@@ -767,7 +767,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   Pinball trial (6 shaders, 5 .frag; facts for uSceneSize [1, 4096], textures [0, 1], ...; --time 20 --isa --sass): all parse,
   24 regions; static finds (crt-lottes ToLinear1 div -> mul 126 -> 76, hd.frag mix expansion 31 -> 26) are already done by
   the AMD / NVIDIA compilers; only crt-lottes Dist `-(pos - floor(pos) - 0.5)` -> `-(fract(pos) - 0.5)` survives (amd 7 -> 5,
-  nv 8 -> 8, bit-exact). ISA numbers come from the FX/HLSL emitter (fxstat + RGA, ptxas), not from a GLSL driver path.
+  nv 8 -> 8, bit-exact). Owner (2026-10-08): measure GLSL faithfully: IsaConfig::glsl (sopt-fx sets it per GLSL region)
+  emits a GLSL 4.50 fragment shader (emitGlsl, toGlsl syntax) and runs RGA's offline GLSL mode (`rga -s vk-offline -c
+  gfx1100 --frag`, glslang + LLPC; no fxstat), parsed like fxstat (parseRgaIsa: cost = VALU + 3 * trans). Pinball: the same
+  numbers as the FX route (both end in AMD's LLPC). NVIDIA stays ptxas (language independent). Owner's go: the Dist change
+  was pushed to the owner's fork CeeJayDK/pinball-fantasies-encore, branch sopt/crt-lottes-dist (`0.5 - fract(pos)`, one
+  commit). The add-round / uint fract forms were not used: slower than fract on Turing, AMD and Intel (only Ampere /
+  Blackwell gain ~3 units).
   Found with it: variants printed identically to the original (a - c vs a + -c: rdna3 sub 5, add 4) were written; now
   dropped (fx_main: a.text == targetText).
   First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
@@ -1633,6 +1639,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   exclusion mad(2b, 0.5 - s, s), ...), all within one 8-bit step of the W3C formulas; the full switch 238 -> 218 SPIR-V alu.
   Next (owner): Layer.fx 2.0 with all blend modes, a quad vertex shader (move / rotate / scale), copies as Layer2.fx etc.
   (questions asked: mouse placement, LAYER_BLEND_STATE macro, quad, per-copy size defines).
+  Owner (2026-10-08): (3) a rewrite faster without performance mode but slower with it is kept with `&&
+  !__RESHADE_PERFORMANCE_MODE__` on every edit (never slower; ReShade defines the macro already, no feature request
+  needed): Phosphor 46 -> 18, performance mode stays 11. (4) blend stage also for the last store to an out SV_Target /
+  COLOR parameter (`result = SRC;`) and for `color.rgb = ...;` / `color = ...;` right before `return color;` (store ->
+  `return SRC;`, the return removed); budget forced to Color8; the back buffer's alpha is kept (the developer checks). Fixed
+  on the way: a whole float3 local initialized from the back buffer (no suffix) was never recognized as d. A rewrite that
+  drops a texture read (fxstat vmem) counts as a gain at equal cost (report column "reads").
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

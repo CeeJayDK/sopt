@@ -42,10 +42,27 @@ float3 SharpenPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	return color + (color - blur) * Strength; // B = 1 + Strength > 1: not a blend
 }
 
+float4 ScreenPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+{
+	float4 color = tex2D(BackBuffer, texcoord);
+	float3 layer = tex2D(Overlay, texcoord).rgb * Strength;
+	color.rgb = color.rgb + layer - color.rgb * layer;
+	return color;
+}
+
+void AddPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD, out float4 result : SV_Target)
+{
+	float3 color = tex2D(BackBuffer, texcoord).rgb;
+	result = float4(color + tex2D(Overlay, texcoord).rgb * Strength, 1.0);
+	result.rgb = color + tex2D(Overlay, texcoord).rgb * Strength;
+}
+
 technique TestBlend
 {
 	pass { VertexShader = PostProcessVS; PixelShader = LerpPS; }
 	pass { VertexShader = PostProcessVS; PixelShader = VignettePS; }
 	pass { VertexShader = PostProcessVS; PixelShader = DarkenPS; }
 	pass { VertexShader = PostProcessVS; PixelShader = SharpenPS; }
+	pass { VertexShader = PostProcessVS; PixelShader = ScreenPS; }
+	pass { VertexShader = PostProcessVS; PixelShader = AddPS; }
 }

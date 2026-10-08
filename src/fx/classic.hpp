@@ -34,6 +34,7 @@ struct SourceRewrite {
   int amdBefore = -1, amdAfter = -1, amdPerfBefore = -1, amdPerfAfter = -1;
   int scratchBefore = -1, scratchAfter = -1;  // AMD scratch (spilled) registers
   int vgprBefore = -1, vgprAfter = -1;
+  int vmemBefore = -1, vmemAfter = -1;  // texture / memory reads (the blend stage drops the back buffer's)
 };
 
 // Source text helpers (shared by the rewrites).

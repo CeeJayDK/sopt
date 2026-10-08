@@ -881,7 +881,10 @@ int main(int argc, char** argv) {
     info.nv = sass;
     size_t n = 0, toMeasure = 0;
     for (const auto& rr : results) toMeasure += !rr.variants.empty();
-    std::string what = isa ? "AMD: fxstat + RGA" : "";
+    bool anyGlsl = false, anyFx = false;
+    for (const auto& rr : results)
+      if (!rr.variants.empty()) (rr.region.glsl ? anyGlsl : anyFx) = true;
+    std::string what = !isa ? "" : anyGlsl && !anyFx ? "AMD: RGA (GLSL)" : anyGlsl ? "AMD: fxstat + RGA, RGA (GLSL)" : "AMD: fxstat + RGA";
     if (sass) what += std::string(what.empty() ? "" : ", ") + "NVIDIA: ptxas";
     if (intel) what += std::string(what.empty() ? "" : ", ") + "Intel: driver statistics";
     console::section(con, "Measuring machine code (" + what + ")");
@@ -905,8 +908,10 @@ int main(int argc, char** argv) {
       if (opt.perfFirst && uniforms) std::swap(ins, perfMeas);  // main = performance mode
       std::vector<const Expr*> exprs = {&rr.region.prog.target};
       for (const auto& v : rr.variants) exprs.push_back(&v.expr);
+      IsaConfig regionIsa = isaCfg;
+      regionIsa.glsl = rr.region.glsl;  // GLSL: RGA's own GLSL path, as the game's driver would see it
       if (isa && otherMode) {
-        const auto m = measureIsa(exprs, perfMeas, isaCfg);
+        const auto m = measureIsa(exprs, perfMeas, regionIsa);
         rr.targetAmdOther = m[0].ok ? m[0].cost : -1;
         for (size_t k = 0; k < rr.variants.size(); ++k) rr.variants[k].amdOther = m[k + 1].ok ? m[k + 1].cost : -1;
       }
@@ -916,7 +921,7 @@ int main(int argc, char** argv) {
         for (size_t k = 0; k < rr.variants.size(); ++k) rr.variants[k].nvOther = m[k + 1].ok ? m[k + 1].cost : -1;
       }
       if (isa) {
-        const auto m = measureIsa(exprs, ins, isaCfg);
+        const auto m = measureIsa(exprs, ins, regionIsa);
         rr.targetAmd = m[0].ok ? m[0].cost : -1;
         if (!m[0].ok) std::fprintf(stderr, "%s:%u: amd: %s\n", rr.region.file.c_str(), rr.region.line, m[0].error.c_str());
         for (size_t k = 0; k < rr.variants.size(); ++k) rr.variants[k].amd = m[k + 1].ok ? m[k + 1].cost : -1;
@@ -1158,7 +1163,7 @@ int main(int argc, char** argv) {
     fx::writeVariants({}, tmp, tmpErrors, rewrites);
     // Pixel / compute shader ISA of src with defines (RGA), summed: cost, scratch, max VGPRs.
     struct Isa {
-      int cost = -1, scratch = -1, vgprs = -1;
+      int cost = -1, scratch = -1, vgprs = -1, vmem = -1;
     };
     auto measure = [&](const fs::path& src, const std::string& inc, const std::string& defines, bool perf) {
       int status = 0;
@@ -1178,9 +1183,10 @@ int main(int argc, char** argv) {
           const size_t q = json.find(k2, isaPos);
           return q == std::string::npos || q > end ? -1 : std::atoi(json.c_str() + q + k2.size());
         };
-        const int c = get("cost"), sc = get("scratch"), v = get("vgprs");
+        const int c = get("cost"), sc = get("scratch"), v = get("vgprs"), vm = get("vmem");
         if (c < 0) continue;
         r.cost = (r.cost < 0 ? 0 : r.cost) + c;
+        r.vmem = (r.vmem < 0 ? 0 : r.vmem) + std::max(vm, 0);
         r.scratch = (r.scratch < 0 ? 0 : r.scratch) + std::max(sc, 0);
         r.vgprs = std::max(r.vgprs, v);
       }
@@ -1217,22 +1223,37 @@ int main(int argc, char** argv) {
       rw.amdBefore = before[2 * e].cost;
       rw.scratchBefore = before[2 * e].scratch;
       rw.vgprBefore = before[2 * e].vgprs;
+      rw.vmemBefore = before[2 * e].vmem;
+      rw.vmemAfter = after[2 * k].vmem;
       rw.amdPerfBefore = before[2 * e + 1].cost;
       rw.amdAfter = after[2 * k].cost;
       rw.scratchAfter = after[2 * k].scratch;
       rw.vgprAfter = after[2 * k].vgprs;
       rw.amdPerfAfter = after[2 * k + 1].cost;
-      std::printf("rewrite %s:%u (%s): amd %d -> %d, scratch %d -> %d; performance mode %d -> %d\n",
+      std::printf("rewrite %s:%u (%s): amd %d -> %d, scratch %d -> %d, reads %d -> %d; performance mode %d -> %d\n",
                   fs::path(rw.file).filename().string().c_str(), rw.line, rw.kind.c_str(), rw.amdBefore, rw.amdAfter,
-                  rw.scratchBefore, rw.scratchAfter, rw.amdPerfBefore, rw.amdPerfAfter);
+                  rw.scratchBefore, rw.scratchAfter, rw.vmemBefore, rw.vmemAfter, rw.amdPerfBefore, rw.amdPerfAfter);
     }
     fs::remove_all(tmp, ec);
     std::vector<fx::SourceRewrite> kept;
     for (auto& rw : rewrites) {
       const bool measured = rw.amdBefore >= 0 && rw.amdAfter >= 0;
+      // A texture read less counts too (the blend stage: the back buffer read goes, the same instructions).
       const bool gain = rw.amdAfter < rw.amdBefore || rw.scratchAfter < rw.scratchBefore ||
+                        (rw.vmemAfter >= 0 && rw.vmemAfter < rw.vmemBefore) ||
                         (rw.amdPerfBefore >= 0 && rw.amdPerfAfter >= 0 && rw.amdPerfAfter < rw.amdPerfBefore);
-      const bool worse = rw.amdAfter > rw.amdBefore || (rw.amdPerfAfter > rw.amdPerfBefore && rw.amdPerfBefore >= 0);
+      const bool perfWorse = rw.amdPerfAfter > rw.amdPerfBefore && rw.amdPerfBefore >= 0;
+      // Faster without performance mode, slower with it (owner, 2026-10-08: Phosphor 46 -> 18 but 11 -> 12):
+      // applied only without performance mode (ReShade's __RESHADE_PERFORMANCE_MODE__), so never slower.
+      if (measured && rw.amdAfter < rw.amdBefore && perfWorse) {
+        for (auto& e : rw.edits)
+          if (e.extra.find("__RESHADE_PERFORMANCE_MODE__") == std::string::npos) e.extra += " && !__RESHADE_PERFORMANCE_MODE__";
+        rw.description += " (not in performance mode, where it would be slower)";
+        rw.amdPerfAfter = rw.amdPerfBefore;
+        kept.push_back(std::move(rw));
+        continue;
+      }
+      const bool worse = rw.amdAfter > rw.amdBefore || perfWorse;
       if (measured ? gain && !worse : rw.otherEntries > 0) kept.push_back(std::move(rw));
     }
     std::printf("classical rewrites: %zu of %zu kept (measured gain)\n", kept.size(), rewrites.size());
