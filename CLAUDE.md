@@ -1573,8 +1573,12 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   (a + b + c + d) * 0.25 -> mad chain "better scheduling", tail 8 -> 4; color + (color - blur) * S * O -> * (S * O)
   "faster in performance mode" 14 -> 10, measured amd 2 -> 2 (AMD's compiler already folds it), nv 3 -> 2. Bench
   (examples, time 10): identical bests (no rates in the examples). Not done: AMD ISA tail (instructions after the last
-  s_waitcnt vmcnt(0), needs RGA ISA text per candidate); corpus A/B after the full corpus run. Owner's next idea (task):
-  hoist per-pixel math that is linear in interpolants to the vertex shader.
+  s_waitcnt vmcnt(0), needs RGA ISA text per candidate). Corpus A/B (2026-10-08, SweetFX + DisplayDepth + potatoFX, 415
+  regions, --isa --sass --backends --time 3, on vs --no-schedule): 21 vs 13 regions with faster variants (new, all from the
+  reshaped forms: LiftGammaGain 29-33 x4, saturate(mad(c, 1.5 - L * 0.5, L * 0.5 - 0.5)) nv 12 -> 10, dxbc 9 -> 8, perf. mode
+  33 -> 15; Tonemap 40-42 x4), none lost; 6 "better scheduling" variants (FakeHDR 37 / 48 mad chains, LumaSharpen 109 / 127,
+  Sepia 15 / 17), 1 more "fewer registers"; search time identical, wall 3100 vs 2041 s (more variants measured, the other
+  mode too); all variant files parse (98 / 56).
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).
