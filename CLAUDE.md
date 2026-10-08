@@ -646,6 +646,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   (owner, 2026-10-01). Write-up for crosire: tools/reshade/UPSTREAM.md. Owner: removed the info log line
   and the copy sampler (pipeline layout with only the SRV; sampler state, push and destroy gone);
   re-tested by the owner (D3D11 --msaa 4, GTX 1660): SHA256-identical again.
+  2026-10-08 (owner: integer formats, a D3D12 suggestion patch, the * 0.25 pattern): sopt_MipTest.fx got an RGBA8 256x32
+  texture (levels 6-8 have a 1 texel high parent), new sopt_MipTestInt.fx (R32U / RGBA32I classification). Wine / Mesa GL:
+  unchanged DLL wrong on 256x32 levels 6-8 (reads past the edge = zeros), patched none (clamp; mirror would be the same);
+  integer formats zeros with both (the old shader's float sampler2D / image2D are undefined for them), so the bilinear
+  shader could replace the old file; llvmpipe's RGBA8 filter is within 1 step (GTX 1660: 1/2). tools/reshade/
+  d3d12-mipmaps.patch (on top of internal-shaders.patch, a suggestion: crosire writes his own code): SRV + static
+  sampler, per-pass descriptor blocks, per-level transitions, integer formats keep the old pipeline; compiles with
+  mingw, untested on hardware; levels 2-6 of a D3D12 pass still average outside values for 1-texel parents (patch or
+  not). CI reshade.yml builds ReShade64-6.8.0-sopt-d3d12.dll too. (v0+v1+v2+v3)*0.25: fxc keeps source order (the
+  * 0.5 form 5 DXBC ops vs 4); RGA (AMD Vulkan) rewrites every add form to 3 adds + mul (folds the halves back, no
+  omod); ptxas * 0.5 form 5 vs 4: the current form is fine. sopt-fx on the internal HLSL shaders: imgui_hdr needs float1
+  (parser gap: `#define float1 float` works), mipmap_cs_5_0 has a resource array (unsupported); nothing compiled-cheaper.
   Owner's idea (go 2026-10-01): sopt-opbench (tools/windows/opbench, measure-gpu.bat, in the
   sopt-windows-tools artifact): D3D11 compute tests, HLSL generated and compiled at run time with
   D3DCompile -O3 (the ReShade D3D path), steps x = mad(f(x, c), c.x, c.y) in long chains with

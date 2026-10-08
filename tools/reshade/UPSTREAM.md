@@ -43,8 +43,44 @@ four `texelFetch`.
   where it is off by almost one fp16 step on this driver. It averages in fp32, and `imageStore`
   appears to truncate when converting to fp16, while the filtered fetch comes back already
   rounded. So the new path is equal or more accurate.
-- D3D12 (`mipmap_cs_5_0.hlsl`) could do the same, but it reads through a UAV; a bilinear fetch
-  would need an SRV and a sampler in the root signature. That is not part of this patch.
+- Non-square textures: the old shader reads past the edge once the level above is 1 texel wide
+  or high, and averages with what comes back there (zeros), e.g. levels 6-8 of a 256 x 32 texture
+  are wrong. The bilinear fetch clamps to the edge, which gives the right box filter there. Checked
+  with `sopt_MipTest.fx` (its "RGBA8 256x32" format) under Wine / Mesa: unchanged DLL red on levels
+  6-8, patched none. (Mirror instead of clamp gives the same values: the sample sits exactly on the
+  edge.)
+- Integer formats: unpatched 6.8.0 sends them (R8UI ... RGBA32I) to the same compute shader, whose
+  float `sampler2D` / `image2D` bindings are undefined in GL for integer textures; Mesa returns
+  zeros (`sopt_MipTestInt.fx`). The patch leaves them on the old shader. So the bilinear shader
+  could replace the old file outright; integer textures would need their own `usampler2D` /
+  `uimage2D` shader, or no generated mips at all (D3D11's GenerateMips and a linear Vulkan blit
+  do not support them either).
+
+**3. Suggestion: the same for D3D12 (`d3d12-mipmaps.patch`, on top of the first)**
+
+Only as an illustration. `mipmap_linear_cs_5_0.hlsl` is `mipmap_cs_5_0.hlsl` with `load_and_reduce`
+as one `SampleLevel` at the shared corner, from an SRV of the pass's source level, and a static
+sampler (linear, clamp) in the root signature. On the C++ side each pass gets its own descriptor
+block (SRV + the 7 UAVs, `mips[0]` now a null view, since it is not read), and the state
+transitions are per level: the source level of a pass stays a shader resource while the levels it
+writes are unordered access. Integer formats keep the old pipeline; if the new one fails to create,
+it falls back with a warning. It compiles (mingw / clang) but is untested on hardware.
+
+The D3D12 shader has the same edge problem as the old GL one, and the patch only fixes the first
+level of each pass: levels 2-6 come from groupshared values, and for a level whose parent is 1 texel
+wide or high, half of each 2x2 block comes from threads outside the texture (zeros before, clamped
+level-0 samples after the patch). Clamping the neighbour indices in `reduce` to the parent level's
+size would fix it.
+
+**4. The `(v0 + v1 + v2 + v3) * 0.25` pattern**
+
+Checked whether `((v0 + v1) * 0.5 + (v2 + v3) * 0.5) * 0.5` (AMD's output modifier makes `* 0.5`
+free), a tree `((v0 + v1) + (v2 + v3)) * 0.25` or a mad chain does better. fxc keeps the source
+structure (the `* 0.5` form is 5 DXBC instructions, the others 4). AMD's driver compiler (RGA,
+Vulkan, gfx1100) turns all of them into the same 3 adds and a multiply by 0.25 per component (it
+folds the halves back into 0.25 and reorders the adds), except the mad chain (a mul and 3 fmas: also
+4). NVIDIA (ptxas): the `* 0.5` form is 5, the others 4. So the current form is as good as any; the
+bilinear fetch is the real saving.
 
 **Not tested yet:** AMD hardware, the OpenGL change on Intel, and timings beyond "no visible
 difference".

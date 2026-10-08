@@ -1,10 +1,13 @@
 // sopt_MipTest.fx: checks the mipmaps ReShade generates (GenerateMipMaps) against a reference.
 //
-// Pass 1 fills four render targets (RGBA8, RGBA16F, R32F, RGB10A2) with per-pixel noise; ReShade
-// then generates their mip levels. Pass 2 shows one level of one of them:
+// Pass 1 fills four render targets (RGBA8, RGBA16F, R32F, RGB10A2) with per-pixel noise, pass 2 a
+// non-square RGBA8 256 x 32 one (9 levels: its last four are 1 texel high, so a 2x2 block of the
+// level above reaches past its edge); ReShade then generates their mip levels. Pass 3 shows one
+// level of one of them:
 //   Mode 0: the mip level as ReShade generated it
 //   Mode 1: the reference: the average of the 2x2 texels (2t, 2t + 1) of level L - 1, which is what
-//           ReShade's own mipmap shaders compute (OpenGL, D3D12)
+//           ReShade's own mipmap shaders compute (OpenGL, D3D12); texels past the edge of a 1 texel
+//           wide or high level are clamped to it (the box filter of a 2 x 1 level is its average)
 //   Mode 2: |mip - reference| amplified (black = equal; RGBA8 / RGB10A2 show their rounding as grey
 //           noise here, which is expected)
 //   Mode 3: red where |mip - reference| exceeds Tolerance (in 8-bit steps), else dark gray
@@ -16,8 +19,8 @@
 
 #include "ReShade.fxh"
 
-uniform int Format < ui_type = "combo"; ui_items = "RGBA8\0RGBA16F\0R32F\0RGB10A2\0"; > = 0;
-uniform int Level < ui_type = "slider"; ui_min = 1; ui_max = 5; > = 1;
+uniform int Format < ui_type = "combo"; ui_items = "RGBA8\0RGBA16F\0R32F\0RGB10A2\0RGBA8 256x32 (levels 1-8)\0"; > = 0;
+uniform int Level < ui_type = "slider"; ui_min = 1; ui_max = 8; ui_tooltip = "1-5 (1-8 for the 256x32 texture)"; > = 1;
 uniform int Mode < ui_type = "combo"; ui_items = "Mip level\0Reference\0Difference (amplified)\0Over tolerance (red)\0"; > = 3;
 uniform float Amplify < ui_type = "slider"; ui_min = 1.0; ui_max = 256.0; > = 32.0;
 uniform float Tolerance < ui_type = "slider"; ui_min = 0.0; ui_max = 8.0; ui_tooltip = "In 8-bit steps"; > = 1.0;
@@ -26,10 +29,12 @@ texture texMipA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; MipLevels = 6; F
 texture texMipB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; MipLevels = 6; Format = RGBA16F; };
 texture texMipC { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; MipLevels = 6; Format = R32F; };
 texture texMipD { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; MipLevels = 6; Format = RGB10A2; };
+texture texMipE { Width = 256; Height = 32; MipLevels = 9; Format = RGBA8; };
 sampler sMipA { Texture = texMipA; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 sampler sMipB { Texture = texMipB; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 sampler sMipC { Texture = texMipC; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 sampler sMipD { Texture = texMipD; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+sampler sMipE { Texture = texMipE; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 
 uint hash(uint x)
 {
@@ -55,22 +60,31 @@ void PS_Fill(float4 pos : SV_Position, float2 uv : TEXCOORD,
 	d = float4(n, 1.0);
 }
 
+float4 PS_FillE(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
+{
+	return float4(noise(uint2(pos.xy) + 7777u), 1.0);
+}
+
 float3 fetch(int2 t, int lod)
 {
 	if (Format == 0) return tex2Dfetch(sMipA, t, lod).rgb;
 	if (Format == 1) return tex2Dfetch(sMipB, t, lod).rgb;
 	if (Format == 2) return tex2Dfetch(sMipC, t, lod).rrr;
-	return tex2Dfetch(sMipD, t, lod).rgb;
+	if (Format == 3) return tex2Dfetch(sMipD, t, lod).rgb;
+	return tex2Dfetch(sMipE, t, lod).rgb;
 }
 
 float3 PS_Show(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
 {
-	const int2 size = max(int2(BUFFER_WIDTH, BUFFER_HEIGHT) >> Level, 1);
+	const int2 base = Format == 4 ? int2(256, 32) : int2(BUFFER_WIDTH, BUFFER_HEIGHT);
+	const int level = clamp(Level, 1, Format == 4 ? 8 : 5);
+	const int2 size = max(base >> level, 1);
+	const int2 above = max(base >> (level - 1), 1) - 1;
 	const int2 t = min(int2(uv * float2(size)), size - 1);
 
-	const float3 mip = fetch(t, Level);
-	const float3 ref = 0.25 * (fetch(t * 2, Level - 1) + fetch(t * 2 + int2(1, 0), Level - 1) +
-	                           fetch(t * 2 + int2(0, 1), Level - 1) + fetch(t * 2 + int2(1, 1), Level - 1));
+	const float3 mip = fetch(t, level);
+	const float3 ref = 0.25 * (fetch(min(t * 2, above), level - 1) + fetch(min(t * 2 + int2(1, 0), above), level - 1) +
+	                           fetch(min(t * 2 + int2(0, 1), above), level - 1) + fetch(min(t * 2 + int2(1, 1), above), level - 1));
 
 	const float3 diff = abs(mip - ref);
 	if (Mode == 0) return mip;
@@ -90,6 +104,12 @@ technique sopt_MipTest
 		RenderTarget1 = texMipB;
 		RenderTarget2 = texMipC;
 		RenderTarget3 = texMipD;
+	}
+	pass FillE
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = PS_FillE;
+		RenderTarget = texMipE;
 	}
 	pass Show
 	{
