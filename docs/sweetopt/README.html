@@ -13,7 +13,7 @@
   <p>The super sweet shader optimizer: finds faster ways to write the math in ReShade shaders, checks every one, and lets you choose.</p>
 </header>
 
-<p>SweetOpt looks for cheaper ways to write the arithmetic in ReShade FX (and plain HLSL) pixel and compute shaders. Every rewrite it offers is checked to give the same result as the original, within what the output can show (an 8-bit back buffer hides small differences), and it is written next to the original behind a preprocessor switch, so you can compare them in ReShade and choose.</p>
+<p>SweetOpt looks for cheaper ways to write the arithmetic in ReShade FX, plain HLSL and GLSL shaders. Every rewrite it offers is checked to give the same result as the original, within what the output can show (an 8-bit back buffer hides small differences). In <strong>easy mode</strong> (the default in the menu) it writes ready files with the changes we recommend put in; in <strong>expert mode</strong> every variant is written next to the original behind a preprocessor switch, so you can compare them in ReShade and choose.</p>
 <p class="note">This is an early release: feedback is very welcome (see the end).</p>
 
 <h2>1. Run it on your shaders</h2>
@@ -21,9 +21,11 @@
 <table>
   <tr><th>Key</th><th>What it does</th></tr>
   <tr><td><kbd>1</kbd></td><td>Choose your <code>reshade-shaders\Shaders</code> folder (the one with <code>ReShade.fxh</code>).</td></tr>
-  <tr><td><kbd>2</kbd></td><td>Choose what to optimize: everything, one folder (such as SweetFX) or one effect.</td></tr>
+  <tr><td><kbd>2</kbd></td><td>Choose what to optimize: everything, one folder (such as SweetFX), one effect, or a GLSL / HLSL shader file that is not a ReShade effect (then no Shaders folder is needed).</td></tr>
   <tr><td><kbd>3</kbd></td><td>The time per statement: 5, 20 or 60 seconds (more time can find more).</td></tr>
   <tr><td><kbd>4</kbd></td><td>Your graphics card family (what counts as faster).</td></tr>
+  <tr><td><kbd>M</kbd></td><td>The mode. <strong>Easy</strong>: ready files with our recommended changes put in, nothing to choose; it then asks whether to keep a switch for each change (so single changes can be turned off again). <strong>Expert</strong>: every variant behind a switch with its cost and accuracy.</td></tr>
+  <tr><td><kbd>E</kbd></td><td>Easy mode settings, safe by default: whether easy mode may use "too exact" variants (no), and which bigger rewrites it makes (tables and vertex shader moves; or all, blends to the blend stage too; or none).</td></tr>
   <tr><td><kbd>5</kbd></td><td><strong>Start.</strong></td></tr>
   <tr><td><kbd>6</kbd></td><td>Quick look: which statements SweetOpt would work on (seconds, no search).</td></tr>
   <tr><td><kbd>7</kbd></td><td>Open the results (the <code>sopt-out</code> folder and <code>sopt-report.md</code>).</td></tr>
@@ -35,7 +37,8 @@
 <p>From a command prompt, the programs are in the <code>bin</code> folder: point <code>sopt-fx</code> at an effect file or a folder of effects, with <code>-I</code> for the folder that holds <code>ReShade.fxh</code>:</p>
 <pre>Windows:  bin\sopt-fx -I "C:\Games\MyGame\reshade-shaders\Shaders" -o out "C:\Games\MyGame\reshade-shaders\Shaders\SweetFX"
 Linux:    bin/sopt-fx -I ~/reshade-shaders/Shaders -o out ~/reshade-shaders/Shaders/SweetFX</pre>
-<p>It searches every arithmetic statement, 5 seconds each by default (<code>--time 20</code> for more; <code>--bits</code> also tries bit tricks with <code>asuint</code> / <code>asfloat</code>, slower). Plain HLSL works too: <code>.hlsl</code> / <code>.hlsli</code> files are read as SM5 pixel shaders, or compute shaders when the entry point has <code>[numthreads]</code> (<code>--entry NAME</code>, default <code>main</code>).</p>
+<p>It searches every arithmetic statement, 5 seconds each by default (<code>--time 20</code> for more; <code>--bits</code> also tries bit tricks with <code>asuint</code> / <code>asfloat</code>, slower). Plain HLSL works too: <code>.hlsl</code> / <code>.hlsli</code> files are read as SM5 pixel shaders, or compute shaders when the entry point has <code>[numthreads]</code> (<code>--entry NAME</code>, default <code>main</code>). GLSL fragment shaders (<code>.frag</code>, <code>.fs</code>, <code>.glsl</code>, or <code>--glsl</code>) are read too, and their variants are written in GLSL after the <code>#version</code> line.</p>
+<p>Easy mode from the command line: <code>--easy</code> (ready files, no switches) or <code>--easy-switches</code> (switches set to our picks); <code>--easy-too-exact</code> also allows "too exact" variants, <code>--easy-rewrites none|safe|all</code> chooses the bigger rewrites (default safe). Easy mode picks, per statement, the fastest variant that is bit-exact or within budget, has no problem inputs and is slower on no measured graphics card; the report still lists everything.</p>
 
 <h2>2. Read the results</h2>
 <table>

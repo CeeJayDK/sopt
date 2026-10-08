@@ -1653,6 +1653,18 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   `return SRC;`, the return removed); budget forced to Color8; the back buffer's alpha is kept (the developer checks). Fixed
   on the way: a whole float3 local initialized from the back buffer (no suffix) was never recognized as d. A rewrite that
   drops a texture read (fxstat vmem) counts as a gain at equal cost (report column "reads").
+- Easy mode (owner, 2026-10-08: users asked for "a ready file", for newbies; owner: both outputs, settings in the menu that
+  default to the safe choices): sopt-fx `--easy` (fx::WriteOptions::clean: the picks written in, no SOPT_ switches; rewrite
+  conditions that must stay, __RENDERER__ / performance mode, stay as #if) and `--easy-switches` (allOn: the usual file reduced
+  to the picks, SOPT_ALL default 1, no SOPT_AUTO block); fx::easyPicks: per region the variant with the lowest measured (else
+  static) cost among faster ones (not notFaster), bit-exact / 8-bit identical / within budget (`--easy-too-exact` adds too
+  exact), no problem inputs, no format guard, no #if guard, where measured slower on no vendor and faster on one; rewrites
+  `--easy-rewrites none|safe|all` (safe = tables + vertex shader, default; all adds the blend stage). The report and
+  sopt-found.txt still list everything. Test fx_easy_mode. SweetOpt.bat: key M (easy, then "keep a switch for each change?"
+  Y/N, or expert), key E (easy settings: too exact no/yes, rewrites safe/all/none, reset), MODE / TOOEXACT / REWRITES in
+  SweetOpt.ini, default easy; key 2 option 4 picks a GLSL / HLSL file without a Shaders folder (no -I then); file dialog
+  lists .hlsli / .frag / .fs / .glsl. cmd gotcha found under Wine: `if A if B (x) else (y)` binds the else to the outer if
+  (toggling setting 2 flipped setting 1): use gotos. Version 0.7.0 set for the release (GLSL, easy mode).
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

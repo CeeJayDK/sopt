@@ -12,6 +12,11 @@ set "TARGET="
 set "SECONDS=5"
 set "MODEL=rdna3"
 set "MODELNAME=AMD RDNA 3 (Radeon RX 7000)"
+rem Output (owner, 2026-10-08): easy = ready files with our picks, easy-switches = the same with switches, expert = every
+rem variant behind switches. Easy settings default to the safe choices.
+set "MODE=easy"
+set "TOOEXACT=no"
+set "REWRITES=safe"
 if exist "bin\SweetOpt.ini" for /f "usebackq eol=# tokens=1,* delims==" %%a in ("bin\SweetOpt.ini") do set "%%a=%%b"
 
 :menu
@@ -19,7 +24,7 @@ cls
 echo.
 echo   %E%[96m====================================================================%E%[0m
 echo   %E%[1;97m  SweetOpt  -  the super sweet shader optimizer  -  by CeeJay.dk%E%[0m
-echo   %E%[90m  finds faster ways to write the math in ReShade shaders%E%[0m
+echo   %E%[90m  finds faster ways to write the math in ReShade, HLSL and GLSL shaders%E%[0m
 echo   %E%[96m====================================================================%E%[0m
 echo.
 if "%SHADERS%"=="" echo   Shaders folder   %E%[91mnot chosen yet - press 1%E%[0m
@@ -28,12 +33,17 @@ if "%TARGET%"=="" echo   Optimize         %E%[97mevery effect in the Shaders fol
 if not "%TARGET%"=="" echo   Optimize         %E%[97m%TARGET%%E%[0m
 echo   Time             %E%[97m%SECONDS% seconds per statement%E%[0m
 echo   Graphics card    %E%[97m%MODELNAME%%E%[0m
+if "%MODE%"=="easy" echo   Mode             %E%[97mEasy: ready files with our recommended changes, no switches%E%[0m
+if "%MODE%"=="easy-switches" echo   Mode             %E%[97mEasy: ready files, each change behind a switch%E%[0m
+if "%MODE%"=="expert" echo   Mode             %E%[97mExpert: every variant behind switches, you choose%E%[0m
 if exist "sopt-facts.txt" echo   Value ranges     %E%[97msopt-facts.txt%E%[0m
 echo.
 echo   %E%[1;93m1%E%[0m  Choose the Shaders folder %E%[90m(the reshade-shaders\Shaders folder with ReShade.fxh)%E%[0m
 echo   %E%[1;93m2%E%[0m  Choose what to optimize %E%[90m(everything, one folder or one effect)%E%[0m
 echo   %E%[1;93m3%E%[0m  Choose the time per statement %E%[90m(more time can find more)%E%[0m
 echo   %E%[1;93m4%E%[0m  Choose the graphics card family %E%[90m(what counts as faster)%E%[0m
+echo   %E%[1;93mM%E%[0m  Choose the mode %E%[90m(easy: ready files, or expert: every variant)%E%[0m
+echo   %E%[1;93mE%E%[0m  Easy mode settings %E%[90m(which changes easy mode may make)%E%[0m
 echo.
 echo   %E%[1;93m5%E%[0m  %E%[1;97mStart%E%[0m
 echo   %E%[1;93m6%E%[0m  Quick look: what SweetOpt would work on %E%[90m(seconds, no search)%E%[0m
@@ -43,8 +53,10 @@ echo   %E%[1;93m8%E%[0m  Edit value ranges %E%[90m(better results: sopt-facts.tx
 echo   %E%[1;93m9%E%[0m  Open the guide %E%[90m(README.html)%E%[0m
 echo   %E%[1;93m0%E%[0m  Quit
 echo.
-choice /c 1234567890 /n /m "  Press a number: "
+choice /c 1234567890ME /n /m "  Press a number (or M, E): "
 set "n=%errorlevel%"
+if "%n%"=="11" call :chooseMode
+if "%n%"=="12" call :easySettings
 if "%n%"=="10" goto :eof
 if "%n%"=="1" call :chooseShaders
 if "%n%"=="2" call :chooseTarget
@@ -73,8 +85,6 @@ set "TARGET="
 exit /b
 
 :chooseTarget
-if "%SHADERS%"=="" call :chooseShaders
-if "%SHADERS%"=="" exit /b
 cls
 echo.
 echo   What should SweetOpt optimize?
@@ -82,20 +92,30 @@ echo.
 echo   %E%[1;93m1%E%[0m  Every effect in the Shaders folder
 echo   %E%[1;93m2%E%[0m  One folder %E%[90m(for example SweetFX)%E%[0m
 echo   %E%[1;93m3%E%[0m  One effect file
+echo   %E%[1;93m4%E%[0m  A GLSL or HLSL shader file %E%[90m(not ReShade: .frag, .glsl, .hlsl ...)%E%[0m
 echo   %E%[1;93m0%E%[0m  Back
 echo.
-choice /c 1230 /n /m "  Press a number: "
-if errorlevel 4 exit /b
+choice /c 12340 /n /m "  Press a number: "
+if errorlevel 5 exit /b
+if errorlevel 4 goto targetOther
 if errorlevel 3 goto targetFile
 if errorlevel 2 goto targetFolder
 set "TARGET="
 exit /b
 :targetFolder
+if "%SHADERS%"=="" call :chooseShaders
+if "%SHADERS%"=="" exit /b
 call :pickFolder "Choose the folder of effects to optimize" "%SHADERS%"
 if not "%PICKED%"=="" set "TARGET=%PICKED%"
 exit /b
 :targetFile
+if "%SHADERS%"=="" call :chooseShaders
+if "%SHADERS%"=="" exit /b
 call :pickFile "%SHADERS%"
+if not "%PICKED%"=="" set "TARGET=%PICKED%"
+exit /b
+:targetOther
+call :pickFile "%TARGET%"
 if not "%PICKED%"=="" set "TARGET=%PICKED%"
 exit /b
 
@@ -149,16 +169,67 @@ if "%k%"=="11" set "MODEL=intel-gen7.5" & set "MODELNAME=Intel Gen7.5 (HD Graphi
 if "%k%"=="12" set "MODEL=intel-gen12" & set "MODELNAME=Intel Gen12 (Iris Xe)"
 exit /b
 
+:chooseMode
+cls
+echo.
+echo   How do you want the results?
+echo.
+echo   %E%[1;93m1%E%[0m  Easy %E%[90m(ready files: our recommended changes are put in, nothing to choose)%E%[0m
+echo   %E%[1;93m2%E%[0m  Expert %E%[90m(every variant behind a switch with its accuracy and cost: you choose)%E%[0m
+echo.
+choice /c 12 /n /m "  Press a number: "
+if errorlevel 2 set "MODE=expert" & exit /b
+echo.
+echo   Keep a switch for each change? %E%[90m(lets you turn single changes off again later)%E%[0m
+choice /c YN /n /m "  Y = with switches, N = plain ready files: "
+if errorlevel 2 set "MODE=easy" & exit /b
+set "MODE=easy-switches"
+exit /b
+
+:easySettings
+cls
+echo.
+echo   Easy mode settings %E%[90m(the defaults are the safe choices)%E%[0m
+echo.
+if "%TOOEXACT%"=="no" echo   %E%[1;93m1%E%[0m  "Too exact" changes      %E%[97mno%E%[0m %E%[90m(closer to exact math than the original; can differ where an effect relies on rounding)%E%[0m
+if "%TOOEXACT%"=="yes" echo   %E%[1;93m1%E%[0m  "Too exact" changes      %E%[97myes%E%[0m %E%[90m(closer to exact math than the original; can differ where an effect relies on rounding)%E%[0m
+if "%REWRITES%"=="safe" echo   %E%[1;93m2%E%[0m  Bigger rewrites          %E%[97mtables and vertex shader moves%E%[0m %E%[90m(default)%E%[0m
+if "%REWRITES%"=="all" echo   %E%[1;93m2%E%[0m  Bigger rewrites          %E%[97mall, blends to the blend stage too%E%[0m %E%[90m(check those in ReShade)%E%[0m
+if "%REWRITES%"=="none" echo   %E%[1;93m2%E%[0m  Bigger rewrites          %E%[97mnone%E%[0m
+echo   %E%[1;93m3%E%[0m  Back to the safe defaults
+echo   %E%[1;93m0%E%[0m  Back
+echo.
+choice /c 1230 /n /m "  Press a number: "
+set "k=%errorlevel%"
+if "%k%"=="4" exit /b
+if "%k%"=="3" set "TOOEXACT=no" & set "REWRITES=safe"
+if "%k%"=="1" goto toggleTooExact
+if "%k%"=="2" goto toggleRewrites
+goto easySettings
+:toggleTooExact
+if "%TOOEXACT%"=="no" (set "TOOEXACT=yes") else (set "TOOEXACT=no")
+goto easySettings
+:toggleRewrites
+if "%REWRITES%"=="safe" (set "REWRITES=all") else if "%REWRITES%"=="all" (set "REWRITES=none") else (set "REWRITES=safe")
+goto easySettings
+
 rem ---------------------------------------------------------------------------------------------------
 :start
-if "%SHADERS%"=="" call :chooseShaders
-if "%SHADERS%"=="" exit /b
+if "%SHADERS%%TARGET%"=="" call :chooseShaders
+if "%SHADERS%%TARGET%"=="" exit /b
 set "WHAT=%TARGET%"
 if "%WHAT%"=="" set "WHAT=%SHADERS%"
+set "INC="
+if not "%SHADERS%"=="" set INC=-I "%SHADERS%"
 set "FACTS="
 if exist "sopt-facts.txt" set FACTS=--facts "%~dp0sopt-facts.txt"
+set "EASY="
+if "%MODE%"=="easy" set "EASY=--easy"
+if "%MODE%"=="easy-switches" set "EASY=--easy-switches"
+if not "%MODE%"=="expert" if "%TOOEXACT%"=="yes" set "EASY=%EASY% --easy-too-exact"
+if not "%MODE%"=="expert" set "EASY=%EASY% --easy-rewrites %REWRITES%"
 cls
-"%~dp0bin\sopt-fx.exe" -I "%SHADERS%" -o "%~dp0sopt-out" --time %SECONDS% --cost-model %MODEL% %FACTS% "%WHAT%"
+"%~dp0bin\sopt-fx.exe" %INC% -o "%~dp0sopt-out" --time %SECONDS% --cost-model %MODEL% %FACTS% %EASY% "%WHAT%"
 echo.
 if exist "sopt-out\sopt-report.md" echo   %E%[92mDone.%E%[0m The results are in the sopt-out folder: press 7 in the menu to open them.
 <nul set /p "=%BEL%"
@@ -166,12 +237,14 @@ pause
 exit /b
 
 :look
-if "%SHADERS%"=="" call :chooseShaders
-if "%SHADERS%"=="" exit /b
+if "%SHADERS%%TARGET%"=="" call :chooseShaders
+if "%SHADERS%%TARGET%"=="" exit /b
 set "WHAT=%TARGET%"
 if "%WHAT%"=="" set "WHAT=%SHADERS%"
+set "INC="
+if not "%SHADERS%"=="" set INC=-I "%SHADERS%"
 cls
-"%~dp0bin\sopt-fx.exe" -I "%SHADERS%" -o "%~dp0sopt-out" --list "%WHAT%"
+"%~dp0bin\sopt-fx.exe" %INC% -o "%~dp0sopt-out" --list "%WHAT%"
 echo.
 pause
 exit /b
@@ -212,11 +285,11 @@ set /p "PICKED=  %PTITLE% - type or paste the path (Enter = cancel): "
 if defined PICKED set "PICKED=%PICKED:"=%"
 exit /b
 
-rem :pickFile "start folder" -> PICKED (an .fx / .hlsl file)
+rem :pickFile "start folder" -> PICKED (an .fx / .hlsl / GLSL file)
 :pickFile
 set "PICKED="
 set "PSTART=%~1"
-for /f "usebackq delims=" %%p in (`powershell -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = 'Choose the effect to optimize'; $d.Filter = 'Effects (*.fx;*.fxh;*.hlsl)|*.fx;*.fxh;*.hlsl|All files|*.*'; $d.InitialDirectory = $env:PSTART; if ($d.ShowDialog() -eq 'OK') { $d.FileName }" 2^>nul`) do set "PICKED=%%p"
+for /f "usebackq delims=" %%p in (`powershell -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = 'Choose the effect to optimize'; $d.Filter = 'Shaders (*.fx;*.fxh;*.hlsl;*.hlsli;*.frag;*.fs;*.glsl)|*.fx;*.fxh;*.hlsl;*.hlsli;*.frag;*.fs;*.glsl|All files|*.*'; $d.InitialDirectory = $env:PSTART; if ($d.ShowDialog() -eq 'OK') { $d.FileName }" 2^>nul`) do set "PICKED=%%p"
 if not "%PICKED%"=="" exit /b
 echo.
 set /p "PICKED=  The effect file to optimize - type or paste the path (Enter = cancel): "
@@ -231,4 +304,7 @@ if not exist "bin" mkdir "bin"
 >>"bin\SweetOpt.ini" echo SECONDS=%SECONDS%
 >>"bin\SweetOpt.ini" echo MODEL=%MODEL%
 >>"bin\SweetOpt.ini" echo MODELNAME=%MODELNAME%
+>>"bin\SweetOpt.ini" echo MODE=%MODE%
+>>"bin\SweetOpt.ini" echo TOOEXACT=%TOOEXACT%
+>>"bin\SweetOpt.ini" echo REWRITES=%REWRITES%
 exit /b

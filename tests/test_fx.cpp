@@ -1225,3 +1225,62 @@ TEST(fx_glsl) {
   }
   fs::remove_all(out, ec);
 }
+
+TEST(fx_easy_mode) {
+  // Easy mode (owner, 2026-10-08): one recommended variant per region (safe picks), written in directly
+  // (clean) or behind switches that default to it.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_glsl.frag";
+  fx::LoadOptions lo;
+  lo.glsl = true;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* v = regionOn(regions, 22);
+  CHECK(v != nullptr);
+  if (!v) return;
+  auto variant = [](const char* text, Klass k, int amd) {
+    fx::Variant var;
+    var.expr = parseExpr(text, {});
+    var.text = text;
+    var.klass = k;
+    var.amd = amd;
+    return var;
+  };
+  fx::RegionResult rr;
+  rr.region = *v;
+  rr.targetAmd = 5;
+  rr.variants = {variant("2.0", Klass::LessAccurate, 1), variant("3.0", Klass::Within, 6),
+                 variant("1.0", Klass::BitExact, 2), variant("4.0", Klass::Accurate, 1)};
+  std::vector<fx::RegionResult> results = {rr};
+  std::vector<fx::SourceRewrite> rewrites;
+  fx::easyPicks(results, rewrites, fx::EasyOptions{});
+  CHECK(results[0].variants.size() == 1 && results[0].variants[0].text == "1.0");  // not less accurate / slower / too exact
+  std::vector<fx::RegionResult> tooExact = {rr};
+  fx::EasyOptions eo;
+  eo.tooExact = true;
+  fx::easyPicks(tooExact, rewrites, eo);
+  CHECK(tooExact[0].variants.size() == 1 && tooExact[0].variants[0].text == "4.0");
+  const fs::path out = fs::temp_directory_path() / "sopt_test_easy_out";
+  std::error_code ec;
+  for (const bool clean : {true, false}) {
+    fs::remove_all(out, ec);
+    fx::WriteOptions wo;
+    wo.clean = clean;
+    wo.allOn = !clean;
+    std::string errors;
+    CHECK(fx::writeVariants(results, out, errors, {}, wo).size() == 1 && errors.empty());
+    std::ifstream f(out / file.filename());
+    std::stringstream ss;
+    ss << f.rdbuf();
+    const std::string s = ss.str();
+    CHECK(s.rfind("#version 410 core\n// Optimized by SweetOpt", 0) == 0);
+    CHECK(s.find("    float v = 1.0;") != std::string::npos);
+    CHECK((s.find("SOPT_") == std::string::npos) == clean);
+    CHECK(clean || s.find("#define SOPT_ALL 1") != std::string::npos);
+    CHECK(fx::loadEffect(out / file.filename(), lo, err) != nullptr);
+  }
+  fs::remove_all(out, ec);
+}

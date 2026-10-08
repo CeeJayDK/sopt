@@ -118,10 +118,32 @@ std::string variantStatement(const Region& r, const std::string& expr);
 // written paths.
 // Classical rewrites (fx/classic.hpp) are written too, each under its switch; a region on their
 // lines gives way.
+// Easy mode (owner, 2026-10-08: "a ready file" for people who do not want to choose):
+//   clean:  the picks written in directly, no SOPT_ switches (conditions that must stay, such as
+//           __RENDERER__ or performance mode gates of classical rewrites, stay as #if);
+//   allOn:  the usual variant file, every switch defaulting to its pick (SOPT_ALL default 1, no
+//           SOPT_AUTO block); meant for results reduced by easyPicks (one variant per region).
+struct WriteOptions {
+  bool clean = false;
+  bool allOn = false;
+};
 std::vector<std::filesystem::path> writeVariants(const std::vector<RegionResult>& results,
                                                  const std::filesystem::path& outDir,
                                                  std::string& errors,
-                                                 const std::vector<SourceRewrite>& rewrites = {});
+                                                 const std::vector<SourceRewrite>& rewrites = {},
+                                                 const WriteOptions& wo = {});
+
+// Easy mode picks (settings default to the safe choices). Per region the one variant we
+// recommend, or none: faster (not an accuracy / register / scheduling only variant), bit-exact,
+// within budget or (tooExact) closer to exact math, no problem inputs, no back buffer format guard,
+// no #if guard; where measured (--isa / --sass) slower on no vendor and faster on one; the
+// lowest measured (else static) cost wins. Classical rewrites: tables and vertex shader moves
+// (Safe), also blend-stage ones (All), or none.
+struct EasyOptions {
+  bool tooExact = false;
+  enum class Rewrites { None, Safe, All } rewrites = Rewrites::Safe;
+};
+void easyPicks(std::vector<RegionResult>& results, std::vector<SourceRewrite>& rewrites, const EasyOptions& eo);
 
 struct ReportInfo {
   std::vector<std::string> effects;              // processed .fx files

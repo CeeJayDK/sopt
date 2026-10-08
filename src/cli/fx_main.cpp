@@ -143,6 +143,13 @@ void usage() {
       "  --no-blend-stage  no final back buffer blends as blend states (default: a pixel shader\n"
       "                    that returns lerp / multiply / add / screen / min / max of the back buffer\n"
       "                    at its pixel returns the blend's source, switch SOPT_<file>_B<line>)\n"
+      "  --easy            easy mode: write ready files with our recommended changes put in\n"
+      "                    directly, no switches (safe picks: faster on every measured GPU, as\n"
+      "                    accurate, no problem inputs; tables and vertex shader moves)\n"
+      "  --easy-switches   easy mode, but keep the switches, each set to the recommended change\n"
+      "  --easy-too-exact  easy mode may also pick \"too exact\" variants\n"
+      "  --easy-rewrites R classical rewrites in easy mode: none, safe (default: tables, vertex\n"
+      "                    shader) or all (blend stage too)\n"
       "  --no-v3           no V3 (default: prove a formal error bound by interval subdivision\n"
       "                    for the cheapest 3 alternatives where V2 does not apply, --v3-time S\n"
       "                    each, default 2; sopt-fx: for the written variants)\n"
@@ -195,6 +202,10 @@ int main(int argc, char** argv) {
   bool classic = true;       // classical source rewrites (fx/classic.hpp), --no-classic
   bool hoist = true;         // ... and moving math to the vertex shader (fx/hoist.hpp), --no-hoist
   bool blendStage = true;    // ... and final back buffer blends as blend states (fx/blend.hpp), --no-blend-stage
+  // Easy mode (owner, 2026-10-08): ready files with our recommended picks (fx::easyPicks).
+  bool easy = false;
+  fx::WriteOptions easyWrite;
+  fx::EasyOptions easyOpt;
   fs::path outDir = "sopt-out";
   bool list = false, skips = false;
   std::vector<std::string> regionFilter;
@@ -321,6 +332,19 @@ int main(int argc, char** argv) {
     else if (a == "--no-classic") classic = false;
     else if (a == "--no-hoist") hoist = false;
     else if (a == "--no-blend-stage") blendStage = false;
+    else if (a == "--easy") easy = true, easyWrite.clean = true;
+    else if (a == "--easy-switches") easy = true, easyWrite.allOn = true;
+    else if (a == "--easy-too-exact") easyOpt.tooExact = true;
+    else if (a == "--easy-rewrites") {
+      const std::string v = next();
+      if (v == "none") easyOpt.rewrites = fx::EasyOptions::Rewrites::None;
+      else if (v == "safe") easyOpt.rewrites = fx::EasyOptions::Rewrites::Safe;
+      else if (v == "all") easyOpt.rewrites = fx::EasyOptions::Rewrites::All;
+      else {
+        std::fprintf(stderr, "--easy-rewrites: none, safe or all\n");
+        return 2;
+      }
+    }
     else if (a == "--sass") sass = true;
     else if (a == "--backends") backends = true;
     else if (a == "--export-spirv") exportSpirv = next();
@@ -1265,14 +1289,24 @@ int main(int argc, char** argv) {
                    rewrites.end());
   }
   std::string errors;
-  auto files = fx::writeVariants(results, outDir, errors, rewrites);
+  // Easy mode: the files get only our picks (the report still lists every variant).
+  std::vector<fx::RegionResult> easyResults;
+  std::vector<fx::SourceRewrite> easyRewrites;
+  if (easy) {
+    easyResults = results;
+    easyRewrites = rewrites;
+    fx::easyPicks(easyResults, easyRewrites, easyOpt);
+  }
+  const auto& wResults = easy ? easyResults : results;
+  const auto& wRewrites = easy ? easyRewrites : rewrites;
+  auto files = fx::writeVariants(wResults, outDir, errors, wRewrites, easy ? easyWrite : fx::WriteOptions{});
 
   // Effects that include a changed header are copied too, so that the output directory
   // is self-contained: an effect finds headers next to it before the include paths.
   std::set<std::string> changed;
-  for (const auto& r : results)
+  for (const auto& r : wResults)
     if (!r.variants.empty()) changed.insert(r.region.file);
-  for (const auto& rw : rewrites) changed.insert(rw.file);
+  for (const auto& rw : wRewrites) changed.insert(rw.file);
   std::vector<std::pair<fs::path, fs::path>> effectsOut;  // written effect, its original
   for (const auto& [p, srcs] : effectFiles) {
     bool uses = false;
@@ -1320,6 +1354,12 @@ int main(int argc, char** argv) {
     f << fx::foundRewrites(results);
   }
   if (!errors.empty()) std::fprintf(stderr, "%s", errors.c_str());
+  if (easy) {
+    size_t picked = 0;
+    for (const auto& r : wResults) picked += !r.variants.empty();
+    std::printf("easy mode: %zu changes and %zu classical rewrites written %s\n", picked, wRewrites.size(),
+                easyWrite.clean ? "into the files (no switches)" : "with their switches on");
+  }
   size_t improved = 0;
   for (const auto& r : results) improved += !r.variants.empty();
   std::printf("%s%zu of %zu regions have cheaper variants%s; wrote %zu files, sopt-report.md and sopt-found.txt to %s\n",
