@@ -1980,6 +1980,18 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       if (l.intSource) d.name = "float" + (w > 1 ? std::to_string(w) : std::string()) + "(" + d.name + ")";
       d.type = floatType(w);
       d.compileTime = !l.fetch && isSymbolic(l.var);
+      // Rates (scheduling measures): user uniforms are constants in ReShade's performance mode
+      // (plain HLSL has none), uniforms with a source annotation (timer, frame count, ...) stay
+      // live; fetches in source order.
+      if (l.fetch) {
+        d.rate = InputDecl::Rate::Fetch;
+        for (size_t j = 0; j < i; ++j) d.fetchOrder += leaves_[j].fetch ? 1 : 0;
+      } else if (const auto uv = cg_.variables.find(l.var);
+                 !fx_.hlsl && !d.compileTime && uv != cg_.variables.end() && uv->second.kind == Variable::Kind::Uniform) {
+        bool source = false;
+        for (const auto& a : uv->second.annotations) source = source || a.name == "source";
+        if (!source) d.rate = InputDecl::Rate::Uniform;
+      }
       Range r = d.compileTime ? range(l.loadValue) : leafRange(l.loadValue);
       Fact fact;
       fact.input = d.name;

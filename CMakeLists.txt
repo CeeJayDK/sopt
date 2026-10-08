@@ -58,6 +58,7 @@ add_library(sopt-search
   src/search/subtrees.cpp
   src/search/cuts.cpp
   src/search/library.cpp
+  src/search/reshape.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/library_builtin.cpp)
 # The rewrite library is built in (used when library/rewrites.txt is not found at run time).
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/library_builtin.cpp
@@ -214,6 +215,7 @@ if(SOPT_BUILD_TESTS)
     tests/test_accuracy.cpp
     tests/test_bound.cpp
     tests/test_library.cpp
+    tests/test_schedule.cpp
     tests/test_fx.cpp)
   target_link_libraries(sopt-tests PRIVATE sopt-search sopt-measure sopt-fx-lib)
   target_compile_definitions(sopt-tests PRIVATE SOPT_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples"

@@ -468,13 +468,20 @@ Program parseProgram(std::string_view text) {
     if (t[0].text == "input") {
       if (!exprText.empty()) err("inputs must be declared before the output");
       // "const": a compile-time constant (a preprocessor definition), folded by the compiler.
-      const size_t o = kw(3, "const") ? 1 : 0;
+      // "uniform": a uniform (a constant in performance mode); "fetch": a texture fetch, in
+      // source order among the fetches (the scheduling measures, see scheduleMetrics).
+      const size_t o = kw(3, "const") || kw(3, "uniform") || kw(3, "fetch") ? 1 : 0;
       const bool typeOk = kw(3 + o, "float") || kw(3 + o, "float2") || kw(3 + o, "float3") || kw(3 + o, "float4");
       if (t[1].kind != Tok::Ident || !kw(2, ":") || !typeOk || !kw(4 + o, "in") || !kw(5 + o, "["))
-        err("expected: input <name> : [const] float[2|3|4] in [lo, hi] [grid N] [= value]");
+        err("expected: input <name> : [const|uniform|fetch] float[2|3|4] in [lo, hi] [grid N] [= value]");
       InputDecl d;
       d.name = t[1].text;
-      d.compileTime = o == 1;
+      d.compileTime = kw(3, "const");
+      if (kw(3, "uniform")) d.rate = InputDecl::Rate::Uniform;
+      if (kw(3, "fetch")) {
+        d.rate = InputDecl::Rate::Fetch;
+        for (const auto& other : prog.inputs) d.fetchOrder += other.rate == InputDecl::Rate::Fetch;
+      }
       d.type = t[3 + o].text == "float" ? Type::Float : floatType(static_cast<unsigned>(t[3 + o].text[5] - '0'));
       size_t p = 6 + o;
       d.lo = parseSignedNumber(t, p, line);

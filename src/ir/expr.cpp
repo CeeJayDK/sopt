@@ -321,7 +321,7 @@ std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& 
     if (n.op == Op::Const) {
       ct[i] = true;
     } else if (n.op == Op::Input) {
-      ct[i] = n.input < inputs.size() && inputs[n.input].compileTime;
+      ct[i] = n.input < inputs.size() && inputs[n.input].folds();
     } else {
       bool all = true;
       for (unsigned k = 0; k < operandCount(n); ++k) all = all && ct[n.args[k]];
@@ -331,11 +331,11 @@ std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& 
   return ct;
 }
 
-uint32_t dagCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
+std::vector<uint32_t> nodeCosts(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
   const auto ct = compileTimeNodes(e, inputs);
   const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
   const auto folded = amdFoldedNodes(e, uses, m);
-  uint32_t cost = 0;
+  std::vector<uint32_t> cost(e.nodes.size(), 0);
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     if (ct[i]) continue;
     const Node& n = e.nodes[i];
@@ -344,9 +344,55 @@ uint32_t dagCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>
     const int f = m.fusedAdd ? fusedArg(e, i, uses, m.divIsMul) : -1;
     bool fold = folded[i];
     for (unsigned k = 0; fold && k < operandCount(n); ++k) fold = !ct[n.args[k]] || e.nodes[n.args[k]].op == Op::Const;
-    cost += fold ? w : (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd : m.opCost(n.op, w);
+    cost[i] = fold ? w : (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd : m.opCost(n.op, w);
   }
   return cost;
+}
+
+uint32_t dagCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
+  uint32_t cost = 0;
+  for (uint32_t c : nodeCosts(e, m, inputs)) cost += c;
+  return cost;
+}
+
+std::vector<InputDecl> perfInputs(const std::vector<InputDecl>& inputs) {
+  std::vector<InputDecl> r = inputs;
+  for (auto& d : r) d.perfFolded = d.perfFolded || d.rate == InputDecl::Rate::Uniform;
+  return r;
+}
+
+bool hasScheduleInputs(const std::vector<InputDecl>& inputs) {
+  for (const auto& d : inputs)
+    if (d.rate != InputDecl::Rate::Pixel) return true;
+  return false;
+}
+
+ScheduleMetrics scheduleMetrics(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
+  ScheduleMetrics s;
+  s.perfCost = dagCost(e, m, perfInputs(inputs));
+  const std::vector<uint32_t> cost = nodeCosts(e, m, inputs);
+  // The last fetch e reads.
+  int64_t last = -1;
+  for (const auto& n : e.nodes)
+    if (n.op == Op::Input && n.input < inputs.size() && inputs[n.input].rate == InputDecl::Rate::Fetch &&
+        (last < 0 || inputs[n.input].fetchOrder > inputs[size_t(last)].fetchOrder))
+      last = n.input;
+  std::vector<uint32_t> path(e.nodes.size(), 0);
+  std::vector<bool> late(e.nodes.size(), false);
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    uint32_t longest = 0;
+    bool dep = n.op == Op::Input && int64_t{n.input} == last;
+    for (unsigned k = 0; k < operandCount(n); ++k) {
+      longest = std::max(longest, path[n.args[k]]);
+      dep = dep || late[n.args[k]];
+    }
+    path[i] = longest + cost[i];
+    late[i] = dep;
+    if (dep) s.tail += cost[i];
+  }
+  s.critical = e.nodes.empty() ? 0 : path[e.root];
+  return s;
 }
 
 bool containsInexact(const Expr& e) {

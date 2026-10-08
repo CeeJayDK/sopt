@@ -1512,7 +1512,7 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
       std::copy(tests_.cols[slot + k].begin(), tests_.cols[slot + k].end(), scratch_.begin() + k * n_);
     }
     canonicalize(scratch_.data(), width(t) * n_);
-    const bool ct = prog_.inputs[i].compileTime;
+    const bool ct = prog_.inputs[i].folds();
     Entry e = Entry::make(Op::Input, t, 0, false, 0, 0, 0, i, false, 0, ct);
     if (!insert(e, scratch_.data(), stats) || width(t) == 1) continue;
     const auto vec = static_cast<uint32_t>(bank_.size() - 1);

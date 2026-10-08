@@ -586,8 +586,8 @@ int main(int argc, char** argv) {
     char buf[160];
     for (size_t k = 0; k < anon.size(); ++k) {
       const InputDecl& d = anon[k];
-      std::snprintf(buf, sizeof(buf), "|%d %.9g %.9g %u %d %.9g", static_cast<int>(d.type), d.lo, d.hi,
-                    d.grid, d.compileTime ? 1 : 0, d.value);
+      std::snprintf(buf, sizeof(buf), "|%d %.9g %.9g %u %d %.9g %d %u", static_cast<int>(d.type), d.lo, d.hi,
+                    d.grid, d.compileTime ? 1 : 0, d.value, static_cast<int>(d.rate), d.fetchOrder);
       key += buf;
       anon[k].name = "in" + std::to_string(k);
     }
