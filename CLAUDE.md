@@ -587,6 +587,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
 - Full corpus run (owner, 2026-10-01, not urgent): later, every package the installer can
   install (EffectPackages.ini, 45 entries; we use 12), to collect as many new variants as
   possible in sopt-found.txt for improving the library. Run in chunks (container note above).
+  Done 2026-10-08 (0.6.4, --isa --sass --backends --time 3, GShade-Shaders skipped by the owner; scratchpad corpus/):
+  43 packages, 441 effects parsed, 4 failed (BX_XIV_ChromakeyPlus #error needs FFXIV's REST add-on; BFBFX AO / GI /
+  ZenWork headers missing in the tree layout), 8010 regions, 477 with variants, 2311 distinct found rewrites, 10.3 h;
+  most variants in RSRetroArch (127 of 930 regions), Depth3D 38, Barbatos 27, FXShaders 27, METEOR 25.
+  library/found/corpus-2026-10-08.txt (every package's sopt-found.txt, not loaded by sopt). It showed a library parser
+  bug: a range condition outside the default [-100, 100] gave "empty range" (now a condition's bound replaces the
+  default on its side).
   Rotation (owner, 2026-10-01): smaller tests should use other installer packages each time
   (both arms of an A/B comparison on the same set), so new packages get checked as a bonus and
   may turn up bugs. Fixed core in every test (owner): ReShade.fxh (used by nearly every effect:

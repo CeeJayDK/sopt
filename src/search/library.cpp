@@ -287,6 +287,8 @@ Library parseLibrary(std::string_view text, const std::string& name) {
         if (r.vars[k].name == v) return k;
       throw ParseError(where + ": '" + v + "' in a condition is not a variable of the pattern");
     };
+    // Sides of a variable's domain set by a condition (the default [-100, 100] applies to the others).
+    std::vector<bool> loSet(r.vars.size(), false), hiSet(r.vars.size(), false);
     for (const std::string& c : splitConds(condText)) {
       size_t j = 0;
       while (j < c.size() && identChar(c[j])) ++j;
@@ -339,14 +341,27 @@ Library parseLibrary(std::string_view text, const std::string& name) {
         }
       }
       if (rc.kind == RuleCond::Kind::Range) {
-        // The rule check samples the variable's domain: narrow it to the condition.
-        d.lo = std::max(d.lo, rc.lo);
-        d.hi = std::min(d.hi, rc.hi);
-        if (rc.loOpen && d.lo == rc.lo) d.lo = std::nextafter(d.lo, INFINITY);
-        if (rc.hiOpen && d.hi == rc.hi) d.hi = std::nextafter(d.hi, -INFINITY);
-        if (!(d.lo <= d.hi)) throw ParseError(where + ": empty range for " + v);
+        // The rule check samples the variable's domain: a condition's bound replaces the default
+        // one on its side (x in [256, 7680] lies outside [-100, 100]) and narrows an earlier one.
+        if (std::isfinite(rc.lo)) {
+          d.lo = loSet[rc.var] ? std::max(d.lo, rc.lo) : rc.lo;
+          loSet[rc.var] = true;
+          if (rc.loOpen && d.lo == rc.lo) d.lo = std::nextafter(d.lo, INFINITY);
+        }
+        if (std::isfinite(rc.hi)) {
+          d.hi = hiSet[rc.var] ? std::min(d.hi, rc.hi) : rc.hi;
+          hiSet[rc.var] = true;
+          if (rc.hiOpen && d.hi == rc.hi) d.hi = std::nextafter(d.hi, -INFINITY);
+        }
       }
       r.conds.push_back(rc);
+    }
+    for (size_t k = 0; k < r.vars.size(); ++k) {
+      InputDecl& d = r.vars[k];
+      // One side given beyond the other's default: the default side follows it.
+      if (loSet[k] && !hiSet[k] && d.hi < d.lo) d.hi = d.lo + 200.0;
+      if (hiSet[k] && !loSet[k] && d.lo > d.hi) d.lo = d.hi - 200.0;
+      if (!(d.lo <= d.hi)) throw ParseError(where + ": empty range for " + d.name);
     }
     try {
       r.lhs = folded(parseExpr(lhsText, r.vars));
