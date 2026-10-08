@@ -258,10 +258,11 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       if (p.rw) {
         for (; next < p.first; ++next) out += (*lines)[next - 1] + "\n";
         const std::string sw = rewriteSwitch(*p.rw);
+        const std::string on = sw + " >= 1" + p.edit->extra;
         if (p.edit->lines.empty()) {
-          out += "#if " + sw + " < 1 // sopt: " + p.rw->description + "\n";
+          out += "#if !(" + on + ") // sopt: " + p.rw->description + "\n";
         } else {
-          out += "#if " + sw + " >= 1 // sopt: " + p.rw->description + "\n";
+          out += "#if " + on + " // sopt: " + p.rw->description + "\n";
           for (const auto& l : p.edit->lines) out += l + "\n";
           out += "#else\n";
         }

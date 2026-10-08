@@ -16,6 +16,7 @@
 
 #include "cli/console.hpp"
 #include "fx/frontend.hpp"
+#include "fx/hoist.hpp"
 #include "fx/variants.hpp"
 #include "measure/isa.hpp"
 #include "measure/backends.hpp"
@@ -131,7 +132,11 @@ void usage() {
       "                    or with a shorter tail are written as \"(not faster)\" variants)\n"
       "  --perf-mode-first the performance mode cost (uniforms are constants) is the main cost\n"
       "  --no-classic      no classical source rewrites (default: local arrays of constants\n"
-      "                    indexed at run time become static const tables, switch SOPT_<file>_T<line>)\n"
+      "                    indexed at run time become static const tables, switch SOPT_<file>_T<line>;\n"
+      "                    pixel shader math of uniforms only, or affine in the texture coordinates,\n"
+      "                    moves to the vertex shader, switch SOPT_<file>_V<line>; kept where --isa\n"
+      "                    measures a gain)\n"
+      "  --no-hoist        no moving to the vertex shader (the table rewrites stay)\n"
       "  --no-v3           no V3 (default: prove a formal error bound by interval subdivision\n"
       "                    for the cheapest 3 alternatives where V2 does not apply, --v3-time S\n"
       "                    each, default 2; sopt-fx: for the written variants)\n"
@@ -180,6 +185,7 @@ int main(int argc, char** argv) {
   fx::RegionOptions ropt;
   bool formatChecks = true;  // back buffer formats: 10-bit and scRGB checks, see below
   bool classic = true;       // classical source rewrites (fx/classic.hpp), --no-classic
+  bool hoist = true;         // ... and moving math to the vertex shader (fx/hoist.hpp), --no-hoist
   fs::path outDir = "sopt-out";
   bool list = false, skips = false;
   std::vector<std::string> regionFilter;
@@ -303,6 +309,7 @@ int main(int argc, char** argv) {
     else if (a == "--max-width") ropt.maxWidth = std::strtod(next(), nullptr);
     else if (a == "--no-format-checks") formatChecks = false;
     else if (a == "--no-classic") classic = false;
+    else if (a == "--no-hoist") hoist = false;
     else if (a == "--sass") sass = true;
     else if (a == "--backends") backends = true;
     else if (a == "--export-spirv") exportSpirv = next();
@@ -423,7 +430,9 @@ int main(int argc, char** argv) {
         for (auto& h : fx::extractRegions(*fx, fx2.get(), hopt, hs))
           hdr.emplace(std::make_tuple(h.file, h.line, h.removed.size()), std::move(h));
       }
+      std::vector<fx::Region> effectRegions;  // for the vertex shader rewrites
       for (auto& r : fx::extractRegions(*fx, fx2.get(), ropt, info.skipped)) {
+        if (classic && hoist && !load.hlsl) effectRegions.push_back(r);
         if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
         fx::RegionResult rr;
         rr.effect = p.string();
@@ -450,6 +459,11 @@ int main(int argc, char** argv) {
         rr.region = std::move(r);
         results.push_back(std::move(rr));
       }
+      for (auto& rw : fx::hoistRewrites(*fx, effectRegions, *opt.search.model))
+        if (rewriteSeen.insert({rw.file, rw.line}).second) {
+          rewriteEffects.push_back(p);
+          rewrites.push_back(std::move(rw));
+        }
     }
     if (!regionFilter.empty())
       results.erase(std::remove_if(results.begin(), results.end(),

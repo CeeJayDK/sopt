@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "fx/frontend.hpp"
+#include "fx/hoist.hpp"
 #include "fx/variants.hpp"
 #include "search/driver.hpp"
 #include "test.hpp"
@@ -1062,5 +1063,48 @@ TEST(fx_table_rewrite) {
     CHECK(fx::loadEffect(out / "sopt_table.fx", l2, err2) != nullptr);
     if (!err2.empty()) std::printf("  %s\n", err2.c_str());
   }
+  fs::remove_all(out);
+}
+
+TEST(fx_hoist_rewrite) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_hoist.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+  const std::vector<fx::SourceRewrite> rw = fx::hoistRewrites(*e, regions, *costModelByName("rdna3"));
+  CHECK(rw.size() == 1);
+  if (rw.size() != 1) return;
+  CHECK(rw[0].function == "HoistPS" && rw[0].tag == "V");
+  bool wrapper = false, pass = false, flat = false, cheap = false;
+  for (const auto& ed : rw[0].edits) {
+    for (const auto& l : ed.lines) {
+      wrapper = wrapper || l.find("void sopt_VS_HoistPS(in uint id : SV_VertexID, out float4 vpos : SV_Position, "
+                                  "out float2 texcoord : TEXCOORD0") != std::string::npos;
+      pass = pass || l.find("VertexShader = sopt_VS_HoistPS;") != std::string::npos;
+      flat = flat || (l.find("color * sopt_f0.x") != std::string::npos &&  // k = Strength * ... inlined
+                      ed.extra.find("!__RESHADE_PERFORMANCE_MODE__") != std::string::npos);
+    }
+    cheap = cheap || (ed.first <= 23 && ed.last >= 23);  // float2 o = texcoord + Strength * 0.01;
+  }
+  CHECK(wrapper && pass && flat && !cheap);
+  // Written and parsed with the switch off and on, with and without performance mode.
+  const fs::path out = fs::temp_directory_path() / "sopt-test-hoist";
+  std::string errors;
+  const auto files = fx::writeVariants({}, out, errors, rw);
+  CHECK(files.size() == 1 && errors.empty());
+  for (const char* on : {"0", "1"})
+    for (const char* perf : {"0", "1"}) {
+      fx::LoadOptions l2;
+      l2.macros.emplace_back(fx::rewriteSwitch(rw[0]), on);
+      l2.macros.emplace_back("__RESHADE_PERFORMANCE_MODE__", perf);
+      std::string err2;
+      CHECK(fx::loadEffect(out / "sopt_hoist.fx", l2, err2) != nullptr);
+      if (!err2.empty()) std::printf("  %s\n", err2.c_str());
+    }
   fs::remove_all(out);
 }

@@ -8,7 +8,7 @@
 #include "fx/codegen.hpp"
 
 namespace sopt::fx {
-namespace {
+namespace source {
 
 bool identChar(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
 
@@ -19,26 +19,6 @@ std::string trim(const std::string& s) {
   return s.substr(a, b - a);
 }
 
-// Source lines as one text with the offset of each line's start.
-struct Text {
-  std::string s;
-  std::vector<size_t> starts;  // starts[i] = offset of line i + 1
-  uint32_t lineOf(size_t pos) const {
-    return static_cast<uint32_t>(std::upper_bound(starts.begin(), starts.end(), pos) - starts.begin());
-  }
-};
-
-Text joinLines(const std::vector<std::string>& lines) {
-  Text t;
-  for (const auto& l : lines) {
-    t.starts.push_back(t.s.size());
-    t.s += l;
-    t.s += '\n';
-  }
-  return t;
-}
-
-// Skips whitespace and comments from pos; returns the next position.
 size_t skipSpace(const std::string& s, size_t p) {
   for (;;) {
     while (p < s.size() && std::isspace(static_cast<unsigned char>(s[p]))) ++p;
@@ -53,7 +33,6 @@ size_t skipSpace(const std::string& s, size_t p) {
   }
 }
 
-// From an opening bracket at p: the position of its match (comments skipped), npos if none.
 size_t matching(const std::string& s, size_t p) {
   int depth = 0;
   for (size_t i = p; i < s.size(); ++i) {
@@ -69,6 +48,27 @@ size_t matching(const std::string& s, size_t p) {
   }
   return std::string::npos;
 }
+
+Text joinLines(const std::vector<std::string>& lines) {
+  Text t;
+  for (const auto& l : lines) {
+    t.starts.push_back(t.s.size());
+    t.s += l;
+    t.s += '\n';
+  }
+  return t;
+}
+
+}  // namespace source
+
+namespace {
+
+using source::identChar;
+using source::joinLines;
+using source::matching;
+using source::skipSpace;
+using source::Text;
+using source::trim;
 
 std::string zeroOf(const reshadefx::type& t, const std::string& typeName) {
   const char* z = t.is_floating_point() ? "0.0" : t.is_boolean() ? "false" : t.is_signed() ? "0" : "0u";
@@ -282,7 +282,7 @@ std::string rewriteSwitch(const SourceRewrite& r) {
   std::string stem = pathFrom(r.file).stem().string();
   for (auto& c : stem)
     if (!std::isalnum(static_cast<unsigned char>(c))) c = '_';
-  return "SOPT_" + stem + "_T" + std::to_string(r.line);
+  return "SOPT_" + stem + "_" + r.tag + std::to_string(r.line);
 }
 
 std::vector<SourceRewrite> tableRewrites(const Effect& fx) {
