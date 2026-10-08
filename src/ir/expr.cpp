@@ -486,11 +486,41 @@ std::string formatFloat(float v) {
 
 namespace {
 
+// GLSL output (toGlsl): set while printing.
+thread_local bool tlGlsl = false;
+
 uint8_t precOf(const Expr& e, uint32_t idx) {
   const auto& n = e.nodes[idx];
   if (n.op == Op::Const && n.type != Type::Uint && width(n.type) == 1 && (n.value[0] < 0.0f || std::signbit(n.value[0])))
     return 7;
+  if (tlGlsl && n.op == Op::Mad) return info(Op::Add).prec;  // a * b + c
+  if (tlGlsl && n.op == Op::Rcp) return info(Op::Div).prec;  // 1.0 / x
   return info(n.op).prec;
+}
+
+// GLSL: whether a call's scalar operand k may stay scalar next to vector ones (min(v, s),
+// clamp(v, s, s), mix(a, b, s), step(s, v), smoothstep(s, s, v)); others need vecN(s).
+bool glslScalarOk(Op op, unsigned k) {
+  switch (op) {
+    case Op::Min: case Op::Max: return k == 1;
+    case Op::Clamp: return k >= 1;
+    case Op::Lerp: return k == 2;
+    case Op::Step: return k == 0;
+    case Op::Smoothstep: return k <= 1;
+    default: return false;
+  }
+}
+
+std::string_view glslName(Op op, std::string_view name) {
+  switch (op) {
+    case Op::Frac: return "fract";
+    case Op::Rsqrt: return "inversesqrt";
+    case Op::Lerp: return "mix";
+    case Op::Round: return "roundEven";
+    case Op::AsUint: return "floatBitsToUint";
+    case Op::AsFloat: return "uintBitsToFloat";
+    default: return name;
+  }
 }
 
 // A vector constant with all components equal (float3(0.5, 0.5, 0.5)).
@@ -517,6 +547,28 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
     std::string s = scalarSplats && splatConst(c) ? formatFloat(c.value[0]) : print(e, inputs, child);
     return paren ? "(" + s + ")" : s;
   };
+  // GLSL: a scalar operand of a vector call or select where GLSL has no scalar overload as vecN(s).
+  auto arg = [&](unsigned k, bool paren) {
+    const Node& c = e.nodes[n.args[k]];
+    if (tlGlsl && width(n.type) > 1 && (width(c.type) == 1 || (scalarSplats && splatConst(c))) &&
+        !glslScalarOk(n.op, k))
+      return "vec" + std::to_string(width(n.type)) + "(" + sub(n.args[k], false) + ")";
+    return sub(n.args[k], paren);
+  };
+  if (tlGlsl) {
+    switch (n.op) {
+      case Op::Saturate: return "clamp(" + arg(0, false) + ", 0.0, 1.0)";
+      case Op::Rcp: return "1.0 / " + sub(n.args[0], precOf(e, n.args[0]) <= info(Op::Div).prec);
+      case Op::Mad: {
+        const uint8_t pm = info(Op::Mul).prec, pa = info(Op::Add).prec;
+        return sub(n.args[0], precOf(e, n.args[0]) < pm) + " * " + sub(n.args[1], precOf(e, n.args[1]) <= pm) +
+               " + " + sub(n.args[2], precOf(e, n.args[2]) <= pa);
+      }
+      case Op::IToF: return "float(int(" + print(e, inputs, n.args[0]) + "))";
+      case Op::FToI: return "uint(int(" + print(e, inputs, n.args[0]) + "))";
+      default: break;
+    }
+  }
   // a + -c prints as a - c.
   auto negConst = [&](uint32_t child) {
     const Node& c = e.nodes[child];
@@ -542,14 +594,16 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
     switch (n.op) {
       case Op::IToF: return "float(asint(" + print(e, inputs, n.args[0]) + "))";
       case Op::FToI: return "asuint(int(" + print(e, inputs, n.args[0]) + "))";
-      case Op::IShr: return "asuint(asint(" + print(e, inputs, n.args[0]) + ") >> " + intSub(n.args[1], true) + ")";
+      case Op::IShr:
+        if (tlGlsl) return "uint(int(" + print(e, inputs, n.args[0]) + ") >> " + intSub(n.args[1], true) + ")";
+        return "asuint(asint(" + print(e, inputs, n.args[0]) + ") >> " + intSub(n.args[1], true) + ")";
       default: break;
     }
     if (oi.syntax == Syntax::Infix) {
       const bool shift = n.op == Op::UShl || n.op == Op::UShr;
       return intSub(n.args[0], false) + " " + std::string(oi.symbol) + " " + intSub(n.args[1], shift);
     }
-    return std::string(oi.name) + "(" + print(e, inputs, n.args[0]) + ")";
+    return std::string(tlGlsl ? glslName(n.op, oi.name) : oi.name) + "(" + print(e, inputs, n.args[0]) + ")";
   }
   // && and ||: a nested && / || / ?: in parentheses unless it is the same op on the left (C: && binds tighter
   // than ||, but the parentheses make it plain).
@@ -568,18 +622,18 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
       if (n.type == Type::Uint) return formatUint(std::bit_cast<uint32_t>(n.value[0]));
       if (width(n.type) == 1) return formatFloat(n.value[0]);
       {
-        std::string s = "float" + std::to_string(width(n.type)) + "(";
+        std::string s = (tlGlsl ? "vec" : "float") + std::to_string(width(n.type)) + "(";
         for (unsigned k = 0; k < width(n.type); ++k) s += (k ? ", " : "") + formatFloat(n.value[k]);
         return s + ")";
       }
     case Syntax::Call:
     case Syntax::Construct: {
-      std::string s = oi.syntax == Syntax::Construct ? "float" + std::to_string(width(n.type))
-                                                     : std::string(oi.name);
+      std::string s = oi.syntax == Syntax::Construct ? (tlGlsl ? "vec" : "float") + std::to_string(width(n.type))
+                                                     : std::string(tlGlsl ? glslName(n.op, oi.name) : oi.name);
       s += "(";
       for (uint8_t k = 0; k < n.nargs; ++k) {
         if (k) s += ", ";
-        s += sub(n.args[k], false);
+        s += oi.syntax == Syntax::Construct ? sub(n.args[k], false) : arg(k, false);
       }
       return s + ")";
     }
@@ -599,8 +653,8 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
     }
     case Syntax::Ternary:
       return sub(n.args[0], precOf(e, n.args[0]) < 3) + " ? " +
-             sub(n.args[1], precOf(e, n.args[1]) <= 2) + " : " +
-             sub(n.args[2], precOf(e, n.args[2]) <= 2);
+             arg(1, precOf(e, n.args[1]) <= 2) + " : " +
+             arg(2, precOf(e, n.args[2]) <= 2);
   }
   return "?";
 }
@@ -610,6 +664,20 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
 std::string toString(const Expr& e, const std::vector<InputDecl>& inputs) {
   if (e.nodes.empty()) return "";
   return print(e, inputs, e.root);
+}
+
+std::string toGlsl(const Expr& e, const std::vector<InputDecl>& inputs) {
+  if (e.nodes.empty()) return "";
+  tlGlsl = true;
+  std::string s;
+  try {
+    s = print(e, inputs, e.root);
+  } catch (...) {
+    tlGlsl = false;
+    throw;
+  }
+  tlGlsl = false;
+  return s;
 }
 
 }  // namespace sopt

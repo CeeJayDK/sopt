@@ -154,6 +154,10 @@ bool needsPrecise(const Expr& e);
 Type nodeType(const Expr& e, uint32_t node);
 unsigned operandCount(const Node& n);
 std::string toString(const Expr& e, const std::vector<InputDecl>& inputs);
+// The same in GLSL: fract, mix, inversesqrt, roundEven, clamp(x, 0.0, 1.0) for saturate, 1.0 / x
+// for rcp, a * b + c for mad, vecN, floatBitsToUint / uintBitsToFloat, vecN(s) for scalar
+// operands GLSL does not broadcast (pow(v, vec3(2.0))).
+std::string toGlsl(const Expr& e, const std::vector<InputDecl>& inputs);
 std::string formatFloat(float v);
 std::string formatUint(uint32_t v);  // 13u, 0x3F800000u
 

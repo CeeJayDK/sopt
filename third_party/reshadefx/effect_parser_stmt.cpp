@@ -131,6 +131,15 @@ bool reshadefx::parser::parse_top(bool &parse_success)
 			if (handled)
 				return true;
 		}
+		// sopt: GLSL declarations (precision, layout, global in / out, samplers, uniform blocks)
+		if (sopt_glsl)
+		{
+			bool handled = false;
+			if (!sopt_glsl_declaration(handled, parse_success))
+				return false;
+			if (handled)
+				return true;
+		}
 
 		location attribute_location;
 		shader_type stype = shader_type::unknown;
@@ -211,7 +220,7 @@ bool reshadefx::parser::parse_top(bool &parse_success)
 				const std::string name = std::move(_token.literal_as_string);
 
 				// sopt: the HLSL entry point (a compute shader when it has [numthreads])
-				if (sopt_hlsl && stype == shader_type::unknown && name == sopt_hlsl_entry)
+				if ((sopt_hlsl || sopt_glsl) && stype == shader_type::unknown && name == sopt_hlsl_entry)
 					stype = num_threads[0] != 0 ? shader_type::compute : shader_type::pixel;
 
 				// This is definitely a function declaration, so parse it
@@ -230,6 +239,10 @@ bool reshadefx::parser::parse_top(bool &parse_success)
 					error(attribute_location, 0, "attribute is valid only on functions");
 					parse_success = false;
 				}
+
+				// sopt: GLSL globals are private unless uniform (ReShade FX globals need static)
+				if (sopt_glsl && !type.has(type::q_uniform))
+					type.qualifiers |= type::q_static;
 
 				// There may be multiple variable names after the type, handle them all
 				unsigned int count = 0;
@@ -1282,6 +1295,15 @@ bool reshadefx::parser::parse_function(type type, std::string name, shader_type 
 	bool parse_success = true;
 	bool expect_parenthesis = true;
 
+	// sopt: GLSL's f(void)
+	if (sopt_glsl && peek(tokenid::void_))
+	{
+		backup();
+		consume();
+		if (!peek(')'))
+			restore();
+	}
+
 	// Enter function scope (and leave it again when parsing this function finished)
 	scope_guard _(
 		[this]() {
@@ -1452,6 +1474,53 @@ bool reshadefx::parser::parse_function(type type, std::string name, shader_type 
 
 	if (expect_parenthesis && !expect(')'))
 		return false;
+
+	// sopt: the GLSL entry point's global in / out variables (and gl_FragCoord) as its parameters
+	if (sopt_glsl && name == sopt_hlsl_entry && stype != shader_type::unknown)
+	{
+		bool has_out = false;
+		for (const sopt_glsl_io &io : _sopt_glsl_io)
+		{
+			member_type param;
+			param.name = io.name;
+			param.location = io.loc;
+			if (!sopt_glsl_type(io.type_text, param.type))
+			{
+				reshadefx::type t = {};
+				if (io.type_text == "float") t = { type::t_float, 1, 1 };
+				else if (io.type_text == "int") t = { type::t_int, 1, 1 };
+				else if (io.type_text == "uint") t = { type::t_uint, 1, 1 };
+				else if (io.type_text == "bool") t = { type::t_bool, 1, 1 };
+				else
+				{
+					error(io.loc, 3000, "sopt: unsupported GLSL " + std::string(io.out ? "output" : "input") + " type '" + io.type_text + '\'');
+					return false;
+				}
+				param.type = t;
+			}
+			param.type.qualifiers = (io.out ? type::q_out : type::q_in) | io.interpolation;
+			if (param.type.is_integral())
+				param.type.qualifiers |= type::q_nointerpolation;
+			param.semantic = io.semantic;
+			has_out = has_out || io.out;
+			info.parameter_list.push_back(std::move(param));
+		}
+		member_type frag_coord;
+		frag_coord.name = "gl_FragCoord";
+		frag_coord.location = function_location;
+		frag_coord.type = { type::t_float, 4, 1, type::q_in };
+		frag_coord.semantic = "SV_POSITION";
+		info.parameter_list.push_back(std::move(frag_coord));
+		if (!has_out)
+		{
+			member_type frag_color;
+			frag_color.name = "gl_FragColor";
+			frag_color.location = function_location;
+			frag_color.type = { type::t_float, 4, 1, type::q_out };
+			frag_color.semantic = "SV_TARGET";
+			info.parameter_list.push_back(std::move(frag_color));
+		}
+	}
 
 	// Handle return type semantic
 	if (accept(':'))
@@ -3276,4 +3345,319 @@ bool reshadefx::parser::sopt_hlsl_intrinsic(const std::string &name, const locat
 		if (name == b.first)
 			return sopt_parse_text(b.second, loc, &exp);
 	return sopt_hlsl_interlocked(name, args, loc, exp);
+}
+
+// sopt: GLSL declarations (see sopt_glsl). Returns false on a fatal error; 'handled' says whether the next tokens
+// were such a declaration:
+//   precision lowp|mediump|highp T;                      skipped
+//   [layout(...)] [flat|smooth|noperspective|centroid] in|out T name[, name];
+//                                                         recorded as the entry point's parameters (and declared as
+//                                                         static globals, so other functions still parse)
+//   uniform samplerND / isamplerND / usamplerND name;    a texture __sopt_tex_name plus a sampler name
+//   uniform Block { members } [;]                         the members as uniforms
+//   other declarations with GLSL-only qualifiers          parsed without them
+bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success)
+{
+	handled = false;
+	const auto word = [this]() { return _lexer->input_string().substr(_token_next.offset, _token_next.length); };
+	if (peek(tokenid::identifier) && word() == "precision")
+	{
+		handled = true;
+		consume_until(';');
+		return true;
+	}
+
+	const location start = _token_next.location;
+	backup();
+	unsigned int interpolation = 0, layout_location = UINT32_MAX;
+	bool in = false, out = false, uniform = false, glsl_only = false;
+	for (;;)
+	{
+		const std::string w = word();
+		if (peek(tokenid::identifier) && w == "layout")
+		{
+			consume();
+			std::vector<std::string> args;
+			if (!peek('(') || !sopt_argument_texts(')', args))
+				return parse_success = false, handled = true, true;
+			for (const std::string &a : args)
+				if (const size_t eq = a.find('='); eq != std::string::npos && a.find("location") != std::string::npos)
+					layout_location = static_cast<unsigned int>(std::strtoul(a.c_str() + eq + 1, nullptr, 0));
+			glsl_only = true;
+		}
+		else if (peek(tokenid::identifier) && w == "flat")
+			consume(), interpolation |= type::q_nointerpolation, glsl_only = true;
+		else if (peek(tokenid::identifier) && (w == "smooth" || w == "invariant" || w == "highp" || w == "mediump" || w == "lowp"))
+			consume(), glsl_only = true;
+		else if (accept(tokenid::noperspective))
+			interpolation |= type::q_noperspective;
+		else if (accept(tokenid::centroid))
+			interpolation |= type::q_centroid;
+		else if (accept(tokenid::in))
+			in = true;
+		else if (accept(tokenid::out))
+			out = true;
+		else if (accept(tokenid::uniform_))
+			uniform = true;
+		else
+			break;
+	}
+	if (!in && !out && !uniform && !glsl_only && interpolation == 0)
+		return true;
+	// A plain uniform of a ReShade FX type (not a sampler or a block) parses as it is.
+	if (uniform && !in && !out && !glsl_only && interpolation == 0)
+	{
+		const std::string t = word();
+		reshadefx::type sampler_type = {};
+		const bool sampler = t == "sampler1D" || t == "sampler2D" || t == "sampler3D" ||
+			(sopt_glsl_type(t, sampler_type) && sampler_type.is_sampler());
+		bool block = false;
+		if (!sampler && peek(tokenid::identifier))
+		{
+			consume();
+			block = peek('{');
+		}
+		if (!sampler && !block)
+		{
+			restore();
+			return true;
+		}
+		restore();
+		consume(); // 'uniform' again
+	}
+	handled = true;
+
+	// The rest of the declaration up to its ';' (braces included).
+	const size_t begin = _token_next.offset;
+	size_t end = begin;
+	for (int depth = 0; !peek(tokenid::end_of_file) && !(depth == 0 && peek(';'));)
+	{
+		if (peek('{'))
+			++depth;
+		if (peek('}') && --depth == 0)
+		{
+			consume();
+			end = _token.offset + _token.length;
+			if (!peek(';') && !peek(tokenid::identifier))
+				break; // a uniform block without a trailing ';'
+			continue;
+		}
+		consume();
+		end = _token.offset + _token.length;
+	}
+	accept(';');
+	const std::string rest = _lexer->input_string().substr(begin, end - begin);
+	if (rest.empty()) // e.g. layout(local_size_x = 8) in;
+		return true;
+
+	// Split "T name, name" into the type word and the names (no arrays).
+	const auto words = [](const std::string &text) {
+		std::vector<std::string> list;
+		std::string current;
+		for (char c : text)
+		{
+			if (std::isalnum(static_cast<unsigned char>(c)) || c == '_')
+				current += c;
+			else
+			{
+				if (!current.empty())
+					list.push_back(current), current.clear();
+				if (c == '[' || c == '=' || c == '{')
+					list.push_back(std::string(1, c));
+			}
+		}
+		if (!current.empty())
+			list.push_back(current);
+		return list;
+	};
+
+	std::string text;
+	const std::vector<std::string> w = words(rest);
+	if (uniform && !w.empty())
+	{
+		const std::string &t = w[0];
+		const bool keyword_sampler = t == "sampler1D" || t == "sampler2D" || t == "sampler3D";
+		reshadefx::type sampler_type = {};
+		if (keyword_sampler || (sopt_glsl_type(t, sampler_type) && sampler_type.is_sampler()))
+		{
+			const char base = t[0] == 'i' ? 'i' : t[0] == 'u' ? 'u' : 'f';
+			const unsigned int dim = (t.find("1D") != std::string::npos) ? 1 :
+				(t.find("3D") != std::string::npos || t == "samplerCube" || t == "sampler2DArray") ? 3 : 2;
+			const std::string d = std::to_string(dim);
+			const std::string format = base == 'i' ? "RGBA32I" : base == 'u' ? "RGBA32U" : "RGBA32F";
+			const std::string element = base == 'i' ? "int4" : base == 'u' ? "uint4" : "float4";
+			for (size_t i = 1; i < w.size(); ++i)
+			{
+				if (w[i] == "[" || w[i] == "=")
+				{
+					error(start, 3000, "sopt: arrays of GLSL samplers are not supported");
+					return parse_success = false, true;
+				}
+				text += "texture" + d + "D __sopt_tex_" + w[i] + " { Format = " + format + "; }; sampler" + d + "D<" + element +
+					"> " + w[i] + " { Texture = __sopt_tex_" + w[i] + "; };";
+				sopt_glsl_samplers.push_back(w[i]);
+				_sopt_glsl_sampler_dims.push_back({ w[i], dim });
+			}
+		}
+		else if (w.size() >= 2 && w[1] == "{")
+		{
+			// uniform Block { T a; T b; } [instance];: the members as uniforms (an instance name is not supported)
+			const size_t open = rest.find('{'), close = rest.rfind('}');
+			if (close == std::string::npos || words(rest.substr(close + 1)).size() > 0)
+			{
+				error(start, 3000, "sopt: GLSL uniform blocks with an instance name are not supported");
+				return parse_success = false, true;
+			}
+			const std::string members = rest.substr(open + 1, close - open - 1);
+			size_t a = 0;
+			for (size_t b; (b = members.find(';', a)) != std::string::npos; a = b + 1)
+				if (members.find_first_not_of(" \t\r\n", a) < b)
+					text += "uniform " + members.substr(a, b - a) + ";";
+		}
+		else
+			text = "uniform " + rest + ";";
+	}
+	else if ((in || out) && w.size() >= 2)
+	{
+		// The type is the first word (GLSL types are one word), then the names.
+		for (size_t i = 1; i < w.size(); ++i)
+		{
+			if (w[i] == "[" || w[i] == "=")
+			{
+				error(start, 3000, "sopt: arrays of GLSL inputs and outputs are not supported");
+				return parse_success = false, true;
+			}
+			sopt_glsl_io io;
+			io.name = w[i];
+			io.type_text = w[0];
+			io.loc = start;
+			io.out = out;
+			io.interpolation = interpolation;
+			size_t index = 0;
+			for (const sopt_glsl_io &other : _sopt_glsl_io)
+				index += other.out == out;
+			if (layout_location != UINT32_MAX)
+				index = layout_location;
+			if (out)
+				io.semantic = index == 0 ? "SV_TARGET" : "SV_TARGET" + std::to_string(index);
+			else
+			{
+				// A 2-component input named like a texture coordinate gets a TEXCOORD semantic (the [0, 1] convention),
+				// any other one a semantic without a convention.
+				std::string lower = io.name;
+				for (char &c : lower)
+					c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+				const bool texcoord = w[0] == "vec2" && (lower.find("uv") != std::string::npos ||
+					lower.find("coord") != std::string::npos || lower.find("tex") != std::string::npos);
+				io.semantic = (texcoord ? "TEXCOORD" : "GLSLIN") + std::to_string(index);
+			}
+			_sopt_glsl_io.push_back(io);
+			text += "static " + w[0] + ' ' + w[i] + ';';
+		}
+	}
+	else
+	{
+		text = rest + ";";
+	}
+	if (!text.empty())
+		parse_success = sopt_parse_text(text, start, nullptr);
+	return true;
+}
+
+// sopt: GLSL built-in functions with another name or form in ReShade FX.
+static const char *const sopt_glsl_renames[][2] = {
+	{ "fract", "frac" }, { "inversesqrt", "rsqrt" }, { "dFdx", "ddx" }, { "dFdy", "ddy" }, { "dFdxFine", "ddx_fine" },
+	{ "dFdyFine", "ddy_fine" }, { "dFdxCoarse", "ddx_coarse" }, { "dFdyCoarse", "ddy_coarse" }, { "fwidthFine", "fwidth" },
+	{ "fwidthCoarse", "fwidth" }, { "roundEven", "round" }, { "floatBitsToUint", "asuint" }, { "floatBitsToInt", "asint" },
+	{ "uintBitsToFloat", "asfloat" }, { "intBitsToFloat", "asfloat" }, { "fma", "mad" }, { "mix", "lerp" } };
+static const char *const sopt_glsl_specials[] = {
+	"atan", "mod", "not", "lessThan", "lessThanEqual", "greaterThan", "greaterThanEqual", "equal", "notEqual",
+	"texture", "texture2D", "texture3D", "textureLod", "textureGrad", "texelFetch", "textureSize", "textureOffset",
+	"texelFetchOffset", "textureLodOffset", "textureGradOffset", "textureGather", "textureGatherOffset" };
+
+bool reshadefx::parser::sopt_glsl_intrinsic_name(const std::string &name)
+{
+	for (const auto &r : sopt_glsl_renames)
+		if (name == r[0])
+			return true;
+	for (const char *const s : sopt_glsl_specials)
+		if (name == s)
+			return true;
+	return false;
+}
+
+// The '(' is next.
+bool reshadefx::parser::sopt_glsl_intrinsic(const std::string &name, const location &loc, expression &exp)
+{
+	std::vector<std::string> args;
+	if (!sopt_argument_texts(')', args))
+		return false;
+	const auto arg = [&](size_t i) { return i < args.size() ? '(' + args[i] + ')' : std::string("(0)"); };
+	const auto list = [&](size_t from) {
+		std::string s;
+		for (size_t i = from; i < args.size(); ++i)
+			s += (i > from ? ", " : "") + args[i];
+		return s;
+	};
+	std::string text;
+	for (const auto &r : sopt_glsl_renames)
+		if (name == r[0])
+			text = std::string(r[1]) + '(' + list(0) + ')';
+	if (text.empty())
+	{
+		// Texture functions: the dimension of the sampler (a global sampler's, else 2D).
+		std::string sampler = args.empty() ? std::string() : args[0];
+		sampler.erase(0, sampler.find_first_not_of(" \t\r\n"));
+		sampler.erase(sampler.find_last_not_of(" \t\r\n") + 1);
+		unsigned int dim = 2;
+		for (const auto &s : _sopt_glsl_sampler_dims)
+			if (s.first == sampler)
+				dim = s.second;
+		const std::string tex = "tex" + std::to_string(dim) + "D";
+		const std::string lod_coord = dim == 3 ? "float4(" + arg(1) + ", " + arg(2) + ")" :
+			dim == 1 ? "float4(" + arg(1) + ", 0.0, 0.0, " + arg(2) + ")" : "float4(" + arg(1) + ", 0.0, " + arg(2) + ")";
+		if (name == "atan")
+			text = args.size() == 2 ? "atan2(" + list(0) + ')' : "atan(" + list(0) + ')';
+		else if (name == "mod")
+			text = '(' + arg(0) + " - " + arg(1) + " * floor(" + arg(0) + " / " + arg(1) + "))";
+		else if (name == "not")
+			text = "(!" + arg(0) + ')';
+		else if (name == "lessThan" || name == "lessThanEqual" || name == "greaterThan" || name == "greaterThanEqual" ||
+			name == "equal" || name == "notEqual")
+		{
+			const char *op = name == "lessThan" ? " < " : name == "lessThanEqual" ? " <= " : name == "greaterThan" ? " > " :
+				name == "greaterThanEqual" ? " >= " : name == "equal" ? " == " : " != ";
+			text = '(' + arg(0) + op + arg(1) + ')';
+		}
+		else if (name == "texture" || name == "texture2D" || name == "texture3D")
+			text = tex + '(' + args[0] + ", " + arg(1) + ')'; // a bias argument is dropped (fetches are region inputs)
+		else if (name == "textureLod")
+			text = tex + "lod(" + args[0] + ", " + lod_coord + ')';
+		else if (name == "textureGrad" || name == "textureGradOffset")
+			text = tex + "grad(" + args[0] + ", " + arg(1) + ", " + arg(2) + ", " + arg(3) + ')';
+		else if (name == "texelFetch")
+			text = tex + "fetch(" + args[0] + ", " + arg(1) + ", " + arg(2) + ')';
+		else if (name == "texelFetchOffset")
+			text = tex + "fetch(" + args[0] + ", " + arg(1) + " + " + arg(3) + ", " + arg(2) + ')';
+		else if (name == "textureSize")
+			text = tex + "size(" + args[0] + (args.size() > 1 ? ", " + arg(1) : std::string()) + ')';
+		else if (name == "textureOffset")
+			text = tex + '(' + args[0] + ", " + arg(1) + ", " + arg(2) + ')';
+		else if (name == "textureLodOffset")
+			text = tex + "lod(" + args[0] + ", " + lod_coord + ", " + arg(3) + ')';
+		else if (name == "textureGather" || name == "textureGatherOffset")
+		{
+			const bool offset = name == "textureGatherOffset";
+			std::string comp = args.size() > (offset ? 3u : 2u) ? args[offset ? 3 : 2] : std::string("0");
+			comp.erase(0, comp.find_first_not_of(" \t\r\n"));
+			const char *channel = comp.rfind('1', 0) == 0 ? "G" : comp.rfind('2', 0) == 0 ? "B" : comp.rfind('3', 0) == 0 ? "A" : "R";
+			text = "tex2Dgather" + std::string(channel) + '(' + args[0] + ", " + arg(1) + (offset ? ", " + arg(2) : std::string()) + ')';
+		}
+	}
+	if (text.empty())
+	{
+		error(loc, 3004, "sopt: unsupported GLSL built-in '" + name + '\'');
+		return false;
+	}
+	return sopt_parse_text(text, loc, &exp);
 }

@@ -9,7 +9,7 @@ ranking via fxstat + RGA, solved outer and inner constants (affine + inner, defa
 a separate enumeration order model (`--order-model`; rdna3 and the nvidia / intel models default to
 `search`), no pure helper intrinsics (lerp, step) during search (default), an `nvidia`
 cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, `intel-gen9`, `intel-gen7.5`, `nvidia-maxwell`, `nvidia-pascal`, `nvidia-turing`, `nvidia-ampere`,
-`nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3; plain HLSL SM5 pixel and compute shaders, ReShade FX compute shaders.
+`nvidia-blackwell`, `amd-rdna2`, `amd-rdna4`, `amd-gcn5` and `amd-terascale2` cost models (sopt-opbench timings). Default cost model: rdna3; plain HLSL SM5 pixel and compute shaders, ReShade FX compute shaders, GLSL fragment shaders.
 
 ## Working with the owner
 - No personal data in the repository (owner, 2026-10-05: GDPR): no names, handles or other details of testers or
@@ -749,7 +749,27 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   Interlocked* -> atomic* (storage overload for Name[i] destinations). Texture2D<float2 / float3> now use a float4
   sampler + swizzle (FX fetch overloads are scalar / 4-wide). Tests fx_compute (tests/fx/sopt_compute.fx),
   fx_hlsl_compute (tests/fx/sopt_compute.hlsl); the HLSL test's original and SOPT_ALL = 1 variant compile with
-  Microsoft's fxc cs_5_0 (Wine). Not yet: SM6 / DXC syntax, GLSL, groupshared stores as regions (store to a global).
+  Microsoft's fxc cs_5_0 (Wine). Not yet: SM6 / DXC syntax, groupshared stores as regions (store to a global).
+  GLSL fragment shaders (owner, 2026-10-08, for a trial on CeeJayDK/pinball-fantasies-encore's shaders/): `.frag` / `.fs` /
+  `.glsl` or `--glsl` (LoadOptions::glsl; Effect::hlsl is set too = "plain source": no ReShade macros, no second parse, no
+  auto picks, no classical rewrites). Parser mode `sopt_glsl` (vendored reshadefx, beside sopt_hlsl): #version / #extension
+  ignored, GLSL types (vecN / ivec / uvec / bvec / matCxR kept transposed as float{C}x{R}; matrix products error out),
+  `layout(...)` / flat / smooth / noperspective / centroid / precision skipped, `in` / `out` globals become the entry
+  point's parameters (inputs TEXCOORD<n> when a vec2 is named *uv* / *coord* / *tex*, else GLSLIN<n>; outputs SV_TARGET<n>;
+  gl_FragCoord = SV_POSITION, gl_FragColor when there is no out), sampler2D X = texture __sopt_tex_X + sampler X
+  (textureFactKey strips the prefix: key "<file> texture X"), uniform blocks = uniforms, intrinsic renames (fract, mix,
+  inversesqrt, dFdx, roundEven, fma, bit casts) and special forms (atan(y, x), mod, lessThan ..., texture / texelFetch /
+  textureLod / textureGrad / textureOffset / textureSize / textureGather -> tex2D* calls); one-scalar and truncating
+  constructors (vec3(s), vec3(v4)). Frontend: GLSL lookups are fetch leaves in their own text (tlGlslFetches). Printer
+  `toGlsl` (expr.cpp; mad -> a * b + c, rcp -> 1.0 / x, saturate -> clamp(x, 0.0, 1.0), vecN(s) where GLSL has no scalar
+  overload); sopt-fx prints GLSL regions' variants with it; the variant header goes after #version / #extension; precise vecN.
+  Test fx_glsl (tests/fx/sopt_glsl.frag). Variants of a variant file with SOPT_ALL 0..3 pass glslangValidator.
+  Pinball trial (6 shaders, 5 .frag; facts for uSceneSize [1, 4096], textures [0, 1], ...; --time 20 --isa --sass): all parse,
+  24 regions; static finds (crt-lottes ToLinear1 div -> mul 126 -> 76, hd.frag mix expansion 31 -> 26) are already done by
+  the AMD / NVIDIA compilers; only crt-lottes Dist `-(pos - floor(pos) - 0.5)` -> `-(fract(pos) - 0.5)` survives (amd 7 -> 5,
+  nv 8 -> 8, bit-exact). ISA numbers come from the FX/HLSL emitter (fxstat + RGA, ptxas), not from a GLSL driver path.
+  Found with it: variants printed identically to the original (a - c vs a + -c: rdna3 sub 5, add 4) were written; now
+  dropped (fx_main: a.text == targetText).
   First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
   the base step mad(x, c.x, c.y) is 2 instructions there (GCN's constant bus takes one SGPR per VALU op, so
   one constant needs a v_mov), so 1 instruction = ~2.1 units: add / sub / min / max / floor / ceil / round /

@@ -103,6 +103,10 @@ namespace reshadefx
 		/// sopt addition: the macros defined at the end of preprocessing.
 		/// </summary>
 		const std::unordered_map<std::string, macro> &sopt_macros() const { return _macros; }
+		/// <summary>
+		/// sopt addition: GLSL source: #version and #extension lines are ignored.
+		/// </summary>
+		bool sopt_glsl = false;
 
 	private:
 		struct if_level

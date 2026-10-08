@@ -254,6 +254,21 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       out += "#else\n#define " + sw + " SOPT_ALL" + note + "#endif\n#endif\n";
     }
     uint32_t next = 1;  // next source line to copy
+    // GLSL: #version (and #extension) must come before anything but comments, so the header
+    // goes after them.
+    bool glslFile = false;
+    for (const Piece& p : pieces) glslFile = glslFile || (p.rr && p.rr->region.glsl);
+    if (glslFile) {
+      uint32_t after = 0;
+      for (uint32_t i = 1; i <= lines->size() && i < pieces.front().first; ++i) {
+        const std::string& l = (*lines)[i - 1];
+        const size_t b = l.find_first_not_of(" \t");
+        if (b != std::string::npos && (l.compare(b, 8, "#version") == 0 || l.compare(b, 10, "#extension") == 0)) after = i;
+      }
+      std::string head;
+      for (; next <= after; ++next) head += (*lines)[next - 1] + "\n";
+      out = head + out;
+    }
     for (const Piece& p : pieces) {
       if (p.rw) {
         for (; next < p.first; ++next) out += (*lines)[next - 1] + "\n";
@@ -357,7 +372,8 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
           // fxc -O3 folds (v + c) - c to v: the add-round trick only survives as precise.
           const unsigned w = width(v.expr.nodes[v.expr.root].type);
           const std::string tmp = "__sopt_p" + std::to_string(r.line) + "_" + std::to_string(k + 1);
-          out += ind + "precise float" + (w > 1 ? std::to_string(w) : std::string()) + " " + tmp + " = " + text + ";\n";
+          const std::string ty = w > 1 ? (r.glsl ? "vec" : "float") + std::to_string(w) : std::string("float");
+          out += ind + "precise " + ty + " " + tmp + " = " + text + ";\n";
           text = tmp;
         }
         out += ind + variantStatement(r, text) + note + back + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
@@ -444,7 +460,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     s += "### `" + switchName(r) + "` — " + pathFrom(r.file).filename().string() + ":" +
          (r.removed.empty() ? "" : std::to_string(r.removed.front().first) + "-") + std::to_string(r.line) +
          " (" + r.function + ")\n\n";
-    s += "```hlsl\n" + r.original + "\n```\n\n";
+    s += (r.glsl ? "```glsl\n" : "```hlsl\n") + r.original + "\n```\n\n";
     if (!r.guard.empty()) s += "Applies only while `" + r.guard + "` (preprocessor).\n\n";
     s += "Inputs:\n";
     for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
@@ -513,7 +529,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     if (info.spirv) s += "---|";
     if (info.dxbc) s += "---|";
     s += std::string(exact ? "---|---|---|---|" : "---|---|---|") + (autoCol ? "---|" : "") + "\n";
-    s += "| 0 | `" + escapeCell(toString(r.prog.target, r.prog.inputs)) + "` | " + std::to_string(rr.targetCost) + " |";
+    s += "| 0 | `" + escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)) + "` | " + std::to_string(rr.targetCost) + " |";
     if (sched) s += " " + std::to_string(rr.targetOtherCost) + " | " + std::to_string(rr.targetTail) + " |";
     if (info.amd) s += " " + withGain(rr.targetAmd, -1) + " | " + regsCell(rr.targetAmdVgprs, -1) + " |";
     if (info.nv) s += " " + withGain(rr.targetNv, -1) + " | " + regsCell(rr.targetNvRegs, -1) + " |";
@@ -589,7 +605,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     for (const auto& f : r.facts)
       if (f.assumed) assumed += (assumed.empty() ? "" : ", ") + ("`" + f.input + "`");
     s += "- " + pathFrom(r.file).filename().string() + ":" + std::to_string(r.line) + " (assumed: " +
-         assumed + "): `" + escapeCell(toString(r.prog.target, r.prog.inputs)) + "` -> `" +
+         assumed + "): `" + escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)) + "` -> `" +
          escapeCell(rr.unwritten[0].text) + "` (cost " + std::to_string(rr.targetCost) + " -> " +
          std::to_string(rr.unwritten[0].cost) + ")\n";
   }
@@ -604,7 +620,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     if (rr.measuredNoGain) why += ", no measured gain";
     std::snprintf(buf, sizeof(buf), "- %s:%u (cost %u%s): `%s`\n", pathFrom(r.file).filename().string().c_str(),
                   r.line, rr.targetCost, why.c_str(),
-                  escapeCell(toString(r.prog.target, r.prog.inputs)).c_str());
+                  escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)).c_str());
     s += buf;
   }
   s += "\n## Skipped statements\n\n| reason | count |\n|---|---|\n";

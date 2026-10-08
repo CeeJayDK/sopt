@@ -84,7 +84,7 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   for (const auto& p : opt.includePaths) pp.add_include_path(p);
   // As ReShade 6 defines them (runtime.cpp), D3D11 renderer, SDR 8-bit back buffer (not
   // for plain HLSL).
-  if (!opt.hlsl) {
+  if (!opt.hlsl && !opt.glsl) {
     pp.add_macro_definition("__RESHADE__", "60800");
     pp.add_macro_definition("__RESHADE_PERMUTATION__", "0");
     pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", "0");
@@ -113,7 +113,8 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
     pp.symbolic_exclude.insert(opt.symbolicExclude.begin(), opt.symbolicExclude.end());
   }
   if (!decls.empty()) pp.append_string(decls);
-  if (!opt.hlsl)
+  pp.sopt_glsl = opt.glsl;
+  if (!opt.hlsl && !opt.glsl)
     pp.append_string(
         "#define tex2Doffset(s, coords, offset) tex2D(s, coords, offset)\n"
         "#define tex2Dlodoffset(s, coords, offset) tex2Dlod(s, coords, offset)\n"
@@ -132,7 +133,8 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   fx->cg = std::make_unique<Codegen>();
   reshadefx::parser parser;
   parser.sopt_named_expressions = opt.bufferSymbolic && opt.namedExpressions;
-  parser.sopt_hlsl = opt.hlsl;
+  parser.sopt_hlsl = opt.hlsl && !opt.glsl;
+  parser.sopt_glsl = opt.glsl;
   parser.sopt_hlsl_entry = opt.entry;
   if (!parser.parse(pp.output(), fx->cg.get())) {
     errors = pp.errors() + parser.errors();
@@ -144,7 +146,8 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   fx->width = opt.width;
   fx->height = opt.height;
   fx->bufferSymbolic = opt.bufferSymbolic;
-  fx->hlsl = opt.hlsl;
+  fx->hlsl = opt.hlsl || opt.glsl;
+  fx->glsl = opt.glsl;
   fx->hlslFetchNames.insert(parser.sopt_hlsl_fetch_names.begin(), parser.sopt_hlsl_fetch_names.end());
   fx->hlslBuffers.insert(parser.sopt_hlsl_buffer_names.begin(), parser.sopt_hlsl_buffer_names.end());
   for (const auto& [name, m] : pp.sopt_macros())
@@ -208,7 +211,10 @@ std::set<std::string> symbolicMacros(const fs::path& path, const LoadOptions& op
 }
 
 std::string textureFactKey(const Effect& fx, const std::string& texture) {
-  return fx.path.filename().string() + (fx.hlslBuffers.count(texture) ? " buffer " : " texture ") + texture;
+  // GLSL: sampler2D X is parsed as texture __sopt_tex_X plus sampler X; the key uses X.
+  std::string name = texture;
+  if (const size_t p = name.find("__sopt_tex_"); fx.glsl && p != std::string::npos) name.erase(0, p + 11);
+  return fx.path.filename().string() + (fx.hlslBuffers.count(name) ? " buffer " : " texture ") + name;
 }
 
 // A global's source name from its unique name ("V__tile" -> "tile", "VNs__tile" -> "Ns::tile").
@@ -293,6 +299,8 @@ bool isIdent(char c);
 // Plain HLSL resources whose elements are read as Name[index] (set while extracting from an
 // HLSL effect, see Extractor): such reads are fetches too.
 thread_local const std::set<std::string>* tlBracketFetches = nullptr;
+// GLSL texture lookups (texture(s, uv), texelFetch(...), ...): set while extracting from GLSL.
+thread_local bool tlGlslFetches = false;
 
 size_t fetchOpen(const std::string& t, size_t i) {
   if (i >= t.size() || (i && isIdent(t[i - 1])) || !isIdent(t[i]) || std::isdigit(static_cast<unsigned char>(t[i])))
@@ -301,6 +309,17 @@ size_t fetchOpen(const std::string& t, size_t i) {
   while (j < t.size() && isIdent(t[j])) ++j;
   const bool fx = j - i >= 5 && t.compare(i, 3, "tex") == 0 && std::isdigit(static_cast<unsigned char>(t[i + 3])) &&
                   t[i + 4] == 'D' && t.compare(i + 5, 5, "store") != 0;
+  if (!fx && tlGlslFetches) {
+    static const std::set<std::string> kGlsl = {
+        "texture", "texture2D", "texture3D", "textureLod", "textureGrad", "texelFetch", "textureOffset",
+        "texelFetchOffset", "textureLodOffset", "textureGradOffset", "textureGather", "textureGatherOffset",
+        "texture2DLod", "textureProj"};
+    if (kGlsl.count(t.substr(i, j - i))) {
+      size_t k = j;
+      while (k < t.size() && (t[k] == ' ' || t[k] == '\t')) ++k;
+      return k < t.size() && t[k] == '(' ? k : std::string::npos;
+    }
+  }
   if (!fx && tlBracketFetches && tlBracketFetches->count(t.substr(i, j - i))) {
     size_t k = j;
     while (k < t.size() && (t[k] == ' ' || t[k] == '\t')) ++k;
@@ -679,13 +698,17 @@ struct Unsupported : std::runtime_error {
 
 class Extractor {
  public:
-  ~Extractor() { tlBracketFetches = nullptr; }
+  ~Extractor() {
+    tlBracketFetches = nullptr;
+    tlGlslFetches = false;
+  }
   bool isScalarBool(uint32_t id) const {
     const auto& t = cg_.values.at(id).type;
     return t.is_boolean() && t.is_scalar();
   }
   Extractor(const Effect& fx, const RegionOptions& opt) : fx_(fx), cg_(*fx.cg), opt_(opt) {
     tlBracketFetches = fx.hlsl ? &fx.hlslFetchNames : nullptr;
+    tlGlslFetches = fx.glsl;
     for (const auto& [id, v] : cg_.values)
       for (uint32_t a : v.args) users_[a].push_back(id);
     for (const auto& [id, v] : cg_.values)
@@ -2379,6 +2402,7 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
       Region reg;
       reg.function = f.name;
       reg.hlsl = fx_.hlsl;
+      reg.glsl = fx_.glsl;
       std::string why;
       if (!shapeOf(s, reg, why)) { SKIPADD(why); continue; }
       Region single = reg;

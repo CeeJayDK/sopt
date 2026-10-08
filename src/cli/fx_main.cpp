@@ -56,13 +56,15 @@ void usage() {
       "Finds cheaper verified alternatives to arithmetic statements of pixel and compute\n"
       "shaders and writes variant .fx files with a preprocessor switch per statement plus a\n"
       "report. ReShade FX by default; .hlsl / .hlsli files are plain HLSL (SM5 pixel shaders,\n"
-      "or compute shaders when the entry point has [numthreads]).\n"
+      "or compute shaders when the entry point has [numthreads]); .frag / .fs / .glsl files are\n"
+      "GLSL fragment shaders.\n"
       "  --version         print the version\n"
       "  -I DIR            include directory (ReShade.fxh etc.), repeatable\n"
       "  -D NAME[=VALUE]   preprocessor definition, repeatable\n"
       "  -o DIR            output directory (default sopt-out)\n"
       "  --hlsl            read every input as plain HLSL (default: by extension)\n"
-      "  --entry NAME      HLSL entry point (default main)\n"
+      "  --glsl            read every input as a GLSL fragment shader (default: by extension)\n"
+      "  --entry NAME      HLSL / GLSL entry point (default main)\n"
       "  --list            only list the regions and their facts, no search\n"
       "  --region F[:L]    only regions of file F (name, any folder) ending at or spanning\n"
       "                    line L, repeatable; for long runs of single regions (--time)\n"
@@ -170,7 +172,8 @@ void collect(const fs::path& p, std::vector<fs::path>& out) {
   if (fs::is_directory(p, ec)) {
     std::vector<fs::path> sub;
     for (auto it = fs::recursive_directory_iterator(p, ec); it != fs::recursive_directory_iterator(); ++it)
-      if (it->is_regular_file() && (it->path().extension() == ".fx" || it->path().extension() == ".hlsl"))
+      if (it->is_regular_file() && (it->path().extension() == ".fx" || it->path().extension() == ".hlsl" ||
+                                    it->path().extension() == ".frag" || it->path().extension() == ".fs"))
         sub.push_back(it->path());
     std::sort(sub.begin(), sub.end());
     out.insert(out.end(), sub.begin(), sub.end());
@@ -185,6 +188,7 @@ int main(int argc, char** argv) {
   std::vector<fs::path> inputs;
   fx::LoadOptions load;
   bool forceHlsl = false;     // --hlsl
+  bool forceGlsl = false;     // --glsl
   std::string entry = "main";  // --entry
   fx::RegionOptions ropt;
   bool formatChecks = true;  // back buffer formats: 10-bit and scRGB checks, see below
@@ -247,6 +251,7 @@ int main(int argc, char** argv) {
       load.macros.emplace_back(d.substr(0, eq), eq == std::string::npos ? "1" : d.substr(eq + 1));
     } else if (a == "-o") outDir = next();
     else if (a == "--hlsl") forceHlsl = true;
+    else if (a == "--glsl") forceGlsl = true;
     else if (a == "--entry") entry = next();
     else if (a == "--list") list = true;
     else if (a == "--region") regionFilter.push_back(next());
@@ -360,7 +365,8 @@ int main(int argc, char** argv) {
   auto loadFor = [&](const fs::path& p) {
     fx::LoadOptions o = load;
     const std::string ext = p.extension().string();
-    o.hlsl = forceHlsl || ext == ".hlsl" || ext == ".hlsli";
+    o.glsl = forceGlsl || ext == ".frag" || ext == ".fs" || ext == ".glsl";
+    o.hlsl = !o.glsl && (forceHlsl || ext == ".hlsl" || ext == ".hlsli");
     o.entry = entry;
     return o;
   };
@@ -399,7 +405,7 @@ int main(int argc, char** argv) {
       }
       // BUFFER_WIDTH / BUFFER_HEIGHT too (int compile-time inputs), except where a
       // constant is needed.
-      if (symbolic && bufferInputs && !load.hlsl) {
+      if (symbolic && bufferInputs && !load.hlsl && !load.glsl) {
         fx::LoadOptions bs = sym;
         std::string bsErr;
         if (auto s = fx::loadEffectBufferSymbolic(p, bs, bsErr)) {
@@ -412,10 +418,10 @@ int main(int argc, char** argv) {
       alt.height = fx::kAltHeight;
       std::string altErr;
       // Plain HLSL has no BUFFER_WIDTH / BUFFER_HEIGHT: no second parse.
-      auto fx2 = load.hlsl ? nullptr : fx::loadEffect(p, alt, altErr);
+      auto fx2 = load.hlsl || load.glsl ? nullptr : fx::loadEffect(p, alt, altErr);
       info.effects.push_back(p.string());
       effectFiles.emplace_back(p, fx->sourceFiles);
-      if (classic && !load.hlsl)
+      if (classic && !load.hlsl && !load.glsl)
         for (auto& rw : fx::tableRewrites(*fx))
           if (rewriteSeen.insert({rw.file, rw.tag + std::to_string(rw.line)}).second) {  // a header shared by several effects
             rewriteEffects.push_back(p);
@@ -438,7 +444,7 @@ int main(int argc, char** argv) {
       }
       std::vector<fx::Region> effectRegions;  // for the vertex shader rewrites
       for (auto& r : fx::extractRegions(*fx, fx2.get(), ropt, info.skipped)) {
-        if (classic && hoist && !load.hlsl) effectRegions.push_back(r);
+        if (classic && hoist && !fx->hlsl) effectRegions.push_back(r);
         if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
         fx::RegionResult rr;
         rr.effect = p.string();
@@ -605,7 +611,7 @@ int main(int argc, char** argv) {
       const fx::Region& r = rr.region;
       std::printf("%s:%s%u  %s %s%s  (cost %u)\n", r.file.c_str(),
                   r.removed.empty() ? "" : (std::to_string(r.removed.front().first) + "-").c_str(), r.line,
-                  r.lhs.c_str(), toString(r.prog.target, r.prog.inputs).c_str(), r.rhs.c_str(), rr.targetCost);
+                  r.lhs.c_str(), (r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs).c_str(), r.rhs.c_str(), rr.targetCost);
       std::printf("    budget %s (%s)\n", fx::budgetString(r.prog.budget).c_str(), r.budgetReason.c_str());
       if (!r.guard.empty()) std::printf("    only while %s\n", r.guard.c_str());
       for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
@@ -692,8 +698,9 @@ int main(int argc, char** argv) {
     fx::RegionResult& rr = results[i];
     const auto s0 = std::chrono::steady_clock::now();
     RunResult res = searched[firstOf[i]];
-    if (firstOf[i] != i)  // the same programs over this region's input names
-      for (auto& a : res.accepted) a.text = toString(a.expr, rr.region.prog.inputs);
+    if (firstOf[i] != i || rr.region.glsl)  // the same programs over this region's input names; GLSL syntax
+      for (auto& a : res.accepted)
+        a.text = rr.region.glsl ? toGlsl(a.expr, rr.region.prog.inputs) : toString(a.expr, rr.region.prog.inputs);
     rr.targetCost = res.targetCost;
     rr.limitHit = res.search.limitHit;
     rr.completedCost = res.search.completedCost;
@@ -713,7 +720,7 @@ int main(int argc, char** argv) {
       for (size_t p = text.find(what); p != std::string::npos; p = text.find(what, p + what.size())) ++n;
       return n;
     };
-    const std::string targetText = toString(rr.region.prog.target, rr.region.prog.inputs);
+    const std::string targetText = (rr.region.glsl ? toGlsl : toString)(rr.region.prog.target, rr.region.prog.inputs);
     for (const auto& a : res.accepted) {
       if (a.cost >= res.targetCost && !a.moreAccurate && !a.otherModeFaster && !a.betterScheduling) continue;
       bool moreFetches = false;
@@ -723,6 +730,8 @@ int main(int argc, char** argv) {
           moreFetches = moreFetches || count(a.text, nm) > count(targetText, nm);
         }
       if (moreFetches) continue;
+      // The same code as the original once printed (a - c and a + -c print alike): no variant.
+      if (a.text == targetText) continue;
       const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, mainIns);
       const bool cheaper = compiled < targetCompiled;
       // Not faster but maybe fewer registers (owner, 2026-10-04): only measurement shows it.

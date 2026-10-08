@@ -33,6 +33,9 @@ struct LoadOptions {
   // Plain HLSL (SM5 pixel shader) instead of ReShade FX: the parser's sopt_hlsl mode, no
   // ReShade macros, `entry` is the pixel shader entry point.
   bool hlsl = false;
+  // GLSL fragment shader (the parser's sopt_glsl mode; implies hlsl's "plain source": no
+  // ReShade macros or auto picks). Regions keep the GLSL text, variants are printed as GLSL.
+  bool glsl = false;
   std::string entry = "main";
 };
 
@@ -49,7 +52,8 @@ struct Effect {
   std::set<std::string> symbolic;  // of those, the ones kept symbolic in this parse
   unsigned width = 1920, height = 1080;  // BUFFER_WIDTH / BUFFER_HEIGHT of this parse
   bool bufferSymbolic = false;           // they are symbolic (see LoadOptions)
-  bool hlsl = false;                     // plain HLSL (see LoadOptions)
+  bool hlsl = false;                     // plain HLSL or GLSL (see LoadOptions)
+  bool glsl = false;                     // GLSL (see LoadOptions)
   // Plain HLSL: resources read as Name[index] (textures, buffers, RW textures / buffers), and
   // which of them are buffers.
   std::set<std::string> hlslFetchNames, hlslBuffers;
@@ -132,7 +136,8 @@ struct Region {
   // statements compile as in this parse (variants apply only then). Empty otherwise.
   std::string guard;
   Program prog;
-  bool hlsl = false;         // from a plain HLSL file (no __VENDOR__ / __RENDERER__ auto picks)
+  bool hlsl = false;         // from a plain HLSL / GLSL file (no __VENDOR__ / __RENDERER__ auto picks)
+  bool glsl = false;         // from a GLSL file (variants printed with toGlsl)
   std::vector<Fact> facts;   // one per input
   std::string budgetReason;  // how the budget was derived
 };
