@@ -54,12 +54,14 @@ index 060830d..651edc7 100644
  IDR_LICENSE_IMGUI       RCDATA                  "..\\deps\\imgui\\LICENSE.txt"
 diff --git a/res/shaders/mipmap_linear_cs_5_0.hlsl b/res/shaders/mipmap_linear_cs_5_0.hlsl
 new file mode 100644
-index 0000000..ad9fbd0
+index 0000000..cbbef70
 --- /dev/null
 +++ b/res/shaders/mipmap_linear_cs_5_0.hlsl
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,150 @@
 +// Variant of 'mipmap_cs_5_0.hlsl' for filterable formats: the first level of each pass is made with one bilinear fetch per texel from an SRV of the source level,
-+// at the shared corner of the 2x2 source texels (the filter weights are exactly 0.5 there), instead of four UAV loads (mips[0] is not read)
++// at the shared corner of the 2x2 source texels (the filter weights are exactly 0.5 there), instead of four UAV loads (mips[0] is not read).
++// The sampler clamps to the edge, and the later levels of a pass clamp too ('reduce_clamped'), so levels whose parent is 1 texel wide or high
++// (e.g. the last ones of non-square textures) do not average with values from outside the texture.
 +Texture2DArray<float4> src : register(t0);
 +SamplerState src_sampler : register(s0);
 +RWTexture2DArray<float4> mips[7] : register(u0);
@@ -75,11 +77,29 @@ index 0000000..ad9fbd0
 +{
 +	return (v0 + v1 + v2 + v3) * 0.25;
 +}
-+float4 load_and_reduce(uint2 location, uint slice)
++// 'reduce' of the 2x2 block (v0 at 'location * 2', v1 one texel right, v2 one down, v3 both) of a level that is 'parent_size' texels big:
++// where that level is 1 texel wide or high, the block reaches past its edge (values from outside the texture), so use the texel inside instead
++float4 reduce_clamped(float4 v0, float4 v1, float4 v2, float4 v3, uint2 location, uint2 parent_size)
 +{
-+	float width, height, elements;
-+	src.GetDimensions(width, height, elements);
-+	return src.SampleLevel(src_sampler, float3((float2(location) + 1.0) / float2(width, height), slice), 0);
++	if (location.x * 2 + 1 >= parent_size.x)
++	{
++		v1 = v0;
++		v3 = v2;
++	}
++	if (location.y * 2 + 1 >= parent_size.y)
++	{
++		v2 = v0;
++		v3 = v1;
++	}
++	return reduce(v0, v1, v2, v3);
++}
++uint2 level_size(uint2 src_size, uint mip)
++{
++	return max(src_size >> mip, 1);
++}
++float4 load_and_reduce(uint2 location, uint slice, uint2 src_size)
++{
++	return src.SampleLevel(src_sampler, float3((float2(location) + 1.0) / float2(src_size), slice), 0);
 +}
 +
 +void store_mip(int mip, uint2 location, uint slice, float4 v)
@@ -100,7 +120,7 @@ index 0000000..ad9fbd0
 +
 +groupshared float4 intermediate[16 * 16];
 +
-+void downsample_mip_n(const uint mip, uint2 base_location, uint thread_index, uint slice)
++void downsample_mip_n(const uint mip, uint2 base_location, uint thread_index, uint slice, uint2 src_size)
 +{
 +	GroupMemoryBarrierWithGroupSync();
 +
@@ -109,11 +129,12 @@ index 0000000..ad9fbd0
 +	[branch]
 +	if ((thread_index % group) == 0)
 +	{
-+		float4 v = reduce(
++		float4 v = reduce_clamped(
 +            intermediate[thread_index + group * 0 / 4],
 +            intermediate[thread_index + group * 1 / 4],
 +            intermediate[thread_index + group * 2 / 4],
-+            intermediate[thread_index + group * 3 / 4]);
++            intermediate[thread_index + group * 3 / 4],
++            base_location / (1 << mip), level_size(src_size, mip - 1));
 +
 +		intermediate[thread_index] = v;
 +
@@ -121,14 +142,14 @@ index 0000000..ad9fbd0
 +	}
 +}
 +
-+void downsample_mip_1_2(uint2 base_location, uint thread_index, uint slice)
++void downsample_mip_1_2(uint2 base_location, uint thread_index, uint slice, uint2 src_size)
 +{
 +	// Each thread group downsamples a 64x64 tile, with each thread starting by loading 4x4 pixels
 +	float4 v[4];
-+	v[0] = load_and_reduce(base_location + uint2(0, 0), slice);
-+	v[1] = load_and_reduce(base_location + uint2(2, 0), slice);
-+	v[2] = load_and_reduce(base_location + uint2(0, 2), slice);
-+	v[3] = load_and_reduce(base_location + uint2(2, 2), slice);
++	v[0] = load_and_reduce(base_location + uint2(0, 0), slice, src_size);
++	v[1] = load_and_reduce(base_location + uint2(2, 0), slice, src_size);
++	v[2] = load_and_reduce(base_location + uint2(0, 2), slice, src_size);
++	v[3] = load_and_reduce(base_location + uint2(2, 2), slice, src_size);
 +
 +	// Downsample to 32x32 (each thread stores 2x2 pixels)
 +	base_location /= 2;
@@ -140,7 +161,7 @@ index 0000000..ad9fbd0
 +	if (num_mips <= 2)
 +		return;
 +
-+	v[0] = reduce(v[0], v[1], v[2], v[3]);
++	v[0] = reduce_clamped(v[0], v[1], v[2], v[3], base_location / 2, level_size(src_size, 1));
 +
 +	intermediate[thread_index] = v[0];
 +
@@ -148,27 +169,27 @@ index 0000000..ad9fbd0
 +	base_location /= 2;
 +	store_mip(2, base_location, slice, v[0]);
 +}
-+void downsample_mip_3_6(uint2 base_location, uint thread_index, uint slice)
++void downsample_mip_3_6(uint2 base_location, uint thread_index, uint slice, uint2 src_size)
 +{
 +	if (num_mips <= 3)
 +		return;
 +	// Downsample to 8x8 (every 4th thread stores a pixel)
-+	downsample_mip_n(3, base_location, thread_index, slice);
++	downsample_mip_n(3, base_location, thread_index, slice, src_size);
 +
 +	if (num_mips <= 4)
 +		return;
 +	// Downsample to 4x4 (every 16th thread stores a pixel)
-+	downsample_mip_n(4, base_location, thread_index, slice);
++	downsample_mip_n(4, base_location, thread_index, slice, src_size);
 +
 +	if (num_mips <= 5)
 +		return;
 +	// Downsample to 2x2 (every 64th thread stores a pixel)
-+	downsample_mip_n(5, base_location, thread_index, slice);
++	downsample_mip_n(5, base_location, thread_index, slice, src_size);
 +
 +	if (num_mips <= 6)
 +		return;
 +	// Downsample to 1x1 (every 256th thread stores a pixel)
-+	downsample_mip_n(6, base_location, thread_index, slice);
++	downsample_mip_n(6, base_location, thread_index, slice, src_size);
 +}
 +
 +[RootSignature(
@@ -180,8 +201,12 @@ index 0000000..ad9fbd0
 +{
 +	uint2 base_location = group_id.xy * 64 + morton_to_xy(thread_index) * (64 / 16); // Each 16x16 thread group processes 64x64 pixels
 +
-+	downsample_mip_1_2(base_location, thread_index, group_id.z);
-+	downsample_mip_3_6(base_location, thread_index, group_id.z);
++	uint width, height, elements;
++	src.GetDimensions(width, height, elements);
++	const uint2 src_size = uint2(width, height);
++
++	downsample_mip_1_2(base_location, thread_index, group_id.z, src_size);
++	downsample_mip_3_6(base_location, thread_index, group_id.z, src_size);
 +}
 diff --git a/source/d3d12/d3d12_impl_command_list.cpp b/source/d3d12/d3d12_impl_command_list.cpp
 index b35d645..6d21985 100644

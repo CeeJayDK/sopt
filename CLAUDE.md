@@ -653,8 +653,11 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   shader could replace the old file; llvmpipe's RGBA8 filter is within 1 step (GTX 1660: 1/2). tools/reshade/
   d3d12-mipmaps.patch (on top of internal-shaders.patch, a suggestion: crosire writes his own code): SRV + static
   sampler, per-pass descriptor blocks, per-level transitions, integer formats keep the old pipeline; compiles with
-  mingw, untested on hardware; levels 2-6 of a D3D12 pass still average outside values for 1-texel parents (patch or
-  not). CI reshade.yml builds ReShade64-6.8.0-sopt-d3d12.dll too. (v0+v1+v2+v3)*0.25: fxc keeps source order (the
+  mingw, untested on hardware; owner's go: reduce_clamped (levels 2-6 of a pass: neighbours past a 1-texel parent's edge
+  replaced by the texel inside); tools/reshade/d3d12_mipmap_model.py (CPU model of both shaders vs a box filter): original
+  wrong on non-square textures (256x32 levels 6-8 ...), patched none. CI reshade.yml builds ReShade64-6.8.0-sopt-d3d12.dll
+  too. Owner's mad-chain point (LumaSharpen): weighting each sample as it arrives shortens the tail after the last load
+  (RGA: 4 fmas vs 4 adds + 4 muls after vmcnt(0)), same count. (v0+v1+v2+v3)*0.25: fxc keeps source order (the
   * 0.5 form 5 DXBC ops vs 4); RGA (AMD Vulkan) rewrites every add form to 3 adds + mul (folds the halves back, no
   omod); ptxas * 0.5 form 5 vs 4: the current form is fine. sopt-fx on the internal HLSL shaders: imgui_hdr needs float1
   (parser gap: `#define float1 float` works), mipmap_cs_5_0 has a resource array (unsupported); nothing compiled-cheaper.

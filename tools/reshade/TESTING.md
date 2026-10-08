@@ -78,9 +78,8 @@ llvmpipe, OpenGL) both DLLs give gray (zeros).
 `sopt-host.exe --api dx12` with the DLL as `dxgi.dll`. ReShade.log must not contain "Failed to
 create bilinear mipmap generation pipeline". `sopt_MipTest.fx` as in section 2, with the unchanged
 and the sopt-d3d12 DLL: Formats RGBA8 / RGBA16F / R32F / RGB10A2, Level 1-5, Tolerance 1 (expected:
-no red with both), and "RGBA8 256x32" Level 1-8 (note where red appears with each DLL: the
-D3D12 shader makes levels 2-6 of a pass from the level before in groupshared memory, where a 1 texel
-high level still averages with values from outside the texture, patch or not).
+no red with both), and "RGBA8 256x32" Level 1-8 (expected from the CPU model, d3d12_mipmap_model.py:
+red on levels 6-8 with the unchanged DLL, none with the sopt-d3d12 DLL).
 
 ## 5. Unchanged paths (sanity)
 
