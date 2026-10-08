@@ -99,7 +99,8 @@ add_library(sopt-fx-lib
   src/fx/frontend.cpp
   src/fx/variants.cpp
   src/fx/classic.cpp
-  src/fx/hoist.cpp)
+  src/fx/hoist.cpp
+  src/fx/blend.cpp)
 target_link_libraries(sopt-fx-lib PUBLIC reshadefx sopt-search)
 sopt_fp_flags(sopt-fx-lib)
 

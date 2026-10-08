@@ -15,6 +15,7 @@
 #include <tuple>
 
 #include "cli/console.hpp"
+#include "fx/blend.hpp"
 #include "fx/frontend.hpp"
 #include "fx/hoist.hpp"
 #include "fx/variants.hpp"
@@ -137,6 +138,9 @@ void usage() {
       "                    moves to the vertex shader, switch SOPT_<file>_V<line>; kept where --isa\n"
       "                    measures a gain)\n"
       "  --no-hoist        no moving to the vertex shader (the table rewrites stay)\n"
+      "  --no-blend-stage  no final back buffer blends as blend states (default: a pixel shader\n"
+      "                    that returns lerp / multiply / add / screen / min / max of the back buffer\n"
+      "                    at its pixel returns the blend's source, switch SOPT_<file>_B<line>)\n"
       "  --no-v3           no V3 (default: prove a formal error bound by interval subdivision\n"
       "                    for the cheapest 3 alternatives where V2 does not apply, --v3-time S\n"
       "                    each, default 2; sopt-fx: for the written variants)\n"
@@ -186,6 +190,7 @@ int main(int argc, char** argv) {
   bool formatChecks = true;  // back buffer formats: 10-bit and scRGB checks, see below
   bool classic = true;       // classical source rewrites (fx/classic.hpp), --no-classic
   bool hoist = true;         // ... and moving math to the vertex shader (fx/hoist.hpp), --no-hoist
+  bool blendStage = true;    // ... and final back buffer blends as blend states (fx/blend.hpp), --no-blend-stage
   fs::path outDir = "sopt-out";
   bool list = false, skips = false;
   std::vector<std::string> regionFilter;
@@ -310,6 +315,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-format-checks") formatChecks = false;
     else if (a == "--no-classic") classic = false;
     else if (a == "--no-hoist") hoist = false;
+    else if (a == "--no-blend-stage") blendStage = false;
     else if (a == "--sass") sass = true;
     else if (a == "--backends") backends = true;
     else if (a == "--export-spirv") exportSpirv = next();
@@ -370,7 +376,7 @@ int main(int argc, char** argv) {
     effectFiles.clear();
     rewrites.clear();
     rewriteEffects.clear();
-    std::set<std::pair<std::string, uint32_t>> rewriteSeen;
+    std::set<std::pair<std::string, std::string>> rewriteSeen;  // (file, switch tag + line)
     resourceKeys.clear();
     std::set<std::tuple<std::string, uint32_t, size_t>> seen;
     for (const auto& p : inputs) {
@@ -411,7 +417,7 @@ int main(int argc, char** argv) {
       effectFiles.emplace_back(p, fx->sourceFiles);
       if (classic && !load.hlsl)
         for (auto& rw : fx::tableRewrites(*fx))
-          if (rewriteSeen.insert({rw.file, rw.line}).second) {  // a header shared by several effects
+          if (rewriteSeen.insert({rw.file, rw.tag + std::to_string(rw.line)}).second) {  // a header shared by several effects
             rewriteEffects.push_back(p);
             rewrites.push_back(std::move(rw));
           }
@@ -459,8 +465,12 @@ int main(int argc, char** argv) {
         rr.region = std::move(r);
         results.push_back(std::move(rr));
       }
-      for (auto& rw : fx::hoistRewrites(*fx, effectRegions, *opt.search.model))
-        if (rewriteSeen.insert({rw.file, rw.line}).second) {
+      std::vector<fx::SourceRewrite> more;
+      if (hoist) more = fx::hoistRewrites(*fx, effectRegions, *opt.search.model);
+      if (blendStage)
+        for (auto& rw : fx::blendRewrites(*fx, ropt, opt.seed)) more.push_back(std::move(rw));
+      for (auto& rw : more)
+        if (rewriteSeen.insert({rw.file, rw.tag + std::to_string(rw.line)}).second) {
           rewriteEffects.push_back(p);
           rewrites.push_back(std::move(rw));
         }

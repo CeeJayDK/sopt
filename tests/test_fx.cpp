@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "fx/blend.hpp"
 #include "fx/frontend.hpp"
 #include "fx/hoist.hpp"
 #include "fx/variants.hpp"
@@ -1106,5 +1107,47 @@ TEST(fx_hoist_rewrite) {
       CHECK(fx::loadEffect(out / "sopt_hoist.fx", l2, err2) != nullptr);
       if (!err2.empty()) std::printf("  %s\n", err2.c_str());
     }
+  fs::remove_all(out);
+}
+
+TEST(fx_blend_rewrite) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_blend.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  const std::vector<fx::SourceRewrite> rw = fx::blendRewrites(*e, fx::RegionOptions(), 1);
+  CHECK(rw.size() == 3);  // lerp, multiply, min; not the sharpen (B = 1 + Strength)
+  if (rw.size() != 3) return;
+  auto has = [&](const fx::SourceRewrite& r, const char* text) {
+    for (const auto& ed : r.edits)
+      for (const auto& l : ed.lines)
+        if (l.find(text) != std::string::npos) return true;
+    return false;
+  };
+  CHECK(rw[0].function == "LerpPS" && has(rw[0], "SrcBlend = ONE; DestBlend = SRCALPHA;") &&
+        has(rw[0], "float4 LerpPS(") && has(rw[0], "return float4("));
+  CHECK(rw[1].function == "VignettePS" && has(rw[1], "SrcBlend = DESTCOLOR; DestBlend = ZERO;"));
+  CHECK(rw[2].function == "DarkenPS" && has(rw[2], "BlendOp = MIN;"));
+  const fs::path out = fs::temp_directory_path() / "sopt-test-blend";
+  std::string errors;
+  const auto files = fx::writeVariants({}, out, errors, rw);
+  CHECK(files.size() == 1 && errors.empty());
+  for (const char* on : {"0", "1"}) {
+    fx::LoadOptions l2;
+    l2.macros.emplace_back("SOPT_ALL", on);
+    std::string err2;
+    auto e2 = fx::loadEffect(out / "sopt_blend.fx", l2, err2);
+    CHECK(e2 != nullptr);
+    if (!err2.empty()) std::printf("  %s\n", err2.c_str());
+    // With the switch on, three passes blend.
+    if (e2) {
+      int blends = 0;
+      for (const auto& t : e2->cg->mod().techniques)
+        for (const auto& p : t.passes) blends += p.blend_enable[0];
+      CHECK(blends == (on[0] == '1' ? 3 : 0));
+    }
+  }
   fs::remove_all(out);
 }

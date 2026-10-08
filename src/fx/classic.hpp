@@ -53,6 +53,10 @@ struct Text {
   }
 };
 Text joinLines(const std::vector<std::string>& lines);
+// Positions of `word` as a whole identifier outside comments in [a, b).
+std::vector<size_t> findWord(const std::string& s, const std::string& word, size_t a, size_t b);
+// A qualified name (A::B::c) starting at p; returns its end.
+size_t nameEnd(const std::string& s, size_t p);
 }  // namespace source
 
 // The switch of a rewrite: SOPT_<file stem>_<tag><line>.

@@ -49,6 +49,26 @@ size_t matching(const std::string& s, size_t p) {
   return std::string::npos;
 }
 
+std::vector<size_t> findWord(const std::string& s, const std::string& word, size_t a, size_t b) {
+  std::vector<size_t> out;
+  for (size_t i = a; i < b; ++i) {
+    if (s.compare(i, 2, "//") == 0 || s.compare(i, 2, "/*") == 0) {
+      i = skipSpace(s, i) - 1;
+      continue;
+    }
+    if (s.compare(i, word.size(), word) == 0 && (i == 0 || !identChar(s[i - 1])) &&
+        (i + word.size() >= s.size() || !identChar(s[i + word.size()])))
+      out.push_back(i);
+  }
+  return out;
+}
+
+size_t nameEnd(const std::string& s, size_t p) {
+  while (p < s.size() && (identChar(s[p]) || (s[p] == ':' && p + 1 < s.size() && s[p + 1] == ':')))
+    p += s[p] == ':' ? 2 : 1;
+  return p;
+}
+
 Text joinLines(const std::vector<std::string>& lines) {
   Text t;
   for (const auto& l : lines) {
