@@ -1416,6 +1416,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   regenerated; site NAME_BY_DEVICE 0x15D8); fp32 1.91 / fp16 3.68 TFLOPS. TexBench 193 s, drift 581% yet all consensus; 27.7
   GTexels/s, 10.5 GPixels/s, 40.4 GB/s; RGBA8 bilinear 17.7 / Load 15.8 units, RGBA16F 95 (5x), RGBA32F 270 (15x) like Vega 8;
   pixel order 8 x 8 (wave64). ShaderInfo: VK_AMD_shader_info + executable properties (compiler 2.0.279), like the other AMDs.
+  Intake 2026-10-08 (Dropbox, one zip, 0.6.0): third RTX 4090 desktop report (0x2684, driver 32.0.16.1656;
+  docs/opbench|texbench|shaderinfo/nvidia-rtx-4090-c.*, order PNGs): throttled again (drift 158 / 161 / 153%, fp32 40.1 of 83
+  TFLOPS; TexBench 367 s, 466 GTexels/s, 108 GPixels/s, 216 GB/s vs the first 4090's 1323 / 409 / 904), yet 163 of 164 tests
+  consensus (modf not) and = the first 4090 on 159 of 164 tput tests within max(25%, 1.5) (only omod2, mad3v, smoothstep and two
+  atomics off); left out of expected.hpp (UNRELIABLE); TexBench all 995 rows consensus, pixel order 4 x 8 warp blocks. ShaderInfo
+  of a Raphael iGPU (0x164E, driver 23.20.44, compiler 2.0.283, older than the earlier reports' 2.0.353;
+  docs/shaderinfo/amd-radeon-raphael-3.txt).
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

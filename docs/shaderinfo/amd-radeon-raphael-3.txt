@@ -1,0 +1,1131 @@
+GPU: AMD Radeon(TM) Graphics
+vendor 4098, device 5710
+driver: AMD proprietary driver 23.20.44 (AMD proprietary shader compiler) (2.0.283)
+
+VK_KHR_pipeline_executable_properties: yes
+VK_AMD_shader_info: yes
+VK_KHR_performance_query: no
+VK_AMD_gpa_interface: yes
+VK_INTEL_performance_query: no
+
+All device extensions (164):
+  VK_KHR_16bit_storage 1
+  VK_KHR_8bit_storage 1
+  VK_KHR_acceleration_structure 13
+  VK_KHR_bind_memory2 1
+  VK_KHR_buffer_device_address 1
+  VK_KHR_copy_commands2 1
+  VK_KHR_create_renderpass2 1
+  VK_KHR_dedicated_allocation 3
+  VK_KHR_deferred_host_operations 4
+  VK_KHR_depth_stencil_resolve 1
+  VK_KHR_descriptor_update_template 1
+  VK_KHR_device_group 4
+  VK_KHR_draw_indirect_count 1
+  VK_KHR_driver_properties 1
+  VK_KHR_dynamic_rendering 1
+  VK_KHR_external_fence 1
+  VK_KHR_external_fence_win32 1
+  VK_KHR_external_memory 1
+  VK_KHR_external_memory_win32 1
+  VK_KHR_external_semaphore 1
+  VK_KHR_external_semaphore_win32 1
+  VK_KHR_format_feature_flags2 2
+  VK_KHR_fragment_shader_barycentric 1
+  VK_KHR_fragment_shading_rate 2
+  VK_KHR_get_memory_requirements2 1
+  VK_KHR_global_priority 1
+  VK_KHR_imageless_framebuffer 1
+  VK_KHR_image_format_list 1
+  VK_KHR_maintenance1 2
+  VK_KHR_maintenance2 1
+  VK_KHR_maintenance3 1
+  VK_KHR_maintenance4 2
+  VK_KHR_map_memory2 1
+  VK_KHR_multiview 1
+  VK_KHR_pipeline_executable_properties 1
+  VK_KHR_pipeline_library 1
+  VK_KHR_push_descriptor 2
+  VK_KHR_ray_query 1
+  VK_KHR_ray_tracing_maintenance1 1
+  VK_KHR_ray_tracing_pipeline 1
+  VK_KHR_ray_tracing_position_fetch 1
+  VK_KHR_relaxed_block_layout 1
+  VK_KHR_sampler_mirror_clamp_to_edge 3
+  VK_KHR_sampler_ycbcr_conversion 14
+  VK_KHR_separate_depth_stencil_layouts 1
+  VK_KHR_shader_atomic_int64 1
+  VK_KHR_shader_clock 1
+  VK_KHR_shader_draw_parameters 1
+  VK_KHR_shader_float16_int8 1
+  VK_KHR_shader_float_controls 4
+  VK_KHR_shader_integer_dot_product 1
+  VK_KHR_shader_non_semantic_info 1
+  VK_KHR_shader_subgroup_extended_types 1
+  VK_KHR_shader_subgroup_uniform_control_flow 1
+  VK_KHR_shader_terminate_invocation 1
+  VK_KHR_spirv_1_4 1
+  VK_KHR_storage_buffer_storage_class 1
+  VK_KHR_swapchain 70
+  VK_KHR_swapchain_mutable_format 1
+  VK_KHR_synchronization2 1
+  VK_KHR_timeline_semaphore 2
+  VK_KHR_uniform_buffer_standard_layout 1
+  VK_KHR_variable_pointers 1
+  VK_KHR_video_decode_h264 8
+  VK_KHR_video_decode_h265 7
+  VK_KHR_video_decode_queue 7
+  VK_KHR_video_queue 8
+  VK_KHR_vulkan_memory_model 3
+  VK_KHR_win32_keyed_mutex 1
+  VK_KHR_workgroup_memory_explicit_layout 1
+  VK_KHR_zero_initialize_workgroup_memory 1
+  VK_EXT_4444_formats 1
+  VK_EXT_attachment_feedback_loop_layout 2
+  VK_EXT_border_color_swizzle 1
+  VK_EXT_calibrated_timestamps 2
+  VK_EXT_color_write_enable 1
+  VK_EXT_conditional_rendering 2
+  VK_EXT_conservative_rasterization 1
+  VK_EXT_custom_border_color 12
+  VK_EXT_depth_clamp_zero_one 1
+  VK_EXT_depth_clip_control 1
+  VK_EXT_depth_clip_enable 1
+  VK_EXT_depth_range_unrestricted 1
+  VK_EXT_descriptor_buffer 1
+  VK_EXT_descriptor_indexing 2
+  VK_EXT_device_address_binding_report 1
+  VK_EXT_device_fault 2
+  VK_EXT_dynamic_rendering_unused_attachments 1
+  VK_EXT_extended_dynamic_state 1
+  VK_EXT_extended_dynamic_state2 1
+  VK_EXT_extended_dynamic_state3 2
+  VK_EXT_external_memory_host 1
+  VK_EXT_full_screen_exclusive 4
+  VK_EXT_global_priority 2
+  VK_EXT_global_priority_query 1
+  VK_EXT_hdr_metadata 2
+  VK_EXT_host_query_reset 1
+  VK_EXT_image_robustness 1
+  VK_EXT_image_sliced_view_of_3d 1
+  VK_EXT_image_view_min_lod 1
+  VK_EXT_index_type_uint8 1
+  VK_EXT_inline_uniform_block 1
+  VK_EXT_line_rasterization 1
+  VK_EXT_load_store_op_none 1
+  VK_EXT_memory_budget 1
+  VK_EXT_memory_priority 1
+  VK_EXT_mesh_shader 1
+  VK_EXT_mutable_descriptor_type 1
+  VK_EXT_non_seamless_cube_map 1
+  VK_EXT_pageable_device_local_memory 1
+  VK_EXT_pipeline_creation_cache_control 3
+  VK_EXT_pipeline_creation_feedback 1
+  VK_EXT_pipeline_library_group_handles 1
+  VK_EXT_post_depth_coverage 1
+  VK_EXT_primitive_topology_list_restart 1
+  VK_EXT_private_data 1
+  VK_EXT_provoking_vertex 1
+  VK_EXT_queue_family_foreign 1
+  VK_EXT_robustness2 1
+  VK_EXT_sampler_filter_minmax 2
+  VK_EXT_sample_locations 1
+  VK_EXT_scalar_block_layout 1
+  VK_EXT_separate_stencil_usage 1
+  VK_EXT_shader_atomic_float 1
+  VK_EXT_shader_atomic_float2 1
+  VK_EXT_shader_demote_to_helper_invocation 1
+  VK_EXT_shader_image_atomic_int64 1
+  VK_EXT_shader_module_identifier 1
+  VK_EXT_shader_stencil_export 1
+  VK_EXT_shader_subgroup_ballot 1
+  VK_EXT_shader_subgroup_vote 1
+  VK_EXT_shader_viewport_index_layer 1
+  VK_EXT_subgroup_size_control 2
+  VK_EXT_texel_buffer_alignment 1
+  VK_EXT_tooling_info 1
+  VK_EXT_transform_feedback 1
+  VK_EXT_vertex_attribute_divisor 3
+  VK_EXT_vertex_input_dynamic_state 2
+  VK_EXT_ycbcr_image_arrays 1
+  VK_AMD_buffer_marker 1
+  VK_AMD_calibrated_timestamps 1
+  VK_AMD_device_coherent_memory 1
+  VK_AMD_display_native_hdr 1
+  VK_AMD_draw_indirect_count 2
+  VK_AMD_gcn_shader 1
+  VK_AMD_gpa_interface 1
+  VK_AMD_gpu_shader_half_float 2
+  VK_AMD_gpu_shader_int16 2
+  VK_AMD_memory_overallocation_behavior 1
+  VK_AMD_mixed_attachment_samples 1
+  VK_AMD_shader_ballot 1
+  VK_AMD_shader_core_properties 2
+  VK_AMD_shader_core_properties2 1
+  VK_AMD_shader_early_and_late_fragment_tests 1
+  VK_AMD_shader_explicit_vertex_parameter 1
+  VK_AMD_shader_fragment_mask 1
+  VK_AMD_shader_image_load_store_lod 1
+  VK_AMD_shader_info 1
+  VK_AMD_shader_trinary_minmax 1
+  VK_AMD_texture_gather_bias_lod 1
+  VK_GOOGLE_decorate_string 1
+  VK_GOOGLE_hlsl_functionality1 1
+  VK_GOOGLE_user_type 1
+  VK_VALVE_mutable_descriptor_type 1
+
+==== int (and / xor / add / mul chain) ====
+-- executable 0: ShaderProperties.cs (Executable handles following Vulkan stages:  VK_SHADER_STAGE_COMPUTE_BIT ), subgroup size 64
+  numUsedVgprs = 3   (Number of used VGPRs)
+  numUsedSgprs = 12   (Number of used SGPRs)
+  ldsSizePerLocalWorkGroup = 65536   (LDS size per local workgroup)
+  ldsUsageSizeInBytes = 0   (LDS usage size in Bytes)
+  scratchMemUsageInBytes = 0   (Scratch memory usage in Bytes)
+  -- representation ISA.cs (Executable handles following Vulkan stages:  VK_SHADER_STAGE_COMPUTE_BIT )
+; -------- Disassembly --------------------
+shader main
+  asic(GFX10_3)
+  type(CS)
+  sgpr_count(14)
+  vgpr_count(4)
+  wave_size(64)
+
+  s_version     UC_VERSION_GFX10 | UC_VERSION_W64_BIT   // 000000000000: B0802004
+  s_inst_prefetch  0x0003                               // 000000000004: BFA00003
+  s_getpc_b64   s[0:1]                                  // 000000000008: BE801F80
+  s_mov_b32     s0, s2                                  // 00000000000C: BE800302
+  s_load_dwordx4  s[8:11], s[0:1], null                 // 000000000010: F4080200 FA000000
+  s_movk_i32    s0, 0x0000                              // 000000000018: B0000000
+  v_lshl_add_u32  v0, s7, 6, v0                         // 00000000001C: D7460000 04010C07
+  v_lshlrev_b32  v0, 2, v0                              // 000000000024: 34000082
+  s_waitcnt     lgkmcnt(0)                              // 000000000028: BF8CC07F
+  buffer_load_dword  v1, v0, s[8:11], 0 offen           // 00000000002C: E0301000 80020100
+  s_cmp_gt_u32  s6, s0                                  // 000000000034: BF080006
+  s_cbranch_scc0  label_006C                            // 000000000038: BF84000C
+label_003C:
+  s_waitcnt     vmcnt(0)                                // 00000000003C: BF8C3F70
+  v_and_b32     v1, s3, v1                              // 000000000040: 36020203
+  v_xor_b32     v1, s4, v1                              // 000000000044: 3A020204
+  v_mul_lo_u32  v1, v1, s5                              // 000000000048: D5690001 00000B01
+  v_add_nc_u32  v1, s3, v1                              // 000000000050: 4A020203
+  v_xor_b32     v1, s4, v1                              // 000000000054: 3A020204
+  v_mul_lo_u32  v1, v1, s5                              // 000000000058: D5690001 00000B01
+  s_add_u32     s0, s0, 1                               // 000000000060: 80008100
+  s_cmp_gt_u32  s6, s0                                  // 000000000064: BF080006
+  s_cbranch_scc1  label_003C                            // 000000000068: BF85FFF4
+label_006C:
+  s_waitcnt     vmcnt(0)                                // 00000000006C: BF8C3F70
+  buffer_store_dword  v1, v0, s[8:11], 0 offen glc      // 000000000070: E0705000 80020100
+  s_endpgm                                              // 000000000078: BF810000
+  s_code_end                                            // 00000000007C: BF9F0000
+  s_code_end                                            // 000000000080: BF9F0000
+  s_code_end                                            // 000000000084: BF9F0000
+  s_code_end                                            // 000000000088: BF9F0000
+  s_code_end                                            // 00000000008C: BF9F0000
+  s_code_end                                            // 000000000090: BF9F0000
+  s_code_end                                            // 000000000094: BF9F0000
+  s_code_end                                            // 000000000098: BF9F0000
+  s_code_end                                            // 00000000009C: BF9F0000
+  s_code_end                                            // 0000000000A0: BF9F0000
+  s_code_end                                            // 0000000000A4: BF9F0000
+  s_code_end                                            // 0000000000A8: BF9F0000
+  s_code_end                                            // 0000000000AC: BF9F0000
+  s_code_end                                            // 0000000000B0: BF9F0000
+  s_code_end                                            // 0000000000B4: BF9F0000
+  s_code_end                                            // 0000000000B8: BF9F0000
+  s_code_end                                            // 0000000000BC: BF9F0000
+  s_code_end                                            // 0000000000C0: BF9F0000
+  s_code_end                                            // 0000000000C4: BF9F0000
+  s_code_end                                            // 0000000000C8: BF9F0000
+  s_code_end                                            // 0000000000CC: BF9F0000
+  s_code_end                                            // 0000000000D0: BF9F0000
+  s_code_end                                            // 0000000000D4: BF9F0000
+  s_code_end                                            // 0000000000D8: BF9F0000
+  s_code_end                                            // 0000000000DC: BF9F0000
+  s_code_end                                            // 0000000000E0: BF9F0000
+  s_code_end                                            // 0000000000E4: BF9F0000
+  s_code_end                                            // 0000000000E8: BF9F0000
+  s_code_end                                            // 0000000000EC: BF9F0000
+  s_code_end                                            // 0000000000F0: BF9F0000
+  s_code_end                                            // 0000000000F4: BF9F0000
+  s_code_end                                            // 0000000000F8: BF9F0000
+  s_code_end                                            // 0000000000FC: BF9F0000
+  s_code_end                                            // 000000000100: BF9F0000
+  s_code_end                                            // 000000000104: BF9F0000
+  s_code_end                                            // 000000000108: BF9F0000
+  s_code_end                                            // 00000000010C: BF9F0000
+  s_code_end                                            // 000000000110: BF9F0000
+  s_code_end                                            // 000000000114: BF9F0000
+  s_code_end                                            // 000000000118: BF9F0000
+  s_code_end                                            // 00000000011C: BF9F0000
+  s_code_end                                            // 000000000120: BF9F0000
+  s_code_end                                            // 000000000124: BF9F0000
+  s_code_end                                            // 000000000128: BF9F0000
+  s_code_end                                            // 00000000012C: BF9F0000
+  s_code_end                                            // 000000000130: BF9F0000
+  s_code_end                                            // 000000000134: BF9F0000
+  s_code_end                                            // 000000000138: BF9F0000
+  s_code_end                                            // 00000000013C: BF9F0000
+  s_code_end                                            // 000000000140: BF9F0000
+  s_code_end                                            // 000000000144: BF9F0000
+  s_code_end                                            // 000000000148: BF9F0000
+  s_code_end                                            // 00000000014C: BF9F0000
+  s_code_end                                            // 000000000150: BF9F0000
+  s_code_end                                            // 000000000154: BF9F0000
+  s_code_end                                            // 000000000158: BF9F0000
+  s_code_end                                            // 00000000015C: BF9F0000
+  s_code_end                                            // 000000000160: BF9F0000
+  s_code_end                                            // 000000000164: BF9F0000
+  s_code_end                                            // 000000000168: BF9F0000
+  s_code_end                                            // 00000000016C: BF9F0000
+  s_code_end                                            // 000000000170: BF9F0000
+  s_code_end                                            // 000000000174: BF9F0000
+  s_code_end                                            // 000000000178: BF9F0000
+end
+
+; ----------------- CS Data ------------------------
+
+codeLenInByte        = 380 bytes;
+pm4CrcCodeLength     = 124 bytes;
+pm4Crc               = 03a47b32de442aff
+
+; launchModeFlags    = 0x00000400
+externalLogicalBinding = TRUE;
+
+userElementCount     = 0;
+extUserElementCount  = 0;
+NumVgprs             = 3;
+maxVgprs             = 256;
+NumSgprs             = 12;
+maxSgprs             = 104;
+FloatMode            = 192;
+IeeeMode             = 0;
+FlatPtr32            = 0;
+IsDynamicCallStack   = 0;
+MemOrdered           = 0;
+ScratchSize          = 0 dwords/thread;
+LDSByteSize          = 0 bytes/workgroup (compile time only);
+ScratchWaveOffsetReg = s65535;
+
+; Optimization Report
+Intent           = SI_OPT_INTENT_UNSET
+
+; SC ML stats
+   Phase 3 VGPR = 0
+   Phase 3 SGPR = 0
+   Phase 2 Wave Size = 64
+
+; Shader Stats
+NumInst         = 26
+Phase3_VGPR     = 0
+Phase3_SGPR     = 0
+uNumVALUInst    = 8
+uNumVMemInst    = 2
+uNumDSInst      = 0
+uNumExportInst  = 0
+uNumCFlowInst   = 9
+uNumBranchInst   = 3
+uNumSALUInst    = 6
+uNumSMemInst    = 1
+uNumInterpInst  = 0
+uNumTransInst   = 0
+uNumAtomicOper    = 0
+uNumLocalAtomicOper    = 0
+uNumGlobalAtomicOper    = 0
+uNumLocalLoads    = 0
+uNumGlobalLoads    = 2
+uNumLocalStores    = 0
+uNumGlobalStores    = 1
+uNumWait    = 3
+uNumTexReads    = 0
+uNumTexWrites    = 0
+uNumTexAtomics   = 0
+uNumF16Inst    = 0
+uNumF32Inst    = 0
+uNumFpInst    = 0
+uNumInt16Inst    = 0
+uNumInt32Inst    = 4
+uNumIntInst    = 4
+uNumCompilerSpills   = 0
+uNumCompilerVectorSpills    = 0
+uNumCompilerScalarSpills    = 0
+numActiveWaveCount      = 0
+numDuplicatedVALUCount  = 0
+numDuplicatedVMemCount  = 0
+numAsVALUCount          = 0
+numAsVMemCount          = 0
+uNumPositionExports     = 0
+uNumParameterExports    = 0
+numTotalInstIR          = 22
+costTotalInstIR         = 1026
+numVectorInstIR         = 10
+costVectorInstIR        = 822
+numScalarInstIR         = 5
+costScalarInstIR        = 203
+numUniformInstIR        = 11
+costUniformInstIR       = 604
+numVMemInstIR           = 2
+costVMemInstIR          = 800
+numVALUInstIR           = 8
+costVALUInstIR          = 22
+numBasicBlocksIR        = 11
+costBasicBlocksIR       = 605
+numExportInstIR         = 0
+costExportInstIR        = 0
+numCFlowInstIR          = 0
+costCFlowInstIR         = 0
+numSALUInstIR           = 2
+costSALUInstIR          = 2
+numSMemInstIR           = 1
+costSMemInstIR          = 200
+uNumCreatedVGPRs        = 6
+LDSBarrierCount         = 0
+WorkgroupSize           = 64
+uNumSlowMemOps          = 0
+uNumVMemBytes           = 8
+uNumEstCycles           = 100
+uNumEstWeight           = 86
+pConfidence             = 0
+pThreshold              = 0
+modelCullingDecision    = 0
+modelWaveSizeDecision   = 64
+uNumSMovInst            = 2
+uNumVMovInst            = 0
+uNumMovInst             = 2
+uNumDualInst            = 0
+bHasUndefUsed           = false
+MemSizePerThread (dwords/thread)    =0
+; Scheduler stats
+    Total Cycles   = 842
+    Total Stalls   = 203
+
+stackFrameSize              = 0;
+
+;COMPUTE_PGM_RSRC2       = 0x0000008E
+COMPUTE_PGM_RSRC2:USER_SGPR      = 7
+COMPUTE_PGM_RSRC2:TGID_X_EN      = 1
+NumThreadX                       = 64
+NumThreadY                       = 1
+NumThreadZ                       = 1
+
+AMD statistics: VGPRs 3, SGPRs 12
+-- AMD disassembly
+; -------- Disassembly --------------------
+shader main
+  asic(GFX10_3)
+  type(CS)
+  sgpr_count(14)
+  vgpr_count(4)
+  wave_size(64)
+
+  s_version     UC_VERSION_GFX10 | UC_VERSION_W64_BIT   // 000000000000: B0802004
+  s_inst_prefetch  0x0003                               // 000000000004: BFA00003
+  s_getpc_b64   s[0:1]                                  // 000000000008: BE801F80
+  s_mov_b32     s0, s2                                  // 00000000000C: BE800302
+  s_load_dwordx4  s[8:11], s[0:1], null                 // 000000000010: F4080200 FA000000
+  s_movk_i32    s0, 0x0000                              // 000000000018: B0000000
+  v_lshl_add_u32  v0, s7, 6, v0                         // 00000000001C: D7460000 04010C07
+  v_lshlrev_b32  v0, 2, v0                              // 000000000024: 34000082
+  s_waitcnt     lgkmcnt(0)                              // 000000000028: BF8CC07F
+  buffer_load_dword  v1, v0, s[8:11], 0 offen           // 00000000002C: E0301000 80020100
+  s_cmp_gt_u32  s6, s0                                  // 000000000034: BF080006
+  s_cbranch_scc0  label_006C                            // 000000000038: BF84000C
+label_003C:
+  s_waitcnt     vmcnt(0)                                // 00000000003C: BF8C3F70
+  v_and_b32     v1, s3, v1                              // 000000000040: 36020203
+  v_xor_b32     v1, s4, v1                              // 000000000044: 3A020204
+  v_mul_lo_u32  v1, v1, s5                              // 000000000048: D5690001 00000B01
+  v_add_nc_u32  v1, s3, v1                              // 000000000050: 4A020203
+  v_xor_b32     v1, s4, v1                              // 000000000054: 3A020204
+  v_mul_lo_u32  v1, v1, s5                              // 000000000058: D5690001 00000B01
+  s_add_u32     s0, s0, 1                               // 000000000060: 80008100
+  s_cmp_gt_u32  s6, s0                                  // 000000000064: BF080006
+  s_cbranch_scc1  label_003C                            // 000000000068: BF85FFF4
+label_006C:
+  s_waitcnt     vmcnt(0)                                // 00000000006C: BF8C3F70
+  buffer_store_dword  v1, v0, s[8:11], 0 offen glc      // 000000000070: E0705000 80020100
+  s_endpgm                                              // 000000000078: BF810000
+  s_code_end                                            // 00000000007C: BF9F0000
+  s_code_end                                            // 000000000080: BF9F0000
+  s_code_end                                            // 000000000084: BF9F0000
+  s_code_end                                            // 000000000088: BF9F0000
+  s_code_end                                            // 00000000008C: BF9F0000
+  s_code_end                                            // 000000000090: BF9F0000
+  s_code_end                                            // 000000000094: BF9F0000
+  s_code_end                                            // 000000000098: BF9F0000
+  s_code_end                                            // 00000000009C: BF9F0000
+  s_code_end                                            // 0000000000A0: BF9F0000
+  s_code_end                                            // 0000000000A4: BF9F0000
+  s_code_end                                            // 0000000000A8: BF9F0000
+  s_code_end                                            // 0000000000AC: BF9F0000
+  s_code_end                                            // 0000000000B0: BF9F0000
+  s_code_end                                            // 0000000000B4: BF9F0000
+  s_code_end                                            // 0000000000B8: BF9F0000
+  s_code_end                                            // 0000000000BC: BF9F0000
+  s_code_end                                            // 0000000000C0: BF9F0000
+  s_code_end                                            // 0000000000C4: BF9F0000
+  s_code_end                                            // 0000000000C8: BF9F0000
+  s_code_end                                            // 0000000000CC: BF9F0000
+  s_code_end                                            // 0000000000D0: BF9F0000
+  s_code_end                                            // 0000000000D4: BF9F0000
+  s_code_end                                            // 0000000000D8: BF9F0000
+  s_code_end                                            // 0000000000DC: BF9F0000
+  s_code_end                                            // 0000000000E0: BF9F0000
+  s_code_end                                            // 0000000000E4: BF9F0000
+  s_code_end                                            // 0000000000E8: BF9F0000
+  s_code_end                                            // 0000000000EC: BF9F0000
+  s_code_end                                            // 0000000000F0: BF9F0000
+  s_code_end                                            // 0000000000F4: BF9F0000
+  s_code_end                                            // 0000000000F8: BF9F0000
+  s_code_end                                            // 0000000000FC: BF9F0000
+  s_code_end                                            // 000000000100: BF9F0000
+  s_code_end                                            // 000000000104: BF9F0000
+  s_code_end                                            // 000000000108: BF9F0000
+  s_code_end                                            // 00000000010C: BF9F0000
+  s_code_end                                            // 000000000110: BF9F0000
+  s_code_end                                            // 000000000114: BF9F0000
+  s_code_end                                            // 000000000118: BF9F0000
+  s_code_end                                            // 00000000011C: BF9F0000
+  s_code_end                                            // 000000000120: BF9F0000
+  s_code_end                                            // 000000000124: BF9F0000
+  s_code_end                                            // 000000000128: BF9F0000
+  s_code_end                                            // 00000000012C: BF9F0000
+  s_code_end                                            // 000000000130: BF9F0000
+  s_code_end                                            // 000000000134: BF9F0000
+  s_code_end                                            // 000000000138: BF9F0000
+  s_code_end                                            // 00000000013C: BF9F0000
+  s_code_end                                            // 000000000140: BF9F0000
+  s_code_end                                            // 000000000144: BF9F0000
+  s_code_end                                            // 000000000148: BF9F0000
+  s_code_end                                            // 00000000014C: BF9F0000
+  s_code_end                                            // 000000000150: BF9F0000
+  s_code_end                                            // 000000000154: BF9F0000
+  s_code_end                                            // 000000000158: BF9F0000
+  s_code_end                                            // 00000000015C: BF9F0000
+  s_code_end                                            // 000000000160: BF9F0000
+  s_code_end                                            // 000000000164: BF9F0000
+  s_code_end                                            // 000000000168: BF9F0000
+  s_code_end                                            // 00000000016C: BF9F0000
+  s_code_end                                            // 000000000170: BF9F0000
+  s_code_end                                            // 000000000174: BF9F0000
+  s_code_end                                            // 000000000178: BF9F0000
+end
+
+; ----------------- CS Data ------------------------
+
+codeLenInByte        = 380 bytes;
+pm4CrcCodeLength     = 124 bytes;
+pm4Crc               = 03a47b32de442aff
+
+; launchModeFlags    = 0x00000400
+externalLogicalBinding = TRUE;
+
+userElementCount     = 0;
+extUserElementCount  = 0;
+NumVgprs             = 3;
+maxVgprs             = 256;
+NumSgprs             = 12;
+maxSgprs             = 104;
+FloatMode            = 192;
+IeeeMode             = 0;
+FlatPtr32            = 0;
+IsDynamicCallStack   = 0;
+MemOrdered           = 0;
+ScratchSize          = 0 dwords/thread;
+LDSByteSize          = 0 bytes/workgroup (compile time only);
+ScratchWaveOffsetReg = s65535;
+
+; Optimization Report
+Intent           = SI_OPT_INTENT_UNSET
+
+; SC ML stats
+   Phase 3 VGPR = 0
+   Phase 3 SGPR = 0
+   Phase 2 Wave Size = 64
+
+; Shader Stats
+NumInst         = 26
+Phase3_VGPR     = 0
+Phase3_SGPR     = 0
+uNumVALUInst    = 8
+uNumVMemInst    = 2
+uNumDSInst      = 0
+uNumExportInst  = 0
+uNumCFlowInst   = 9
+uNumBranchInst   = 3
+uNumSALUInst    = 6
+uNumSMemInst    = 1
+uNumInterpInst  = 0
+uNumTransInst   = 0
+uNumAtomicOper    = 0
+uNumLocalAtomicOper    = 0
+uNumGlobalAtomicOper    = 0
+uNumLocalLoads    = 0
+uNumGlobalLoads    = 2
+uNumLocalStores    = 0
+uNumGlobalStores    = 1
+uNumWait    = 3
+uNumTexReads    = 0
+uNumTexWrites    = 0
+uNumTexAtomics   = 0
+uNumF16Inst    = 0
+uNumF32Inst    = 0
+uNumFpInst    = 0
+uNumInt16Inst    = 0
+uNumInt32Inst    = 4
+uNumIntInst    = 4
+uNumCompilerSpills   = 0
+uNumCompilerVectorSpills    = 0
+uNumCompilerScalarSpills    = 0
+numActiveWaveCount      = 0
+numDuplicatedVALUCount  = 0
+numDuplicatedVMemCount  = 0
+numAsVALUCount          = 0
+numAsVMemCount          = 0
+uNumPositionExports     = 0
+uNumParameterExports    = 0
+numTotalInstIR          = 22
+costTotalInstIR         = 1026
+numVectorInstIR         = 10
+costVectorInstIR        = 822
+numScalarInstIR         = 5
+costScalarInstIR        = 203
+numUniformInstIR        = 11
+costUniformInstIR       = 604
+numVMemInstIR           = 2
+costVMemInstIR          = 800
+numVALUInstIR           = 8
+costVALUInstIR          = 22
+numBasicBlocksIR        = 11
+costBasicBlocksIR       = 605
+numExportInstIR         = 0
+costExportInstIR        = 0
+numCFlowInstIR          = 0
+costCFlowInstIR         = 0
+numSALUInstIR           = 2
+costSALUInstIR          = 2
+numSMemInstIR           = 1
+costSMemInstIR          = 200
+uNumCreatedVGPRs        = 6
+LDSBarrierCount         = 0
+WorkgroupSize           = 64
+uNumSlowMemOps          = 0
+uNumVMemBytes           = 8
+uNumEstCycles           = 100
+uNumEstWeight           = 86
+pConfidence             = 0
+pThreshold              = 0
+modelCullingDecision    = 0
+modelWaveSizeDecision   = 64
+uNumSMovInst            = 2
+uNumVMovInst            = 0
+uNumMovInst             = 2
+uNumDualInst            = 0
+bHasUndefUsed           = false
+MemSizePerThread (dwords/thread)    =0
+; Scheduler stats
+    Total Cycles   = 842
+    Total Stalls   = 203
+
+stackFrameSize              = 0;
+
+;COMPUTE_PGM_RSRC2       = 0x0000008E
+COMPUTE_PGM_RSRC2:USER_SGPR      = 7
+COMPUTE_PGM_RSRC2:TGID_X_EN      = 1
+NumThreadX                       = 64
+NumThreadY                       = 1
+NumThreadZ                       = 1
+
+
+==== float (fma, rcp, sqrt, floor, max, clamp, sign, exp2) ====
+-- executable 0: ShaderProperties.cs (Executable handles following Vulkan stages:  VK_SHADER_STAGE_COMPUTE_BIT ), subgroup size 64
+  numUsedVgprs = 3   (Number of used VGPRs)
+  numUsedSgprs = 12   (Number of used SGPRs)
+  ldsSizePerLocalWorkGroup = 65536   (LDS size per local workgroup)
+  ldsUsageSizeInBytes = 0   (LDS usage size in Bytes)
+  scratchMemUsageInBytes = 0   (Scratch memory usage in Bytes)
+  -- representation ISA.cs (Executable handles following Vulkan stages:  VK_SHADER_STAGE_COMPUTE_BIT )
+; -------- Disassembly --------------------
+shader main
+  asic(GFX10_3)
+  type(CS)
+  sgpr_count(14)
+  vgpr_count(4)
+  wave_size(64)
+
+  s_version     UC_VERSION_GFX10 | UC_VERSION_W64_BIT   // 000000000000: B0802004
+  s_inst_prefetch  0x0003                               // 000000000004: BFA00003
+  s_getpc_b64   s[0:1]                                  // 000000000008: BE801F80
+  s_mov_b32     s0, s2                                  // 00000000000C: BE800302
+  s_load_dwordx4  s[8:11], s[0:1], null                 // 000000000010: F4080200 FA000000
+  s_movk_i32    s0, 0x0000                              // 000000000018: B0000000
+  v_lshl_add_u32  v0, s7, 6, v0                         // 00000000001C: D7460000 04010C07
+  v_lshlrev_b32  v0, 2, v0                              // 000000000024: 34000082
+  s_waitcnt     lgkmcnt(0)                              // 000000000028: BF8CC07F
+  buffer_load_dword  v1, v0, s[8:11], 0 offen           // 00000000002C: E0301000 80020100
+  s_cmp_gt_u32  s6, s0                                  // 000000000034: BF080006
+  s_inst_prefetch  0x0001                               // 000000000038: BFA00001
+  s_cbranch_scc0  label_00C4                            // 00000000003C: BF840021
+label_0040:
+  s_waitcnt     vmcnt(0)                                // 000000000040: BF8C3F70
+  v_fma_f32     v1, v1, s3, s4                          // 000000000044: D54B0001 00100701
+  v_rcp_f32     v1, v1                                  // 00000000004C: 7E025501
+  s_add_u32     s0, s0, 1                               // 000000000050: 80008100
+  v_fma_f32     v1, v1, s3, s4                          // 000000000054: D54B0001 00100701
+  v_sqrt_f32    v1, v1                                  // 00000000005C: 7E026701
+  v_fma_f32     v1, v1, s3, s4                          // 000000000060: D54B0001 00100701
+  v_mul_f32     v1, s5, v1                              // 000000000068: 10020205
+  v_floor_f32   v1, v1                                  // 00000000006C: 7E024901
+  v_fma_f32     v1, v1, s3, s4                          // 000000000070: D54B0001 00100701
+  v_max3_f32    v1, s3, v1, s4                          // 000000000078: D5540001 00120203
+  v_fma_f32     v1, v1, s3, s5 clamp                    // 000000000080: D54B8001 00140701
+  v_ldexp_f32   v1, v1, 1                               // 000000000088: D7620001 00010301
+  v_fma_f32     v1, v1, s3, s4                          // 000000000090: D54B0001 00100701
+  v_cmp_gt_f32  vcc, 0, v1                              // 000000000098: 7C080280
+  v_cndmask_b32  v2, 1.0, -1.0, vcc                     // 00000000009C: D5010002 01A9E6F2
+  v_cmp_neq_f32  vcc, 0, v1                             // 0000000000A4: 7C1A0280
+  v_cndmask_b32  v2, 0, v2, vcc                         // 0000000000A8: 02040480
+  v_fmac_f32    v1, s3, v2                              // 0000000000AC: 56020403
+  v_exp_f32     v1, v1                                  // 0000000000B0: 7E024B01
+  v_fma_f32     v1, v1, s3, s4                          // 0000000000B4: D54B0001 00100701
+  s_cmp_gt_u32  s6, s0                                  // 0000000000BC: BF080006
+  s_cbranch_scc1  label_0040                            // 0000000000C0: BF85FFDF
+label_00C4:
+  s_inst_prefetch  0x0003                               // 0000000000C4: BFA00003
+  s_waitcnt     vmcnt(0)                                // 0000000000C8: BF8C3F70
+  buffer_store_dword  v1, v0, s[8:11], 0 offen glc      // 0000000000CC: E0705000 80020100
+  s_endpgm                                              // 0000000000D4: BF810000
+  s_code_end                                            // 0000000000D8: BF9F0000
+  s_code_end                                            // 0000000000DC: BF9F0000
+  s_code_end                                            // 0000000000E0: BF9F0000
+  s_code_end                                            // 0000000000E4: BF9F0000
+  s_code_end                                            // 0000000000E8: BF9F0000
+  s_code_end                                            // 0000000000EC: BF9F0000
+  s_code_end                                            // 0000000000F0: BF9F0000
+  s_code_end                                            // 0000000000F4: BF9F0000
+  s_code_end                                            // 0000000000F8: BF9F0000
+  s_code_end                                            // 0000000000FC: BF9F0000
+  s_code_end                                            // 000000000100: BF9F0000
+  s_code_end                                            // 000000000104: BF9F0000
+  s_code_end                                            // 000000000108: BF9F0000
+  s_code_end                                            // 00000000010C: BF9F0000
+  s_code_end                                            // 000000000110: BF9F0000
+  s_code_end                                            // 000000000114: BF9F0000
+  s_code_end                                            // 000000000118: BF9F0000
+  s_code_end                                            // 00000000011C: BF9F0000
+  s_code_end                                            // 000000000120: BF9F0000
+  s_code_end                                            // 000000000124: BF9F0000
+  s_code_end                                            // 000000000128: BF9F0000
+  s_code_end                                            // 00000000012C: BF9F0000
+  s_code_end                                            // 000000000130: BF9F0000
+  s_code_end                                            // 000000000134: BF9F0000
+  s_code_end                                            // 000000000138: BF9F0000
+  s_code_end                                            // 00000000013C: BF9F0000
+  s_code_end                                            // 000000000140: BF9F0000
+  s_code_end                                            // 000000000144: BF9F0000
+  s_code_end                                            // 000000000148: BF9F0000
+  s_code_end                                            // 00000000014C: BF9F0000
+  s_code_end                                            // 000000000150: BF9F0000
+  s_code_end                                            // 000000000154: BF9F0000
+  s_code_end                                            // 000000000158: BF9F0000
+  s_code_end                                            // 00000000015C: BF9F0000
+  s_code_end                                            // 000000000160: BF9F0000
+  s_code_end                                            // 000000000164: BF9F0000
+  s_code_end                                            // 000000000168: BF9F0000
+  s_code_end                                            // 00000000016C: BF9F0000
+  s_code_end                                            // 000000000170: BF9F0000
+  s_code_end                                            // 000000000174: BF9F0000
+  s_code_end                                            // 000000000178: BF9F0000
+  s_code_end                                            // 00000000017C: BF9F0000
+  s_code_end                                            // 000000000180: BF9F0000
+  s_code_end                                            // 000000000184: BF9F0000
+  s_code_end                                            // 000000000188: BF9F0000
+  s_code_end                                            // 00000000018C: BF9F0000
+  s_code_end                                            // 000000000190: BF9F0000
+  s_code_end                                            // 000000000194: BF9F0000
+  s_code_end                                            // 000000000198: BF9F0000
+  s_code_end                                            // 00000000019C: BF9F0000
+  s_code_end                                            // 0000000001A0: BF9F0000
+  s_code_end                                            // 0000000001A4: BF9F0000
+  s_code_end                                            // 0000000001A8: BF9F0000
+  s_code_end                                            // 0000000001AC: BF9F0000
+  s_code_end                                            // 0000000001B0: BF9F0000
+  s_code_end                                            // 0000000001B4: BF9F0000
+  s_code_end                                            // 0000000001B8: BF9F0000
+  s_code_end                                            // 0000000001BC: BF9F0000
+  s_code_end                                            // 0000000001C0: BF9F0000
+  s_code_end                                            // 0000000001C4: BF9F0000
+  s_code_end                                            // 0000000001C8: BF9F0000
+  s_code_end                                            // 0000000001CC: BF9F0000
+  s_code_end                                            // 0000000001D0: BF9F0000
+  s_code_end                                            // 0000000001D4: BF9F0000
+end
+
+; ----------------- CS Data ------------------------
+
+codeLenInByte        = 472 bytes;
+pm4CrcCodeLength     = 216 bytes;
+pm4Crc               = f1172fd84e057a47
+
+; launchModeFlags    = 0x00000400
+externalLogicalBinding = TRUE;
+
+userElementCount     = 0;
+extUserElementCount  = 0;
+NumVgprs             = 3;
+maxVgprs             = 256;
+NumSgprs             = 12;
+maxSgprs             = 104;
+FloatMode            = 192;
+IeeeMode             = 0;
+FlatPtr32            = 0;
+IsDynamicCallStack   = 0;
+MemOrdered           = 0;
+ScratchSize          = 0 dwords/thread;
+LDSByteSize          = 0 bytes/workgroup (compile time only);
+ScratchWaveOffsetReg = s65535;
+
+; Optimization Report
+Intent           = SI_OPT_INTENT_UNSET
+
+; SC ML stats
+   Phase 3 VGPR = 0
+   Phase 3 SGPR = 0
+   Phase 2 Wave Size = 64
+
+; Shader Stats
+NumInst         = 40
+Phase3_VGPR     = 0
+Phase3_SGPR     = 0
+uNumVALUInst    = 21
+uNumVMemInst    = 2
+uNumDSInst      = 0
+uNumExportInst  = 0
+uNumCFlowInst   = 10
+uNumBranchInst   = 3
+uNumSALUInst    = 6
+uNumSMemInst    = 1
+uNumInterpInst  = 0
+uNumTransInst   = 3
+uNumAtomicOper    = 0
+uNumLocalAtomicOper    = 0
+uNumGlobalAtomicOper    = 0
+uNumLocalLoads    = 0
+uNumGlobalLoads    = 2
+uNumLocalStores    = 0
+uNumGlobalStores    = 1
+uNumWait    = 3
+uNumTexReads    = 0
+uNumTexWrites    = 0
+uNumTexAtomics   = 0
+uNumF16Inst    = 0
+uNumF32Inst    = 17
+uNumFpInst    = 17
+uNumInt16Inst    = 0
+uNumInt32Inst    = 1
+uNumIntInst    = 1
+uNumCompilerSpills   = 0
+uNumCompilerVectorSpills    = 0
+uNumCompilerScalarSpills    = 0
+numActiveWaveCount      = 0
+numDuplicatedVALUCount  = 0
+numDuplicatedVMemCount  = 0
+numAsVALUCount          = 0
+numAsVMemCount          = 0
+uNumPositionExports     = 0
+uNumParameterExports    = 0
+numTotalInstIR          = 35
+costTotalInstIR         = 1055
+numVectorInstIR         = 23
+costVectorInstIR        = 851
+numScalarInstIR         = 5
+costScalarInstIR        = 203
+numUniformInstIR        = 11
+costUniformInstIR       = 604
+numVMemInstIR           = 2
+costVMemInstIR          = 800
+numVALUInstIR           = 21
+costVALUInstIR          = 51
+numBasicBlocksIR        = 11
+costBasicBlocksIR       = 605
+numExportInstIR         = 0
+costExportInstIR        = 0
+numCFlowInstIR          = 0
+costCFlowInstIR         = 0
+numSALUInstIR           = 2
+costSALUInstIR          = 2
+numSMemInstIR           = 1
+costSMemInstIR          = 200
+uNumCreatedVGPRs        = 17
+LDSBarrierCount         = 0
+WorkgroupSize           = 64
+uNumSlowMemOps          = 0
+uNumVMemBytes           = 8
+uNumEstCycles           = 202
+uNumEstWeight           = 192
+pConfidence             = 0
+pThreshold              = 0
+modelCullingDecision    = 0
+modelWaveSizeDecision   = 64
+uNumSMovInst            = 2
+uNumVMovInst            = 0
+uNumMovInst             = 2
+uNumDualInst            = 0
+bHasUndefUsed           = false
+MemSizePerThread (dwords/thread)    =0
+; Scheduler stats
+    Total Cycles   = 1562
+    Total Stalls   = 643
+
+stackFrameSize              = 0;
+
+;COMPUTE_PGM_RSRC2       = 0x0000008E
+COMPUTE_PGM_RSRC2:USER_SGPR      = 7
+COMPUTE_PGM_RSRC2:TGID_X_EN      = 1
+NumThreadX                       = 64
+NumThreadY                       = 1
+NumThreadZ                       = 1
+
+AMD statistics: VGPRs 3, SGPRs 12
+-- AMD disassembly
+; -------- Disassembly --------------------
+shader main
+  asic(GFX10_3)
+  type(CS)
+  sgpr_count(14)
+  vgpr_count(4)
+  wave_size(64)
+
+  s_version     UC_VERSION_GFX10 | UC_VERSION_W64_BIT   // 000000000000: B0802004
+  s_inst_prefetch  0x0003                               // 000000000004: BFA00003
+  s_getpc_b64   s[0:1]                                  // 000000000008: BE801F80
+  s_mov_b32     s0, s2                                  // 00000000000C: BE800302
+  s_load_dwordx4  s[8:11], s[0:1], null                 // 000000000010: F4080200 FA000000
+  s_movk_i32    s0, 0x0000                              // 000000000018: B0000000
+  v_lshl_add_u32  v0, s7, 6, v0                         // 00000000001C: D7460000 04010C07
+  v_lshlrev_b32  v0, 2, v0                              // 000000000024: 34000082
+  s_waitcnt     lgkmcnt(0)                              // 000000000028: BF8CC07F
+  buffer_load_dword  v1, v0, s[8:11], 0 offen           // 00000000002C: E0301000 80020100
+  s_cmp_gt_u32  s6, s0                                  // 000000000034: BF080006
+  s_inst_prefetch  0x0001                               // 000000000038: BFA00001
+  s_cbranch_scc0  label_00C4                            // 00000000003C: BF840021
+label_0040:
+  s_waitcnt     vmcnt(0)                                // 000000000040: BF8C3F70
+  v_fma_f32     v1, v1, s3, s4                          // 000000000044: D54B0001 00100701
+  v_rcp_f32     v1, v1                                  // 00000000004C: 7E025501
+  s_add_u32     s0, s0, 1                               // 000000000050: 80008100
+  v_fma_f32     v1, v1, s3, s4                          // 000000000054: D54B0001 00100701
+  v_sqrt_f32    v1, v1                                  // 00000000005C: 7E026701
+  v_fma_f32     v1, v1, s3, s4                          // 000000000060: D54B0001 00100701
+  v_mul_f32     v1, s5, v1                              // 000000000068: 10020205
+  v_floor_f32   v1, v1                                  // 00000000006C: 7E024901
+  v_fma_f32     v1, v1, s3, s4                          // 000000000070: D54B0001 00100701
+  v_max3_f32    v1, s3, v1, s4                          // 000000000078: D5540001 00120203
+  v_fma_f32     v1, v1, s3, s5 clamp                    // 000000000080: D54B8001 00140701
+  v_ldexp_f32   v1, v1, 1                               // 000000000088: D7620001 00010301
+  v_fma_f32     v1, v1, s3, s4                          // 000000000090: D54B0001 00100701
+  v_cmp_gt_f32  vcc, 0, v1                              // 000000000098: 7C080280
+  v_cndmask_b32  v2, 1.0, -1.0, vcc                     // 00000000009C: D5010002 01A9E6F2
+  v_cmp_neq_f32  vcc, 0, v1                             // 0000000000A4: 7C1A0280
+  v_cndmask_b32  v2, 0, v2, vcc                         // 0000000000A8: 02040480
+  v_fmac_f32    v1, s3, v2                              // 0000000000AC: 56020403
+  v_exp_f32     v1, v1                                  // 0000000000B0: 7E024B01
+  v_fma_f32     v1, v1, s3, s4                          // 0000000000B4: D54B0001 00100701
+  s_cmp_gt_u32  s6, s0                                  // 0000000000BC: BF080006
+  s_cbranch_scc1  label_0040                            // 0000000000C0: BF85FFDF
+label_00C4:
+  s_inst_prefetch  0x0003                               // 0000000000C4: BFA00003
+  s_waitcnt     vmcnt(0)                                // 0000000000C8: BF8C3F70
+  buffer_store_dword  v1, v0, s[8:11], 0 offen glc      // 0000000000CC: E0705000 80020100
+  s_endpgm                                              // 0000000000D4: BF810000
+  s_code_end                                            // 0000000000D8: BF9F0000
+  s_code_end                                            // 0000000000DC: BF9F0000
+  s_code_end                                            // 0000000000E0: BF9F0000
+  s_code_end                                            // 0000000000E4: BF9F0000
+  s_code_end                                            // 0000000000E8: BF9F0000
+  s_code_end                                            // 0000000000EC: BF9F0000
+  s_code_end                                            // 0000000000F0: BF9F0000
+  s_code_end                                            // 0000000000F4: BF9F0000
+  s_code_end                                            // 0000000000F8: BF9F0000
+  s_code_end                                            // 0000000000FC: BF9F0000
+  s_code_end                                            // 000000000100: BF9F0000
+  s_code_end                                            // 000000000104: BF9F0000
+  s_code_end                                            // 000000000108: BF9F0000
+  s_code_end                                            // 00000000010C: BF9F0000
+  s_code_end                                            // 000000000110: BF9F0000
+  s_code_end                                            // 000000000114: BF9F0000
+  s_code_end                                            // 000000000118: BF9F0000
+  s_code_end                                            // 00000000011C: BF9F0000
+  s_code_end                                            // 000000000120: BF9F0000
+  s_code_end                                            // 000000000124: BF9F0000
+  s_code_end                                            // 000000000128: BF9F0000
+  s_code_end                                            // 00000000012C: BF9F0000
+  s_code_end                                            // 000000000130: BF9F0000
+  s_code_end                                            // 000000000134: BF9F0000
+  s_code_end                                            // 000000000138: BF9F0000
+  s_code_end                                            // 00000000013C: BF9F0000
+  s_code_end                                            // 000000000140: BF9F0000
+  s_code_end                                            // 000000000144: BF9F0000
+  s_code_end                                            // 000000000148: BF9F0000
+  s_code_end                                            // 00000000014C: BF9F0000
+  s_code_end                                            // 000000000150: BF9F0000
+  s_code_end                                            // 000000000154: BF9F0000
+  s_code_end                                            // 000000000158: BF9F0000
+  s_code_end                                            // 00000000015C: BF9F0000
+  s_code_end                                            // 000000000160: BF9F0000
+  s_code_end                                            // 000000000164: BF9F0000
+  s_code_end                                            // 000000000168: BF9F0000
+  s_code_end                                            // 00000000016C: BF9F0000
+  s_code_end                                            // 000000000170: BF9F0000
+  s_code_end                                            // 000000000174: BF9F0000
+  s_code_end                                            // 000000000178: BF9F0000
+  s_code_end                                            // 00000000017C: BF9F0000
+  s_code_end                                            // 000000000180: BF9F0000
+  s_code_end                                            // 000000000184: BF9F0000
+  s_code_end                                            // 000000000188: BF9F0000
+  s_code_end                                            // 00000000018C: BF9F0000
+  s_code_end                                            // 000000000190: BF9F0000
+  s_code_end                                            // 000000000194: BF9F0000
+  s_code_end                                            // 000000000198: BF9F0000
+  s_code_end                                            // 00000000019C: BF9F0000
+  s_code_end                                            // 0000000001A0: BF9F0000
+  s_code_end                                            // 0000000001A4: BF9F0000
+  s_code_end                                            // 0000000001A8: BF9F0000
+  s_code_end                                            // 0000000001AC: BF9F0000
+  s_code_end                                            // 0000000001B0: BF9F0000
+  s_code_end                                            // 0000000001B4: BF9F0000
+  s_code_end                                            // 0000000001B8: BF9F0000
+  s_code_end                                            // 0000000001BC: BF9F0000
+  s_code_end                                            // 0000000001C0: BF9F0000
+  s_code_end                                            // 0000000001C4: BF9F0000
+  s_code_end                                            // 0000000001C8: BF9F0000
+  s_code_end                                            // 0000000001CC: BF9F0000
+  s_code_end                                            // 0000000001D0: BF9F0000
+  s_code_end                                            // 0000000001D4: BF9F0000
+end
+
+; ----------------- CS Data ------------------------
+
+codeLenInByte        = 472 bytes;
+pm4CrcCodeLength     = 216 bytes;
+pm4Crc               = f1172fd84e057a47
+
+; launchModeFlags    = 0x00000400
+externalLogicalBinding = TRUE;
+
+userElementCount     = 0;
+extUserElementCount  = 0;
+NumVgprs             = 3;
+maxVgprs             = 256;
+NumSgprs             = 12;
+maxSgprs             = 104;
+FloatMode            = 192;
+IeeeMode             = 0;
+FlatPtr32            = 0;
+IsDynamicCallStack   = 0;
+MemOrdered           = 0;
+ScratchSize          = 0 dwords/thread;
+LDSByteSize          = 0 bytes/workgroup (compile time only);
+ScratchWaveOffsetReg = s65535;
+
+; Optimization Report
+Intent           = SI_OPT_INTENT_UNSET
+
+; SC ML stats
+   Phase 3 VGPR = 0
+   Phase 3 SGPR = 0
+   Phase 2 Wave Size = 64
+
+; Shader Stats
+NumInst         = 40
+Phase3_VGPR     = 0
+Phase3_SGPR     = 0
+uNumVALUInst    = 21
+uNumVMemInst    = 2
+uNumDSInst      = 0
+uNumExportInst  = 0
+uNumCFlowInst   = 10
+uNumBranchInst   = 3
+uNumSALUInst    = 6
+uNumSMemInst    = 1
+uNumInterpInst  = 0
+uNumTransInst   = 3
+uNumAtomicOper    = 0
+uNumLocalAtomicOper    = 0
+uNumGlobalAtomicOper    = 0
+uNumLocalLoads    = 0
+uNumGlobalLoads    = 2
+uNumLocalStores    = 0
+uNumGlobalStores    = 1
+uNumWait    = 3
+uNumTexReads    = 0
+uNumTexWrites    = 0
+uNumTexAtomics   = 0
+uNumF16Inst    = 0
+uNumF32Inst    = 17
+uNumFpInst    = 17
+uNumInt16Inst    = 0
+uNumInt32Inst    = 1
+uNumIntInst    = 1
+uNumCompilerSpills   = 0
+uNumCompilerVectorSpills    = 0
+uNumCompilerScalarSpills    = 0
+numActiveWaveCount      = 0
+numDuplicatedVALUCount  = 0
+numDuplicatedVMemCount  = 0
+numAsVALUCount          = 0
+numAsVMemCount          = 0
+uNumPositionExports     = 0
+uNumParameterExports    = 0
+numTotalInstIR          = 35
+costTotalInstIR         = 1055
+numVectorInstIR         = 23
+costVectorInstIR        = 851
+numScalarInstIR         = 5
+costScalarInstIR        = 203
+numUniformInstIR        = 11
+costUniformInstIR       = 604
+numVMemInstIR           = 2
+costVMemInstIR          = 800
+numVALUInstIR           = 21
+costVALUInstIR          = 51
+numBasicBlocksIR        = 11
+costBasicBlocksIR       = 605
+numExportInstIR         = 0
+costExportInstIR        = 0
+numCFlowInstIR          = 0
+costCFlowInstIR         = 0
+numSALUInstIR           = 2
+costSALUInstIR          = 2
+numSMemInstIR           = 1
+costSMemInstIR          = 200
+uNumCreatedVGPRs        = 17
+LDSBarrierCount         = 0
+WorkgroupSize           = 64
+uNumSlowMemOps          = 0
+uNumVMemBytes           = 8
+uNumEstCycles           = 202
+uNumEstWeight           = 192
+pConfidence             = 0
+pThreshold              = 0
+modelCullingDecision    = 0
+modelWaveSizeDecision   = 64
+uNumSMovInst            = 2
+uNumVMovInst            = 0
+uNumMovInst             = 2
+uNumDualInst            = 0
+bHasUndefUsed           = false
+MemSizePerThread (dwords/thread)    =0
+; Scheduler stats
+    Total Cycles   = 1562
+    Total Stalls   = 643
+
+stackFrameSize              = 0;
+
+;COMPUTE_PGM_RSRC2       = 0x0000008E
+COMPUTE_PGM_RSRC2:USER_SGPR      = 7
+COMPUTE_PGM_RSRC2:TGID_X_EN      = 1
+NumThreadX                       = 64
+NumThreadY                       = 1
+NumThreadZ                       = 1
+
