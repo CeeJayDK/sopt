@@ -90,25 +90,27 @@ namespace BlendModes
 	float3 Normal(float3 b, float3 s)      { return s; }
 	float3 Darken(float3 b, float3 s)      { return min(b, s); }
 	float3 Multiply(float3 b, float3 s)    { return b * s; }
-	float3 ColorBurn(float3 b, float3 s)   { return b >= 1.0 ? 1.0 : (s <= 0.0 ? 0.0 : 1.0 - min(1.0, (1.0 - b) / s)); }
+	float3 ColorBurn(float3 b, float3 s)   { return b >= 1.0 ? 1.0 : 1.0 - min(1.0, (1.0 - b) / s); }   // s = 0: x / 0 = inf
 	float3 LinearBurn(float3 b, float3 s)  { return max(b + s - 1.0, 0.0); }
 	float3 Lighten(float3 b, float3 s)     { return max(b, s); }
 	float3 Screen(float3 b, float3 s)      { return b + s - b * s; }
-	float3 ColorDodge(float3 b, float3 s)  { return b <= 0.0 ? 0.0 : (s >= 1.0 ? 1.0 : min(1.0, b / (1.0 - s))); }
+	float3 ColorDodge(float3 b, float3 s)  { return b <= 0.0 ? 0.0 : min(1.0, b / (1.0 - s)); }         // s = 1: x / 0 = inf
 	float3 LinearDodge(float3 b, float3 s) { return min(b + s, 1.0); }
-	float3 HardLight(float3 b, float3 s)   { return s <= 0.5 ? b * (2.0 * s) : Screen(b, 2.0 * s - 1.0); }
-	float3 Overlay(float3 b, float3 s)     { return HardLight(s, b); }
+	// Overlay without a select (found by SweetOpt): below b = 0.5 the max picks s and saturate gives 2b;
+	// above it the mad (the screen half) is >= s and saturate gives 1.
+	float3 Overlay(float3 b, float3 s)     { return max(s, mad(2.0 - 2.0 * b, s - 1.0, 1.0)) * saturate(2.0 * b); }
+	float3 HardLight(float3 b, float3 s)   { return Overlay(s, b); }
 	float3 SoftLight(float3 b, float3 s)
 	{
 		float3 d = b <= 0.25 ? ((16.0 * b - 12.0) * b + 4.0) * b : sqrt(b);
-		return s <= 0.5 ? b - (1.0 - 2.0 * s) * b * (1.0 - b) : b + (2.0 * s - 1.0) * (d - b);
+		return s <= 0.5 ? b * mad(2.0 * s, 1.0 - b, b) : mad(2.0 * s - 1.0, d - b, b);
 	}
 	float3 VividLight(float3 b, float3 s)  { return s <= 0.5 ? ColorBurn(b, 2.0 * s) : ColorDodge(b, 2.0 * s - 1.0); }
-	float3 LinearLight(float3 b, float3 s) { return saturate(b + 2.0 * s - 1.0); }
-	float3 PinLight(float3 b, float3 s)    { return s <= 0.5 ? min(b, 2.0 * s) : max(b, 2.0 * s - 1.0); }
-	float3 HardMix(float3 b, float3 s)     { return b + s >= 1.0 ? 1.0 : 0.0; }
+	float3 LinearLight(float3 b, float3 s) { return saturate(mad(s, 2.0, b) - 1.0); }
+	float3 PinLight(float3 b, float3 s)    { return clamp(b, 2.0 * s - 1.0, 2.0 * s); }
+	float3 HardMix(float3 b, float3 s)     { return step(1.0, b + s); }
 	float3 Difference(float3 b, float3 s)  { return abs(b - s); }
-	float3 Exclusion(float3 b, float3 s)   { return b + s - 2.0 * b * s; }
+	float3 Exclusion(float3 b, float3 s)   { return mad(2.0 * b, 0.5 - s, s); }
 	float3 Subtract(float3 b, float3 s)    { return max(b - s, 0.0); }
 	float3 Divide(float3 b, float3 s)      { return s <= 0.0 ? (b > 0.0 ? 1.0 : 0.0) : min(b / s, 1.0); }
 	float3 GrainMerge(float3 b, float3 s)  { return saturate(b + s - 0.5); }
