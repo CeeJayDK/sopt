@@ -1032,3 +1032,35 @@ TEST(fx_namespace) {
   }
 }
 
+
+TEST(fx_table_rewrite) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_table.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  const std::vector<fx::SourceRewrite> rw = fx::tableRewrites(*e);
+  CHECK(rw.size() == 1);  // Weights is written after its initializer
+  if (rw.size() != 1) return;
+  CHECK(rw[0].line == 18 && rw[0].function == "TablePS");
+  CHECK(rw[0].edits.size() == 3);  // the table before the function, the declaration, the use
+  bool use = false;
+  for (const auto& ed : rw[0].edits)
+    for (const auto& l : ed.lines)
+      use = use || l.find("(Preset == 0 ? Custom : sopt_TablePS_Coefficients[Preset])") != std::string::npos;
+  CHECK(use);
+  // Written and parsed with the switch off and on.
+  const fs::path out = fs::temp_directory_path() / "sopt-test-table";
+  std::string errors;
+  const auto files = fx::writeVariants({}, out, errors, rw);
+  CHECK(files.size() == 1 && errors.empty());
+  for (const char* on : {"0", "1"}) {
+    fx::LoadOptions l2;
+    l2.macros.emplace_back(fx::rewriteSwitch(rw[0]), on);
+    std::string err2;
+    CHECK(fx::loadEffect(out / "sopt_table.fx", l2, err2) != nullptr);
+    if (!err2.empty()) std::printf("  %s\n", err2.c_str());
+  }
+  fs::remove_all(out);
+}

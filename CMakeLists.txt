@@ -97,7 +97,8 @@ endif()
 add_library(sopt-fx-lib
   src/fx/codegen.cpp
   src/fx/frontend.cpp
-  src/fx/variants.cpp)
+  src/fx/variants.cpp
+  src/fx/classic.cpp)
 target_link_libraries(sopt-fx-lib PUBLIC reshadefx sopt-search)
 sopt_fp_flags(sopt-fx-lib)
 

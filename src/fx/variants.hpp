@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "fx/classic.hpp"
 #include "fx/frontend.hpp"
 #include "verify/verify.hpp"
 
@@ -115,9 +116,12 @@ std::string variantStatement(const Region& r, const std::string& expr);
 //   #if SOPT_File_12 == 1 ... #else <original> #endif
 // SOPT_ALL (default 0) selects the first variant of every region at once. Returns the
 // written paths.
+// Classical rewrites (fx/classic.hpp) are written too, each under its switch; a region on their
+// lines gives way.
 std::vector<std::filesystem::path> writeVariants(const std::vector<RegionResult>& results,
                                                  const std::filesystem::path& outDir,
-                                                 std::string& errors);
+                                                 std::string& errors,
+                                                 const std::vector<SourceRewrite>& rewrites = {});
 
 struct ReportInfo {
   std::vector<std::string> effects;              // processed .fx files
@@ -130,6 +134,7 @@ struct ReportInfo {
   bool intel = false;                     // Intel driver statistics loaded (--driver-stats)
   bool spirv = false, dxbc = false;       // backend normalization ran
   bool schedule = false;                  // scheduling measures (some region has them)
+  const std::vector<SourceRewrite>* rewrites = nullptr;  // classical source rewrites
   bool perfFirst = false;                 // the performance mode cost is the main cost
 };
 

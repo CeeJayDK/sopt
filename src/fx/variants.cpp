@@ -132,10 +132,16 @@ std::string variantStatement(const Region& r, const std::string& expr) {
 }
 
 std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
-                                    const fs::path& outDir, std::string& errors) {
+                                    const fs::path& outDir, std::string& errors,
+                                    const std::vector<SourceRewrite>& rewrites) {
   std::map<std::string, std::vector<const RegionResult*>> byFile;
   for (const auto& r : results)
     if (!r.variants.empty()) byFile[r.region.file].push_back(&r);
+  std::map<std::string, std::vector<const SourceRewrite*>> rewritesByFile;
+  for (const auto& r : rewrites) {
+    rewritesByFile[r.file].push_back(&r);
+    byFile[r.file];  // a file with rewrites only is written too
+  }
   std::vector<fs::path> written;
   std::error_code ec;
   fs::create_directories(outDir, ec);
@@ -162,6 +168,8 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       uint32_t first, last;
       const RegionResult* rr;
       bool root;
+      const SourceRewrite* rw = nullptr;  // a classical rewrite's edit instead of a region
+      const LineEdit* edit = nullptr;
     };
     std::vector<Piece> pieces;
     auto overlaps = [&](uint32_t a, uint32_t b) {
@@ -169,6 +177,15 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         if (a <= p.last && p.first <= b) return true;
       return false;
     };
+    // Classical rewrites first: a region on their lines gives way.
+    std::vector<const SourceRewrite*> fileRewrites;
+    for (const SourceRewrite* rw : rewritesByFile[file]) {
+      bool clash = false;
+      for (const LineEdit& e : rw->edits) clash = clash || overlaps(e.first, e.last) || e.last > lines->size();
+      if (clash) continue;
+      fileRewrites.push_back(rw);
+      for (const LineEdit& e : rw->edits) pieces.push_back({e.first, e.last, nullptr, false, rw, &e});
+    }
     for (const RegionResult* rr : regs) {
       const Region& r = rr->region;
       bool clash = overlaps(r.line, r.lastLine) || r.lastLine > lines->size();
@@ -184,12 +201,14 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         "// statement or window; SOPT_ALL = k selects alternative k everywhere (the last\n"
         "// one where a region has fewer).\n"
         "#ifndef SOPT_ALL\n#define SOPT_ALL 0\n#endif\n";
+    if (pieces.empty()) continue;
     bool anyPick = false;
     for (const Piece& p : pieces)
-      anyPick = anyPick || vendorPick(*p.rr, Vendor::Amd) || vendorPick(*p.rr, Vendor::Nv) || vendorPick(*p.rr, Vendor::Intel);
+      anyPick = anyPick || (p.rr && (vendorPick(*p.rr, Vendor::Amd) || vendorPick(*p.rr, Vendor::Nv) || vendorPick(*p.rr, Vendor::Intel)));
     bool anyTooExact = false;
     for (const Piece& p : pieces)
-      for (const Variant& v : p.rr->variants) anyTooExact = anyTooExact || v.klass == Klass::Accurate;
+      if (p.rr)
+        for (const Variant& v : p.rr->variants) anyTooExact = anyTooExact || v.klass == Klass::Accurate;
     if (anyTooExact)
       out += "// SOPT_TOO_EXACT = 0 turns off the \"too exact\" variants: closer to exact math than the\n"
              "// float32 original, so they differ from it where it rounds (fine or better for most\n"
@@ -201,9 +220,13 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
              "// API (__RENDERER__ < 0x10000: DX9-DX12, where fxc's DXBC reaches the driver).\n"
              "#ifndef SOPT_AUTO\n#define SOPT_AUTO 0\n#endif\n";
     // Switches up front, outside any #if of the source.
+    for (const SourceRewrite* rw : fileRewrites) {
+      const std::string sw = rewriteSwitch(*rw);
+      out += "#ifndef " + sw + "\n#define " + sw + " SOPT_ALL // 0 = original, 1 = " + rw->description + "\n#endif\n";
+    }
     std::set<const RegionResult*> declared;
     for (const Piece& p : pieces) {
-      if (!declared.insert(p.rr).second) continue;
+      if (!p.rr || !declared.insert(p.rr).second) continue;
       const std::string sw = switchName(p.rr->region);
       const std::string n = std::to_string(p.rr->variants.size());
       const std::string note = " // 0 = original, 1.." + n + " = variants (larger = " + n + ")\n";
@@ -232,6 +255,20 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
     }
     uint32_t next = 1;  // next source line to copy
     for (const Piece& p : pieces) {
+      if (p.rw) {
+        for (; next < p.first; ++next) out += (*lines)[next - 1] + "\n";
+        const std::string sw = rewriteSwitch(*p.rw);
+        if (p.edit->lines.empty()) {
+          out += "#if " + sw + " < 1 // sopt: " + p.rw->description + "\n";
+        } else {
+          out += "#if " + sw + " >= 1 // sopt: " + p.rw->description + "\n";
+          for (const auto& l : p.edit->lines) out += l + "\n";
+          out += "#else\n";
+        }
+        for (; next <= p.last; ++next) out += (*lines)[next - 1] + "\n";
+        out += "#endif\n";
+        continue;
+      }
       const RegionResult* rr = p.rr;
       const Region& r = rr->region;
       for (; next < p.first; ++next) out += (*lines)[next - 1] + "\n";
@@ -381,6 +418,19 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
          "do more while the samples arrive). \"faster in performance mode\" / \"better "
          "scheduling\" variants are not faster otherwise (at most one instruction slower where "
          "measured); like the other \"(not faster)\" ones, SOPT_AUTO never picks them.\n\n";
+  if (info.rewrites && !info.rewrites->empty()) {
+    s += "## Classical rewrites\n\nSource changes before the superoptimizer, each under its own switch (0 = original, "
+         "1 = rewritten; SOPT_ALL sets it like the variants). amd: the effect's pixel / compute shaders measured "
+         "(RGA) with the switch off and on, scratch: spilled registers in memory.\n\n"
+         "| switch | where | rewrite | amd | scratch | amd, performance mode |\n|---|---|---|---|---|---|\n";
+    for (const auto& rw : *info.rewrites) {
+      auto pair = [](int a, int b) { return a < 0 || b < 0 ? std::string("-") : std::to_string(a) + " -> " + std::to_string(b); };
+      s += "| `" + rewriteSwitch(rw) + "` | " + pathFrom(rw.file).filename().string() + ":" + std::to_string(rw.line) +
+           " (" + rw.function + ") | " + escapeCell(rw.description) + " | " + pair(rw.amdBefore, rw.amdAfter) + " | " +
+           pair(rw.scratchBefore, rw.scratchAfter) + " | " + pair(rw.amdPerfBefore, rw.amdPerfAfter) + " |\n";
+    }
+    s += "\n";
+  }
   if (!info.failed.empty()) {
     s += "## Effects that failed to parse\n\n";
     for (const auto& [f, e] : info.failed) s += "- `" + f + "`: " + escapeCell(e.substr(0, 300)) + "\n";

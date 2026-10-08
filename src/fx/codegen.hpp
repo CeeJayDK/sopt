@@ -22,6 +22,7 @@ struct Value {
   reshadefx::tokenid op{};                // Unary / Binary / Ternary
   std::string name;                       // Intrinsic name, or called function's unique name
   std::vector<uint32_t> args;             // operand value ids
+  std::vector<bool> argConst;             // Construct: whether each operand is a constant
   reshadefx::constant constant{};         // Const
   uint32_t base = 0;                      // Load: variable id; Chain: value id
   std::vector<reshadefx::expression::operation> chain;  // Load / Chain access operations
