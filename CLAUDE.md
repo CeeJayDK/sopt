@@ -1346,6 +1346,21 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   within max(25%, 1.5) (one VALU op 2.98, max3 1.0, omod2 / 4 free, omod8 = control, mad16 -2.45, fma1 3.0 vs mad 4: the second
   constant costs extra on RDNA 2): fifth RDNA 2 device, amd-rdna2 unchanged (site NAME_BY_DEVICE 0x13C0 + MODEL_RULES, expected.hpp
   regenerated); fp32 0.53 / fp16 1.03 TFLOPS. TexBench 139 s, 17.6 GTexels/s, 16.3 GPixels/s, 62.1 GB/s, pixel order 8 x 8 (wave64).
+  Intake 2026-10-08 (6 zips, all OpBench / TexBench 0.6.0, every OpBench test consensus except the second RTX 4090): reruns of known
+  cards with the 0.6.0 build, each = its earlier report on every tput test within max(25%, 1.5): HD Graphics 4600 (Gen7.5,
+  -v6, TexBench 274 s, 9.0 GTexels/s), GTX 860M (Maxwell, sqrt still 24 on driver 32.0.15.8278, TexBench 207 s, 49.7 GTexels/s),
+  Quadro M5000M (Maxwell, 158 s, 109 GTexels/s), the Raphael iGPU (0x164E, sold as Radeon 610M; = amd-radeon-raphael, 148 s),
+  RTX 4090 Laptop (0x2757, driver 32.0.16.1742, 195% drift yet all consensus, = Ampere / Ada; 338 s, 329 GTexels/s), RTX 2060
+  (0x1F15, iand 1.0 on 32.0.16.2002, 183 s, 194 GTexels/s). New: Vega 7 (0x1636 Renoir, driver 31.0.21925.1001; first full
+  OpBench of it: = the v1 Renoir run on all 40 shared tests; fma1 2.1 vs mad 4: GCN's constant bus, fp32 1.40 / fp16 2.67
+  TFLOPS; TexBench 182 s, 38.5 GTexels/s, 8 x 8 blocks). RX 590 (Polaris 30, GCN 4, 0x67DF, driver 31.0.21925.1001; first GCN 4):
+  = Vega 7 (GCN 5) on simple ops (one VALU op 2.1 units, MUFU 8.4, max3 1.2, minmax 2.1, omod2 / 4 free, omod8 = control, signmad
+  4.4 vs sign 10.6) but sin / cos 16.9 vs 10.6 and no packed fp16 (mad16 0 vs -2.9; fp16 = fp32), atomics / barriers differ;
+  22 of 164 tests off from Vega 7: a GCN 4 model would be amd-gcn5 with sin / cos ~1.6x and fp16 at fp32 cost (owner's go
+  needed); fp32 7.03 TFLOPS (spec 7.1); TexBench 128 s, 197 GTexels/s, 49 GPixels/s, 223 GB/s, 8 x 8 blocks. Second RTX 4090
+  desktop (0x2684, driver 32.0.16.1664): throttled (420% drift, 11 tests without consensus, fp32 43 of 83 TFLOPS), otherwise =
+  the first 4090 (atomics noise only); left out of expected.hpp (gen_expected UNRELIABLE). UHD Graphics 770 (Alder Lake,
+  Gen12): ShaderInfo only (docs/shaderinfo/intel-uhd-770.txt). Files: docs/opbench|texbench|shaderinfo, -v6 / -2 names.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
