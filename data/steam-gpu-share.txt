@@ -16,4 +16,101 @@ nvidia-maxwell 0.16
 other 13.22
 # total 99.97
 #
-# (First copy from the workflow's log, run 37863727552; the workflow's next run on main adds the card list.)
+# Cards (name, percent, model):
+# NVIDIA GeForce RTX 5070                            6.15  nvidia-blackwell
+# NVIDIA GeForce RTX 5060                            4.40  nvidia-blackwell
+# NVIDIA GeForce RTX 5060 Ti                         4.06  nvidia-blackwell
+# NVIDIA GeForce RTX 4060                            3.89  nvidia-ampere
+# NVIDIA GeForce RTX 3060                            3.66  nvidia-ampere
+# NVIDIA GeForce RTX 4060 Laptop GPU                 3.50  nvidia-ampere
+# NVIDIA GeForce RTX 3050                            2.90  nvidia-ampere
+# NVIDIA GeForce RTX 4060 Ti                         2.85  nvidia-ampere
+# NVIDIA GeForce RTX 5060 Laptop GPU                 2.45  nvidia-blackwell
+# NVIDIA GeForce GTX 1650                            2.19  nvidia-turing
+# NVIDIA GeForce RTX 4070                            2.11  nvidia-ampere
+# NVIDIA GeForce RTX 3060 Ti                         2.08  nvidia-ampere
+# NVIDIA GeForce RTX 5080                            1.98  nvidia-blackwell
+# NVIDIA GeForce RTX 3070                            1.97  nvidia-ampere
+# NVIDIA GeForce RTX 5070 Ti                         1.87  nvidia-blackwell
+# NVIDIA GeForce RTX 4070 SUPER                      1.74  nvidia-ampere
+# NVIDIA GeForce RTX 3060 Laptop GPU                 1.66  nvidia-ampere
+# NVIDIA GeForce RTX 4050 Laptop GPU                 1.59  nvidia-ampere
+# NVIDIA GeForce RTX 2060                            1.53  nvidia-turing
+# Intel Iris Xe Graphics                             1.52  intel-gen12
+# AMD Radeon Graphics                                1.51  other
+# AMD Radeon RX 9070 XT                              1.42  amd-rdna4
+# NVIDIA GeForce GTX 1060                            1.34  nvidia-pascal
+# NVIDIA GeForce RTX 3080                            1.30  nvidia-ampere
+# NVIDIA GeForce GTX 1660 SUPER                      1.26  nvidia-turing
+# Intel(R) UHD Graphics                              1.06  other
+# NVIDIA GeForce GTX 1050 Ti                         1.03  nvidia-pascal
+# NVIDIA GeForce RTX 4070 Ti                         0.88  nvidia-ampere
+# NVIDIA GeForce RTX 3070 Ti                         0.88  nvidia-ampere
+# NVIDIA GeForce RTX 4070 Laptop GPU                 0.86  nvidia-ampere
+# AMD Radeon(TM) Graphics                            0.82  other
+# NVIDIA GeForce GTX 1660 Ti                         0.78  nvidia-turing
+# AMD Radeon RX 9060 XT                              0.77  amd-rdna4
+# AMD Radeon RX 6600                                 0.75  amd-rdna2
+# NVIDIA GeForce RTX 2060 SUPER                      0.71  nvidia-turing
+# NVIDIA GeForce RTX 4070 Ti SUPER                   0.71  nvidia-ampere
+# NVIDIA GeForce RTX 4090                            0.67  nvidia-ampere
+# NVIDIA GeForce RTX 3050 6GB Laptop GPU             0.64  nvidia-ampere
+# NVIDIA GeForce RTX 5070 Laptop GPU                 0.64  nvidia-blackwell
+# NVIDIA GeForce RTX 4080 SUPER                      0.63  nvidia-ampere
+# NVIDIA GeForce RTX 2070 SUPER                      0.62  nvidia-turing
+# NVIDIA GeForce RTX 4080                            0.62  nvidia-ampere
+# Intel UHD Graphics                                 0.61  other
+# AMD Radeon RX 7800 XT                              0.59  rdna3
+# NVIDIA GeForce RTX 3050 Ti Laptop GPU              0.56  nvidia-ampere
+# NVIDIA GeForce GTX 1070                            0.54  nvidia-pascal
+# AMD Radeon RX 580 2048SP                           0.51  amd-gcn5 (nearest)
+# NVIDIA GeForce RTX 3080 Ti                         0.50  nvidia-ampere
+# AMD Radeon RX 5700 XT                              0.49  amd-rdna2 (nearest)
+# AMD Radeon RX 6700 XT                              0.49  amd-rdna2
+# AMD Radeon RX 580                                  0.49  amd-gcn5 (nearest)
+# NVIDIA GeForce GTX 1050                            0.47  nvidia-pascal
+# Intel(R) Graphics                                  0.47  other
+# AMD Radeon RX 7600                                 0.46  rdna3
+# NVIDIA GeForce RTX 2050                            0.42  nvidia-turing
+# NVIDIA GeForce GTX 1660                            0.42  nvidia-turing
+# AMD Radeon (TM) Graphics                           0.42  other
+# NVIDIA GeForce RTX 5070 Ti Laptop GPU              0.41  nvidia-blackwell
+# NVIDIA GeForce RTX 2070                            0.41  nvidia-turing
+# NVIDIA GeForce RTX 5090                            0.40  nvidia-blackwell
+# AMD Radeon RX 7900 XTX                             0.40  rdna3
+# NVIDIA GeForce RTX 3070 Laptop GPU                 0.39  nvidia-ampere
+# NVIDIA GeForce RTX 5050 Laptop GPU                 0.39  nvidia-blackwell
+# Intel UHD Graphics 620                             0.38  intel-gen9
+# NVIDIA GeForce GTX 1080                            0.34  nvidia-pascal
+# NVIDIA GeForce RTX 3050 Laptop GPU                 0.33  nvidia-ampere
+# NVIDIA GeForce GTX 1650 Ti                         0.32  nvidia-turing
+# NVIDIA GeForce RTX 3090                            0.32  nvidia-ampere
+# AMD Radeon RX 570                                  0.31  amd-gcn5 (nearest)
+# AMD Radeon RX 7900 XT                              0.30  rdna3
+# NVIDIA GeForce GTX 1080 Ti                         0.27  nvidia-pascal
+# AMD Radeon 780M Graphics                           0.27  rdna3 (nearest)
+# AMD Radeon Vega 8 Graphics                         0.26  amd-gcn5
+# AMD Radeon RX 6600 XT                              0.25  amd-rdna2
+# Intel Arc Graphics                                 0.25  intel-gen12 (nearest)
+# NVIDIA GeForce GTX 1650 SUPER                      0.25  nvidia-turing
+# AMD Radeon RX 7700 XT                              0.24  rdna3
+# NVIDIA GeForce RTX 2080 SUPER                      0.24  nvidia-turing
+# NVIDIA GeForce RTX 5050                            0.23  nvidia-blackwell
+# AMD Radeon RX 6650 XT                              0.23  amd-rdna2
+# AMD Radeon RX 6750 XT                              0.23  amd-rdna2
+# Intel UHD Graphics 630                             0.23  intel-gen9
+# NVIDIA GeForce RTX 2080 Ti                         0.21  nvidia-turing
+# AMD Radeon RX 6800 XT                              0.21  amd-rdna2
+# NVIDIA GeForce RTX 3070 Ti Laptop GPU              0.20  nvidia-ampere
+# AMD Radeon RX 9070                                 0.20  amd-rdna4
+# NVIDIA GeForce RTX 2080                            0.20  nvidia-turing
+# AMD Radeon RX 550                                  0.18  amd-gcn5 (nearest)
+# NVIDIA GeForce GT 1030                             0.18  nvidia-pascal
+# NVIDIA GeForce GTX 1070 Ti                         0.18  nvidia-pascal
+# AMD Radeon RX 6500 XT                              0.17  amd-rdna2
+# NVIDIA GeForce RTX 4080 Laptop GPU                 0.17  nvidia-ampere
+# Intel HD Graphics 520                              0.17  intel-gen9
+# AMD Radeon Vega 3 Graphics                         0.16  amd-gcn5
+# Intel HD Graphics 620                              0.16  intel-gen9
+# NVIDIA GeForce GTX 970                             0.16  nvidia-maxwell
+# Other                                              8.33  other
