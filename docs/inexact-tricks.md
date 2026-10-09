@@ -27,10 +27,37 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
   `x * -1` at 0). sopt keeps such variants marked "differs at x = -0.0"; never picked by SOPT_AUTO.
 
 ### Magic-constant approximations (`0x5F3759DF` rsqrt, `0x7EF311C7` rcp, `0x1FBD1DF5` sqrt)
-- Integer subtracts / shifts on the bits give a rough first guess (a few percent off); they need
-  Newton steps to be usable and are never within sopt's budgets without `--loose`. The constants are
-  in the `--bits` pool so the search can combine them, but on every measured GPU the hardware
-  rcp / rsqrt / sqrt is cheaper than a guess plus one Newton step.
+- Integer subtracts / shifts on the bits give a rough first guess; Newton-Raphson (NR) steps refine it. Michal
+  Drobot's ShaderFastMathLib.h (github.com/michaldrobot/ShaderFastLibs, 2014, tuned for AMD GCN) packages them:
+  `fastRcpSqrtNR0(x) = asfloat(0x5F3759DF - (asint(x) >> 1))`, `fastSqrtNR0 = asfloat(0x1FBD1DF5 + (asint(x) >> 1))`,
+  `fastRcpNR0 = asfloat(0x7EF311C2 - asint(x))`, NR1 / NR2 add one / two steps (`g * (1.5 - 0.5x * g * g)`,
+  `g * (2 - x * g)`).
+- Max relative error (checked 2026-10-09, float32, x in [1e-6, 1e6]): rsqrt NR0 3.4%, NR1 0.18%, NR2 0.0005% (as the
+  library says); sqrt NR0 **4.5%** (the library says < 0.7%), rcp NR0 **5.1%** (says < 0.4%), rcp NR1 **0.26%** (says
+  < 0.02%), rcp NR2 0.0007%. The hardware rcp / rsqrt / sqrt are within ~1-2 ulp (~1e-7).
+- Cost (units, mad = 4): rsqrt NR0 = a shift + a subtract (bit casts are free) vs the hardware rsqrt: Turing ~5 vs 12,
+  Ampere / Ada ~8 vs 24, Blackwell ~7 vs 23, RDNA 2 ~6 vs 8, RDNA 3 / 4 ~14 vs 27, GCN ~4 vs 8.5, Intel Gen9 ~11 vs 12,
+  Gen12 ~8 vs 11, Gen7.5 ~13 vs 3.5 (Haswell's math unit is cheap, its integer ops half rate). rcp NR0 is one integer
+  subtract (Turing 0.6 vs 12). One NR step costs about four more fma (~16 units): NR1 is about even with the hardware
+  op on Ampere / Ada / Blackwell and slower everywhere else; NR2 is always slower.
+- **What's wrong:** a few percent off (NR0) is visible in 8-bit color (3.4% of 1.0 is ~9 steps); 0 gives a large
+  finite value instead of inf (rsqrt NR0(0) = 1.3e19, rcp NR0(0) = 1.6e38); negative inputs give garbage; denormals
+  are handled differently. No integer ops in D3D9 / SM3: ReShade's DX9 path cannot compile them (guard with
+  `__RENDERER__ >= 0xA000`).
+- **Safe when** a few percent (NR0) or 0.2% (NR1) does not matter for the result, e.g. a weight that is normalized
+  again later, an approximate falloff, or where the value only steers a choice; never for colors written as they are.
+  The constants are in sopt's `--bits` pool, and with `--loose` such forms are listed as "less accurate".
+
+### Polynomial acos / asin / atan (ShaderFastMathLib.h `acosFast4`, `asinFast4`, `atanFast4`)
+- `acosFast4`: Abramowitz & Stegun 4.4.45, `sqrt(1 - |x|) * (1.5707288 - 0.2121144|x| + 0.0742610x^2 - 0.0187293|x|^3)`,
+  mirrored for x < 0; max error 6.8e-5 rad (as stated). **fxc already writes `acos` / `asin` exactly this way** (the
+  same four coefficients, checked with Microsoft's fxc -O3, ps_5_0), in Horner form with two multiplies fewer than the
+  library's x2 / x3 form: no gain on DX10-12. On Vulkan / OpenGL ReShade emits GLSL.std.450 Acos and the driver decides;
+  whether the polynomial is faster there needs a measurement.
+- `atanFast4 = x * (1.0301 - 0.1784|x| - 0.0663x^2)`: max error **1.5e-3 rad** on [-1, 1] (the library says 7e-5, 20x
+  less), and **only valid for |x| <= 1** (atan4(2) = 0.82 vs 1.11, atan4(10) = -73.8). fxc's `atan` covers the whole
+  range (range reduction with a divide, a 4-term polynomial, ~1e-5 rad) at ~13 instructions.
+- **Safe when** (atan) the argument is known to be in [-1, 1] and 1.5e-3 rad is fine.
 
 ### The `* 1e38` saturate forms (sign, and the floor / ceil / frac forms below)
 - `sign(x) -> mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0)` (mad_sat + mad, 2 instructions; found
