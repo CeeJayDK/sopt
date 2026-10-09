@@ -23,6 +23,8 @@ NEAREST = [
     (r"RX (4[6-9]\d|5[5-9]\d)\b|R9 |R7 |RX 640", "amd-gcn5"),
     (r"GTX (6[5-9]\d|7[5-9]\d|TITAN)\b|GT 7\d\d", "nvidia-maxwell"),
     (r"\bArc\b", "intel-gen12"),
+    (r"Radeon [78][4-9]0M", "rdna3"),
+    (r"Radeon 6[0-9]0M", "amd-rdna2"),
 ]
 
 
@@ -54,14 +56,16 @@ def parse(text):
     cards = []
     for row in re.finditer(r'class="substats_col_left"[^>]*>(.*?)</div>(.*?)(?=class="substats_col_left"|$)', block, re.S):
         name = html.unescape(re.sub(r"<[^>]+>", "", row.group(1))).strip()
-        pcts = re.findall(r"(-?\d+(?:\.\d+)?)%", row.group(2))
-        last = re.search(r'substats_col_month_last_pct[^>]*>\s*(-?\d+(?:\.\d+)?)%', row.group(2))
-        if not name or not pcts:
+        # The month columns, then the latest month and its change (signed): the share is the next to last value.
+        pcts = re.findall(r"([-+]?\d+(?:\.\d+)?)%", re.sub(r"<[^>]+>", " ", row.group(2)))
+        if not name or len(pcts) < 2:
             continue
-        pct = float(last.group(1)) if last else float(pcts[-1])
+        pct = float(pcts[-2])
         cards.append((name, pct))
     if not cards:
         raise SystemExit("no card rows found (page layout changed?)")
+    if any(p < 0 for _, p in cards):
+        raise SystemExit("negative shares: the columns were misread (page layout changed?)")
     return month, cards
 
 
