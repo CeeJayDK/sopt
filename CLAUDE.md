@@ -60,7 +60,9 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
    overwrite: -2, -3 ...), a short note per GPU in docs/notes/history.md (family match, drift, consensus, new / odd;
    TexBench time and scores), gen_expected.py if OpBench reports came in, commit, push.
 5. Only after the push delete every file in the folder. 6. Tell the owner per GPU what came in (uploader name in chat).
-- Wish (owner): do this in a GitHub Action instead (no tokens). Needs a Dropbox app token as a repo secret; not set up.
+- Action (owner's wish, no tokens): .github/workflows/report-intake.yml + tools/site/report_intake.py (every 6 h on main,
+  commits reports + docs/notes/intake-log.md, regenerates expected.hpp, then deletes the uploads). Needs the repo secrets
+  DROPBOX_APP_KEY / DROPBOX_APP_SECRET / DROPBOX_REFRESH_TOKEN and a Full Dropbox app; runs once it is on main.
 
 ## Layout
 - `src/ir`: ops (`ops.cpp`: op table, exactness, cost models, `CostModel::opCost` / `divCost` / `binaryCost`, HalfCosts),
