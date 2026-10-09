@@ -6,10 +6,12 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <mutex>
 #include <set>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -256,6 +258,7 @@ int main(int argc, char** argv) {
 #endif
   if (const char* v = std::getenv("SOPT_WINE")) backCfg.wine = v;
   bool noAmdFolds = false;
+  size_t libraryHash = 0;  // --library-file contents
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     auto next = [&]() -> const char* {
@@ -311,6 +314,12 @@ int main(int argc, char** argv) {
     else if (a == "--library-file") {
       static Library lib;  // alive for the whole run
       const char* f = next();
+      {
+        std::ifstream in(f, std::ios::binary);
+        std::ostringstream text;
+        text << in.rdbuf();
+        libraryHash = std::hash<std::string>{}(text.str());  // part of the cache key
+      }
       try {
         lib = loadLibrary(f);
       } catch (const std::exception& e) {
@@ -372,6 +381,18 @@ int main(int argc, char** argv) {
   if (inputs.empty()) {
     usage();
     return 2;
+  }
+  // Variants are written as <outDir>/<source file name>: an input or include folder as outDir would overwrite originals.
+  {
+    std::vector<fs::path> srcDirs = load.includePaths;
+    for (const auto& p : inputs) srcDirs.push_back(fs::absolute(p).parent_path());
+    for (const auto& d : srcDirs) {
+      std::error_code ec;
+      if (fs::equivalent(outDir, d, ec)) {
+        std::fprintf(stderr, "-o %s is a source folder: its files would be overwritten\n", outDir.string().c_str());
+        return 2;
+      }
+    }
   }
   const auto t0 = std::chrono::steady_clock::now();
 
@@ -717,13 +738,17 @@ int main(int argc, char** argv) {
   std::string optionsKey;
   {
     char buf[512];
-    std::snprintf(buf, sizeof(buf), "%s %s t%g b%d l%g x%d a%d L%d s%d c%d td%d tp%d bb%d sl%d sc%d pf%d n%u seed%u ap%d",
+    std::snprintf(buf, sizeof(buf),
+                  "%s %s t%g b%d l%g x%d a%d L%d s%d c%d td%d tp%d bb%d sl%d sc%d pf%d n%u seed%u ap%d "
+                  "lf%zx mb%llu of%d q%u ct%g st%g sm%u sh%d",
                   SOPT_VERSION, opt.search.model ? std::string(opt.search.model->name).c_str() : "?",
                   opt.search.timeLimitSec, opt.search.bits ? 1 : 0, opt.loose, opt.exactRule ? 1 : 0,
                   opt.accuracyVariants ? 1 : 0, opt.library ? 1 : 0, opt.subtrees ? 1 : 0, opt.cuts ? 1 : 0,
                   opt.search.topDown ? 1 : 0, opt.search.twoPhase ? 1 : 0, opt.search.bestBound ? 1 : 0, opt.search.slack,
                   opt.schedule ? 1 : 0, opt.perfFirst ? 1 : 0, opt.numTests, static_cast<unsigned>(opt.seed),
-                  allPlatforms ? 1 : 0);
+                  allPlatforms ? 1 : 0, libraryHash, static_cast<unsigned long long>(opt.search.maxBank),
+                  opt.search.overflow ? 1 : 0, static_cast<unsigned>(opt.search.quantBits), opt.cutTime, opt.subtreeTime,
+                  static_cast<unsigned>(opt.subtreeMaxCost), opt.search.sharedLeaves ? 1 : 0);
     optionsKey = buf;
   }
   struct CacheEntry {

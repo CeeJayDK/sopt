@@ -3,6 +3,12 @@
 What is new in each release, newest first. The release workflow copies the section of the version it
 builds (`## <version>` up to the next `## `) into the release notes, so add to the top section as things land.
 
+## 0.7.1
+
+### SweetOpt
+- **Safer output folder:** `-o` pointing at a folder your shaders (or include headers) are in is refused, so the originals can never be overwritten.
+- **Cache:** a rerun with another `--library-file` (or the file changed), `--max-bank`, `--no-overflow`, `--quant-oe`, `--cut-time`, `--subtree-time`, `--subtree-max-cost` or `--no-shared-leaves` searches again instead of only re-checking the old results.
+
 ## 0.7.0
 
 ### SweetOpt

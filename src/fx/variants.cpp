@@ -204,6 +204,10 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       continue;
     }
     names[name] = file;
+    if (fs::equivalent(outDir / name, pathFrom(file), ec)) {
+      errors += "not overwriting the source " + file + " (output folder is its folder)\n";
+      continue;
+    }
     // Regions (single statements and windows) may share lines: keep the largest gains.
     std::sort(regs.begin(), regs.end(), [](const RegionResult* a, const RegionResult* b) {
       const int ga = int(a->targetCost) - int(a->variants[0].cost), gb = int(b->targetCost) - int(b->variants[0].cost);

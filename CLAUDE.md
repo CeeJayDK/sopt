@@ -124,11 +124,8 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
   reciprocals.
 
 ## Open items (details: docs/notes/history.md)
-1. Ponytail code review done 2026-10-09 (intake hardening merged, release.yml now runs the tests). Still open, ask first:
-   a) sopt-fx -o equal to an input folder overwrites the originals, same-named inputs overwrite each other
-   (variants.cpp writeVariants, fx_main.cpp effect copy): refuse with fs::equivalent / duplicate names;
-   b) sopt-cache.txt key (fx_main.cpp optionsKey) misses the library file text and --max-bank / --no-overflow /
-   --quant-oe / --cut-time / --subtree-time: such reruns only re-verify; c) ~40 search options parsed three times
+1. Ponytail code review done 2026-10-09 (intake hardening merged, release.yml now runs the tests). Still open, ask first
+   (a: -o on a source folder refused, b: cache key complete, both done 2026-10-09): c) ~40 search options parsed three times
    (main.cpp, fx_main.cpp, bench.cpp): one shared parser, bench before / after; d) a pytest for report_intake.py /
    gen_expected.py in ci.yml.
 2. fp16 variants (owner's go): step 1 done (OpBench max16 / log2_16 / mad16v3 / mix16, HalfCosts). Next: step 2 fp16
