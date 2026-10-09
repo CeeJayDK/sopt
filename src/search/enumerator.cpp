@@ -1280,6 +1280,8 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
     obj += w;
   else if (model.fusedAdd && (op == Op::Add || op == Op::Sub) && (fuses(0) || fuses(1)))
     obj += w * model.fusedAdd;
+  else if (op == Op::Div)  // a compile-time divisor's reciprocal folds (divCosts)
+    obj += ea[1].isConst || ea[1].ctime ? model.opCost(Op::Mul, w) : model.binaryCost(op, w, width(ea[1].type));
   else
     obj += model.opCost(op, w);
   if (obj >= objLimit_) return Prep::ObjPruned;
@@ -1609,7 +1611,8 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
       for (Type T : floatTypes()) {
         if (stop_) break;
         const unsigned w = width(T);
-        const uint32_t opc = ord.opCost(op, w);
+        // A division by a broadcast scalar is cheaper (one reciprocal): its signature is checked below.
+        const uint32_t opc = ord.binaryCost(op, w, oi.arity == 2 ? 1 : w);
         if (opc > cost) continue;
         const uint32_t r = cost - opc;
         if (oi.shape == Shape::Select) {  // Bool condition, branches float1 or T
@@ -1652,7 +1655,8 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
               if (fc <= cost) enumerateBinary(op, c16, cost - fc, 1, ta, tb, stats);
               enumerateBinary(op, c16, r, 0, ta, tb, stats);
             } else {
-              enumerateBinary(op, c16, r, -1, ta, tb, stats);
+              const uint32_t sc = ord.binaryCost(op, w, width(tb));
+              if (sc <= cost) enumerateBinary(op, c16, cost - sc, -1, ta, tb, stats);
             }
           }
         } else {
@@ -1789,8 +1793,9 @@ void Enumerator::topDownPass(uint32_t cost, SearchStats& stats) {
         }
         if (!accepts(tdP1_, r1) && std::fabs(double(r1) - t1) > 4.0 * monoTol_[tdP1_]) continue;
         const bool swap = k == kSubR || k == kDivR;
-        const Item item{op, static_cast<uint16_t>(entry(a).cost + entry(b).cost + ord.opCost(op, w)), swap ? b : a,
-                        swap ? a : b, 0, 0};
+        const uint32_t den = swap ? a : b;
+        const Item item{op, static_cast<uint16_t>(entry(a).cost + entry(b).cost + ord.binaryCost(op, w, width(entry(den).type))),
+                        swap ? b : a, den, 0, 0};
         Entry e;
         // Top-down hits must be strictly cheaper than the best so far: it finds many
         // equivalent programs at the bound, and those only fill the hit list.
@@ -1900,6 +1905,7 @@ void Enumerator::enumerateBinary(Op op, uint16_t level, uint32_t r, int fuse, Ty
   const unsigned w = width(rt);
   uint32_t minOp = objective.opCost(op, w);
   if (objective.fusedAdd && (op == Op::Add || op == Op::Sub)) minOp = w * objective.fusedAdd;
+  if (op == Op::Div) minOp = objective.opCost(Op::Mul, w);  // a compile-time divisor (prepare)
   const bool sym = oi.commutative && ta == tb;
   auto fusable = [&](uint32_t x) { return model.fusesIntoAdd(entry(x).op) && entry(x).type == rt; };
   for (uint32_t c1 = 0; c1 <= r && !stop_; ++c1) {

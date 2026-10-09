@@ -145,6 +145,21 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
 - **What's wrong:** for tiny negative a, `frac(a)` rounds to 1.0 (`frac(-1e-20) = 1.0` in float)
   and `frac(1.0)` is 0. Exact for a >= 0 (the library rule now says so).
 
+### Squared distance: `length(v) < r` -> `dot(v, v) < r * r` (Pythagoras; GPT research list, 2026-10-09)
+- Saves the square root (a quarter-rate transcendental on most cards: rdna3 27 of the 47 that
+  `sqrt(x * x + y * y) < r ? 1 : 0` costs), for one extra multiply (`r * r`, free when r is a constant). The same for `distance(a, b) < r`, `<=`, `>`, `>=`.
+- **What's wrong:** `r * r` is rounded and `sqrt` is rounded, so the two tests can disagree when
+  the length is within about one float step of r. Sampled with half the points placed within 2 steps
+  of the threshold: 2.4% of those differ, none elsewhere. On real pixel grids it does not show: 0 of
+  6 x 3840 x 2160 pixels differ (aspect-corrected distance to the centre, r = 0.1 .. 0.9). GPU `sqrt`
+  is not correctly rounded either, so the original's own boundary pixels already depend on the card.
+- **Safe when** r >= 0 and nothing depends on the exact pixels on the circle's edge (masks,
+  vignettes, radius tests). Needs r >= 0: with a negative r the original is always false, the
+  squared form compares against a positive number.
+- Why sopt does not suggest it: with an exact budget (a comparison or a 0 / 1 select) every
+  disagreement fails, and the corpus has only 17 such comparisons in 441 effects, almost all inside
+  `if` conditions, which sopt-fx does not read as regions.
+
 ## Not exact: avoid unless the error does not matter
 
 ### Clamp by scaling: `mad(saturate(mad(x, 1/(b - a), -a/(b - a))), b - a, a)`

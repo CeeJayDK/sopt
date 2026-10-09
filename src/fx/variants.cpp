@@ -58,6 +58,7 @@ uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<Input
   const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
   const auto ct = compileTimeNodes(e, inputs);
   const auto folded = amdFoldedNodes(e, uses, m);
+  const auto div = divCosts(e, m, ct);
   auto isArith = [&](uint32_t i) {
     const Op op = e.nodes[i].op;
     return op != Op::Input && op != Op::Const && op != Op::Swizzle && op != Op::Construct;
@@ -86,7 +87,7 @@ uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<Input
                      (n.op == Op::Clamp && isConst(n.args[1], 0.0f) && isConst(n.args[2], 1.0f));
     if (sat && isArith(n.args[0])) continue;
     const bool reduce = info(n.op).shape == Shape::Reduce;
-    cost += m.opCost(sat ? Op::Saturate : n.op, width(reduce ? e.nodes[n.args[0]].type : n.type));
+    cost += n.op == Op::Div ? div[i] : m.opCost(sat ? Op::Saturate : n.op, width(reduce ? e.nodes[n.args[0]].type : n.type));
   }
   return cost;
 }

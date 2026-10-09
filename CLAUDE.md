@@ -1712,6 +1712,30 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   it; wordpress.com does not resolve here): error table verified, fxc counts (acos 11 vs degree 1 8; atan 18 vs odd degree
   5 alternate 9; atan2 24 vs first-quadrant 8), his GCN v_mov-per-constant note = OpBench fma1 2.1 vs mad 4 on GCN;
   docs/inexact-tricks.md; OpBench acos1 / atan5a / atan2q (owner's go). Test build 0.6.9.
+- GPT research list (owner, 2026-10-09: "verify, do not take it as gospel"; 57 items, most already in sopt or CPU-only).
+  (1) Divisions (done, owner's go): AMD (RGA) and NVIDIA (ptxas) compile c.rgb / y like c.rgb * rcp(y) (one rcp, amd 8 /
+  nv 11 both), share one rcp across a / y + b / y and turn x / 3.0 into a multiply (no MUFU), but the static model charged
+  full divisions (rdna3 c / y 81 vs 39). Now `divCosts` (expr.cpp; dagCost, nodeCosts, compiledCost): a / b = rcp share
+  (CostModel::rcpPart(wb) = Div(wb) - Mul(wb)) once per distinct non-compile-time divisor, shared with rcp(b) itself, plus
+  Mul(w); a lone same-width division costs Div(w) as before; enumerator: CostModel::binaryCost for (floatN, float1)
+  divisions, a compile-time divisor costs Mul(w) (minOp lowered to Mul for the bound). Bench (time 30, examples + 12
+  planted): identical bests and first hits. SweetFX + DisplayDepth (time 3, before / after): 46 -> 45 regions with variants (DPX
+  50 RGB_Curve / 2.0 -> * 0.5 was a fake gain), "saved" 2450 -> 1546 became an honest 1845 -> 1309 on rdna3. (3) length(v) < r -> dot(v, v) < r * r: differs only within ~1 float step of the
+  threshold (0 of 6 full 4K screens), docs/inexact-tricks.md; not a library rule (exact budgets reject it; 17 corpus uses,
+  nearly all in if conditions). (4) E-graph (equality saturation) not needed: the library pre-pass never reached its 256-form
+  cap on SweetFX (665 searches, 0.47 forms each). (5) STOKE-style stochastic search: owner's go to try later, behind a flag,
+  bench decides. (6) uniform zero guard (if (Strength != 0) around work a uniform scales; for performance mode off): asked.
+  Not applicable: wave intrinsics, warp-aggregated atomics, threadgroup / wave size tuning: ReShade FX has none of them
+  (owner, 2026-10-09: ReShade only adds features once they have wide real-world support; SM6 wave ops are still new).
+  z3 (SMT solver) not installed; integer code is rare in the corpus.
+  (2) fp16 / min16float (owner's go for a plan; "the cost models must tell where fp16 math is actually a win"): ReShade 6.8
+  writes min16float as min16float on D3D10-12 (SM >= 4), plain float on D3D9, "mediump float" on OpenGL (desktop GL ignores
+  precision qualifiers; real half types need GL_AMD_gpu_shader_half_float / GL_NV_gpu_shader5, which ReShade's GLSL codegen
+  supports but runtime.cpp turns off: enable_16bit_types = false for GL and Vulkan) and float + RelaxedPrecision on Vulkan
+  (RGA gfx1100: identical ISA to float). OpBench (D3D11) family medians, fp16 vs fp32: mad16 -2.9 GCN 5, -2.5 RDNA 2, -1.8
+  Gen9 / Gen12 (packed, ~2x); 0 on Maxwell / Pascal / Turing / Ampere / Blackwell / Gen7.5, -0.4 RDNA 4, +0.2 RDNA 3; rcp16
+  never cheaper (RDNA 2 10.2 vs 7.8, Turing 16 vs 12); f16round (conversion) GCN 5 3.2, Gen9 16.6, Pascal / Maxwell 23.9.
+  Only Barbatos uses min16float in the corpus.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

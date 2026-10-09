@@ -104,6 +104,26 @@ TEST(cost_amd_folds) {
   CHECK(cost("min(max(a, b), c)", costAmdTerascale2()) == 8u);  // no folds
 }
 
+// Divisions as the compilers lower them (divCosts; RGA and ptxas): one reciprocal per distinct divisor.
+TEST(cost_shared_reciprocal) {
+  const CostModel& m = costRdna3();
+  std::vector<InputDecl> in = abcx();
+  in.push_back({"v", 0, 1, 0, Type::Float3});
+  in.push_back({"F", 1, 100, 0, Type::Float, true, 10.0});
+  auto cost = [&](const char* s) { return dagCost(parseExpr(s, in), m, in); };
+  const uint32_t div = m[Op::Div], mul = m[Op::Mul];
+  CHECK(cost("a / b") == div);                              // a lone division: unchanged
+  CHECK(cost("v / a") == div - mul + 3 * mul);              // float3 / float1: one rcp, three muls
+  CHECK(cost("v / v") == m.opCost(Op::Div, 3));             // float3 / float3: three rcps
+  CHECK(cost("a / x + b / x") == div + mul + m.fusedAdd);   // the second division reuses rcp(x)
+  CHECK(cost("rcp(x) + a / x") == m[Op::Rcp] + mul + m.fusedAdd);  // ... and so does rcp(x)
+  CHECK(cost("a / 3.0") == mul);                            // compile-time divisor: a multiply
+  CHECK(cost("a / F") == mul);
+  CHECK(dagCost(parseExpr("a / 3.0", in), m) == mul);
+  CHECK(m.binaryCost(Op::Div, 3, 1) == div - mul + 3 * mul);
+  CHECK(m.binaryCost(Op::Div, 3, 3) == m.opCost(Op::Div, 3));
+}
+
 TEST(cost_contraction) {
   const CostModel& m = costRdna3();
   // Single-use mul (or div) under add/sub is one fma.

@@ -299,9 +299,26 @@ std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& use
   return folded;
 }
 
+std::vector<uint32_t> divCosts(const Expr& e, const CostModel& m, const std::vector<bool>& ct) {
+  std::vector<uint32_t> cost(e.nodes.size(), 0);
+  std::vector<bool> paid(e.nodes.size(), false);  // the divisor's reciprocal is counted already
+  for (const Node& n : e.nodes)
+    if (n.op == Op::Rcp) paid[n.args[0]] = true;
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op != Op::Div) continue;
+    const uint32_t b = n.args[1];
+    cost[i] = m.opCost(Op::Mul, width(n.type));
+    if (!ct[b] && !paid[b]) cost[i] += m.rcpPart(width(e.nodes[b].type));
+    paid[b] = true;
+  }
+  return cost;
+}
+
 uint32_t dagCost(const Expr& e, const CostModel& m) {
   const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
   const auto folded = amdFoldedNodes(e, uses, m);
+  const auto div = divCosts(e, m, compileTimeNodes(e, {}));
   uint32_t cost = 0;
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     const Node& n = e.nodes[i];
@@ -309,7 +326,8 @@ uint32_t dagCost(const Expr& e, const CostModel& m) {
     const unsigned w = width(reduce ? e.nodes[n.args[0]].type : n.type);
     cost += folded[i] ? w
             : (m.fusedAdd && fusedArg(e, i, uses, m.divIsMul) >= 0) ? w * m.fusedAdd
-                                                                     : m.opCost(n.op, w);
+            : n.op == Op::Div ? div[i]
+                              : m.opCost(n.op, w);
   }
   return cost;
 }
@@ -335,6 +353,7 @@ std::vector<uint32_t> nodeCosts(const Expr& e, const CostModel& m, const std::ve
   const auto ct = compileTimeNodes(e, inputs);
   const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
   const auto folded = amdFoldedNodes(e, uses, m);
+  const auto div = divCosts(e, m, ct);
   std::vector<uint32_t> cost(e.nodes.size(), 0);
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     if (ct[i]) continue;
@@ -344,7 +363,10 @@ std::vector<uint32_t> nodeCosts(const Expr& e, const CostModel& m, const std::ve
     const int f = m.fusedAdd ? fusedArg(e, i, uses, m.divIsMul) : -1;
     bool fold = folded[i];
     for (unsigned k = 0; fold && k < operandCount(n); ++k) fold = !ct[n.args[k]] || e.nodes[n.args[k]].op == Op::Const;
-    cost[i] = fold ? w : (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd : m.opCost(n.op, w);
+    cost[i] = fold                         ? w
+              : (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd
+              : n.op == Op::Div            ? div[i]
+                                           : m.opCost(n.op, w);
   }
   return cost;
 }

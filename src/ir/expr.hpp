@@ -115,6 +115,10 @@ uint32_t dagCost(const Expr& e, const CostModel& model = defaultCostModel());
 // The same with compile-time inputs (InputDecl::folds): nodes computed only from
 // constants and compile-time inputs are folded by the compiler and cost nothing.
 uint32_t dagCost(const Expr& e, const CostModel& model, const std::vector<InputDecl>& inputs);
+// Divisions as the compilers lower them (RGA and ptxas, 2026-10-09): a / b = a * rcp(b) with one
+// reciprocal per distinct divisor b, shared by every division by b and by rcp(b) itself, and none for a
+// compile-time b (ct, from compileTimeNodes: x / 3.0 is x * 0.33333334). Per Div node its cost, 0 elsewhere.
+std::vector<uint32_t> divCosts(const Expr& e, const CostModel& model, const std::vector<bool>& ct);
 // That cost per node (dagCost(e, model, inputs) is the sum).
 std::vector<uint32_t> nodeCosts(const Expr& e, const CostModel& model, const std::vector<InputDecl>& inputs);
 // Per node: computed only from constants and compile-time inputs (InputDecl::folds).

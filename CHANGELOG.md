@@ -31,6 +31,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 - **More blends to the blend stage:** also shaders that write their color through an `out` parameter, or set `color.rgb = ...` and then `return color;`. A rewrite that saves a texture read counts as a gain even at the same instruction count.
 - **No more look-alike variants:** a variant that prints exactly like the original (`a - 0.5` and `a + -0.5` cost differently in the measured RDNA 3 model but are the same code) is no longer written.
 - **`--backends` works out of the box:** `sopt-fxc.exe` (Microsoft's shader compiler, for the DXBC counts) now comes with SweetOpt and `sopt-fx` finds it next to itself.
+- **Divisions costed as the compilers do them:** `color.rgb / x` takes one reciprocal and three multiplies, several divisions by the same value share one reciprocal, and a division by a constant is a multiply (checked in AMD's and NVIDIA's compiler output). The cost model charged full divisions before, so originals with such divisions looked more expensive than they are.
 
 ### Test Host (was the bench tools zip)
 - **One test host for every API:** `Test-Host.bat` (a menu) runs ReShade on Direct3D 9, 10, 11 and 12, Vulkan and OpenGL without a game: a window with a fixed test image and a depth buffer like a game's.

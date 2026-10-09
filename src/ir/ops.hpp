@@ -106,6 +106,20 @@ struct CostModel {
   // cost w times the scalar op; dot = mul + (w-1) fma; swizzle/construct are register
   // moves (cost 1, like a modifier, to keep levels well-founded).
   uint32_t opCost(Op op, unsigned w) const;
+  // A division as the compilers lower it, a * rcp(b) (RGA and ptxas, 2026-10-09): floatN / float1
+  // takes one reciprocal of the divisor and N multiplies. wb = the divisor's width; equals opCost(Div, w)
+  // when wb == w.
+  uint32_t divCost(unsigned w, unsigned wb) const { return rcpPart(wb) + opCost(Op::Mul, w); }
+  // The reciprocal's share of a division by a floatN divisor: what a second division by the same
+  // divisor, which reuses it, does not pay again.
+  uint32_t rcpPart(unsigned wb) const {
+    const uint32_t d = opCost(Op::Div, wb), m = opCost(Op::Mul, wb);
+    return d > m ? d - m : 0;
+  }
+  // opCost of a binary node from its operand widths (only a division by a broadcast scalar differs).
+  uint32_t binaryCost(Op op, unsigned w, unsigned wb) const {
+    return op == Op::Div && wb < w ? divCost(w, wb) : opCost(op, w);
+  }
   bool fusesIntoAdd(Op operand) const {
     return fusedAdd && (operand == Op::Mul || (divIsMul && operand == Op::Div));
   }
