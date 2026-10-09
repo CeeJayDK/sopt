@@ -59,19 +59,27 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
   range (range reduction with a divide, a 4-term polynomial, ~1e-5 rad) at ~13 instructions.
 - **Safe when** (atan) the argument is known to be in [-1, 1] and 1.5e-3 rad is fine.
 
-### Lower-order acos / atan (Sébastien Lagarde, "Inverse trigonometric functions GPU optimization for AMD GCN", 2014)
-- `acosFast(x) = sqrt(1 - |x|) * (1.5707963 - 0.156583|x|)`, mirrored for x < 0 (and asin = pi/2 - acos): max error
-  **9.0e-3 rad (0.52 degrees)**, as the article says (checked 2026-10-09, float32). fxc's own `acos` is the degree-3
-  form (6.8e-5 rad, the ShaderFastMathLib entry above). DXBC (fxc -O3, ps_5_0): 8 instructions vs 11, both with the
-  sqrt, so about 3 full-rate instructions less (~12 units; on Ampere / Ada ~52 vs ~64 units with the sqrt).
-- `atanFast(x)`: `t = |x| < 1 ? |x| : 1 / |x|`, `p = t * (1 - 0.301895t^2 + 0.0872929t^4)`, `|x| < 1 ? p : pi/2 - p`,
-  sign restored: max error **1.35e-3 rad** over the whole range (the article: 1.3e-3), unlike ShaderFastMathLib's
-  atanFast4 it covers |x| > 1. fxc's `atan`: 1.2e-5 rad. DXBC: 12 vs 18 instructions, both with one rcp / divide.
-- **What's wrong:** 130x (acos) and 110x (atan) the error of fxc's versions; 0.5 degrees is visible where an angle is
-  shown or accumulated (polar effects, rotations, hue angles), hidden where it only shapes a smooth falloff (the
-  article's use: lighting terms on GCN, where the quarter-rate sqrt / rcp dominated anyway).
-- **Safe when** the angle error does not reach the output, e.g. a falloff or weight evaluated to 8 bits. Like every
-  entry here they are not within sopt's budgets; the planned `--poly` mode would offer such forms with their error.
+### Lower-order acos / asin / atan (Sébastien Lagarde, "Inverse trigonometric functions GPU optimization for AMD GCN", 2014)
+- Minimax polynomials with range reduction: `acos(x) = sqrt(1 - |x|) * p(|x|)`, mirrored for x < 0 (`pi - r`), asin =
+  pi/2 - acos; atan on [0, 1] then `pi/2 - atan(1/x)`, or the cheaper "alternate" form `pi/4 + x' * p(x'^2)` with
+  `x' = (|x| - 1) / (|x| + 1)` (one rcp, no select for the reduction), sign restored at the end. The article's error
+  table checks out (float32, 2026-10-09): acos degree 1 6.1e-3 rad (Eberly's coefficients, exact at 0 and 1: 9.0e-3),
+  degree 2 6.2e-4, degree 3 6.9e-5; atan odd degree 3 (alternate) 1.0e-2 (Eberly 1.6e-2), odd degree 5 (alternate)
+  1.2e-3 (Eberly 1.35e-3). fxc: acos 6.8e-5, atan 1.2e-5.
+- DXBC (fxc -O3, ps_5_0): acos 11 (fxc's own = the Cg reference = degree 3, the article's "Cg" row) vs degree 1 8,
+  degree 2 9; atan 18 vs odd degree 5 alternate 9 (7 for x >= 0), odd degree 3 alternate 8; atan2 24 vs the article's
+  first-quadrant atan2 (`pi/4 + p((y - x) / (y + x))`, x, y > 0 only) 8. The article's "48 FR" built-in acos is the
+  PS4 compiler's (a dynamic branch per sign); on D3D the built-in already is the 19 FR Cg form.
+- Its GCN cost notes match OpBench: a mad with two literal constants needs an extra v_mov on GCN (fma1 2.1 vs mad 4
+  units on Vega / Polaris), so every extra polynomial degree costs 2 instructions there; on RDNA 2 the second constant
+  still costs (3 vs 4), on NVIDIA / Intel not (4 vs 4). It also found ShaderFastMathLib's atanFast4 comment wrong (7
+  instructions, not 12, and a larger error), as we did.
+- **What's wrong:** 1e-2 to 1e-3 rad instead of ~1e-5; the article shows that the error's *distribution* matters, not
+  only its maximum: an atan fit minimizing absolute error banded where the argument was near 0.1 (the area light's
+  small-light case), while Eberly's relative-error fit of lower degree looked right. sopt's relative budgets measure that
+  kind of error; none of these forms is within them (planned `--poly` mode would list them with their error).
+- **Safe when** the result only shapes a smooth term evaluated to 8 bits and you have checked it visually on the real
+  input range; drop the range-reduction steps you do not need (inputs known >= 0, or in [0, 1]).
 
 ### Bit Twiddling Hacks on GPUs (graphics.stanford.edu/~seander/bithacks.html, checked 2026-10-09)
 - **Use the hardware instead:** counting bits, parity (`countbits(x) & 1`), reversing bits, integer log2 and
