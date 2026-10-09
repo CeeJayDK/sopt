@@ -23,6 +23,13 @@ jobs:
       - name: Test
         # includes the golden-hash test: exact ops must match bit for bit across compilers
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Test report tools
+        # report intake parsing, and expected.hpp must be what gen_expected.py makes from docs/opbench
+        if: matrix.name == 'gcc'
+        run: |
+          python3 tools/site/test_report_intake.py
+          python3 tools/windows/gen_expected.py > /dev/null
+          git diff --exit-code tools/windows/expected.hpp
       - name: Build 32-bit add-on
         # sopt-timer.addon32 for 32-bit games (ReShade loads .addon32 there)
         if: matrix.name == 'msvc'
