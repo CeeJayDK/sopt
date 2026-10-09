@@ -47,7 +47,8 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
   publishes (this session cannot push tags). Run the steam-survey workflow on main before each release.
 - pages.yml builds the site (tools/site/build.py) from docs/opbench / texbench; optimize-pngs.yml compresses report PNGs.
 - After adding OpBench reports: rerun `tools/windows/gen_expected.py` (writes tools/windows/expected.hpp).
-- 0.7.0 released 2026-10-09. Next: ponytail code review (open item 1), then fp16 step 2.
+- 0.7.0 released 2026-10-09. Next: the open review items (open item 1), then fp16 step 2.
+- Bot pushes (report-intake, steam-survey, optimize-pngs) start no CI run; release.yml runs the tests itself.
 
 ## GPU Blueprint report intake (only when the owner says "check Dropbox")
 The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 2026-10-09: tokens). Procedure:
@@ -123,8 +124,13 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
   reciprocals.
 
 ## Open items (details: docs/notes/history.md)
-1. Next session: code review / cleanup with the ponytail plugin (owner, after 0.7.0). Bench before / after; no behavior changes
-   without asking.
+1. Ponytail code review done 2026-10-09 (intake hardening merged, release.yml now runs the tests). Still open, ask first:
+   a) sopt-fx -o equal to an input folder overwrites the originals, same-named inputs overwrite each other
+   (variants.cpp writeVariants, fx_main.cpp effect copy): refuse with fs::equivalent / duplicate names;
+   b) sopt-cache.txt key (fx_main.cpp optionsKey) misses the library file text and --max-bank / --no-overflow /
+   --quant-oe / --cut-time / --subtree-time: such reruns only re-verify; c) ~40 search options parsed three times
+   (main.cpp, fx_main.cpp, bench.cpp): one shared parser, bench before / after; d) a pytest for report_intake.py /
+   gen_expected.py in ci.yml.
 2. fp16 variants (owner's go): step 1 done (OpBench max16 / log2_16 / mad16v3 / mix16, HalfCosts). Next: step 2 fp16
    evaluator (half / float / mixed profiles), 3 half variants with conversions at region edges in the GPU-family table,
    4 output only for D3D10-12, 5 corpus A/B + sopt-timer test on the owner's NUC (Gen9 should gain, GTX 1660 control).
