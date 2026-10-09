@@ -216,6 +216,20 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     }
   }
 
+  // The previous run's candidates (Options::previous): verified again; the cheapest that passes stage 2 lowers the
+  // bound the search starts with.
+  std::vector<Candidate> prevCands;
+  for (const Expr& e : opt.previous) {
+    const uint32_t c = dagCost(e, *opt.search.model, prog.inputs);
+    if (c < res.targetCost && compare(prog, e, stage2, kProfileRef, 1, &stage2Target, s2x, s2s).pass &&
+        (res.previousBest == 0 || c < res.previousBest)) {
+      res.previousBest = c;
+      if (cfg.seedBound == 0 || c < cfg.seedBound) cfg.seedBound = c;
+      cfg.seeds.push_back(e);
+    }
+    prevCands.push_back({e, c});
+  }
+
   // Scheduling (Options::schedule): reshaped forms of the target and of the library seed.
   std::vector<Candidate> shapeCands;
   if (opt.schedule && hasScheduleInputs(prog.inputs)) {
@@ -230,14 +244,14 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   bool cutDone = false;
   for (uint32_t iter = 0; iter < opt.maxIterations; ++iter) {
     res.iterations = iter + 1;
-    const bool lastIter = iter + 1 == opt.maxIterations;
+    const bool lastIter = iter + 1 == opt.maxIterations || opt.previousOnly;
 
     double ts = nowSeconds();
     // The time limit covers all CEGIS iterations (the overflow search runs to it); a
     // restart after counterexamples gets what is left, at least a tenth.
     cfg.timeLimitSec = std::max(opt.search.timeLimitSec * 0.1, opt.search.timeLimitSec - res.searchSec);
     std::vector<Candidate> cands;
-    {
+    if (!opt.previousOnly) {
       // The bank is freed before the subtree / cut searches, which build their own.
       Enumerator en(prog, tests, cfg);
       cands = en.run(res.search);
@@ -246,7 +260,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     // A library seed's bound can end the search early without a limit: "complete" then only
     // means nothing below the seed in the bank's space (no vector constructors, no
     // helpers), so the part searches run as well.
-    const bool partSearch = res.search.limitHit || haveSeed;
+    const bool partSearch = !opt.previousOnly && (res.search.limitHit || haveSeed);
     if (opt.subtrees && !subDone && partSearch) {
       subDone = true;
       const double tsub = nowSeconds();
@@ -271,6 +285,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     cands.insert(cands.end(), subCands.begin(), subCands.end());
     cands.insert(cands.end(), libCands.begin(), libCands.end());
     cands.insert(cands.end(), shapeCands.begin(), shapeCands.end());
+    cands.insert(cands.end(), prevCands.begin(), prevCands.end());
     for (auto& c : cands) {
       c.expr = simplifyIdentities(c.expr);
       c.cost = dagCost(c.expr, *opt.search.model, prog.inputs);

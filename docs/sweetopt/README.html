@@ -47,6 +47,7 @@ Linux:    bin/sopt-fx -I ~/reshade-shaders/Shaders -o out ~/reshade-shaders/Shad
   <tr><td><code>sopt-report.md</code></td><td>every statement with cheaper variants: the original, each variant, its cost, its accuracy class and its error (any Markdown viewer or a text editor)</td></tr>
   <tr><td><code>*.fx</code> / <code>*.fxh</code></td><td>copies of the changed files, each changed statement written as <code>#if SOPT_&lt;file&gt;_&lt;line&gt; == 1</code> &hellip; variant 1 &hellip; <code>#else</code> &hellip; the original &hellip; <code>#endif</code></td></tr>
   <tr><td><code>sopt-facts.txt</code></td><td>inputs whose value range SweetOpt could not work out (see 4)</td></tr>
+  <tr><td><code>sopt-cache.txt</code></td><td>this run's results for the next run in the same folder: unchanged statements are not searched again, changed ones (new value ranges, another card) start from the earlier finds; delete it or use <code>--no-cache</code> to start from scratch</td></tr>
   <tr><td><code>sopt-found.txt</code></td><td>every rewrite found, as rules (material for SweetOpt's rewrite library)</td></tr>
 </table>
 <p>Accuracy classes: <strong>bit-exact</strong>, <strong>8-bit identical</strong>, <strong>within budget</strong>, <strong>too exact</strong> (closer to exact math than the original: differs from it only where the original rounds), <strong>less accurate</strong> (listed with its error so you can judge it).</p>

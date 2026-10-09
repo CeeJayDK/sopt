@@ -20,6 +20,7 @@
 #include "fx/hoist.hpp"
 #include "fx/platforms.hpp"
 #include "fx/variants.hpp"
+#include "ir/parser.hpp"
 #include "measure/isa.hpp"
 #include "measure/backends.hpp"
 #include "measure/driverstats.hpp"
@@ -148,6 +149,9 @@ void usage() {
       "                    models (about 4x the search time) for variants that help other GPU families without\n"
       "                    being slower on the chosen one (default: only the chosen model's search; every\n"
       "                    variant is still costed for all families)\n"
+      "  --no-cache        do not start from the previous run's results (default: sopt-cache.txt in the\n"
+      "                    output folder; unchanged regions are not searched again, changed ones start\n"
+      "                    from the earlier finds)\n"
       "  --easy            easy mode: write ready files with our recommended changes put in\n"
       "                    directly, no switches (safe picks: faster on every measured GPU, as\n"
       "                    accurate, no problem inputs; tables and vertex shader moves)\n"
@@ -210,6 +214,7 @@ int main(int argc, char** argv) {
   // Easy mode (owner, 2026-10-08): ready files with our recommended picks (fx::easyPicks).
   bool easy = false;
   bool allPlatforms = false;
+  bool useCache = true;
   fx::WriteOptions easyWrite;
   fx::EasyOptions easyOpt;
   fs::path outDir = "sopt-out";
@@ -340,6 +345,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-blend-stage") blendStage = false;
     else if (a == "--easy") easy = true, easyWrite.clean = true;
     else if (a == "--all-platforms") allPlatforms = true;
+    else if (a == "--no-cache") useCache = false;
     else if (a == "--easy-switches") easy = true, easyWrite.allOn = true;
     else if (a == "--easy-too-exact") easyOpt.tooExact = true;
     else if (a == "--easy-rewrites") {
@@ -693,6 +699,80 @@ int main(int argc, char** argv) {
       if (fresh) unique.push_back(i);
     }
   }
+  // The previous run (owner, 2026-10-09): sopt-cache.txt in the output folder holds every searched region's accepted
+  // candidates, by shape (input types and the expression over in0, in1, ...) with the full key (ranges, budget) and the
+  // options that matter. Same key and options: the region is not searched again, its candidates are only verified
+  // again (Options::previousOnly). Same shape, other ranges or options: the candidates start the search
+  // (Options::previous: the cheapest that still passes is the bound to beat).
+  auto anonInputs = [](const Program& p) {
+    std::vector<InputDecl> anon = p.inputs;
+    for (size_t k = 0; k < anon.size(); ++k) anon[k].name = "in" + std::to_string(k);
+    return anon;
+  };
+  auto shapeOf = [&](const Program& p) {
+    std::string sh;
+    for (const auto& d : p.inputs) sh += std::to_string(static_cast<int>(d.type)) + " ";
+    return sh + "|" + toString(p.target, anonInputs(p));
+  };
+  std::string optionsKey;
+  {
+    char buf[512];
+    std::snprintf(buf, sizeof(buf), "%s %s t%g b%d l%g x%d a%d L%d s%d c%d td%d tp%d bb%d sl%d sc%d pf%d n%u seed%u ap%d",
+                  SOPT_VERSION, opt.search.model ? std::string(opt.search.model->name).c_str() : "?",
+                  opt.search.timeLimitSec, opt.search.bits ? 1 : 0, opt.loose, opt.exactRule ? 1 : 0,
+                  opt.accuracyVariants ? 1 : 0, opt.library ? 1 : 0, opt.subtrees ? 1 : 0, opt.cuts ? 1 : 0,
+                  opt.search.topDown ? 1 : 0, opt.search.twoPhase ? 1 : 0, opt.search.bestBound ? 1 : 0, opt.search.slack,
+                  opt.schedule ? 1 : 0, opt.perfFirst ? 1 : 0, opt.numTests, static_cast<unsigned>(opt.seed),
+                  allPlatforms ? 1 : 0);
+    optionsKey = buf;
+  }
+  struct CacheEntry {
+    std::string key;
+    std::vector<std::string> cands;
+  };
+  std::map<std::string, std::vector<CacheEntry>> cache;  // by shape; one entry per key (ranges, budget, options)
+  const fs::path cachePath = outDir / "sopt-cache.txt";
+  if (useCache) {
+    std::ifstream f(cachePath, std::ios::binary);
+    std::string line, shape;
+    CacheEntry e;
+    while (std::getline(f, line)) {
+      if (!line.empty() && line.back() == '\r') line.pop_back();
+      if (line.rfind("shape ", 0) == 0) shape = line.substr(6), e = CacheEntry{};
+      else if (line.rfind("key ", 0) == 0) e.key = line.substr(4);
+      else if (line.rfind("cand ", 0) == 0) e.cands.push_back(line.substr(5));
+      else if (line == "end" && !shape.empty()) cache[shape].push_back(e), shape.clear();
+    }
+  }
+  std::vector<std::vector<Expr>> previousCands(results.size());
+  std::vector<char> reuse(results.size(), 0);
+  size_t reused = 0, seeded = 0;
+  for (size_t i : unique) {
+    const Program& p = results[i].region.prog;
+    const auto it = cache.find(shapeOf(p));
+    if (it == cache.end()) continue;
+    const std::vector<InputDecl> anon = anonInputs(p);
+    const std::string key = optionsKey + "|" + searchKey(p);
+    const CacheEntry* same = nullptr;
+    for (const auto& e : it->second)
+      if (e.key == key) same = &e;
+    std::set<std::string> texts;
+    // Unchanged: its own candidates only. Changed: every earlier entry of this shape's.
+    for (const auto& e : it->second)
+      if (!same || &e == same)
+        for (const auto& t : e.cands)
+          if (texts.insert(t).second) {
+            try {
+              previousCands[i].push_back(parseExpr(t, anon));
+            } catch (const std::exception&) {
+            }
+          }
+    if (same) reuse[i] = 1, ++reused;
+    else if (!previousCands[i].empty()) ++seeded;
+  }
+  if (reused || seeded)
+    std::printf("previous run (sopt-cache.txt): %zu unchanged region%s only verified again, %zu start%s from earlier finds\n",
+                reused, reused == 1 ? "" : "s", seeded, seeded == 1 ? "s" : "");
   std::vector<RunResult> searched(results.size());
   std::vector<double> searchSec(results.size(), 0.0);
   {
@@ -706,10 +786,13 @@ int main(int argc, char** argv) {
   parallelFor(unique.size(), jobs, [&](size_t u) {
     const size_t i = unique[u];
     const auto s0 = std::chrono::steady_clock::now();
-    searched[i] = optimize(results[i].region.prog, ropt2);
+    Options o1 = ropt2;
+    o1.previous = previousCands[i];
+    o1.previousOnly = reuse[i] != 0;
+    searched[i] = optimize(results[i].region.prog, o1);
     // --all-platforms (owner, 2026-10-09): searches guided by other families' costs find forms the chosen model's
     // search never generates; their candidates join this region's, costed with the chosen model.
-    if (allPlatforms) {
+    if (allPlatforms && !reuse[i]) {
       const Program& prog = results[i].region.prog;
       const std::vector<InputDecl> pins = perfInputs(prog.inputs);
       for (const CostModel* m : fx::allPlatformModels()) {
@@ -737,6 +820,32 @@ int main(int argc, char** argv) {
     searchBar.step();
   });
   searchBar.finish();
+  // This run's candidates for the next one (entries of regions not in this run are kept).
+  if (useCache) {
+    for (size_t i : unique) {
+      const Program& p = results[i].region.prog;
+      CacheEntry e;
+      e.key = optionsKey + "|" + searchKey(p);
+      const std::vector<InputDecl> anon = anonInputs(p);
+      for (const auto& a : searched[i].accepted) e.cands.push_back(toString(a.expr, anon));
+      auto& list = cache[shapeOf(p)];
+      list.erase(std::remove_if(list.begin(), list.end(), [&](const CacheEntry& x) { return x.key == e.key; }), list.end());
+      list.insert(list.begin(), std::move(e));
+      if (list.size() > 8) list.resize(8);  // the newest few per shape
+    }
+    std::error_code ec;
+    fs::create_directories(outDir, ec);
+    std::ofstream f(cachePath, std::ios::binary);
+    f << "# SweetOpt cache: every searched region's verified candidates, read by the next run in this output folder\n"
+         "# (unchanged regions are only verified again, changed ones start from these). Delete it or use --no-cache\n"
+         "# to search everything from scratch.\n";
+    for (const auto& [shape, list] : cache)
+      for (const auto& e : list) {
+        f << "shape " << shape << "\nkey " << e.key << "\n";
+        for (const auto& c : e.cands) f << "cand " << c << "\n";
+        f << "end\n";
+      }
+  }
   if (unique.size() < results.size())
     std::printf("%zu regions searched (%zu repeat another one with other input names)\n", unique.size(),
                 results.size() - unique.size());

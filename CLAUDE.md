@@ -1691,6 +1691,13 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   is read with mcp get_job_logs (artifact / log downloads go to blob hosts the gh proxy refuses). September 2026: Ampere/Ada
   37.6%, Blackwell 23.0, Turing 9.6, Pascal 4.4, RDNA 2 2.8, RDNA 4 2.4, RDNA 3 2.3, GCN 1.9, Gen12 1.8, Gen9 0.9, Maxwell
   0.2, other 13.2. Run the workflow on main before each release.
+- Previous-run reuse (owner, 2026-10-09: "the next run could start with the variants found in the previous run"):
+  sopt-fx writes outDir/sopt-cache.txt (blocks "shape <input types>|<target over in0..>", "key <optionsKey>|<searchKey>",
+  "cand <accepted text over in0..>", "end"; up to 8 keys per shape, entries of regions not in the run kept). Next run:
+  same key = Options::previousOnly (no enumeration / subtrees / cuts / --all-platforms searches, one CEGIS round, the
+  cached candidates verified again); same shape, other key = Options::previous (candidates verified again, the cheapest
+  passing stage 2 sets seedBound and joins cfg.seeds; RunResult::previousBest). optionsKey = version, model, time and the
+  search flags. --no-cache. Pinball crt-lottes (Turing, --time 10): 25 s -> 1.1 s unchanged, same results.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).
