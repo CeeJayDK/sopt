@@ -19,6 +19,87 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
 - **Safe when** the result is multiplied by something that is 0 at x = 0, e.g. the signed power
   `sign(x) * pow(abs(x), g)` with g > 0. That case is a library rule; sopt finds it on Turing.
 
+### Copying x's sign bit: `asfloat((asuint(x) & 0x80000000u) | 0x3F800000u)` for `x >= 0.0 ? 1.0 : -1.0`
+- Bit trick (sopt `--bits`, library): and + or, no compare, no select; also `y` with x's sign
+  (`asfloat(asuint(y) ^ (asuint(x) & 0x80000000u))` for `x >= 0.0 ? y : -y`).
+- **What's wrong:** differs at x = -0.0 (-0 >= 0 is true, but its sign bit is set): -1 instead of 1.
+- **Safe when** x is never -0.0 (-0 comes from negating or multiplying a zero, e.g. `-a` with a = 0,
+  `x * -1` at 0). sopt keeps such variants marked "differs at x = -0.0"; never picked by SOPT_AUTO.
+
+### Magic-constant approximations (`0x5F3759DF` rsqrt, `0x7EF311C7` rcp, `0x1FBD1DF5` sqrt)
+- Integer subtracts / shifts on the bits give a rough first guess; Newton-Raphson (NR) steps refine it. Michal
+  Drobot's ShaderFastMathLib.h (github.com/michaldrobot/ShaderFastLibs, 2014, tuned for AMD GCN) packages them:
+  `fastRcpSqrtNR0(x) = asfloat(0x5F3759DF - (asint(x) >> 1))`, `fastSqrtNR0 = asfloat(0x1FBD1DF5 + (asint(x) >> 1))`,
+  `fastRcpNR0 = asfloat(0x7EF311C2 - asint(x))`, NR1 / NR2 add one / two steps (`g * (1.5 - 0.5x * g * g)`,
+  `g * (2 - x * g)`).
+- Max relative error (checked 2026-10-09, float32, x in [1e-6, 1e6]): rsqrt NR0 3.4%, NR1 0.18%, NR2 0.0005% (as the
+  library says); sqrt NR0 **4.5%** (the library says < 0.7%), rcp NR0 **5.1%** (says < 0.4%), rcp NR1 **0.26%** (says
+  < 0.02%), rcp NR2 0.0007%. The hardware rcp / rsqrt / sqrt are within ~1-2 ulp (~1e-7).
+- Cost (units, mad = 4): rsqrt NR0 = a shift + a subtract (bit casts are free) vs the hardware rsqrt: Turing ~5 vs 12,
+  Ampere / Ada ~8 vs 24, Blackwell ~7 vs 23, RDNA 2 ~6 vs 8, RDNA 3 / 4 ~14 vs 27, GCN ~4 vs 8.5, Intel Gen9 ~11 vs 12,
+  Gen12 ~8 vs 11, Gen7.5 ~13 vs 3.5 (Haswell's math unit is cheap, its integer ops half rate). rcp NR0 is one integer
+  subtract (Turing 0.6 vs 12). One NR step costs about four more fma (~16 units): NR1 is about even with the hardware
+  op on Ampere / Ada / Blackwell and slower everywhere else; NR2 is always slower.
+- **What's wrong:** a few percent off (NR0) is visible in 8-bit color (3.4% of 1.0 is ~9 steps); 0 gives a large
+  finite value instead of inf (rsqrt NR0(0) = 1.3e19, rcp NR0(0) = 1.6e38); negative inputs give garbage; denormals
+  are handled differently. No integer ops in D3D9 / SM3: ReShade's DX9 path cannot compile them (guard with
+  `__RENDERER__ >= 0xA000`).
+- **Safe when** a few percent (NR0) or 0.2% (NR1) does not matter for the result, e.g. a weight that is normalized
+  again later, an approximate falloff, or where the value only steers a choice; never for colors written as they are.
+  The constants are in sopt's `--bits` pool, and with `--loose` such forms are listed as "less accurate".
+
+### Polynomial acos / asin / atan (ShaderFastMathLib.h `acosFast4`, `asinFast4`, `atanFast4`)
+- `acosFast4`: Abramowitz & Stegun 4.4.45, `sqrt(1 - |x|) * (1.5707288 - 0.2121144|x| + 0.0742610x^2 - 0.0187293|x|^3)`,
+  mirrored for x < 0; max error 6.8e-5 rad (as stated). **fxc already writes `acos` / `asin` exactly this way** (the
+  same four coefficients, checked with Microsoft's fxc -O3, ps_5_0), in Horner form with two multiplies fewer than the
+  library's x2 / x3 form: no gain on DX10-12. On Vulkan / OpenGL ReShade emits GLSL.std.450 Acos and the driver decides;
+  whether the polynomial is faster there needs a measurement.
+- `atanFast4 = x * (1.0301 - 0.1784|x| - 0.0663x^2)`: max error **1.5e-3 rad** on [-1, 1] (the library says 7e-5, 20x
+  less), and **only valid for |x| <= 1** (atan4(2) = 0.82 vs 1.11, atan4(10) = -73.8). fxc's `atan` covers the whole
+  range (range reduction with a divide, a 4-term polynomial, ~1e-5 rad) at ~13 instructions.
+- **Safe when** (atan) the argument is known to be in [-1, 1] and 1.5e-3 rad is fine.
+
+### Lower-order acos / asin / atan (Sébastien Lagarde, "Inverse trigonometric functions GPU optimization for AMD GCN", 2014)
+- Minimax polynomials with range reduction: `acos(x) = sqrt(1 - |x|) * p(|x|)`, mirrored for x < 0 (`pi - r`), asin =
+  pi/2 - acos; atan on [0, 1] then `pi/2 - atan(1/x)`, or the cheaper "alternate" form `pi/4 + x' * p(x'^2)` with
+  `x' = (|x| - 1) / (|x| + 1)` (one rcp, no select for the reduction), sign restored at the end. The article's error
+  table checks out (float32, 2026-10-09): acos degree 1 6.1e-3 rad (Eberly's coefficients, exact at 0 and 1: 9.0e-3),
+  degree 2 6.2e-4, degree 3 6.9e-5; atan odd degree 3 (alternate) 1.0e-2 (Eberly 1.6e-2), odd degree 5 (alternate)
+  1.2e-3 (Eberly 1.35e-3). fxc: acos 6.8e-5, atan 1.2e-5.
+- DXBC (fxc -O3, ps_5_0): acos 11 (fxc's own = the Cg reference = degree 3, the article's "Cg" row) vs degree 1 8,
+  degree 2 9; atan 18 vs odd degree 5 alternate 9 (7 for x >= 0), odd degree 3 alternate 8; atan2 24 vs the article's
+  first-quadrant atan2 (`pi/4 + p((y - x) / (y + x))`, x, y > 0 only) 8. The article's "48 FR" built-in acos is the
+  PS4 compiler's (a dynamic branch per sign); on D3D the built-in already is the 19 FR Cg form.
+- Its GCN cost notes match OpBench: a mad with two literal constants needs an extra v_mov on GCN (fma1 2.1 vs mad 4
+  units on Vega / Polaris), so every extra polynomial degree costs 2 instructions there; on RDNA 2 the second constant
+  still costs (3 vs 4), on NVIDIA / Intel not (4 vs 4). It also found ShaderFastMathLib's atanFast4 comment wrong (7
+  instructions, not 12, and a larger error), as we did.
+- **What's wrong:** 1e-2 to 1e-3 rad instead of ~1e-5; the article shows that the error's *distribution* matters, not
+  only its maximum: an atan fit minimizing absolute error banded where the argument was near 0.1 (the area light's
+  small-light case), while Eberly's relative-error fit of lower degree looked right. sopt's relative budgets measure that
+  kind of error; none of these forms is within them (planned `--poly` mode would list them with their error).
+- **Safe when** the result only shapes a smooth term evaluated to 8 bits and you have checked it visually on the real
+  input range; drop the range-reduction steps you do not need (inputs known >= 0, or in [0, 1]).
+
+### Bit Twiddling Hacks on GPUs (graphics.stanford.edu/~seander/bithacks.html, checked 2026-10-09)
+- **Use the hardware instead:** counting bits, parity (`countbits(x) & 1`), reversing bits, integer log2 and
+  trailing / leading zeros are single HLSL intrinsics (`countbits`, `reversebits`, `firstbithigh`, `firstbitlow`);
+  the page's 12-24 operation forms lose to them even where the instruction is quarter rate (popcount ~12 units
+  on Turing). Branchless abs / min / max / sign / conditional negate: GPUs have min / max instructions, free neg /
+  abs modifiers and a select (movc). Morton interleave by magic numbers is also the GPU way (no bit-deposit
+  instruction).
+- **Compilers do it for constants:** modulus by `1 << s`, merging bits by a mask, swaps. Not for a uniform: `x % N`
+  with N a known power of 2 is `x & (N - 1)` (integer divide / modulo ~67-82 units on Turing vs ~4); SweetOpt does
+  not read integer code as regions yet, so that one is for programmers.
+- **Float tricks:** integer log2 of a float (`(asuint(x) >> 23) - 127`) and the power of 2 at or below / above x
+  (`asfloat(asuint(x) & 0x7F800000)` = `exp2(floor(log2(x)))`, `asfloat((asuint(x) + 0x007FFFFF) & 0x7F800000)` =
+  `exp2(ceil(log2(x)))`) are library rules: exact for every positive normal float (checked against exact math on
+  57 million floats), while the float originals go through approximate log2 / exp2 and can land a power of 2 off
+  right next to one ("too exact"). The page's denormal branch does not matter on GPUs (D3D10+ flushes fp32
+  denormals). Two integer ops instead of log2 + round + exp2 (Ampere / Ada ~70 units -> ~3).
+- **Irrelevant for shaders:** zero / equal / less-than byte tests in a word, next bit permutation, 64-bit multiply
+  and modulus tricks, swapping with XOR.
+
 ### The `* 1e38` saturate forms (sign, and the floor / ceil / frac forms below)
 - `sign(x) -> mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0)` (mad_sat + mad, 2 instructions; found
   by sopt), `saturate(x * 1e38) - saturate(x * -1e38)`, `clamp(x * 1e38, -1.0, 1.0)`.
@@ -63,6 +144,21 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
 ### `frac(frac(a)) -> frac(a)` (from Mesa)
 - **What's wrong:** for tiny negative a, `frac(a)` rounds to 1.0 (`frac(-1e-20) = 1.0` in float)
   and `frac(1.0)` is 0. Exact for a >= 0 (the library rule now says so).
+
+### Squared distance: `length(v) < r` -> `dot(v, v) < r * r` (Pythagoras; GPT research list, 2026-10-09)
+- Saves the square root (a quarter-rate transcendental on most cards: rdna3 27 of the 47 that
+  `sqrt(x * x + y * y) < r ? 1 : 0` costs), for one extra multiply (`r * r`, free when r is a constant). The same for `distance(a, b) < r`, `<=`, `>`, `>=`.
+- **What's wrong:** `r * r` is rounded and `sqrt` is rounded, so the two tests can disagree when
+  the length is within about one float step of r. Sampled with half the points placed within 2 steps
+  of the threshold: 2.4% of those differ, none elsewhere. On real pixel grids it does not show: 0 of
+  6 x 3840 x 2160 pixels differ (aspect-corrected distance to the centre, r = 0.1 .. 0.9). GPU `sqrt`
+  is not correctly rounded either, so the original's own boundary pixels already depend on the card.
+- **Safe when** r >= 0 and nothing depends on the exact pixels on the circle's edge (masks,
+  vignettes, radius tests). Needs r >= 0: with a negative r the original is always false, the
+  squared form compares against a positive number.
+- Why sopt does not suggest it: with an exact budget (a comparison or a 0 / 1 select) every
+  disagreement fails, and the corpus has only 17 such comparisons in 441 effects, almost all inside
+  `if` conditions, which sopt-fx does not read as regions.
 
 ## Not exact: avoid unless the error does not matter
 
@@ -146,3 +242,22 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
 - **fxc writes `clamp` as `max` + `min`.** Only AMD's driver turns that back into one v_med3.
 - **fxc writes `sign` as lt, lt, iadd, itof.** The int -> float conversion is what makes sign
   slow on Ampere / Blackwell (see the 1e38 forms above).
+
+## NaN tests and `!=` (2026-10-06)
+
+`(x != x)` as `isnan(x)`: on Direct3D 10-12 both compile to the same `ne r, x, x` where they survive, so neither is
+faster. But ReShade compiles with fxc -O3 without `D3DCOMPILE_IEEE_STRICTNESS`, and fxc then assumes inputs (constant
+buffers, textures) are never NaN or infinite: `isnan(x)` and `x != x` on such a value compile to `false`, `x / x` to 1,
+`x - x` to 0, `isnan(inf - inf)` to false. A NaN from a division of different values survives, and `precise` keeps any
+check (`precise float v = x; isnan(v)`). On ReShade's Vulkan path `x != x` does not work either: ReShade 6.8.0's SPIR-V
+generator writes a float `!=` as `OpFOrdNotEqual`, false when either side is NaN, while `isnan()` becomes `OpIsNan`. So:
+use `isnan()` on a `precise` value. The bit test `(asuint(x) & 0x7FFFFFFF) > 0x7F800000` is exact on every backend but one
+instruction longer (`and` + `ult`), and fxc folds it too when it assumes the value cannot be NaN. `!(a == b)` and `a != b`
+differ on ReShade's Vulkan path when an operand is NaN. That is ReShade's bug, not the rewrite's (IEEE 754 `!=` is
+unordered, as on D3D): the library keeps `!(a == b) -> a != b` and `!(a != b) -> a == b` (owner, 2026-10-06: do not rule
+out variants for a ReShade bug). The same generator converts float -> bool (`if (x)`) as `x != 0` with `OpFOrdNotEqual`
+too, so a NaN counts as false on Vulkan and true on D3D. Test effect and findings: tools/reshade/sopt_IEEE754.fx,
+tools/reshade/IEEE754.md.
+
+NaN ordering: every ordered comparison with NaN is false (`NaN > +Inf` is false). Only the raw bits are ordered: read
+as signed integers, +NaN is above +Inf and -NaN below -Inf.

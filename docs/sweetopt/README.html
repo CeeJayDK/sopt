@@ -13,7 +13,7 @@
   <p>The super sweet shader optimizer: finds faster ways to write the math in ReShade shaders, checks every one, and lets you choose.</p>
 </header>
 
-<p>SweetOpt looks for cheaper ways to write the arithmetic in ReShade FX (and plain HLSL) pixel and compute shaders. Every rewrite it offers is checked to give the same result as the original, within what the output can show (an 8-bit back buffer hides small differences), and it is written next to the original behind a preprocessor switch, so you can compare them in ReShade and choose.</p>
+<p>SweetOpt looks for cheaper ways to write the arithmetic in ReShade FX, plain HLSL and GLSL shaders. Every rewrite it offers is checked to give the same result as the original, within what the output can show (an 8-bit back buffer hides small differences). In <strong>easy mode</strong> (the default in the menu) it writes ready files with the changes we recommend put in; in <strong>expert mode</strong> every variant is written next to the original behind a preprocessor switch, so you can compare them in ReShade and choose.</p>
 <p class="note">This is an early release: feedback is very welcome (see the end).</p>
 
 <h2>1. Run it on your shaders</h2>
@@ -21,9 +21,11 @@
 <table>
   <tr><th>Key</th><th>What it does</th></tr>
   <tr><td><kbd>1</kbd></td><td>Choose your <code>reshade-shaders\Shaders</code> folder (the one with <code>ReShade.fxh</code>).</td></tr>
-  <tr><td><kbd>2</kbd></td><td>Choose what to optimize: everything, one folder (such as SweetFX) or one effect.</td></tr>
+  <tr><td><kbd>2</kbd></td><td>Choose what to optimize: everything, one folder (such as SweetFX), one effect, or a GLSL / HLSL shader file that is not a ReShade effect (then no Shaders folder is needed).</td></tr>
   <tr><td><kbd>3</kbd></td><td>The time per statement: 5, 20 or 60 seconds (more time can find more).</td></tr>
-  <tr><td><kbd>4</kbd></td><td>Your graphics card family (what counts as faster).</td></tr>
+  <tr><td><kbd>4</kbd></td><td>Your graphics card family (what counts as faster). Variants are never slower on it, but every variant is also costed for the other families, and changes that help them are kept too. It then asks whether to search with the other families' costs as well (finds more of those; about 4x the time).</td></tr>
+  <tr><td><kbd>M</kbd></td><td>The mode. <strong>Easy</strong>: ready files with our recommended changes put in, nothing to choose; it then asks whether to keep a switch for each change (so single changes can be turned off again). <strong>Expert</strong>: every variant behind a switch with its cost and accuracy.</td></tr>
+  <tr><td><kbd>E</kbd></td><td>Easy mode settings, safe by default: whether easy mode may use "too exact" variants (no), and which bigger rewrites it makes (tables and vertex shader moves; or all, blends to the blend stage too; or none).</td></tr>
   <tr><td><kbd>5</kbd></td><td><strong>Start.</strong></td></tr>
   <tr><td><kbd>6</kbd></td><td>Quick look: which statements SweetOpt would work on (seconds, no search).</td></tr>
   <tr><td><kbd>7</kbd></td><td>Open the results (the <code>sopt-out</code> folder and <code>sopt-report.md</code>).</td></tr>
@@ -35,7 +37,9 @@
 <p>From a command prompt, the programs are in the <code>bin</code> folder: point <code>sopt-fx</code> at an effect file or a folder of effects, with <code>-I</code> for the folder that holds <code>ReShade.fxh</code>:</p>
 <pre>Windows:  bin\sopt-fx -I "C:\Games\MyGame\reshade-shaders\Shaders" -o out "C:\Games\MyGame\reshade-shaders\Shaders\SweetFX"
 Linux:    bin/sopt-fx -I ~/reshade-shaders/Shaders -o out ~/reshade-shaders/Shaders/SweetFX</pre>
-<p>It searches every arithmetic statement, 5 seconds each by default (<code>--time 20</code> for more). Plain HLSL works too: <code>.hlsl</code> / <code>.hlsli</code> files are read as SM5 pixel shaders, or compute shaders when the entry point has <code>[numthreads]</code> (<code>--entry NAME</code>, default <code>main</code>).</p>
+<p>It searches every arithmetic statement, 5 seconds each by default (<code>--time 20</code> for more; <code>--bits</code> also tries bit tricks with <code>asuint</code> / <code>asfloat</code>, slower). Plain HLSL works too: <code>.hlsl</code> / <code>.hlsli</code> files are read as SM5 pixel shaders, or compute shaders when the entry point has <code>[numthreads]</code> (<code>--entry NAME</code>, default <code>main</code>). GLSL fragment shaders (<code>.frag</code>, <code>.fs</code>, <code>.glsl</code>, or <code>--glsl</code>) are read too, and their variants are written in GLSL after the <code>#version</code> line.</p>
+<p>Easy mode from the command line: <code>--easy</code> (ready files, no switches) or <code>--easy-switches</code> (switches set to our picks); <code>--easy-too-exact</code> also allows "too exact" variants, <code>--easy-rewrites none|safe|all</code> chooses the bigger rewrites (default safe). Easy mode picks, per statement, the fastest variant that is bit-exact or within budget, has no problem inputs and is slower on no measured graphics card; the report still lists everything.</p>
+<p>Other graphics cards: every variant is costed for each GPU family SweetOpt has a cost model for (AMD GCN, RDNA 2 / 3 / 4, NVIDIA Maxwell to Blackwell, Intel Gen7.5 / 9 / 12), and the report shows a table per statement with the change on each family, where it helps and where it harms. A variant that is as fast as the original on your card but faster on other families is kept ("faster on other GPUs"). When such a variant is faster on some families and slower on others, easy mode weighs them by how many Steam users own each family (Steam Hardware &amp; Software Survey, read when a version is released) and takes it only when it helps more than it harms; in expert mode you choose. <code>--all-platforms</code> also searches with the AMD RDNA 3, NVIDIA Turing, NVIDIA Ampere and Intel Gen9 costs, which finds more such variants (about 4x the search time). At the end SweetOpt sums up what the changes save, on your card and on the others.</p>
 
 <h2>2. Read the results</h2>
 <table>
@@ -43,9 +47,11 @@ Linux:    bin/sopt-fx -I ~/reshade-shaders/Shaders -o out ~/reshade-shaders/Shad
   <tr><td><code>sopt-report.md</code></td><td>every statement with cheaper variants: the original, each variant, its cost, its accuracy class and its error (any Markdown viewer or a text editor)</td></tr>
   <tr><td><code>*.fx</code> / <code>*.fxh</code></td><td>copies of the changed files, each changed statement written as <code>#if SOPT_&lt;file&gt;_&lt;line&gt; == 1</code> &hellip; variant 1 &hellip; <code>#else</code> &hellip; the original &hellip; <code>#endif</code></td></tr>
   <tr><td><code>sopt-facts.txt</code></td><td>inputs whose value range SweetOpt could not work out (see 4)</td></tr>
+  <tr><td><code>sopt-cache.txt</code></td><td>this run's results for the next run in the same folder: unchanged statements are not searched again, changed ones (new value ranges, another card) start from the earlier finds; delete it or use <code>--no-cache</code> to start from scratch</td></tr>
   <tr><td><code>sopt-found.txt</code></td><td>every rewrite found, as rules (material for SweetOpt's rewrite library)</td></tr>
 </table>
 <p>Accuracy classes: <strong>bit-exact</strong>, <strong>8-bit identical</strong>, <strong>within budget</strong>, <strong>too exact</strong> (closer to exact math than the original: differs from it only where the original rounds), <strong>less accurate</strong> (listed with its error so you can judge it).</p>
+<p>Scheduling: for statements that read uniforms or textures, the report also shows the cost with ReShade's <em>performance mode</em> on (uniforms become constants, so math on them alone is free) and the <em>tail</em>, the work left once the last texture sample arrives. SweetOpt groups math on constants and uniforms together and lets the last sample enter last; variants that are not faster but faster in performance mode, or that have a shorter tail, are listed as <strong>faster in performance mode</strong> / <strong>better scheduling (not faster)</strong>. <code>--perf-mode-first</code> makes the performance mode cost the main one, <code>--no-schedule</code> turns this off.</p>
 
 <h2>3. Try the variants in ReShade</h2>
 <p>Use a copy of your game's <code>reshade-shaders</code> folder (or put the results folder first in ReShade's effect search path), so the originals stay untouched. Then set preprocessor definitions in ReShade's UI:</p>
@@ -67,6 +73,7 @@ input b : float in [0, 1] grid 255
 output r = 1.0 - (1.0 - a) * (1.0 - b)
 budget r : color8</pre>
 <p><code>bin\sopt screen.sopt</code> lists the cheaper forms it found and verified. <code>--help</code> lists the options of both programs (cost models for other GPUs: <code>--cost-model amd-rdna2</code>, <code>nvidia-turing</code>, <code>intel-gen9</code>, &hellip;).</p>
+<p><code>bin\sopt-fxc.exe</code> is Microsoft's shader compiler (the one ReShade uses for Direct3D 10-12) for <code>sopt-fx --backends</code>, which finds it next to itself: the report then shows each variant's DXBC instruction count and whether fxc already makes the same code.</p>
 
 <h2>Requirements</h2>
 <ul>

@@ -11,8 +11,13 @@
    of each 2x2 block instead of four texel fetches, for filterable formats (integer formats keep the
    old shader). Result must match to within the format's rounding.
 
-The CI artifact `reshade-6.8.0-sopt` has two DLLs built from the same source with the same compiler:
-`ReShade64-6.8.0-unchanged.dll` and `ReShade64-6.8.0-sopt.dll` (64-bit, full add-on support).
+`d3d12-mipmaps.patch` (applies on top of it, a suggestion) does the same for D3D12's mipmap shader:
+the first level of each pass (up to 6 levels per dispatch) comes from one bilinear fetch per texel
+from an SRV of the source level instead of four UAV loads.
+
+The CI artifact `reshade-6.8.0-sopt` has three DLLs built from the same source with the same compiler:
+`ReShade64-6.8.0-unchanged.dll`, `ReShade64-6.8.0-sopt.dll` and `ReShade64-6.8.0-sopt-d3d12.dll`
+(the second plus the D3D12 patch; 64-bit, full add-on support).
 Compare them with each other, not with the official signed build. Rename the one under test to what
 the API needs next to the game's exe: `dxgi.dll` (D3D10/11/12), `opengl32.dll` (OpenGL),
 `d3d9.dll` (D3D9).
@@ -22,7 +27,7 @@ DLLs (same preset, same frame content) and compare them (or send them for a pixe
 
 ## 1. D3D11 copy path (sopt-host --msaa)
 
-sopt-host.exe (CI artifact `sopt-windows-tools`) shows a fixed image; `--msaa 4` gives it a
+sopt-host.exe (CI artifact `Test-Host`) shows a fixed image; `--msaa 4` gives it a
 4x multisampled back buffer, so ReShade's copy shader runs every frame.
 
 1. Folder with `sopt-host.exe`, the DLL under test as `dxgi.dll` and a `reshade-shaders` folder
@@ -37,15 +42,19 @@ sopt-host.exe (CI artifact `sopt-windows-tools`) shows a fixed image; `--msaa 4`
 ## 2. OpenGL mipmaps (sopt_MipTest.fx)
 
 Simplest: `sopt-host.exe --api gl --width 1920 --height 1080` with the DLL as `opengl32.dll` next
-to it (sopt-windows-tools artifact). Any other OpenGL 4.3 program works too (GZDoom with the OpenGL
+to it (Test-Host artifact). Any other OpenGL 4.3 program works too (GZDoom with the OpenGL
 renderer, RetroArch with the `gl` video driver, ...).
 
 1. ReShade.log must not contain "Failed to compile bilinear mipmap generation shader" (that warning
    means it fell back to the old shader: report it).
 2. Put `sopt_MipTest.fx` in the effect folder and turn it on alone. Mode "Over tolerance (red)"
    (Tolerance 1): for every Format (RGBA8, RGBA16F, R32F, RGB10A2) and Level 1-5 the screen must be
-   dark gray with no red, with both DLLs. Each level is compared with the 2x2 average of the level
-   above, which is what ReShade's mipmap shaders compute. (On D3D11 and Vulkan the driver generates
+   dark gray with no red, with both DLLs. Format "RGBA8 256x32" (Level 1-8): its levels 6-8 are 1
+   texel high, so the old shader reads past the edge there (red with the unchanged DLL: it averages
+   with zeros); the bilinear fetch clamps to the edge (dark gray with the sopt DLL). Each level is
+   compared with the 2x2 average of the level above, which is what ReShade's mipmap shaders compute.
+   Under Wine (Mesa llvmpipe) the sopt DLL's RGBA8 levels are within 1 step instead of 1/2: llvmpipe's
+   filter rounds less exactly than the GTX 1660 (red at Tolerance 1.0 on 3.5%, none at 1.01). (On D3D11 and Vulkan the driver generates
    the mips, unchanged by the patch: there red appears once a level above has an odd size, e.g. from
    level 4 at 1080 lines, because the driver then filters differently.)
 3. Mode "Difference (amplified)": the noise should look the same with both DLLs (equal or within one
@@ -55,8 +64,25 @@ renderer, RetroArch with the `gl` video driver, ...).
 5. Speed (optional): ReShade's statistics (GPU time per technique) for that effect with each DLL; the
    mipmap generation is counted in its technique.
 
-## 3. Unchanged paths (sanity)
+## 3. Integer formats (sopt_MipTestInt.fx)
 
-D3D9, D3D12 and Vulkan run the same code as before (D3D12 uses copy_ps only for multisampled or
-X8 back buffers, which flip-model swap chains cannot have). Start one game per API with the sopt
-DLL and check that effects and the overlay work.
+Integer textures (R32U, RGBA32I) with mip levels: what does ReShade generate on each API? Turn
+`sopt_MipTestInt.fx` on alone, Mode "Classification", Level 1, both formats: green = the exact
+average, blue = one of the four texels (point filter), gray = 0, red = anything else. Note the
+colour per API (and whether the effect loads at all: the log says why if not). Unchanged by the
+OpenGL patch (integer formats keep the old shader), so one DLL is enough. Under Wine (Mesa
+llvmpipe, OpenGL) both DLLs give gray (zeros).
+
+## 4. D3D12 mipmaps (sopt-d3d12 DLL)
+
+`sopt-host.exe --api dx12` with the DLL as `dxgi.dll`. ReShade.log must not contain "Failed to
+create bilinear mipmap generation pipeline". `sopt_MipTest.fx` as in section 2, with the unchanged
+and the sopt-d3d12 DLL: Formats RGBA8 / RGBA16F / R32F / RGB10A2, Level 1-5, Tolerance 1 (expected:
+no red with both), and "RGBA8 256x32" Level 1-8 (expected from the CPU model, d3d12_mipmap_model.py:
+red on levels 6-8 with the unchanged DLL, none with the sopt-d3d12 DLL).
+
+## 5. Unchanged paths (sanity)
+
+D3D9 and Vulkan run the same code as before (D3D12 uses copy_ps only for multisampled or X8 back
+buffers, which flip-model swap chains cannot have). Start one game per API with the sopt DLL and
+check that effects and the overlay work.

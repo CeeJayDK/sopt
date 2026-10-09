@@ -76,8 +76,14 @@ struct SearchConfig {
   // With an inner rcp fit p / (v + c) + q, also emit (v - r) * rcp(mad(v, 1/q, c/q)): the
   // same function without the final cancellation (accuracy variants, owner 2026-09-26).
   bool rational = true;
+  // With an inner rcp fit, also emit it as p / (v + c) + q (owner's go 2026-10-06): where a divide costs about an rcp
+  // (measured rdna3: the mul hides under the rcp), the scale and the add fold into it (div + fma).
+  bool divForm = true;
   // Skip inner fits for entries the target is not monotonic in (see innerFit).
   bool innerPrefilter = true;
+  // Before an affine fit, a 3-point test that some p, q can put p * v + q into the accepted range at all
+  // (identical results: it only skips fits that cannot pass).
+  bool affinePrecheck = true;
   // When the bank is full, keep enumerating with the stored entries as operands and only
   // check the new values as hits (not stored): one more level of reach, no more memory.
   // Runs until the time limit. Default (owner): bench +2 found, none lost.
@@ -90,6 +96,10 @@ struct SearchConfig {
   // builds anyway, so trying both wastes time. Single-instruction intrinsics (mad = fma,
   // clamp = med3, saturate = modifier, rcp, rsqrt) are always enumerated.
   bool helpers = false;
+  // Bit tricks (--bits; owner, 2026-10-06): also enumerate the integer ops and bit casts
+  // (asuint, asfloat, conversions, and / or / xor, shifts, iadd / isub / imul) with a pool of
+  // float-format constants (sign / exponent / mantissa masks, 1.0's bits, shift counts).
+  bool bits = false;
   // Shared leaves (M7, flag): the target's own subexpressions (up to maxShared, most
   // expensive first) are extra level-0 leaves at no cost, so rewrites that use one of the
   // original's intermediate values twice (u * u for pow(abs(u), 2.0)) are reached although
@@ -256,6 +266,8 @@ class Enumerator {
     // SearchConfig::rational: (v - r) * rcp(mad(v, a, b)) instead of the wrapper.
     bool rational = false;
     float r = 0.0f, a = 0.0f, b = 0.0f;
+    // SearchConfig::divForm: p / (v + c) (+ q for wrap Mad) instead of p * rcp(v + c) + q.
+    bool divForm = false;
     uint32_t cost = 0;  // objective cost of the whole hit (base + wrapper)
   };
 
@@ -311,6 +323,15 @@ class Enumerator {
   // Direction changes of the target along v (sorted), beyond monoTol_; 2 = none fits.
   int monotoneBreaks(const float* v, std::vector<uint32_t>& keysBuf) const;
   std::vector<double> monoTol_;
+  // Affine pre-check (SearchConfig::affinePrecheck): up to three test points with a finite interval of
+  // accepted values (centre, half width), and the test itself.
+  struct PrePoint {
+    size_t i;
+    double c, w;
+  };
+  std::vector<PrePoint> pre_;
+  void acceptHull(size_t i, double& lo, double& hi) const;
+  bool affineFeasible(const float* v) const;
   FitScratch serialScratch_;
   std::vector<FitScratch> threadScratch_;
   std::vector<AffineHit> fitOut_;
@@ -370,7 +391,7 @@ class Enumerator {
   std::vector<Type> types_;  // float types ops are enumerated for: float1, then the target's
 
   // The bank: 16 bytes per entry (owner's idea: op and type as one codebook byte, flags as
-  // bits): w0 = a (28 bits) | b (28) | code (8, op * kNumTypes + type), w1 = c (28) |
+  // bits): w0 = a (28 bits) | b (28) | code (8, the op/type codebook, see OpTypeCodes), w1 = c (28) |
   // isConst, affine, ctime, isHit (4 bits) | cost (16) | obj (16). Entry is its unpacked
   // form; entry() and pack() convert.
   struct Packed {
@@ -381,6 +402,7 @@ class Enumerator {
   Chunked<Packed> bank_;
   static Packed pack(const Entry& e);
   Entry entry(uint32_t idx) const;
+  Type typeOf(uint32_t idx) const;  // entry(idx).type without unpacking the rest
   bool isHit(uint32_t idx) const { return (bank_[idx].w1 >> 31) & 1u; }
   void setHit(uint32_t idx) { bank_[idx].w1 |= uint64_t{1} << 31; }
   FpArena fp_;

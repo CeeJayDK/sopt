@@ -459,6 +459,19 @@ class BoxEval {
               case Op::Lt: case Op::Le: case Op::Gt: case Op::Ge: case Op::Eq: case Op::Ne:
                 o[c] = ev.compare(n.op, arg(0, c), arg(1, c));
                 break;
+              case Op::LAnd: case Op::LOr: case Op::LNot: {  // conditions are constVal(0 / 1) or failed
+                const Val& x = arg(0, c);
+                if (n.op == Op::LNot) {
+                  o[c] = x.fail ? ev.failed() : ev.constant(x.x.lo == 1.0 ? 0.0f : 1.0f);
+                  break;
+                }
+                const Val& y = arg(1, c);
+                const float decides = n.op == Op::LAnd ? 0.0f : 1.0f;  // a value that settles it alone
+                if ((!x.fail && x.x.lo == decides) || (!y.fail && y.x.lo == decides)) o[c] = ev.constant(decides);
+                else if (x.fail || y.fail) o[c] = ev.failed();
+                else o[c] = ev.constant(1.0f - decides);
+                break;
+              }
               case Op::Select: {
                 const Val& cond = arg(0, c);
                 o[c] = cond.fail ? ev.failed() : (cond.x.lo == 1.0 ? arg(1, c) : arg(2, c));
@@ -519,6 +532,10 @@ BoundResult proveBound(const Program& prog, const Expr& cand, const BoundOptions
   const unsigned n = static_cast<unsigned>(slots.size());
   const Type rt = prog.target.nodes[prog.target.root].type;
   if (b.kind == Budget::Kind::Exact || n > kMaxSlots || cand.nodes[cand.root].type != rt) return res;
+  // No interval model for integer ops / bit casts (bit tricks): no proof.
+  for (const Expr* x : {&prog.target, &cand})
+    for (const Node& nd : x->nodes)
+      if (isIntShape(info(nd.op).shape)) return res;
   const unsigned w = width(rt);
   const bool rule = accuracyRule(b);
 

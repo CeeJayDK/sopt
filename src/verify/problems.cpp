@@ -97,6 +97,33 @@ std::vector<ProblemRange> findProblemRanges(const Program& prog, const Expr& can
   std::vector<ProblemRange> out;
   if (prog.inputs.size() > 64) return out;
   Analyzer an{prog, cand, loose};
+  // -0.0: only bit casts / integer ops see the sign of a zero input (float ops treat -0 as 0,
+  // up to the sign of an infinite or zero result).
+  bool bits = false;
+  for (const Node& n : cand.nodes) bits = bits || isIntShape(info(n.op).shape);
+  if (bits) {
+    const PointSet base = makeRandomPoints(prog, kCheckPoints, 0x2e70, true);
+    for (uint32_t in = 0; in < prog.inputs.size(); ++in) {
+      const InputDecl& d = prog.inputs[in];
+      if (d.type != Type::Float || d.compileTime || !(d.lo <= 0.0 && 0.0 <= d.hi)) continue;
+      PointSet ps = base;
+      std::fill(ps.cols[an.first[in]].begin(), ps.cols[an.first[in]].end(), -0.0f);
+      bool fails = false, notFinite = false;
+      for (const auto& prof : kAllProfiles) {
+        const Metrics m = compare(prog, cand, ps, prof, 1);
+        if (loose ? m.loosePass : m.pass) continue;
+        fails = true;
+        for (float v : evalAll(cand, ps, prof)) notFinite = notFinite || !std::isfinite(v);
+        break;
+      }
+      if (!fails) continue;
+      ProblemRange p;
+      p.input = in;
+      p.negZero = true;
+      p.notFinite = notFinite;
+      out.push_back(p);
+    }
+  }
   // Inputs each node depends on.
   std::vector<uint64_t> deps(cand.nodes.size(), 0);
   for (size_t k = 0; k < cand.nodes.size(); ++k) {
@@ -106,7 +133,7 @@ std::vector<ProblemRange> findProblemRanges(const Program& prog, const Expr& can
   }
   auto inside = [&](uint32_t in, double x) {
     for (const auto& p : out)
-      if (p.input == in && x >= p.lo && x <= p.hi) return true;
+      if (p.input == in && !p.negZero && x >= p.lo && x <= p.hi) return true;
     return false;
   };
   for (size_t k = 0; k < cand.nodes.size(); ++k) {
@@ -200,8 +227,8 @@ std::vector<ProblemRange> findProblemRanges(const Program& prog, const Expr& can
       out.push_back(p);
     }
   }
-  std::sort(out.begin(), out.end(), [](const ProblemRange& a, const ProblemRange& b) {
-    return a.input != b.input ? a.input < b.input : a.lo < b.lo;
+  std::stable_sort(out.begin(), out.end(), [](const ProblemRange& a, const ProblemRange& b) {
+    return a.input != b.input ? a.input < b.input : a.negZero != b.negZero ? a.negZero : a.lo < b.lo;
   });
   return out;
 }
@@ -224,6 +251,12 @@ std::string describeProblems(const Program& prog, const std::vector<ProblemRange
   for (size_t i = 0; i < problems.size();) {
     const uint32_t in = problems[i].input;
     const InputDecl& d = prog.inputs[in];
+    if (problems[i].negZero) {
+      if (!s.empty()) s += "; ";
+      s += "differs at " + d.name + " = -0.0" + (problems[i].notFinite ? " (NaN/inf)" : "");
+      ++i;
+      if (i == problems.size() || problems[i].input != in) continue;
+    }
     std::string where, fine;
     bool notFinite = false;
     double from = d.lo;

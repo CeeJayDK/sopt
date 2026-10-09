@@ -15,6 +15,9 @@ struct IsaConfig {
   std::string asic;     // empty = fxstat's default (gfx1100, RDNA3)
   std::string keepDir;  // write the generated .fx files here and keep them (empty = temp)
   unsigned threads = 0; // 0 = hardware concurrency
+  // GLSL source (sopt-fx on .frag files): the candidate is emitted as a GLSL fragment shader
+  // and compiled by RGA's offline Vulkan GLSL mode (glslang + AMD's LLPC), without fxstat.
+  bool glsl = false;
 };
 
 struct IsaCost {
@@ -34,7 +37,14 @@ struct IsaCost {
 // function sopt_region(<inputs>), ready to paste into a shader.
 std::string emitEffect(const Expr& e, const std::vector<InputDecl>& inputs);
 
-// Measures each expression. Runs fxstat processes in parallel.
+// The same as a GLSL 4.50 fragment shader (inputs from textures, toGlsl's syntax).
+std::string emitGlsl(const Expr& e, const std::vector<InputDecl>& inputs);
+
+// Statistics of an RGA ISA listing and its resource CSV, counted as fxstat counts them
+// (cost = VALU + 3 * transcendentals; interpolation and bookkeeping not counted).
+IsaCost parseRgaIsa(const std::string& isa, const std::string& csv);
+
+// Measures each expression (fxstat, or RGA alone for cfg.glsl), in parallel.
 std::vector<IsaCost> measureIsa(const std::vector<const Expr*>& exprs,
                                 const std::vector<InputDecl>& inputs, const IsaConfig& cfg);
 

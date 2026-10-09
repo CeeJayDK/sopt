@@ -1,0 +1,378 @@
+diff --git a/ReShade.vcxproj b/ReShade.vcxproj
+index fcce051..5e7fca4 100644
+--- a/ReShade.vcxproj
++++ b/ReShade.vcxproj
+@@ -827,6 +827,10 @@
+       <ShaderType>Compute</ShaderType>
+       <ShaderModel>5.0</ShaderModel>
+     </FxCompile>
++    <FxCompile Include="res\shaders\mipmap_linear_cs_5_0.hlsl">
++      <ShaderType>Compute</ShaderType>
++      <ShaderModel>5.0</ShaderModel>
++    </FxCompile>
+   </ItemGroup>
+   <ItemGroup>
+     <CustomBuild Include="res\shaders\imgui_ps_450.glsl">
+diff --git a/ReShade.vcxproj.filters b/ReShade.vcxproj.filters
+index b228957..14c9627 100644
+--- a/ReShade.vcxproj.filters
++++ b/ReShade.vcxproj.filters
+@@ -833,6 +833,9 @@
+     <FxCompile Include="res\shaders\mipmap_cs_5_0.hlsl">
+       <Filter>resources\shaders</Filter>
+     </FxCompile>
++    <FxCompile Include="res\shaders\mipmap_linear_cs_5_0.hlsl">
++      <Filter>resources\shaders</Filter>
++    </FxCompile>
+   </ItemGroup>
+   <ItemGroup>
+     <CustomBuild Include="res\shaders\imgui_ps_450.glsl">
+diff --git a/res/resource.h b/res/resource.h
+index 3602c00..bec2bb7 100644
+--- a/res/resource.h
++++ b/res/resource.h
+@@ -15,6 +15,7 @@
+ #define IDR_MIPMAP_CS                   111
+ #define IDR_MIPMAP_CS_GLSL              112
+ #define IDR_MIPMAP_LINEAR_CS_GLSL       113
++#define IDR_MIPMAP_LINEAR_CS            114
+ #define IDB_MAIN_ICON                   600
+ #define IDR_LICENSE_GLAD                701
+ #define IDR_LICENSE_IMGUI               702
+diff --git a/res/resource.rc b/res/resource.rc
+index 060830d..651edc7 100644
+--- a/res/resource.rc
++++ b/res/resource.rc
+@@ -92,6 +92,8 @@ IDR_MIPMAP_CS_GLSL      RCDATA                  "shaders\\mipmap_cs_430.glsl"
+ 
+ IDR_MIPMAP_LINEAR_CS_GLSL RCDATA                "shaders\\mipmap_linear_cs_430.glsl"
+ 
++IDR_MIPMAP_LINEAR_CS    RCDATA                  "shaders\\mipmap_linear_cs_5_0.cso"
++
+ IDR_LICENSE_GLAD        RCDATA                  "..\\deps\\glad\\LICENSE"
+ 
+ IDR_LICENSE_IMGUI       RCDATA                  "..\\deps\\imgui\\LICENSE.txt"
+diff --git a/res/shaders/mipmap_linear_cs_5_0.hlsl b/res/shaders/mipmap_linear_cs_5_0.hlsl
+new file mode 100644
+index 0000000..cbbef70
+--- /dev/null
++++ b/res/shaders/mipmap_linear_cs_5_0.hlsl
+@@ -0,0 +1,150 @@
++// Variant of 'mipmap_cs_5_0.hlsl' for filterable formats: the first level of each pass is made with one bilinear fetch per texel from an SRV of the source level,
++// at the shared corner of the 2x2 source texels (the filter weights are exactly 0.5 there), instead of four UAV loads (mips[0] is not read).
++// The sampler clamps to the edge, and the later levels of a pass clamp too ('reduce_clamped'), so levels whose parent is 1 texel wide or high
++// (e.g. the last ones of non-square textures) do not average with values from outside the texture.
++Texture2DArray<float4> src : register(t0);
++SamplerState src_sampler : register(s0);
++RWTexture2DArray<float4> mips[7] : register(u0);
++
++cbuffer cb0 : register(b0)
++{
++	uint num_mips;
++}
++
++// Inspired by algorithm described in https://gpuopen.com/manuals/fidelityfx_sdk/fidelityfx_sdk-page_techniques_single-pass-downsampler/#algorithm-structure
++
++float4 reduce(float4 v0, float4 v1, float4 v2, float4 v3)
++{
++	return (v0 + v1 + v2 + v3) * 0.25;
++}
++// 'reduce' of the 2x2 block (v0 at 'location * 2', v1 one texel right, v2 one down, v3 both) of a level that is 'parent_size' texels big:
++// where that level is 1 texel wide or high, the block reaches past its edge (values from outside the texture), so use the texel inside instead
++float4 reduce_clamped(float4 v0, float4 v1, float4 v2, float4 v3, uint2 location, uint2 parent_size)
++{
++	if (location.x * 2 + 1 >= parent_size.x)
++	{
++		v1 = v0;
++		v3 = v2;
++	}
++	if (location.y * 2 + 1 >= parent_size.y)
++	{
++		v2 = v0;
++		v3 = v1;
++	}
++	return reduce(v0, v1, v2, v3);
++}
++uint2 level_size(uint2 src_size, uint mip)
++{
++	return max(src_size >> mip, 1);
++}
++float4 load_and_reduce(uint2 location, uint slice, uint2 src_size)
++{
++	return src.SampleLevel(src_sampler, float3((float2(location) + 1.0) / float2(src_size), slice), 0);
++}
++
++void store_mip(int mip, uint2 location, uint slice, float4 v)
++{
++	mips[mip][uint3(location, slice)] = v;
++}
++
++uint2 morton_to_xy(uint index)
++{
++	uint2 xy = uint2(index, index >> 1);
++	xy &= 0x55555555;
++	xy = (xy ^ (xy >> 1)) & 0x33333333;
++	xy = (xy ^ (xy >> 2)) & 0x0F0F0F0F;
++	xy = (xy ^ (xy >> 4)) & 0x00FF00FF;
++	xy = (xy ^ (xy >> 8)) & 0x0000FFFF;
++	return xy;
++}
++
++groupshared float4 intermediate[16 * 16];
++
++void downsample_mip_n(const uint mip, uint2 base_location, uint thread_index, uint slice, uint2 src_size)
++{
++	GroupMemoryBarrierWithGroupSync();
++
++	const uint group = (1 << ((mip - 2) * 2));
++
++	[branch]
++	if ((thread_index % group) == 0)
++	{
++		float4 v = reduce_clamped(
++            intermediate[thread_index + group * 0 / 4],
++            intermediate[thread_index + group * 1 / 4],
++            intermediate[thread_index + group * 2 / 4],
++            intermediate[thread_index + group * 3 / 4],
++            base_location / (1 << mip), level_size(src_size, mip - 1));
++
++		intermediate[thread_index] = v;
++
++		store_mip(mip, base_location / (1 << mip), slice, v);
++	}
++}
++
++void downsample_mip_1_2(uint2 base_location, uint thread_index, uint slice, uint2 src_size)
++{
++	// Each thread group downsamples a 64x64 tile, with each thread starting by loading 4x4 pixels
++	float4 v[4];
++	v[0] = load_and_reduce(base_location + uint2(0, 0), slice, src_size);
++	v[1] = load_and_reduce(base_location + uint2(2, 0), slice, src_size);
++	v[2] = load_and_reduce(base_location + uint2(0, 2), slice, src_size);
++	v[3] = load_and_reduce(base_location + uint2(2, 2), slice, src_size);
++
++	// Downsample to 32x32 (each thread stores 2x2 pixels)
++	base_location /= 2;
++	store_mip(1, base_location + uint2(0, 0), slice, v[0]);
++	store_mip(1, base_location + uint2(1, 0), slice, v[1]);
++	store_mip(1, base_location + uint2(0, 1), slice, v[2]);
++	store_mip(1, base_location + uint2(1, 1), slice, v[3]);
++
++	if (num_mips <= 2)
++		return;
++
++	v[0] = reduce_clamped(v[0], v[1], v[2], v[3], base_location / 2, level_size(src_size, 1));
++
++	intermediate[thread_index] = v[0];
++
++	// Downsample to 16x16 (each thread stores 1x1 pixels)
++	base_location /= 2;
++	store_mip(2, base_location, slice, v[0]);
++}
++void downsample_mip_3_6(uint2 base_location, uint thread_index, uint slice, uint2 src_size)
++{
++	if (num_mips <= 3)
++		return;
++	// Downsample to 8x8 (every 4th thread stores a pixel)
++	downsample_mip_n(3, base_location, thread_index, slice, src_size);
++
++	if (num_mips <= 4)
++		return;
++	// Downsample to 4x4 (every 16th thread stores a pixel)
++	downsample_mip_n(4, base_location, thread_index, slice, src_size);
++
++	if (num_mips <= 5)
++		return;
++	// Downsample to 2x2 (every 64th thread stores a pixel)
++	downsample_mip_n(5, base_location, thread_index, slice, src_size);
++
++	if (num_mips <= 6)
++		return;
++	// Downsample to 1x1 (every 256th thread stores a pixel)
++	downsample_mip_n(6, base_location, thread_index, slice, src_size);
++}
++
++[RootSignature(
++	"RootConstants(num32BitConstants=1, b0),"
++	"DescriptorTable(SRV(t0), UAV(u0, numDescriptors = 7, flags = DATA_VOLATILE)),"
++	"StaticSampler(s0, filter = FILTER_MIN_MAG_LINEAR_MIP_POINT, addressU = TEXTURE_ADDRESS_CLAMP, addressV = TEXTURE_ADDRESS_CLAMP, addressW = TEXTURE_ADDRESS_CLAMP)")]
++[numthreads(16 * 16, 1, 1)]
++void main(uint3 group_id : SV_GroupID, uint thread_index : SV_GroupIndex)
++{
++	uint2 base_location = group_id.xy * 64 + morton_to_xy(thread_index) * (64 / 16); // Each 16x16 thread group processes 64x64 pixels
++
++	uint width, height, elements;
++	src.GetDimensions(width, height, elements);
++	const uint2 src_size = uint2(width, height);
++
++	downsample_mip_1_2(base_location, thread_index, group_id.z, src_size);
++	downsample_mip_3_6(base_location, thread_index, group_id.z, src_size);
++}
+diff --git a/source/d3d12/d3d12_impl_command_list.cpp b/source/d3d12/d3d12_impl_command_list.cpp
+index b35d645..6d21985 100644
+--- a/source/d3d12/d3d12_impl_command_list.cpp
++++ b/source/d3d12/d3d12_impl_command_list.cpp
+@@ -1009,6 +1009,122 @@ void reshade::d3d12::command_list_impl::generate_mipmaps(api::resource_view srv)
+ 	if (levels == 1)
+ 		return; // There are no mipmaps to generate
+ 
++	const api::format typed_format = api::format_to_default_typed(view_desc.format, 0);
++
++	// Integer formats cannot be filtered, so they keep the texel load implementation below
++	bool integer_format = false;
++	switch (typed_format)
++	{
++	case api::format::r8_uint: case api::format::r8_sint: case api::format::r8g8_uint: case api::format::r8g8_sint:
++	case api::format::r8g8b8a8_uint: case api::format::r8g8b8a8_sint: case api::format::r10g10b10a2_uint:
++	case api::format::r16_uint: case api::format::r16_sint: case api::format::r16g16_uint: case api::format::r16g16_sint:
++	case api::format::r16g16b16a16_uint: case api::format::r16g16b16a16_sint:
++	case api::format::r32_uint: case api::format::r32_sint: case api::format::r32g32_uint: case api::format::r32g32_sint:
++	case api::format::r32g32b32_uint: case api::format::r32g32b32_sint: case api::format::r32g32b32a32_uint: case api::format::r32g32b32a32_sint:
++		integer_format = true;
++		break;
++	}
++
++	if (!integer_format && _device->_mipmap_linear_pipeline != nullptr)
++	{
++		// Each pass generates up to 6 levels: the first with one bilinear fetch per texel from an SRV of the pass's source level, the rest from it in groupshared memory.
++		// Every pass gets its own block of descriptors: the source level's SRV, then the 7 UAVs 'mips[0..6]' of the shader ('mips[0]' is not accessed, so it stays a null view).
++		const uint32_t passes = (levels - 1 + 5) / 6;
++
++		D3D12_CPU_DESCRIPTOR_HANDLE base_handle;
++		D3D12_GPU_DESCRIPTOR_HANDLE base_handle_gpu;
++		if (!_device->_gpu_view_heap.allocate_transient(passes * 8, base_handle, base_handle_gpu))
++		{
++			log::message(log::level::error, "Failed to allocate %u transient descriptor handle(s) of type %u!", passes * 8, static_cast<uint32_t>(api::descriptor_type::unordered_access_view));
++			return;
++		}
++
++		D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
++		srv_desc.Format = convert_format(typed_format);
++		srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
++		srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
++		srv_desc.Texture2DArray.MipLevels = 1;
++		srv_desc.Texture2DArray.FirstArraySlice = 0;
++		srv_desc.Texture2DArray.ArraySize = desc.DepthOrArraySize;
++		srv_desc.Texture2DArray.PlaneSlice = 0;
++		srv_desc.Texture2DArray.ResourceMinLODClamp = 0.0f;
++
++		D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
++		uav_desc.Format = srv_desc.Format;
++		uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
++		uav_desc.Texture2DArray.FirstArraySlice = 0;
++		uav_desc.Texture2DArray.ArraySize = desc.DepthOrArraySize;
++		uav_desc.Texture2DArray.PlaneSlice = 0;
++
++		for (uint32_t pass = 0; pass < passes; ++pass)
++		{
++			const uint32_t level = pass * 6;
++
++			srv_desc.Texture2DArray.MostDetailedMip = view_desc.texture.first_level + level;
++			_device->_orig->CreateShaderResourceView(reinterpret_cast<ID3D12Resource *>(resource.handle), &srv_desc, base_handle);
++			base_handle = _device->offset_descriptor_handle(base_handle, 1, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
++
++			for (uint32_t i = 0; i < 7; ++i, base_handle = _device->offset_descriptor_handle(base_handle, 1, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV))
++			{
++				uav_desc.Texture2DArray.MipSlice = view_desc.texture.first_level + level + i;
++				_device->_orig->CreateUnorderedAccessView(i != 0 && level + i < levels ? reinterpret_cast<ID3D12Resource *>(resource.handle) : nullptr, nullptr, &uav_desc, base_handle);
++			}
++		}
++
++		if (_current_descriptor_heaps[0] != _device->_gpu_sampler_heap.get() ||
++			_current_descriptor_heaps[1] != _device->_gpu_view_heap.get())
++		{
++			ID3D12DescriptorHeap *const heaps[2] = { _device->_gpu_sampler_heap.get(), _device->_gpu_view_heap.get() };
++			std::copy_n(heaps, 2, _current_descriptor_heaps);
++			_orig->SetDescriptorHeaps(2, heaps);
++		}
++
++		_orig->SetComputeRootSignature(_device->_mipmap_linear_signature.get());
++		_orig->SetPipelineState(_device->_mipmap_linear_pipeline.get());
++
++		_current_root_signature[1] = nullptr;
++
++		// The source level of a pass has to be in a shader resource state while the levels it writes are in the unordered access state, so transition per level (and array slice)
++		const auto transition_level = [&](uint32_t level, D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after) {
++			std::vector<D3D12_RESOURCE_BARRIER> barriers(desc.DepthOrArraySize, { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION });
++			for (UINT slice = 0; slice < desc.DepthOrArraySize; ++slice)
++			{
++				barriers[slice].Transition.pResource = reinterpret_cast<ID3D12Resource *>(resource.handle);
++				barriers[slice].Transition.Subresource = view_desc.texture.first_level + level + slice * desc.MipLevels;
++				barriers[slice].Transition.StateBefore = state_before;
++				barriers[slice].Transition.StateAfter = state_after;
++			}
++			_orig->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
++		};
++
++		const D3D12_RESOURCE_STATES shader_resource_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
++
++		for (uint32_t level = 1; level < levels; ++level)
++			transition_level(level, shader_resource_state, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++
++		for (uint32_t pass = 0; pass < passes; ++pass)
++		{
++			const uint32_t level = pass * 6;
++			const uint32_t width = std::max(1u, static_cast<uint32_t>(desc.Width) >> (view_desc.texture.first_level + level));
++			const uint32_t height = std::max(1u, desc.Height >> (view_desc.texture.first_level + level));
++
++			// The source level of this pass was written by the previous one
++			if (pass != 0)
++				transition_level(level, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, shader_resource_state);
++
++			_orig->SetComputeRoot32BitConstant(0, levels - level, 0);
++			_orig->SetComputeRootDescriptorTable(1, _device->offset_descriptor_handle(base_handle_gpu, pass * 8, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
++
++			_orig->Dispatch(((width - 1) / 64) + 1, ((height - 1) / 64) + 1, desc.DepthOrArraySize);
++		}
++
++		// Levels that were not the source of a pass (levels 6, 12, ... below 'passes * 6') are still in the unordered access state
++		for (uint32_t level = 1; level < levels; ++level)
++			if (level % 6 != 0 || level >= passes * 6)
++				transition_level(level, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, shader_resource_state);
++		return;
++	}
++
+ 	const uint32_t multiple_of_6_remainder = (levels - 1) % 6;
+ 	const uint32_t levels_multiple_of_6 = (multiple_of_6_remainder != 0) ? levels + 6 - multiple_of_6_remainder : levels;
+ 
+diff --git a/source/d3d12/d3d12_impl_device.cpp b/source/d3d12/d3d12_impl_device.cpp
+index b1bbfc0..f722149 100644
+--- a/source/d3d12/d3d12_impl_device.cpp
++++ b/source/d3d12/d3d12_impl_device.cpp
+@@ -108,6 +108,24 @@ reshade::d3d12::device_impl::device_impl(ID3D12Device *device) :
+ 			}
+ 		}
+ 	}
++
++	// Variant for filterable formats, which makes the first level of each pass with a single bilinear fetch per texel (falls back to the one above if this fails)
++	{
++		const resources::data_resource cs = resources::load_data_resource(IDR_MIPMAP_LINEAR_CS);
++
++		if (SUCCEEDED(_orig->CreateRootSignature(0, cs.data, cs.data_size, IID_PPV_ARGS(&_mipmap_linear_signature))))
++		{
++			D3D12_COMPUTE_PIPELINE_STATE_DESC pso_desc = {};
++			pso_desc.pRootSignature = _mipmap_linear_signature.get();
++			pso_desc.CS = { cs.data, cs.data_size };
++
++			if (FAILED(_orig->CreateComputePipelineState(&pso_desc, IID_PPV_ARGS(&_mipmap_linear_pipeline))))
++				_mipmap_linear_pipeline.reset();
++		}
++
++		if (_mipmap_linear_pipeline == nullptr)
++			log::message(log::level::warning, "Failed to create bilinear mipmap generation pipeline, using texel loads instead.");
++	}
+ }
+ reshade::d3d12::device_impl::~device_impl()
+ {
+diff --git a/source/d3d12/d3d12_impl_device.hpp b/source/d3d12/d3d12_impl_device.hpp
+index d00304f..a7bcac9 100644
+--- a/source/d3d12/d3d12_impl_device.hpp
++++ b/source/d3d12/d3d12_impl_device.hpp
+@@ -169,5 +169,7 @@ namespace reshade::d3d12
+ 
+ 		com_ptr<ID3D12PipelineState> _mipmap_pipeline;
+ 		com_ptr<ID3D12RootSignature> _mipmap_signature;
++		com_ptr<ID3D12PipelineState> _mipmap_linear_pipeline;
++		com_ptr<ID3D12RootSignature> _mipmap_linear_signature;
+ 	};
+ }

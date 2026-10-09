@@ -321,7 +321,7 @@ the backend); Nsight Graphics on real hardware is the ground truth.
 Ready-built programs are on the [Releases](https://github.com/CeeJayDK/sopt/releases) page:
 `SweetOpt-<version>-windows-x64.zip` / `-linux-x64.tar.gz` (sopt-fx and sopt; on Windows double-click SweetOpt.bat),
 `GPU-Blueprint-<version>.zip` (OpBench, TexBench and ShaderInfo: what your graphics card and driver really do; double-click GPU-Blueprint.bat) and
-`sopt-windows-tools-<version>.zip` (the benchmark harness, [tools/windows/README.md](tools/windows/README.md)).
+`Test-Host-<version>.zip` (ReShade on Direct3D 9-12, Vulkan and OpenGL without a game: the IEEE 754 test, effect tests with a screenshot per API and the benchmark; double-click Test-Host.bat, [tools/windows/README.md](tools/windows/README.md)).
 They are built from this repository by GitHub Actions (`.github/workflows/release.yml`).
 
 ### Code signing policy

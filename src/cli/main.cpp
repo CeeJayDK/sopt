@@ -73,6 +73,13 @@ void usage() {
       "                    and search both parts on their own, --cut-time S per part, default 1)\n"
       "  --quant-oe N      quantized dedup: values equal after rounding away the low N\n"
       "                    mantissa bits on the test points count as one (default 0 = bit-exact)\n"
+      "  --no-schedule     no scheduling measures (default: reshaped forms of the target, math\n"
+      "                    grouped by rate with the last texture fetch entering last, are\n"
+      "                    candidates; ties are broken by the performance mode cost (uniforms\n"
+      "                    folded), the tail after the last fetch and the critical path; forms\n"
+      "                    not cheaper but faster in performance mode or with a shorter tail are\n"
+      "                    kept as such; inputs declared `uniform` / `fetch`)\n"
+      "  --perf-mode-first the performance mode cost is the main cost, the normal one secondary\n"
       "  --no-v3           no V3 (default: prove a formal error bound by interval subdivision\n"
       "                    for the cheapest 3 alternatives where V2 does not apply, --v3-time S\n"
       "                    each, default 2; sopt-fx: for the written variants)\n"
@@ -84,7 +91,8 @@ void usage() {
       "  --loose F         also list less accurate candidates: within F times the budget or\n"
       "                    the original's error vs exact math (default 100, 0 = off)\n"
       "  --helpers         also enumerate pure helper intrinsics (lerp, step)\n"
-      "  --cost-model M    objective: rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-terascale2 | nvidia | nvidia-maxwell | nvidia-pascal | nvidia-turing | nvidia-ampere | nvidia-blackwell | intel-gen9 | intel-gen7.5 | generic (default: rdna3)\n"
+      "  --bits            also enumerate integer ops and bit casts (asuint, asfloat, & | ^ << >>)\n"
+      "  --cost-model M    objective: rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-terascale2 | nvidia | nvidia-maxwell | nvidia-pascal | nvidia-turing | nvidia-ampere | nvidia-blackwell | intel-gen12 | intel-gen9 | intel-gen7.5 | generic (default: rdna3)\n"
       "  --order-model M   enumeration order (default: search for rdna3/nvidia, else the model)\n"
       "  --stats           print search statistics\n"
       "  --isa             rank the shown alternatives by real GPU ISA cost (fxstat + RGA)\n"
@@ -133,10 +141,11 @@ std::vector<ModelEntry> publishedModels() {
       {&costNvidiaPascal(), "NVIDIA", "Pascal", "OpBench"},
       {&costNvidiaMaxwell(), "NVIDIA", "Maxwell", "OpBench"},
       {&costAmdRdna4(), "AMD", "RDNA 4", "OpBench"},
-      {&costRdna3(), "AMD", "RDNA 3", "AMD's compiler (RGA, gfx1100), not yet measured with OpBench"},
+      {&costRdna3(), "AMD", "RDNA 3", "OpBench"},
       {&costAmdRdna2(), "AMD", "RDNA 2", "OpBench"},
       {&costAmdGcn5(), "AMD", "GCN 5 (Vega)", "OpBench"},
       {&costAmdTerascale2(), "AMD", "TeraScale 2", "OpBench"},
+      {&costIntelGen12(), "Intel", "Gen12 (Xe-LP)", "OpBench"},
       {&costIntelGen9(), "Intel", "Gen9 / Gen9.5", "OpBench"},
       {&costIntelGen75(), "Intel", "Gen7.5", "OpBench"},
   };
@@ -265,12 +274,14 @@ int main(int argc, char** argv) {
     else if (a == "--seed") opt.seed = std::strtoull(next(), nullptr, 10);
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
-      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, intel-gen7.5, generic, search)\n"); return 2; }
+      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen12, intel-gen9, intel-gen7.5, generic, search)\n"); return 2; }
     }
     else if (a == "--stats") stats = true;
     else if (a == "--no-affine") opt.search.affine = false;
     else if (a == "--no-inner") opt.search.inner = false;
     else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
+    else if (a == "--no-affine-precheck") opt.search.affinePrecheck = false;
+    else if (a == "--no-div-form") opt.search.divForm = false;
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
@@ -300,6 +311,8 @@ int main(int argc, char** argv) {
     else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
     else if (a == "--no-v3") opt.v3 = false;
+    else if (a == "--no-schedule") opt.schedule = false;
+    else if (a == "--perf-mode-first") opt.perfFirst = true;
     else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
     else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);
@@ -310,9 +323,10 @@ int main(int argc, char** argv) {
     else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--helpers") opt.search.helpers = true;
+    else if (a == "--bits") opt.search.bits = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
-      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, intel-gen7.5, generic, search)\n"); return 2; }
+      if (!opt.search.order) { std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen12, intel-gen9, intel-gen7.5, generic, search)\n"); return 2; }
     }
     else if (a == "--isa") isa = true;
     else if (a == "--fxstat") isaCfg.fxstat = next();
@@ -386,6 +400,11 @@ int main(int argc, char** argv) {
   std::printf("target:   %s = %s   (cost %u, %s)\n", prog.outputName.c_str(), r.targetText.c_str(),
               r.targetCost, models.c_str());
   std::printf("budget:   %s\n", budgetText(prog.budget, buf, sizeof(buf)));
+  const bool sched = opt.schedule && hasScheduleInputs(prog.inputs);
+  if (sched)
+    std::printf("schedule: cost %u, performance mode %u%s, tail after the last fetch %u, critical path %u\n",
+                r.targetNormalCost, r.targetPerfCost, opt.perfFirst ? " (main cost)" : "", r.targetTail,
+                r.targetCritical);
   std::string profiles;
   for (const auto& p : kAllProfiles) profiles += (profiles.empty() ? "" : "/") + std::string(p.name);
   std::printf("verified: sampling, %zu points, profiles %s", opt.v1Points, profiles.c_str());
@@ -458,6 +477,7 @@ int main(int argc, char** argv) {
                 r.search.maxLevel, r.search.limitHit ? ", limit hit" : "");
   } else {
     std::printf("cost  ");
+    if (sched) std::printf("%4s  tail  ", opt.perfFirst ? "norm" : "perf");
     for (const auto& c : cols) std::printf("%4s  %4s  ", c.name.c_str(), c.regsName.c_str());
     std::printf("ver  class            max |err|  %smax code  changed  expression   (codes: %d-bit)\n",
                 rule ? "vs exact  " : "", prog.budget.codeBits());
@@ -465,6 +485,7 @@ int main(int argc, char** argv) {
     for (size_t i : order) {
       const auto& a = r.accepted[i];
       std::printf("%4u  ", a.cost);
+      if (sched) std::printf("%4u  %4u  ", opt.perfFirst ? a.normalCost : a.perfCost, a.tail);
       for (size_t k = 0; k < cols.size(); ++k) {
         const auto& c = cols[k].rows[i];
         const auto& t = cols[k].target;
@@ -489,9 +510,13 @@ int main(int argc, char** argv) {
         std::printf("      ^ proven (V3) on %.4g%% of the domain (|error vs original| <= %.3g there)\n",
                     100.0 * a.provenFraction, a.proofBound);
       if (a.moreAccurate) std::printf("      ^ more accurate than the original (accuracy variant)\n");
+      if (a.otherModeFaster)
+        std::printf("      ^ not cheaper, but faster %s performance mode\n", opt.perfFirst ? "without" : "in");
+      if (a.betterScheduling) std::printf("      ^ not cheaper, but a shorter tail after the last fetch (better scheduling)\n");
       if (!a.problems.empty()) std::printf("      ^ %s\n", describeProblems(prog, a.problems).c_str());
     }
-    std::printf("\n%zu alternative(s) cheaper than cost %u", r.accepted.size(), r.targetCost);
+    std::printf("\n%zu alternative(s) cheaper than cost %u%s", r.accepted.size(), r.targetCost,
+                sched ? " or better in performance mode / scheduling" : "");
     if (r.accepted.size() > top) std::printf(", showing %zu", top);
     std::printf("\n");
     if (!cols.empty())

@@ -29,8 +29,8 @@ std::string cacheKey(const Program& p, const Options& o) {
   std::string key = toString(p.target, p.inputs);
   char buf[160];
   for (const auto& d : p.inputs) {
-    std::snprintf(buf, sizeof(buf), "|%s %d %.9g %.9g %u %d %.9g", d.name.c_str(), static_cast<int>(d.type), d.lo,
-                  d.hi, d.grid, d.compileTime ? 1 : 0, d.value);
+    std::snprintf(buf, sizeof(buf), "|%s %d %.9g %.9g %u %d %.9g %d", d.name.c_str(), static_cast<int>(d.type), d.lo,
+                  d.hi, d.grid, d.folds() ? (d.compileTime ? 1 : 2) : 0, d.value, static_cast<int>(d.rate));
     key += buf;
   }
   std::snprintf(buf, sizeof(buf), "|%d %.9g %d %d|%.3g|", static_cast<int>(p.budget.kind), p.budget.eps,

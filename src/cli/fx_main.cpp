@@ -15,8 +15,12 @@
 #include <tuple>
 
 #include "cli/console.hpp"
+#include "fx/blend.hpp"
 #include "fx/frontend.hpp"
+#include "fx/hoist.hpp"
+#include "fx/platforms.hpp"
 #include "fx/variants.hpp"
+#include "ir/parser.hpp"
 #include "measure/isa.hpp"
 #include "measure/backends.hpp"
 #include "measure/driverstats.hpp"
@@ -54,13 +58,15 @@ void usage() {
       "Finds cheaper verified alternatives to arithmetic statements of pixel and compute\n"
       "shaders and writes variant .fx files with a preprocessor switch per statement plus a\n"
       "report. ReShade FX by default; .hlsl / .hlsli files are plain HLSL (SM5 pixel shaders,\n"
-      "or compute shaders when the entry point has [numthreads]).\n"
+      "or compute shaders when the entry point has [numthreads]); .frag / .fs / .glsl files are\n"
+      "GLSL fragment shaders.\n"
       "  --version         print the version\n"
       "  -I DIR            include directory (ReShade.fxh etc.), repeatable\n"
       "  -D NAME[=VALUE]   preprocessor definition, repeatable\n"
       "  -o DIR            output directory (default sopt-out)\n"
       "  --hlsl            read every input as plain HLSL (default: by extension)\n"
-      "  --entry NAME      HLSL entry point (default main)\n"
+      "  --glsl            read every input as a GLSL fragment shader (default: by extension)\n"
+      "  --entry NAME      HLSL / GLSL entry point (default main)\n"
       "  --list            only list the regions and their facts, no search\n"
       "  --region F[:L]    only regions of file F (name, any folder) ending at or spanning\n"
       "                    line L, repeatable; for long runs of single regions (--time)\n"
@@ -75,7 +81,7 @@ void usage() {
       "  --max-statements N  statements per window: a statement with the single-use\n"
       "                    temporaries it reads or the statements before it that compute\n"
       "                    its variable (default 4; 1 = single statements only)\n"
-      "  --cost-model M    rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-terascale2 | nvidia | nvidia-maxwell | nvidia-pascal | nvidia-turing | nvidia-ampere | nvidia-blackwell | intel-gen9 | intel-gen7.5 | generic (default rdna3)\n"
+      "  --cost-model M    rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-terascale2 | nvidia | nvidia-maxwell | nvidia-pascal | nvidia-turing | nvidia-ampere | nvidia-blackwell | intel-gen12 | intel-gen9 | intel-gen7.5 | generic (default rdna3)\n"
       "  --isa             measure original and variants with fxstat + RGA (AMD); variants\n"
       "                    must be cheaper for some measured vendor ($SOPT_FXSTAT, $SOPT_RGA)\n"
       "  --sass            same with ptxas + nvdisasm (NVIDIA; $SOPT_PTXAS, $SOPT_NVDISASM)\n"
@@ -83,7 +89,8 @@ void usage() {
       "  --backends        compile original and variants per backend and compare after the\n"
       "                    compilers' optimizers: SPIR-V (fxstat, $SOPT_FXSTAT; spirv-dis,\n"
       "                    $SOPT_SPIRV_DIS) and DXBC via Microsoft's fxc ($SOPT_FXC =\n"
-      "                    sopt-fxc.exe, run with $SOPT_WINE, default wine, off Windows)\n"
+      "                    sopt-fxc.exe, default: next to sopt-fx; run with $SOPT_WINE,\n"
+      "                    default wine, off Windows)\n"
       "  --export-spirv DIR  write original and variants as the SPIR-V ReShade hands the driver\n"
       "                    (fxstat, $SOPT_FXSTAT) to DIR, for ShaderInfo --batch DIR on a PC\n"
       "  --driver-stats F  the driver statistics ShaderInfo --batch wrote (F, with the export's\n"
@@ -109,6 +116,7 @@ void usage() {
       "  --no-two-phase    one phase with the slack (default: only strictly cheaper hits first,\n"
       "                    the deepest search, then the slack's alternatives near the best in\n"
       "                    the last quarter of the time)\n"
+      "  --bits            also enumerate integer ops and bit casts (asuint, asfloat, & | ^ << >>)\n"
       "  --no-library      no rule library (default: rewrite with library/rewrites.txt or\n"
       "                    $SOPT_LIBRARY before the search; the forms are candidates and seed it)\n"
       "  --library-file F  the rule library in F\n"
@@ -122,6 +130,35 @@ void usage() {
       "                    and search both parts on their own, --cut-time S per part, default 1)\n"
       "  --quant-oe N      quantized dedup: values equal after rounding away the low N\n"
       "                    mantissa bits on the test points count as one (default 0 = bit-exact)\n"
+      "  --no-schedule     no scheduling measures (default: for regions with uniforms or texture\n"
+      "                    fetches, reshaped forms (math grouped by rate, the last fetch entering\n"
+      "                    last) are candidates, ties are broken by the performance mode cost and\n"
+      "                    the tail after the last fetch, and variants faster in performance mode\n"
+      "                    or with a shorter tail are written as \"(not faster)\" variants)\n"
+      "  --perf-mode-first the performance mode cost (uniforms are constants) is the main cost\n"
+      "  --no-classic      no classical source rewrites (default: local arrays of constants\n"
+      "                    indexed at run time become static const tables, switch SOPT_<file>_T<line>;\n"
+      "                    pixel shader math of uniforms only, or affine in the texture coordinates,\n"
+      "                    moves to the vertex shader, switch SOPT_<file>_V<line>; kept where --isa\n"
+      "                    measures a gain)\n"
+      "  --no-hoist        no moving to the vertex shader (the table rewrites stay)\n"
+      "  --no-blend-stage  no final back buffer blends as blend states (default: a pixel shader\n"
+      "                    that returns lerp / multiply / add / screen / min / max of the back buffer\n"
+      "                    at its pixel returns the blend's source, switch SOPT_<file>_B<line>)\n"
+      "  --all-platforms   also search with the AMD RDNA 3, NVIDIA Turing, NVIDIA Ampere and Intel Gen9 cost\n"
+      "                    models (about 4x the search time) for variants that help other GPU families without\n"
+      "                    being slower on the chosen one (default: only the chosen model's search; every\n"
+      "                    variant is still costed for all families)\n"
+      "  --no-cache        do not start from the previous run's results (default: sopt-cache.txt in the\n"
+      "                    output folder; unchanged regions are not searched again, changed ones start\n"
+      "                    from the earlier finds)\n"
+      "  --easy            easy mode: write ready files with our recommended changes put in\n"
+      "                    directly, no switches (safe picks: faster on every measured GPU, as\n"
+      "                    accurate, no problem inputs; tables and vertex shader moves)\n"
+      "  --easy-switches   easy mode, but keep the switches, each set to the recommended change\n"
+      "  --easy-too-exact  easy mode may also pick \"too exact\" variants\n"
+      "  --easy-rewrites R classical rewrites in easy mode: none, safe (default: tables, vertex\n"
+      "                    shader) or all (blend stage too)\n"
       "  --no-v3           no V3 (default: prove a formal error bound by interval subdivision\n"
       "                    for the cheapest 3 alternatives where V2 does not apply, --v3-time S\n"
       "                    each, default 2; sopt-fx: for the written variants)\n"
@@ -151,7 +188,8 @@ void collect(const fs::path& p, std::vector<fs::path>& out) {
   if (fs::is_directory(p, ec)) {
     std::vector<fs::path> sub;
     for (auto it = fs::recursive_directory_iterator(p, ec); it != fs::recursive_directory_iterator(); ++it)
-      if (it->is_regular_file() && (it->path().extension() == ".fx" || it->path().extension() == ".hlsl"))
+      if (it->is_regular_file() && (it->path().extension() == ".fx" || it->path().extension() == ".hlsl" ||
+                                    it->path().extension() == ".frag" || it->path().extension() == ".fs"))
         sub.push_back(it->path());
     std::sort(sub.begin(), sub.end());
     out.insert(out.end(), sub.begin(), sub.end());
@@ -166,9 +204,19 @@ int main(int argc, char** argv) {
   std::vector<fs::path> inputs;
   fx::LoadOptions load;
   bool forceHlsl = false;     // --hlsl
+  bool forceGlsl = false;     // --glsl
   std::string entry = "main";  // --entry
   fx::RegionOptions ropt;
   bool formatChecks = true;  // back buffer formats: 10-bit and scRGB checks, see below
+  bool classic = true;       // classical source rewrites (fx/classic.hpp), --no-classic
+  bool hoist = true;         // ... and moving math to the vertex shader (fx/hoist.hpp), --no-hoist
+  bool blendStage = true;    // ... and final back buffer blends as blend states (fx/blend.hpp), --no-blend-stage
+  // Easy mode (owner, 2026-10-08): ready files with our recommended picks (fx::easyPicks).
+  bool easy = false;
+  bool allPlatforms = false;
+  bool useCache = true;
+  fx::WriteOptions easyWrite;
+  fx::EasyOptions easyOpt;
   fs::path outDir = "sopt-out";
   bool list = false, skips = false;
   std::vector<std::string> regionFilter;
@@ -196,6 +244,13 @@ int main(int argc, char** argv) {
   backCfg.spirvDis = "spirv-dis";
   if (const char* v = std::getenv("SOPT_SPIRV_DIS")) backCfg.spirvDis = v;
   if (const char* v = std::getenv("SOPT_FXC")) backCfg.fxc = v;
+  else {
+    // The SweetOpt download ships sopt-fxc.exe next to sopt-fx (owner, 2026-10-06).
+    const std::string dir = executableDir();
+    std::error_code ec;
+    if (!dir.empty() && std::filesystem::exists(std::filesystem::path(dir) / "sopt-fxc.exe", ec))
+      backCfg.fxc = (std::filesystem::path(dir) / "sopt-fxc.exe").string();
+  }
 #ifndef _WIN32
   backCfg.wine = "wine";
 #endif
@@ -218,6 +273,7 @@ int main(int argc, char** argv) {
       load.macros.emplace_back(d.substr(0, eq), eq == std::string::npos ? "1" : d.substr(eq + 1));
     } else if (a == "-o") outDir = next();
     else if (a == "--hlsl") forceHlsl = true;
+    else if (a == "--glsl") forceGlsl = true;
     else if (a == "--entry") entry = next();
     else if (a == "--list") list = true;
     else if (a == "--region") regionFilter.push_back(next());
@@ -248,6 +304,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-top-down") opt.search.topDown = false;
     else if (a == "--library") opt.library = true;
     else if (a == "--no-library") opt.library = false;
+    else if (a == "--bits") opt.search.bits = true;
     else if (a == "--two-phase") opt.search.twoPhase = true;
     else if (a == "--no-two-phase") opt.search.twoPhase = false;
     else if (a == "--no-amd-folds") noAmdFolds = true;
@@ -268,6 +325,8 @@ int main(int argc, char** argv) {
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
     else if (a == "--tests") opt.numTests = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--no-v3") opt.v3 = false;
+    else if (a == "--no-schedule") opt.schedule = false;
+    else if (a == "--perf-mode-first") opt.perfFirst = true;
     else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
     else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);
@@ -281,6 +340,24 @@ int main(int argc, char** argv) {
     else if (a == "--no-buffer-inputs") bufferInputs = false;
     else if (a == "--max-width") ropt.maxWidth = std::strtod(next(), nullptr);
     else if (a == "--no-format-checks") formatChecks = false;
+    else if (a == "--no-classic") classic = false;
+    else if (a == "--no-hoist") hoist = false;
+    else if (a == "--no-blend-stage") blendStage = false;
+    else if (a == "--easy") easy = true, easyWrite.clean = true;
+    else if (a == "--all-platforms") allPlatforms = true;
+    else if (a == "--no-cache") useCache = false;
+    else if (a == "--easy-switches") easy = true, easyWrite.allOn = true;
+    else if (a == "--easy-too-exact") easyOpt.tooExact = true;
+    else if (a == "--easy-rewrites") {
+      const std::string v = next();
+      if (v == "none") easyOpt.rewrites = fx::EasyOptions::Rewrites::None;
+      else if (v == "safe") easyOpt.rewrites = fx::EasyOptions::Rewrites::Safe;
+      else if (v == "all") easyOpt.rewrites = fx::EasyOptions::Rewrites::All;
+      else {
+        std::fprintf(stderr, "--easy-rewrites: none, safe or all\n");
+        return 2;
+      }
+    }
     else if (a == "--sass") sass = true;
     else if (a == "--backends") backends = true;
     else if (a == "--export-spirv") exportSpirv = next();
@@ -316,13 +393,17 @@ int main(int argc, char** argv) {
   // Front end: every effect twice (two resolutions, see extractRegions).
   fx::ReportInfo info;
   info.costModel = std::string(opt.search.model->name);
+  info.perfFirst = opt.perfFirst;
   std::vector<fx::RegionResult> results;
   std::vector<std::pair<fs::path, std::vector<std::string>>> effectFiles;  // effect, its sources
+  std::vector<fx::SourceRewrite> rewrites;  // classical rewrites (--no-classic)
+  std::vector<fs::path> rewriteEffects;     // the effect each one was found in
   // Plain HLSL by extension (or --hlsl), with the entry point.
   auto loadFor = [&](const fs::path& p) {
     fx::LoadOptions o = load;
     const std::string ext = p.extension().string();
-    o.hlsl = forceHlsl || ext == ".hlsl" || ext == ".hlsli";
+    o.glsl = forceGlsl || ext == ".frag" || ext == ".fs" || ext == ".glsl";
+    o.hlsl = !o.glsl && (forceHlsl || ext == ".hlsl" || ext == ".hlsli");
     o.entry = entry;
     return o;
   };
@@ -336,6 +417,9 @@ int main(int argc, char** argv) {
     info.skipped.keepDetails = skips;
     results.clear();
     effectFiles.clear();
+    rewrites.clear();
+    rewriteEffects.clear();
+    std::set<std::pair<std::string, std::string>> rewriteSeen;  // (file, switch tag + line)
     resourceKeys.clear();
     std::set<std::tuple<std::string, uint32_t, size_t>> seen;
     for (const auto& p : inputs) {
@@ -358,7 +442,7 @@ int main(int argc, char** argv) {
       }
       // BUFFER_WIDTH / BUFFER_HEIGHT too (int compile-time inputs), except where a
       // constant is needed.
-      if (symbolic && bufferInputs && !load.hlsl) {
+      if (symbolic && bufferInputs && !load.hlsl && !load.glsl) {
         fx::LoadOptions bs = sym;
         std::string bsErr;
         if (auto s = fx::loadEffectBufferSymbolic(p, bs, bsErr)) {
@@ -371,9 +455,15 @@ int main(int argc, char** argv) {
       alt.height = fx::kAltHeight;
       std::string altErr;
       // Plain HLSL has no BUFFER_WIDTH / BUFFER_HEIGHT: no second parse.
-      auto fx2 = load.hlsl ? nullptr : fx::loadEffect(p, alt, altErr);
+      auto fx2 = load.hlsl || load.glsl ? nullptr : fx::loadEffect(p, alt, altErr);
       info.effects.push_back(p.string());
       effectFiles.emplace_back(p, fx->sourceFiles);
+      if (classic && !load.hlsl && !load.glsl)
+        for (auto& rw : fx::tableRewrites(*fx))
+          if (rewriteSeen.insert({rw.file, rw.tag + std::to_string(rw.line)}).second) {  // a header shared by several effects
+            rewriteEffects.push_back(p);
+            rewrites.push_back(std::move(rw));
+          }
       if (fx->hlsl)
         for (const auto& t : fx::unrangedTextures(*fx))
           resourceKeys[fx::textureFactKey(*fx, t)] = fx->hlslBuffers.count(t) ? "buffer read" : "texture read";
@@ -389,7 +479,9 @@ int main(int argc, char** argv) {
         for (auto& h : fx::extractRegions(*fx, fx2.get(), hopt, hs))
           hdr.emplace(std::make_tuple(h.file, h.line, h.removed.size()), std::move(h));
       }
+      std::vector<fx::Region> effectRegions;  // for the vertex shader rewrites
       for (auto& r : fx::extractRegions(*fx, fx2.get(), ropt, info.skipped)) {
+        if (classic && hoist && !fx->hlsl) effectRegions.push_back(r);
         if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
         fx::RegionResult rr;
         rr.effect = p.string();
@@ -416,6 +508,15 @@ int main(int argc, char** argv) {
         rr.region = std::move(r);
         results.push_back(std::move(rr));
       }
+      std::vector<fx::SourceRewrite> more;
+      if (hoist) more = fx::hoistRewrites(*fx, effectRegions, *opt.search.model);
+      if (blendStage)
+        for (auto& rw : fx::blendRewrites(*fx, ropt, opt.seed)) more.push_back(std::move(rw));
+      for (auto& rw : more)
+        if (rewriteSeen.insert({rw.file, rw.tag + std::to_string(rw.line)}).second) {
+          rewriteEffects.push_back(p);
+          rewrites.push_back(std::move(rw));
+        }
     }
     if (!regionFilter.empty())
       results.erase(std::remove_if(results.begin(), results.end(),
@@ -547,7 +648,7 @@ int main(int argc, char** argv) {
       const fx::Region& r = rr.region;
       std::printf("%s:%s%u  %s %s%s  (cost %u)\n", r.file.c_str(),
                   r.removed.empty() ? "" : (std::to_string(r.removed.front().first) + "-").c_str(), r.line,
-                  r.lhs.c_str(), toString(r.prog.target, r.prog.inputs).c_str(), r.rhs.c_str(), rr.targetCost);
+                  r.lhs.c_str(), (r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs).c_str(), r.rhs.c_str(), rr.targetCost);
       std::printf("    budget %s (%s)\n", fx::budgetString(r.prog.budget).c_str(), r.budgetReason.c_str());
       if (!r.guard.empty()) std::printf("    only while %s\n", r.guard.c_str());
       for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
@@ -557,6 +658,8 @@ int main(int argc, char** argv) {
                     r.facts[k].assumed ? " (assumed)" : "");
       }
     }
+    for (const auto& rw : rewrites)
+      std::printf("rewrite %s:%u (%s)  %s\n", rw.file.c_str(), rw.line, rw.function.c_str(), rw.description.c_str());
     return info.failed.empty() ? 0 : 1;
   }
 
@@ -576,8 +679,8 @@ int main(int argc, char** argv) {
     char buf[160];
     for (size_t k = 0; k < anon.size(); ++k) {
       const InputDecl& d = anon[k];
-      std::snprintf(buf, sizeof(buf), "|%d %.9g %.9g %u %d %.9g", static_cast<int>(d.type), d.lo, d.hi,
-                    d.grid, d.compileTime ? 1 : 0, d.value);
+      std::snprintf(buf, sizeof(buf), "|%d %.9g %.9g %u %d %.9g %d %u", static_cast<int>(d.type), d.lo, d.hi,
+                    d.grid, d.compileTime ? 1 : 0, d.value, static_cast<int>(d.rate), d.fetchOrder);
       key += buf;
       anon[k].name = "in" + std::to_string(k);
     }
@@ -596,6 +699,80 @@ int main(int argc, char** argv) {
       if (fresh) unique.push_back(i);
     }
   }
+  // The previous run (owner, 2026-10-09): sopt-cache.txt in the output folder holds every searched region's accepted
+  // candidates, by shape (input types and the expression over in0, in1, ...) with the full key (ranges, budget) and the
+  // options that matter. Same key and options: the region is not searched again, its candidates are only verified
+  // again (Options::previousOnly). Same shape, other ranges or options: the candidates start the search
+  // (Options::previous: the cheapest that still passes is the bound to beat).
+  auto anonInputs = [](const Program& p) {
+    std::vector<InputDecl> anon = p.inputs;
+    for (size_t k = 0; k < anon.size(); ++k) anon[k].name = "in" + std::to_string(k);
+    return anon;
+  };
+  auto shapeOf = [&](const Program& p) {
+    std::string sh;
+    for (const auto& d : p.inputs) sh += std::to_string(static_cast<int>(d.type)) + " ";
+    return sh + "|" + toString(p.target, anonInputs(p));
+  };
+  std::string optionsKey;
+  {
+    char buf[512];
+    std::snprintf(buf, sizeof(buf), "%s %s t%g b%d l%g x%d a%d L%d s%d c%d td%d tp%d bb%d sl%d sc%d pf%d n%u seed%u ap%d",
+                  SOPT_VERSION, opt.search.model ? std::string(opt.search.model->name).c_str() : "?",
+                  opt.search.timeLimitSec, opt.search.bits ? 1 : 0, opt.loose, opt.exactRule ? 1 : 0,
+                  opt.accuracyVariants ? 1 : 0, opt.library ? 1 : 0, opt.subtrees ? 1 : 0, opt.cuts ? 1 : 0,
+                  opt.search.topDown ? 1 : 0, opt.search.twoPhase ? 1 : 0, opt.search.bestBound ? 1 : 0, opt.search.slack,
+                  opt.schedule ? 1 : 0, opt.perfFirst ? 1 : 0, opt.numTests, static_cast<unsigned>(opt.seed),
+                  allPlatforms ? 1 : 0);
+    optionsKey = buf;
+  }
+  struct CacheEntry {
+    std::string key;
+    std::vector<std::string> cands;
+  };
+  std::map<std::string, std::vector<CacheEntry>> cache;  // by shape; one entry per key (ranges, budget, options)
+  const fs::path cachePath = outDir / "sopt-cache.txt";
+  if (useCache) {
+    std::ifstream f(cachePath, std::ios::binary);
+    std::string line, shape;
+    CacheEntry e;
+    while (std::getline(f, line)) {
+      if (!line.empty() && line.back() == '\r') line.pop_back();
+      if (line.rfind("shape ", 0) == 0) shape = line.substr(6), e = CacheEntry{};
+      else if (line.rfind("key ", 0) == 0) e.key = line.substr(4);
+      else if (line.rfind("cand ", 0) == 0) e.cands.push_back(line.substr(5));
+      else if (line == "end" && !shape.empty()) cache[shape].push_back(e), shape.clear();
+    }
+  }
+  std::vector<std::vector<Expr>> previousCands(results.size());
+  std::vector<char> reuse(results.size(), 0);
+  size_t reused = 0, seeded = 0;
+  for (size_t i : unique) {
+    const Program& p = results[i].region.prog;
+    const auto it = cache.find(shapeOf(p));
+    if (it == cache.end()) continue;
+    const std::vector<InputDecl> anon = anonInputs(p);
+    const std::string key = optionsKey + "|" + searchKey(p);
+    const CacheEntry* same = nullptr;
+    for (const auto& e : it->second)
+      if (e.key == key) same = &e;
+    std::set<std::string> texts;
+    // Unchanged: its own candidates only. Changed: every earlier entry of this shape's.
+    for (const auto& e : it->second)
+      if (!same || &e == same)
+        for (const auto& t : e.cands)
+          if (texts.insert(t).second) {
+            try {
+              previousCands[i].push_back(parseExpr(t, anon));
+            } catch (const std::exception&) {
+            }
+          }
+    if (same) reuse[i] = 1, ++reused;
+    else if (!previousCands[i].empty()) ++seeded;
+  }
+  if (reused || seeded)
+    std::printf("previous run (sopt-cache.txt): %zu unchanged region%s only verified again, %zu start%s from earlier finds\n",
+                reused, reused == 1 ? "" : "s", seeded, seeded == 1 ? "s" : "");
   std::vector<RunResult> searched(results.size());
   std::vector<double> searchSec(results.size(), 0.0);
   {
@@ -605,15 +782,70 @@ int main(int argc, char** argv) {
                   static_cast<unsigned>(std::min<size_t>(jobs, std::max<size_t>(unique.size(), 1))));
     console::section(con, head);
   }
-  console::Progress searchBar(con, unique.size());
+  console::Progress searchBar(con, unique.size(), "searching");
   parallelFor(unique.size(), jobs, [&](size_t u) {
     const size_t i = unique[u];
     const auto s0 = std::chrono::steady_clock::now();
-    searched[i] = optimize(results[i].region.prog, ropt2);
+    Options o1 = ropt2;
+    o1.previous = previousCands[i];
+    o1.previousOnly = reuse[i] != 0;
+    searched[i] = optimize(results[i].region.prog, o1);
+    // --all-platforms (owner, 2026-10-09): searches guided by other families' costs find forms the chosen model's
+    // search never generates; their candidates join this region's, costed with the chosen model.
+    if (allPlatforms && !reuse[i]) {
+      const Program& prog = results[i].region.prog;
+      const std::vector<InputDecl> pins = perfInputs(prog.inputs);
+      for (const CostModel* m : fx::allPlatformModels()) {
+        if (!m || m == opt.search.model || (opt.search.model && std::string(m->name) == opt.search.model->name)) continue;
+        Options o = ropt2;
+        o.search.model = m;
+        o.search.order = nullptr;
+        RunResult extra = optimize(prog, o);
+        std::set<std::string> have;
+        for (const auto& a : searched[i].accepted) have.insert(a.text);
+        for (auto& a : extra.accepted) {
+          if (!have.insert(a.text).second) continue;
+          a.normalCost = dagCost(a.expr, *opt.search.model, prog.inputs);
+          a.perfCost = dagCost(a.expr, *opt.search.model, pins);
+          a.cost = opt.perfFirst ? a.perfCost : a.normalCost;
+          a.otherModeFaster = a.betterScheduling = false;
+          searched[i].accepted.push_back(std::move(a));
+        }
+        searched[i].searchSec += extra.searchSec, searched[i].verifySec += extra.verifySec;
+        searched[i].subtreeSec += extra.subtreeSec, searched[i].cutSec += extra.cutSec;
+        searched[i].totalSec += extra.totalSec;
+      }
+    }
     searchSec[i] = std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
     searchBar.step();
   });
   searchBar.finish();
+  // This run's candidates for the next one (entries of regions not in this run are kept).
+  if (useCache) {
+    for (size_t i : unique) {
+      const Program& p = results[i].region.prog;
+      CacheEntry e;
+      e.key = optionsKey + "|" + searchKey(p);
+      const std::vector<InputDecl> anon = anonInputs(p);
+      for (const auto& a : searched[i].accepted) e.cands.push_back(toString(a.expr, anon));
+      auto& list = cache[shapeOf(p)];
+      list.erase(std::remove_if(list.begin(), list.end(), [&](const CacheEntry& x) { return x.key == e.key; }), list.end());
+      list.insert(list.begin(), std::move(e));
+      if (list.size() > 8) list.resize(8);  // the newest few per shape
+    }
+    std::error_code ec;
+    fs::create_directories(outDir, ec);
+    std::ofstream f(cachePath, std::ios::binary);
+    f << "# SweetOpt cache: every searched region's verified candidates, read by the next run in this output folder\n"
+         "# (unchanged regions are only verified again, changed ones start from these). Delete it or use --no-cache\n"
+         "# to search everything from scratch.\n";
+    for (const auto& [shape, list] : cache)
+      for (const auto& e : list) {
+        f << "shape " << shape << "\nkey " << e.key << "\n";
+        for (const auto& c : e.cands) f << "cand " << c << "\n";
+        f << "end\n";
+      }
+  }
   if (unique.size() < results.size())
     std::printf("%zu regions searched (%zu repeat another one with other input names)\n", unique.size(),
                 results.size() - unique.size());
@@ -632,23 +864,47 @@ int main(int argc, char** argv) {
     fx::RegionResult& rr = results[i];
     const auto s0 = std::chrono::steady_clock::now();
     RunResult res = searched[firstOf[i]];
-    if (firstOf[i] != i)  // the same programs over this region's input names
-      for (auto& a : res.accepted) a.text = toString(a.expr, rr.region.prog.inputs);
+    if (firstOf[i] != i || rr.region.glsl)  // the same programs over this region's input names; GLSL syntax
+      for (auto& a : res.accepted)
+        a.text = rr.region.glsl ? toGlsl(a.expr, rr.region.prog.inputs) : toString(a.expr, rr.region.prog.inputs);
     rr.targetCost = res.targetCost;
     rr.limitHit = res.search.limitHit;
     rr.completedCost = res.search.completedCost;
     rr.maxLevel = res.search.maxLevel;
-    const uint32_t targetCompiled =
-        fx::compiledCost(rr.region.prog.target, *opt.search.model, rr.region.prog.inputs);
+    // Compiled costs in the main mode and the other one (performance mode: uniforms folded).
+    const std::vector<InputDecl> perfIns = perfInputs(rr.region.prog.inputs);
+    const std::vector<InputDecl>& mainIns = opt.perfFirst ? perfIns : rr.region.prog.inputs;
+    const std::vector<InputDecl>& otherIns = opt.perfFirst ? rr.region.prog.inputs : perfIns;
+    const uint32_t targetCompiled = fx::compiledCost(rr.region.prog.target, *opt.search.model, mainIns);
+    // Every GPU family's cost (owner, 2026-10-09: a variant for one card should also help others where it does not
+    // hurt the chosen one).
+    const auto& plats = fx::platforms();
+    rr.targetCompiled = targetCompiled;
+    rr.targetPlatform.resize(plats.size());
+    for (size_t k = 0; k < plats.size(); ++k)
+      rr.targetPlatform[k] = static_cast<int>(fx::compiledCost(rr.region.prog.target, *plats[k].m, mainIns));
+    auto platformCosts = [&](const Expr& e) {
+      std::vector<int> c(plats.size());
+      for (size_t k = 0; k < plats.size(); ++k) c[k] = static_cast<int>(fx::compiledCost(e, *plats[k].m, mainIns));
+      return c;
+    };
+    const uint32_t targetOtherCompiled = fx::compiledCost(rr.region.prog.target, *opt.search.model, otherIns);
+    rr.schedule = opt.schedule && hasScheduleInputs(rr.region.prog.inputs);
+    rr.targetOtherCost = opt.perfFirst ? res.targetNormalCost : res.targetPerfCost;
+    rr.targetTail = res.targetTail;
     // A texture fetch input is its call text: a variant must not repeat it more often.
     auto count = [](const std::string& text, const std::string& what) {
       size_t n = 0;
       for (size_t p = text.find(what); p != std::string::npos; p = text.find(what, p + what.size())) ++n;
       return n;
     };
-    const std::string targetText = toString(rr.region.prog.target, rr.region.prog.inputs);
+    const std::string targetText = (rr.region.glsl ? toGlsl : toString)(rr.region.prog.target, rr.region.prog.inputs);
     for (const auto& a : res.accepted) {
-      if (a.cost >= res.targetCost && !a.moreAccurate) continue;
+      const std::vector<int> pcost = platformCosts(a.expr);
+      bool helpsOther = false;
+      for (size_t k = 0; k < pcost.size(); ++k) helpsOther = helpsOther || pcost[k] < rr.targetPlatform[k];
+      if (a.cost >= res.targetCost && !a.moreAccurate && !a.otherModeFaster && !a.betterScheduling && !helpsOther)
+        continue;
       bool moreFetches = false;
       for (size_t k = 0; k < rr.region.facts.size(); ++k)
         if (rr.region.facts[k].fetch) {
@@ -656,17 +912,37 @@ int main(int argc, char** argv) {
           moreFetches = moreFetches || count(a.text, nm) > count(targetText, nm);
         }
       if (moreFetches) continue;
-      const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, rr.region.prog.inputs);
+      // The same code as the original once printed (a - c and a + -c print alike): no variant.
+      if (a.text == targetText) continue;
+      const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, mainIns);
       const bool cheaper = compiled < targetCompiled;
       // Not faster but maybe fewer registers (owner, 2026-10-04): only measurement shows it.
       const bool registerCandidate = (isa || sass) && compiled <= targetCompiled + opt.accuracySlack;
-      if (!cheaper && !(a.moreAccurate && compiled <= targetCompiled + opt.accuracySlack) && !registerCandidate) {
+      // Scheduling (owner, 2026-10-08): faster in the other mode, or a shorter tail at no more cost.
+      const bool perfFaster = rr.schedule && !cheaper && a.otherModeFaster && compiled <= targetCompiled + opt.accuracySlack &&
+                              fx::compiledCost(a.expr, *opt.search.model, otherIns) < targetOtherCompiled;
+      const bool betterScheduling = rr.schedule && !cheaper && a.betterScheduling && compiled <= targetCompiled;
+      // As fast here, faster on another GPU family (owner, 2026-10-09).
+      // Not slower in the other mode (performance mode) on the chosen card either.
+      const bool otherGpus = !cheaper && compiled <= targetCompiled && helpsOther && a.klass != Klass::LessAccurate &&
+                             (!rr.schedule || fx::compiledCost(a.expr, *opt.search.model, otherIns) <= targetOtherCompiled);
+      if (!cheaper && !(a.moreAccurate && compiled <= targetCompiled + opt.accuracySlack) && !registerCandidate &&
+          !perfFaster && !betterScheduling && !otherGpus) {
         ++rr.onlyContraction;
         continue;
       }
       fx::Variant v;
       v.moreAccurate = a.moreAccurate;
-      v.notFaster = !cheaper;
+      v.otherGpus = otherGpus;
+      v.notFaster = !cheaper && !otherGpus;
+      v.platform = pcost;
+      v.compiled = compiled;
+      v.world = fx::worldChange(pcost, rr.targetPlatform);
+      v.perfFirst = opt.perfFirst;
+      v.perfFaster = perfFaster;
+      v.betterScheduling = betterScheduling;
+      v.otherCost = opt.perfFirst ? a.normalCost : a.perfCost;
+      v.tail = a.tail;
       v.expr = a.expr;
       v.text = a.text;
       v.cost = a.cost;
@@ -681,10 +957,24 @@ int main(int argc, char** argv) {
     if (accuracyRule(rr.region.prog.budget) && opt.exactRule) rr.targetExactAbs = res.targetExact.exactAbs;
     // Accurate variants first (cheapest first); less accurate ones only if cheaper than
     // every accurate one, after them: the user decides from their accuracy.
-    std::vector<fx::Variant> strict, loose, accurate, registers;
+    std::vector<fx::Variant> strict, loose, others, accurate, registers, scheduling;
     for (auto& v : rr.variants)
-      (v.notFaster ? (v.moreAccurate ? accurate : registers) : (v.klass == Klass::LessAccurate ? loose : strict))
+      (v.notFaster ? (v.moreAccurate                            ? accurate
+                      : v.perfFaster || v.betterScheduling       ? scheduling
+                                                                 : registers)
+                   : v.otherGpus ? others : (v.klass == Klass::LessAccurate ? loose : strict))
           .push_back(std::move(v));
+    // Faster on other GPU families only: the two that help the world most (share-weighted), then the most families.
+    auto helped = [&](const fx::Variant& v) {
+      int n = 0;
+      for (size_t k = 0; k < v.platform.size(); ++k) n += v.platform[k] < rr.targetPlatform[k];
+      return n;
+    };
+    std::stable_sort(others.begin(), others.end(), [&](const fx::Variant& a, const fx::Variant& b) {
+      if (a.world != b.world) return a.world < b.world;
+      return helped(a) > helped(b);
+    });
+    if (others.size() > 2) others.resize(2);
     auto byCost = [](const fx::Variant& a, const fx::Variant& b) { return a.cost < b.cost; };
     std::stable_sort(strict.begin(), strict.end(), byCost);
     std::stable_sort(loose.begin(), loose.end(), byCost);
@@ -702,17 +992,29 @@ int main(int argc, char** argv) {
                     registers.end());
     std::stable_sort(registers.begin(), registers.end(), byCost);
     if (registers.size() > 2) registers.resize(2);
+    // Scheduling variants: the two best by the other mode's cost, then the tail.
+    std::stable_sort(scheduling.begin(), scheduling.end(), [](const fx::Variant& a, const fx::Variant& b) {
+      if (a.otherCost != b.otherCost) return a.otherCost < b.otherCost;
+      if (a.tail != b.tail) return a.tail < b.tail;
+      return a.cost < b.cost;
+    });
+    if (scheduling.size() > 2) scheduling.resize(2);
     rr.variants = std::move(strict);
     for (auto& v : loose) rr.variants.push_back(std::move(v));
+    for (auto& v : others) rr.variants.push_back(std::move(v));
     for (auto& v : accurate) rr.variants.push_back(std::move(v));
     for (auto& v : registers) rr.variants.push_back(std::move(v));
+    for (auto& v : scheduling) rr.variants.push_back(std::move(v));
     rr.sec = searchSec[firstOf[i]] + std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
     std::lock_guard<std::mutex> lock(printMu);
     const size_t n = ++done;
-    std::printf("%s[%zu/%zu]%s %s:%u cost %u -> %s%s%s\n", con.c("\x1b[90m"), n, results.size(), con.reset(),
+    bool assumedIn = false;
+    for (const auto& f : rr.region.facts) assumedIn = assumedIn || f.assumed;
+    std::printf("%s[%zu/%zu]%s %s:%u cost %u -> %s%s%s%s\n", con.c("\x1b[90m"), n, results.size(), con.reset(),
                 fs::path(rr.region.file).filename().string().c_str(), rr.region.line, rr.targetCost,
                 rr.variants.empty() ? con.c("\x1b[90m") : con.c("\x1b[1;92m"),
-                rr.variants.empty() ? "-" : std::to_string(rr.variants[0].cost).c_str(), con.reset());
+                rr.variants.empty() ? "-" : std::to_string(rr.variants[0].cost).c_str(), con.reset(),
+                !rr.variants.empty() && assumedIn && !allowAssumed ? "  (needs value ranges, see below)" : "");
     std::fflush(stdout);
   });
 
@@ -784,19 +1086,47 @@ int main(int argc, char** argv) {
     info.nv = sass;
     size_t n = 0, toMeasure = 0;
     for (const auto& rr : results) toMeasure += !rr.variants.empty();
-    std::string what = isa ? "AMD: fxstat + RGA" : "";
+    bool anyGlsl = false, anyFx = false;
+    for (const auto& rr : results)
+      if (!rr.variants.empty()) (rr.region.glsl ? anyGlsl : anyFx) = true;
+    std::string what = !isa ? "" : anyGlsl && !anyFx ? "AMD: RGA (GLSL)" : anyGlsl ? "AMD: fxstat + RGA, RGA (GLSL)" : "AMD: fxstat + RGA";
     if (sass) what += std::string(what.empty() ? "" : ", ") + "NVIDIA: ptxas";
     if (intel) what += std::string(what.empty() ? "" : ", ") + "Intel: driver statistics";
     console::section(con, "Measuring machine code (" + what + ")");
-    console::Progress measureBar(con, toMeasure);
+    console::Progress measureBar(con, toMeasure, "measuring");
     for (auto& rr : results) {
       if (rr.variants.empty()) continue;
       std::vector<InputDecl> ins = rr.region.prog.inputs;
       for (size_t k = 0; k < ins.size(); ++k) ins[k].name = "sopt_in" + std::to_string(k);
+      // Performance mode as the compiler sees it: uniforms are constants (a typical value: not 0, 1 or 0.5,
+      // which would fold more than a user's setting). One mode is measured as the main one, the other
+      // for the scheduling measures (regions with uniforms).
+      std::vector<InputDecl> perfMeas = ins;
+      bool uniforms = false;
+      for (auto& d : perfMeas)
+        if (d.rate == InputDecl::Rate::Uniform) {
+          d.compileTime = true;
+          d.value = d.lo + 0.37 * (d.hi - d.lo);
+          uniforms = true;
+        }
+      const bool otherMode = rr.schedule && uniforms;
+      if (opt.perfFirst && uniforms) std::swap(ins, perfMeas);  // main = performance mode
       std::vector<const Expr*> exprs = {&rr.region.prog.target};
       for (const auto& v : rr.variants) exprs.push_back(&v.expr);
+      IsaConfig regionIsa = isaCfg;
+      regionIsa.glsl = rr.region.glsl;  // GLSL: RGA's own GLSL path, as the game's driver would see it
+      if (isa && otherMode) {
+        const auto m = measureIsa(exprs, perfMeas, regionIsa);
+        rr.targetAmdOther = m[0].ok ? m[0].cost : -1;
+        for (size_t k = 0; k < rr.variants.size(); ++k) rr.variants[k].amdOther = m[k + 1].ok ? m[k + 1].cost : -1;
+      }
+      if (sass && otherMode) {
+        const auto m = measureSass(exprs, perfMeas, sassCfg);
+        rr.targetNvOther = m[0].ok ? m[0].cost : -1;
+        for (size_t k = 0; k < rr.variants.size(); ++k) rr.variants[k].nvOther = m[k + 1].ok ? m[k + 1].cost : -1;
+      }
       if (isa) {
-        const auto m = measureIsa(exprs, ins, isaCfg);
+        const auto m = measureIsa(exprs, ins, regionIsa);
         rr.targetAmd = m[0].ok ? m[0].cost : -1;
         if (!m[0].ok) std::fprintf(stderr, "%s:%u: amd: %s\n", rr.region.file.c_str(), rr.region.line, m[0].error.c_str());
         for (size_t k = 0; k < rr.variants.size(); ++k) rr.variants[k].amd = m[k + 1].ok ? m[k + 1].cost : -1;
@@ -834,12 +1164,37 @@ int main(int argc, char** argv) {
           more = more || c > t;
         }
         v.fewerRegisters = fewer && !more;
-        if (measured && !better && close && (v.moreAccurate || v.fewerRegisters)) {
-          v.notFaster = true;  // accuracy / register variant: not faster, at most 1 instruction slower
+        // Faster in the other mode: where that mode was measured, it must be measurably faster there.
+        if (v.perfFaster) {
+          bool otherMeasured = false, otherBetter = false;
+          for (auto [t, c] : {std::pair{rr.targetAmdOther, v.amdOther}, std::pair{rr.targetNvOther, v.nvOther}}) {
+            if (t < 0 || c < 0) continue;
+            otherMeasured = true;
+            otherBetter = otherBetter || c < t;
+          }
+          if (otherMeasured && !otherBetter) v.perfFaster = false;
+        }
+        const bool scheduling = v.perfFaster || v.betterScheduling;
+        // Measured no faster on AMD / NVIDIA, slower on none, but statically faster on another family (Intel, other
+        // generations): kept for those (owner, 2026-10-09).
+        bool slower = false, otherFaster = false;
+        for (auto [t, c] : {std::pair{rr.targetAmd, v.amd}, std::pair{rr.targetNv, v.nv}, std::pair{rr.targetIntel, v.intel}})
+          slower = slower || (t >= 0 && c >= 0 && c > t);
+        for (size_t k = 0; k < v.platform.size() && k < rr.targetPlatform.size(); ++k)
+          otherFaster = otherFaster || v.platform[k] < rr.targetPlatform[k];
+        if (measured && !better && !slower && otherFaster && !v.moreAccurate && !scheduling &&
+            v.klass != Klass::LessAccurate && (v.otherGpus || !v.notFaster)) {
+          v.otherGpus = true;
+          v.notFaster = false;
+          kept.push_back(std::move(v));
+          continue;
+        }
+        if (measured && !better && close && (v.moreAccurate || v.fewerRegisters || scheduling)) {
+          v.notFaster = true;  // accuracy / register / scheduling variant: not faster, at most 1 instruction slower
           kept.push_back(std::move(v));
         } else if (measured && !better) {
-          if (!v.notFaster || v.moreAccurate) ++rr.measuredNoGain;  // register candidates never claimed a gain
-        } else if (!measured && v.notFaster && !v.moreAccurate) {
+          if (!v.notFaster || v.moreAccurate || scheduling) ++rr.measuredNoGain;  // register candidates never claimed a gain
+        } else if (!measured && v.notFaster && !v.moreAccurate && !scheduling) {
           // a register candidate whose registers could not be measured
         } else {
           v.notFaster = false;
@@ -856,6 +1211,7 @@ int main(int argc, char** argv) {
       };
       std::stable_sort(kept.begin(), kept.end(), [&](const fx::Variant& a, const fx::Variant& b) {
         if (a.notFaster != b.notFaster) return b.notFaster;  // accuracy / register variants last
+        if (a.otherGpus != b.otherGpus) return b.otherGpus;  // then faster on other GPUs only
         const double ga = gain(a), gb = gain(b);
         if (ga != gb) return ga > gb;
         return a.cost < b.cost;
@@ -1014,14 +1370,139 @@ int main(int argc, char** argv) {
   std::sort(results.begin(), results.end(), [](const fx::RegionResult& a, const fx::RegionResult& b) {
     return std::tie(a.region.file, a.region.line) < std::tie(b.region.file, b.region.line);
   });
+  // Classical rewrites: each one's switch off and on, the effect it was found in, measured with RGA
+  // (pixel and compute shaders summed) without and with performance mode.
+  // Written alone into a scratch folder (with the effect copied next to its changed headers); kept
+  // only where it measurably helps (fewer instructions or less scratch, with or without performance
+  // mode): arrays read in loops the compiler unrolls fold anyway.
+  if (isa && !rewrites.empty()) {
+    const fs::path tmp = outDir / ".sopt-rewrite-check";
+    std::string tmpErrors;
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fx::writeVariants({}, tmp, tmpErrors, rewrites);
+    // Pixel / compute shader ISA of src with defines (RGA), summed: cost, scratch, max VGPRs.
+    struct Isa {
+      int cost = -1, scratch = -1, vgprs = -1, vmem = -1;
+    };
+    auto measure = [&](const fs::path& src, const std::string& inc, const std::string& defines, bool perf) {
+      int status = 0;
+      const std::string json = runCommand(quote(isaCfg.fxstat) + " --json --rga " + quote(isaCfg.rga) + inc +
+                                              (perf ? " --performance-mode" : " --no-performance-mode") + defines + " " +
+                                              quote(src.string()) + " 2>/dev/null",
+                                          status);
+      Isa r;
+      for (size_t p = json.find("\"stage\": \""); p != std::string::npos; p = json.find("\"stage\": \"", p + 1)) {
+        const std::string stage = json.substr(p + 10, 7);
+        if (stage != "pixel\"," && stage != "compute") continue;
+        const size_t isaPos = json.find("\"isa\":", p);
+        if (isaPos == std::string::npos) continue;
+        const size_t end = json.find('}', isaPos);
+        auto get = [&](const char* key) {
+          const std::string k2 = std::string("\"") + key + "\":";
+          const size_t q = json.find(k2, isaPos);
+          return q == std::string::npos || q > end ? -1 : std::atoi(json.c_str() + q + k2.size());
+        };
+        const int c = get("cost"), sc = get("scratch"), v = get("vgprs"), vm = get("vmem");
+        if (c < 0) continue;
+        r.cost = (r.cost < 0 ? 0 : r.cost) + c;
+        r.vmem = (r.vmem < 0 ? 0 : r.vmem) + std::max(vm, 0);
+        r.scratch = (r.scratch < 0 ? 0 : r.scratch) + std::max(sc, 0);
+        r.vgprs = std::max(r.vgprs, v);
+      }
+      return r;
+    };
+    // Where each rewrite is compiled from; the original state (every switch 0) once per effect and mode.
+    std::vector<fs::path> srcs(rewrites.size());
+    std::vector<std::string> incs(rewrites.size());
+    std::map<std::string, size_t> effectIndex;  // src -> index into befores
+    std::vector<std::pair<fs::path, std::string>> effects;
+    for (size_t k = 0; k < rewrites.size(); ++k) {
+      const fs::path& eff = rewriteEffects[k];
+      srcs[k] = tmp / eff.filename();
+      if (!fs::exists(srcs[k], ec)) fs::copy_file(eff, srcs[k], fs::copy_options::overwrite_existing, ec);
+      if (ec) srcs[k] = eff;
+      incs[k] = " -I " + quote(tmp.string()) + " -I " + quote(eff.parent_path().string());
+      for (const auto& d : loadFor(eff).includePaths) incs[k] += " -I " + quote(d.string());
+      if (effectIndex.emplace(srcs[k].string(), effects.size()).second) effects.emplace_back(srcs[k], incs[k]);
+    }
+    std::vector<Isa> before(2 * effects.size()), after(2 * rewrites.size());
+    const size_t numJobs = before.size() + after.size();
+    parallelFor(numJobs, jobs, [&](size_t j) {
+      if (j < before.size()) {
+        const auto& [src, inc] = effects[j / 2];
+        before[j] = measure(src, inc, "", j % 2 == 1);
+      } else {
+        const size_t i = j - before.size(), k = i / 2;
+        after[i] = measure(srcs[k], incs[k], " -D " + fx::rewriteSwitch(rewrites[k]) + "=1", i % 2 == 1);
+      }
+    });
+    for (size_t k = 0; k < rewrites.size(); ++k) {
+      fx::SourceRewrite& rw = rewrites[k];
+      const size_t e = effectIndex[srcs[k].string()];
+      rw.amdBefore = before[2 * e].cost;
+      rw.scratchBefore = before[2 * e].scratch;
+      rw.vgprBefore = before[2 * e].vgprs;
+      rw.vmemBefore = before[2 * e].vmem;
+      rw.vmemAfter = after[2 * k].vmem;
+      rw.amdPerfBefore = before[2 * e + 1].cost;
+      rw.amdAfter = after[2 * k].cost;
+      rw.scratchAfter = after[2 * k].scratch;
+      rw.vgprAfter = after[2 * k].vgprs;
+      rw.amdPerfAfter = after[2 * k + 1].cost;
+      std::printf("rewrite %s:%u (%s): amd %d -> %d, scratch %d -> %d, reads %d -> %d; performance mode %d -> %d\n",
+                  fs::path(rw.file).filename().string().c_str(), rw.line, rw.kind.c_str(), rw.amdBefore, rw.amdAfter,
+                  rw.scratchBefore, rw.scratchAfter, rw.vmemBefore, rw.vmemAfter, rw.amdPerfBefore, rw.amdPerfAfter);
+    }
+    fs::remove_all(tmp, ec);
+    std::vector<fx::SourceRewrite> kept;
+    for (auto& rw : rewrites) {
+      const bool measured = rw.amdBefore >= 0 && rw.amdAfter >= 0;
+      // A texture read less counts too (the blend stage: the back buffer read goes, the same instructions).
+      const bool gain = rw.amdAfter < rw.amdBefore || rw.scratchAfter < rw.scratchBefore ||
+                        (rw.vmemAfter >= 0 && rw.vmemAfter < rw.vmemBefore) ||
+                        (rw.amdPerfBefore >= 0 && rw.amdPerfAfter >= 0 && rw.amdPerfAfter < rw.amdPerfBefore);
+      const bool perfWorse = rw.amdPerfAfter > rw.amdPerfBefore && rw.amdPerfBefore >= 0;
+      // Faster without performance mode, slower with it (owner, 2026-10-08: Phosphor 46 -> 18 but 11 -> 12):
+      // applied only without performance mode (ReShade's __RESHADE_PERFORMANCE_MODE__), so never slower.
+      if (measured && rw.amdAfter < rw.amdBefore && perfWorse) {
+        for (auto& e : rw.edits)
+          if (e.extra.find("__RESHADE_PERFORMANCE_MODE__") == std::string::npos) e.extra += " && !__RESHADE_PERFORMANCE_MODE__";
+        rw.description += " (not in performance mode, where it would be slower)";
+        rw.amdPerfAfter = rw.amdPerfBefore;
+        kept.push_back(std::move(rw));
+        continue;
+      }
+      const bool worse = rw.amdAfter > rw.amdBefore || perfWorse;
+      if (measured ? gain && !worse : rw.otherEntries > 0) kept.push_back(std::move(rw));
+    }
+    std::printf("classical rewrites: %zu of %zu kept (measured gain)\n", kept.size(), rewrites.size());
+    rewrites = std::move(kept);
+  } else {
+    // Not measured: only arrays with a non-constant entry (all-constant ones the compilers fold already).
+    rewrites.erase(std::remove_if(rewrites.begin(), rewrites.end(),
+                                  [](const fx::SourceRewrite& rw) { return rw.otherEntries == 0; }),
+                   rewrites.end());
+  }
   std::string errors;
-  auto files = fx::writeVariants(results, outDir, errors);
+  // Easy mode: the files get only our picks (the report still lists every variant).
+  std::vector<fx::RegionResult> easyResults;
+  std::vector<fx::SourceRewrite> easyRewrites;
+  if (easy) {
+    easyResults = results;
+    easyRewrites = rewrites;
+    fx::easyPicks(easyResults, easyRewrites, easyOpt);
+  }
+  const auto& wResults = easy ? easyResults : results;
+  const auto& wRewrites = easy ? easyRewrites : rewrites;
+  auto files = fx::writeVariants(wResults, outDir, errors, wRewrites, easy ? easyWrite : fx::WriteOptions{});
 
   // Effects that include a changed header are copied too, so that the output directory
   // is self-contained: an effect finds headers next to it before the include paths.
   std::set<std::string> changed;
-  for (const auto& r : results)
+  for (const auto& r : wResults)
     if (!r.variants.empty()) changed.insert(r.region.file);
+  for (const auto& rw : wRewrites) changed.insert(rw.file);
   std::vector<std::pair<fs::path, fs::path>> effectsOut;  // written effect, its original
   for (const auto& [p, srcs] : effectFiles) {
     bool uses = false;
@@ -1055,11 +1536,13 @@ int main(int argc, char** argv) {
       }
     }
   }
+  info.rewrites = &rewrites;
   info.checks = checks;
   info.checkFailures = checkFailures;
   info.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   {
     std::ofstream f(outDir / "sopt-report.md", std::ios::binary);
+    for (const auto& rr : results) info.schedule = info.schedule || rr.schedule;
     f << fx::markdownReport(results, info);
   }
   {
@@ -1067,12 +1550,101 @@ int main(int argc, char** argv) {
     f << fx::foundRewrites(results);
   }
   if (!errors.empty()) std::fprintf(stderr, "%s", errors.c_str());
+  if (easy) {
+    size_t picked = 0;
+    for (const auto& r : wResults) picked += !r.variants.empty();
+    std::printf("easy mode: %zu changes and %zu classical rewrites written %s\n", picked, wRewrites.size(),
+                easyWrite.clean ? "into the files (no switches)" : "with their switches on");
+  }
   size_t improved = 0;
   for (const auto& r : results) improved += !r.variants.empty();
   std::printf("%s%zu of %zu regions have cheaper variants%s; wrote %zu files, sopt-report.md and sopt-found.txt to %s\n",
               con.c(improved ? "\x1b[1;92m" : "\x1b[1;97m"), improved, results.size(), con.reset(), files.size(),
               outDir.string().c_str());
+  // Variants held back because an input's range was only assumed (owner, 2026-10-08: "0 of 13" was
+  // misleading when two were found): say how many and what to do.
+  {
+    size_t held = 0;
+    std::set<std::string> names;
+    for (const auto& r : results) {
+      if (r.unwritten.empty()) continue;
+      ++held;
+      for (const auto& f : r.region.facts)
+        if (f.assumed) names.insert(f.input);
+    }
+    if (held) {
+      std::string list;
+      size_t shown = 0;
+      for (const auto& nm : names)
+        if (shown++ < 8) list += (list.empty() ? "" : ", ") + nm;
+      if (names.size() > 8) list += " and " + std::to_string(names.size() - 8) + " more";
+      std::printf("%s%zu more region%s ha%s cheaper variants that need value ranges%s (inputs without a known range: %s).\n"
+                  "Give their ranges in sopt-facts.txt (SweetOpt.bat: key 8) and run again; until then they are only listed\n"
+                  "in sopt-report.md and sopt-found.txt.\n",
+                  con.c("\x1b[1;93m"), held, held == 1 ? "" : "s", held == 1 ? "s" : "ve", con.reset(), list.c_str());
+    }
+  }
   std::printf("variant check: %s%zu of %zu parses failed%s\n", con.c(checkFailures ? "\x1b[1;91m" : ""), checkFailures,
               checks, con.reset());
+  // What it adds up to (owner, 2026-10-09: "some feel good information"): easy mode counts what it wrote in, expert
+  // mode the first (best) variant of each region with a faster one.
+  {
+    const auto& ps = fx::platforms();
+    long tc = 0, vc = 0, ta = 0, va = 0, tn = 0, vn = 0;
+    std::vector<long> tp(ps.size(), 0), vp(ps.size(), 0);
+    size_t regions = 0;
+    std::set<std::string> filesHit;
+    for (const auto& r : wResults) {
+      if (r.variants.empty() || r.variants[0].notFaster) continue;
+      const fx::Variant& v = r.variants[0];
+      ++regions;
+      filesHit.insert(r.region.file);
+      tc += r.targetCompiled, vc += v.compiled;
+      if (r.targetAmd >= 0 && v.amd >= 0) ta += r.targetAmd, va += v.amd;
+      if (r.targetNv >= 0 && v.nv >= 0) tn += r.targetNv, vn += v.nv;
+      for (size_t k = 0; k < ps.size() && k < r.targetPlatform.size() && k < v.platform.size(); ++k)
+        tp[k] += r.targetPlatform[k], vp[k] += v.platform[k];
+    }
+    if (regions) {
+      auto pct = [](long t, long c) { return t > 0 ? 100.0 * (c - t) / t : 0.0; };
+      std::printf("\n%sSweetOpt saved:%s %zu region%s in %zu file%s, cost %ld -> %ld (%s%.0f%%%s) on %s\n",
+                  con.c("\x1b[1;92m"), con.reset(), regions, regions == 1 ? "" : "s", filesHit.size(),
+                  filesHit.size() == 1 ? "" : "s", tc, vc, con.c("\x1b[1;92m"), pct(tc, vc), con.reset(),
+                  opt.search.model ? std::string(opt.search.model->name).c_str() : "?");
+      std::string faster, slower;
+      char cell[96];
+      double lo = 0, hi = -1e9;
+      size_t nFaster = 0;
+      for (size_t k = 0; k < ps.size(); ++k)
+        if (vp[k] < tp[k]) ++nFaster, lo = std::min(lo, pct(tp[k], vp[k])), hi = std::max(hi, pct(tp[k], vp[k]));
+      if (nFaster == ps.size()) {
+        std::snprintf(cell, sizeof(cell), "every GPU family (%.0f%% to %.0f%%)", lo, hi);
+        faster = cell;
+      }
+      for (size_t k = 0; k < ps.size() && nFaster < ps.size(); ++k) {
+        if (vp[k] == tp[k]) continue;
+        std::snprintf(cell, sizeof(cell), "%s %s (%+.0f%%)", ps[k].vendor, ps[k].label, pct(tp[k], vp[k]));
+        std::string& list = vp[k] < tp[k] ? faster : slower;
+        list += (list.empty() ? "" : ", ") + std::string(cell);
+      }
+      if (!faster.empty()) std::printf("  faster on: %s\n", faster.c_str());
+      if (!slower.empty()) std::printf("  %sslower on: %s%s\n", con.c("\x1b[93m"), slower.c_str(), con.reset());
+      if (ta || tn) {
+        std::string m;
+        if (ta) std::snprintf(cell, sizeof(cell), "AMD %ld -> %ld instructions", ta, va), m += cell;
+        if (tn) std::snprintf(cell, sizeof(cell), "%sNVIDIA %ld -> %ld", m.empty() ? "" : ", ", tn, vn), m += cell;
+        std::printf("  measured: %s\n", m.c_str());
+      }
+      if (!wRewrites.empty()) {
+        long rb = 0, ra = 0;
+        for (const auto& rw : wRewrites)
+          if (rw.amdBefore >= 0 && rw.amdAfter >= 0) rb += rw.amdBefore, ra += rw.amdAfter;
+        if (rb) std::printf("  classical rewrites: %zu, AMD %ld -> %ld instructions in the shaders they touch\n",
+                            wRewrites.size(), rb, ra);
+        else std::printf("  classical rewrites: %zu\n", wRewrites.size());
+      }
+    }
+  }
+  console::setTitle(con, "SweetOpt  -  done");
   return info.failed.empty() && checkFailures == 0 ? 0 : 1;
 }

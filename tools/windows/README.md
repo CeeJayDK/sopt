@@ -1,44 +1,53 @@
-# Windows bench tools (M4)
+# Test Host and the Windows tools
 
-Measures the real speed of sopt's variants on a Windows PC: every `X_orig` / `X_sopt` pair of a
-test package is timed on the GPU, on DX11 and Vulkan, with a screenshot per preset.
+The Test Host (owner, 2026-10-06: one test host for every API ReShade supports, with a menu) runs ReShade in front of
+`sopt-host`, a window with a fixed test image and a synthetic depth buffer, on Direct3D 9, 10, 11 and 12, Vulkan and
+OpenGL. It runs the IEEE 754 test effect (tools/reshade/sopt_IEEE754.fx, findings in tools/reshade/IEEE754.md) or any
+effect with a screenshot per API, opens the host with ReShade on a chosen API for testing by hand, and times every
+`X_orig` / `X_sopt` pair of a SweetOpt test package (M4 harness).
 
-## Quick start (one click)
+## Quick start
 
-1. Download the `sopt-windows-tools` artifact of the latest CI run (GitHub, Actions, the run's
-   Artifacts) and extract it into a folder. It contains everything, `ReShade64.dll` included
-   (ReShade 6.8.0 with full add-on support, built by CI from crosire's unchanged source; an
-   official add-on build next to the script works too).
-2. Extract the test package (`sopt-compare-*.zip`, a folder with `sopt-presets\` and
-   `reshade-shaders\`) into the same folder.
-3. Double-click `run-bench.bat`. A 4K window opens and closes by itself, first for DX11, then
-   for Vulkan; each preset warms up, is timed for 300 frames and gets a screenshot.
-4. Send the `results-<date>.zip` it writes next to the script: `sopt-timer-dx11.csv`,
-   `sopt-timer-vulkan.csv`, the screenshots per API (`screenshots\dx11`, `screenshots\vulkan`;
-   the bundle's presets end in the Compare effect, so a black image means orig and sopt render
-   the same), ReShade's logs and the GPU name.
+1. Download the `Test-Host` artifact of the latest CI run (GitHub, Actions, the run's Artifacts) or the
+   release's `Test-Host-<version>.zip`, and extract it into a folder. It contains everything, `ReShade64.dll` included
+   (ReShade 6.8.0 with full add-on support, built by CI from crosire's unchanged source; an official add-on build or
+   `ReShade_Setup_*_Addon.exe` next to `Test-Host.bat` works too).
+2. Double-click `Test-Host.bat` and press a number: 1 / 2 IEEE 754 test on every / one API, 3 an effect from
+   `Effects\` on every API, 4 the host with ReShade on a chosen API (Home opens the overlay), 5 the benchmark (extract
+   the test package, `sopt-compare-*.zip`, into the same folder first), 6 / 7 / 8 the Results / Effects folders and
+   the guide.
+3. Results go to `Results\`: per test `<effect>-<date>\` (a PNG per API, `ReShade-<api>.log`, `gpu.txt`,
+   `summary.txt`) and its zip; the benchmark writes `Results\bench-<date>\` (`sopt-timer-<api>.csv`, the screenshots
+   per API, ReShade's logs) and its zip.
 
-Options (`run-bench.bat -Apis dx11 -Frames 600 -Width 2560 -Height 1440`): `-Apis`, `-Frames`,
-`-Width`, `-Height`, `-ReShade <dll>`, `-Package <folder>`. The run uses its own folder (`run\`)
-with its own `ReShade.ini`, so no ReShade installation and no game is touched. Vulkan uses the
-DLL as a layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS`, for sopt-host only.
+Every run uses its own folder (`run\`) with its own `ReShade.ini`, so no ReShade installation and no game is
+touched. ReShade goes next to sopt-host as `d3d9.dll` (Direct3D 9), `dxgi.dll` (Direct3D 10 / 11 / 12),
+`opengl32.dll` (OpenGL), or as a Vulkan layer through `VK_ADD_LAYER_PATH` / `VK_INSTANCE_LAYERS` for sopt-host only
+(`bin\common.ps1`). Test screenshots come from the sopt-timer add-on's shot mode (`SOPT_TIMER_SHOT=N`): after N frames
+with a rendered technique and 7 s (ReShade's banner is gone by then) it saves one screenshot and closes the window;
+after 60 s without a rendered technique (an effect that does not compile) the screenshot is taken anyway.
+
+Scripts (in `bin\`; Windows PowerShell 5.1): `run-test.ps1 [-Apis all|dx9,dx10,dx11,dx12,vulkan,gl] [-Effect F.fx |
+-Effect ?] [-Interactive] [-Width 1920] [-Height 1080] [-Frames 30] [-ReShade dll]`, `run-bench.ps1 [-Apis dx11,vulkan]
+[-Frames 300] [-Width 3840] [-Height 2160] [-ReShade dll] [-Package folder]`, `common.ps1` (shared).
 
 ## Contents
 
 Since 0.6.0 (owner, 2026-10-05) every Windows download has only its launcher and `README.html` in the main
 folder, the programs in `bin\` and the other pages / licenses in `Docs\` (`tools/windows/stage.ps1` stages all
-three for CI and the release). This one (`sopt-windows-tools`):
+three for CI and the release). This one (CI artifact `Test-Host`, release `Test-Host-<version>.zip`):
 
 | file | what |
 |---|---|
-| `run-bench.bat` | the one-click bench above |
-| `README.html` | the short guide (source: `tools/windows/docs/Tools.html`) |
-| `bin\sopt-host.exe` | a window with a fixed test image and a synthetic depth buffer, vsync off (DX11 or Vulkan) |
-| `bin\sopt-timer.addon64` / `.addon32` | the ReShade add-on that times the techniques and runs the bench |
-| `bin\run-bench.ps1` | the bench script (results, `run\`, the test package and a ReShade setup go next to `run-bench.bat`) |
-| `bin\sopt-fxc.exe` | Microsoft's fxc -O3 on one HLSL entry point (for `sopt-fx --backends`, see tools/fxc) |
+| `Test-Host.bat` | the menu |
+| `README.html` | the guide (source: `tools/windows/docs/TestHost.html`) |
+| `Effects\` | the test effects (`sopt_IEEE754.fx`, `sopt_MipTest.fx`); users add their own |
+| `bin\sopt-host.exe` | the test window: fixed image, synthetic depth, vsync off, `--api dx9\|dx10\|dx11\|dx12\|vulkan\|gl` |
+| `bin\sopt-timer.addon64` / `.addon32` | the ReShade add-on: technique timings, the benchmark, the test screenshots |
+| `bin\run-test.ps1`, `bin\run-bench.ps1`, `bin\common.ps1` | the scripts behind the menu |
 | `bin\timings.py` | merges several CSVs into one Markdown table |
 | `bin\ReShade64.dll`, `Docs\ReShade-LICENSE.md` | ReShade 6.8.0, full add-on support, unchanged (CI build) |
+| `Docs\IEEE754.md` | what the IEEE 754 test found in ReShade 6.8.0 |
 
 GPU Blueprint (OpBench, TexBench, ShaderInfo, `GPU-Blueprint.bat`) is its own download (CI artifact `GPU-Blueprint`,
 release `GPU-Blueprint-<version>.zip`): `GPU-Blueprint.bat`, `README.html`, `bin\` with the three programs (their
@@ -58,7 +67,7 @@ support*: the standard build skips `.addon` files.
 **sopt-host** (`sopt-host.exe`) is a window that shows one fixed image with vsync off (DX11 or
 Vulkan). It lets you run the bench without a game.
 
-Both are built by CMake on Windows. CI uploads them as the `sopt-windows-tools` artifact of the
+Both are built by CMake on Windows. CI uploads them as the `Test-Host` artifact of the
 MSVC job.
 
 ## What sopt-timer measures
@@ -140,12 +149,13 @@ prepass does, so ReShade's generic depth picks it up and depth effects do real w
   far 1000.
 - It is drawn as a 256 x 144 grid in 144 draw calls, because generic depth ignores depth
   buffers with 3 or fewer vertices or 8 or fewer draw calls.
-- The format is D24S8 (typeless) on DX11 and D32 on Vulkan.
+- The format is D24S8 (typeless) on Direct3D 9 / 10 / 11 / 12 and D32 on Vulkan; OpenGL has no depth pass yet.
 - `--no-depth` leaves it out.
 
-The shaders are `tools/windows/host/depth.hlsl` and `tools/windows/host/depth.vert`; keep them in sync.
-They are embedded as `depth_dxbc.h`, compiled with Microsoft's `D3DCompile` (vs_5_0,
-entry VS, O3), and `depth_spv.h` (`glslangValidator -V depth.vert`). In D3D11,
+The shaders are `tools/windows/host/depth.hlsl`, `depth9.hlsl` (the same in float math for shader model 3, with a
+ps_3_0 that Direct3D 9 needs next to a vs_3_0) and `depth.vert`; keep them in sync. They are embedded as
+`depth_dxbc.h` (vs_5_0: Direct3D 11 and 12), `depth10_dxbc.h` (vs_4_0), `depth9_dxbc.h` (vs_3_0 + ps_3_0), all
+compiled with Microsoft's `D3DCompile` (O3), and `depth_spv.h` (`glslangValidator -V depth.vert`). In D3D11,
 `SV_VertexID` does not include a draw's start vertex, so the vertex index comes from a
 vertex buffer.
 

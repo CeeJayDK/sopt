@@ -215,3 +215,66 @@ pow(pow(x, y), z) -> pow(x, y * z)   where x in [1e-6, 1e6], y in [-2, 2], z in 
 sqrt(exp(x)) -> exp(x * 0.5)   where x in [-8, 8]
 sqrt(exp2(x)) -> exp2(x * 0.5)   where x in [-8, 8]
 sqrt(pow(x, y)) -> pow(abs(x), y * 0.5)   where x > 0, y in [-4, 4]
+
+# Zero comparisons (CeeJay's ReShade wiki, Shader Tips, Tricks and Optimizations): "are both 0?"
+# as one compare, abs and negation being free source modifiers on most cards. Where the signs
+# are known no abs is needed: one value >= 0 and the other <= 0 (or negated) is enough.
+a == 0.0 ? (b == 0.0 ? x : y) : y -> abs(a) == -abs(b) ? x : y
+a != 0.0 ? y : (b == 0.0 ? x : y) -> abs(a) == -abs(b) ? x : y
+a == 0.0 ? (b == 0.0 ? x : y) : y -> a == -b ? x : y   where a >= 0, b >= 0
+a == 0.0 ? (b == 0.0 ? x : y) : y -> a == b ? x : y   where a >= 0, b <= 0
+max(abs(a), abs(b)) == 0.0 ? x : y -> abs(a) == -abs(b) ? x : y
+abs(a) + abs(b) == 0.0 ? x : y -> abs(a) == -abs(b) ? x : y
+# Inside [0, 1]: x * x - x is <= 0 exactly there (one mad, one compare); for two values
+# saturate it and compare the two (both 0 = inside), as in the wiki's uv check.
+x >= 0.0 ? (x <= 1.0 ? p : q) : q -> mad(x, x, -x) <= 0.0 ? p : q
+x < 0.0 ? q : (x > 1.0 ? q : p) -> mad(x, x, -x) <= 0.0 ? p : q
+x >= 0.0 ? (x <= 1.0 ? (y >= 0.0 ? (y <= 1.0 ? p : q) : q) : q) : q -> saturate(mad(x, x, -x)) == -saturate(mad(y, y, -y)) ? p : q
+# The same with && / || (owner, 2026-10-06: logical and / or in sopt): two compares and an and
+# become one compare.
+a == 0.0 && b == 0.0 -> abs(a) == -abs(b)
+a != 0.0 || b != 0.0 -> abs(a) != -abs(b)
+a == 0.0 && b == 0.0 -> a == -b   where a >= 0, b >= 0
+a == 0.0 && b == 0.0 -> a == b   where a >= 0, b <= 0
+a != 0.0 || b != 0.0 -> a != -b   where a >= 0, b >= 0
+a != 0.0 || b != 0.0 -> a != b   where a >= 0, b <= 0
+x >= 0.0 && x <= 1.0 -> mad(x, x, -x) <= 0.0
+x < 0.0 || x > 1.0 -> mad(x, x, -x) > 0.0
+x >= 0.0 && x <= 1.0 && y >= 0.0 && y <= 1.0 -> saturate(mad(x, x, -x)) == -saturate(mad(y, y, -y))
+x < 0.0 || x > 1.0 || y < 0.0 || y > 1.0 -> saturate(mad(x, x, -x)) != -saturate(mad(y, y, -y))
+# Exact by IEEE 754 (!= is true for NaN). ReShade <= 6.8.0 writes a float != on Vulkan as OpFOrdNotEqual (false for
+# NaN): its bug, not the rule's (owner, 2026-10-06).
+!(a == b) -> a != b
+!(a != b) -> a == b
+# The wiki's identities: rsqrt has its own instruction, sqrt is rsqrt + rcp on some drivers.
+pow(x, 1.5) -> (x * x) * rsqrt(x)   where x in [1e-15, 1e15]
+sqrt(x) -> x * rsqrt(x)   where x in [1e-30, 1e30]
+
+# Bit tricks (sopt --bits finds these; owner, 2026-10-06: hard for people to find). A float is
+# sign | 8-bit exponent (bias 127) | 23-bit mantissa; asuint / asfloat cost no instruction.
+# exp2 of an integer: build the exponent field directly (exact; the GPU's exp2 may be 1 ulp off)
+exp2(floor(x)) -> asfloat(0x3F800000u + (asuint(int(floor(x))) << 23))   where x in [-126, 127]
+# x * 2^n for an integer n: add n to x's exponent field (x normal, result normal)
+x * exp2(floor(n)) -> asfloat(asuint(x) + (asuint(int(floor(n))) << 23))   where x in [1e-6, 1e6], n in [-32, 32]
+# The exponent of x (exact for normal x > 0; the float32 original rounds wrong just below powers of 2)
+floor(log2(x)) -> float(asuint(x) >> 23) - 127.0   where x in [1.2e-38, 3e38]
+floor(log2(x)) -> mad(float(0x007FFFFFu | asuint(x)), 1.1920929e-07, -128.0)   where x in [1.2e-38, 3e38]   # sopt: the conversion rounds up to (e + 1) * 2^23
+floor(log2(x)) -> mad(asfloat(0x3F800000u - (asuint(x) >> 23)), -16777216.0, 16777089.0)   where x in [1.2e-38, 3e38]   # sopt (Turing): no int -> float conversion
+# Power of 2 at or below / at or above x (Bit Twiddling Hacks, "round up to the next highest power of 2 by float casting"):
+# keep only the exponent bits, or round the mantissa up into the exponent first. Two integer ops instead of
+# log2 + floor / ceil + exp2, and exact where the GPU's approximate log2 / exp2 can land wrong next to a power of 2.
+exp2(floor(log2(x))) -> asfloat(asuint(x) & 0x7F800000u)   where x in [1.2e-38, 3e38]
+exp2(ceil(log2(x))) -> asfloat((asuint(x) + 0x007FFFFFu) & 0x7F800000u)   where x in [1.2e-38, 1.7e38]
+# abs as a mask (where abs is not a free modifier: Pascal, Maxwell, TeraScale)
+abs(x) -> asfloat(asuint(x) & 0x7FFFFFFFu)
+# Copy x's sign bit (differ at x = -0.0: -0 >= 0 is true, its sign bit is set; marked when used)
+x >= 0.0 ? 1.0 : -1.0 -> asfloat((asuint(x) & 0x80000000u) | 0x3F800000u)
+x >= 0.0 ? y : -y -> asfloat(asuint(y) ^ (asuint(x) & 0x80000000u))
+x < 0.0 ? -y : y -> asfloat(asuint(y) ^ (asuint(x) & 0x80000000u))
+# Signed power: OR x's sign bit into the (non-negative) result instead of multiplying by sign(x)
+# (sopt --bits on Turing: 41 -> 36; exact, also at x = 0 where the power is 0)
+sign(x) * pow(abs(x), c) -> asfloat(asuint(pow(abs(x), c)) | (asuint(x) & 0x80000000u))   where c const, c in [0.01, 16]
+# floor / frac through a float -> uint conversion and back, for x >= 0 (truncation = floor there);
+# cheaper where conversions are (sopt --bits on Pascal: frac 10 -> 8)
+floor(x) -> float(uint(x))   where x in [0, 4e9]
+frac(x) -> x - float(uint(x))   where x in [0, 4e9]

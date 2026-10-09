@@ -83,18 +83,18 @@ TEST(cost_amd_folds) {
   const CostModel& m = costRdna3();
   const CostModel& off = *withoutAmdFolds(&m);
   auto cost = [&](const char* s, const CostModel& model) { return dagCost(parseExpr(s, abcx()), model); };
-  CHECK(cost("rcp(a) * 2.0", m) == 17u);   // v_rcp_f32 with omod
-  CHECK(cost("rcp(a) * 2.0", off) == 20u);
-  CHECK(cost("rcp(a) * -0.5", m) == 17u);
-  CHECK(cost("rcp(a) * 3.0", m) == 20u);   // not an omod scale
+  CHECK(cost("rcp(a) * 2.0", m) == 28u);   // v_rcp_f32 with omod
+  CHECK(cost("rcp(a) * 2.0", off) == 31u);
+  CHECK(cost("rcp(a) * -0.5", m) == 28u);
+  CHECK(cost("rcp(a) * 3.0", m) == 31u);   // not an omod scale
   CHECK(cost("a * 2.0", m) == 4u);         // nothing to fold into
   CHECK(cost("(a + b) * 4.0", m) == 5u);
   CHECK(cost("a * 2.0 + b", m) == 5u);     // an fma, not an omod
-  CHECK(cost("rcp(a) * 2.0 * rcp(a)", m) == 24u);  // shared rcp: no omod
-  CHECK(cost("max(max(a, b), c)", m) == 5u);       // v_max3
-  CHECK(cost("min(max(a, b), c)", m) == 5u);       // v_minmax / v_med3
-  CHECK(cost("max(max(max(a, b), c), x)", m) == 9u);  // max3 + max
-  CHECK(cost("max(max(a, b), c)", off) == 8u);
+  CHECK(cost("rcp(a) * 2.0 * rcp(a)", m) == 35u);  // shared rcp: no omod
+  CHECK(cost("max(max(a, b), c)", m) == 6u);       // v_max3
+  CHECK(cost("min(max(a, b), c)", m) == 6u);       // v_minmax / v_med3
+  CHECK(cost("max(max(max(a, b), c), x)", m) == 11u);  // max3 + max
+  CHECK(cost("max(max(a, b), c)", off) == 10u);
   // RDNA 2 / GCN 5: v_max3 / v_min3, but no v_minmax (CostModel::sameMinMaxOnly); omod as on rdna3.
   const CostModel& r2 = costAmdRdna2();
   CHECK(cost("max(max(a, b), c)", r2) == 5u);
@@ -102,6 +102,42 @@ TEST(cost_amd_folds) {
   CHECK(cost("min(max(a, b), c)", r2) == 8u);
   CHECK(cost("rcp(a) * 2.0", r2) == 11u);
   CHECK(cost("min(max(a, b), c)", costAmdTerascale2()) == 8u);  // no folds
+}
+
+// Divisions as the compilers lower them (divCosts; RGA and ptxas): one reciprocal per distinct divisor.
+TEST(cost_shared_reciprocal) {
+  const CostModel& m = costRdna3();
+  std::vector<InputDecl> in = abcx();
+  in.push_back({"v", 0, 1, 0, Type::Float3});
+  in.push_back({"F", 1, 100, 0, Type::Float, true, 10.0});
+  auto cost = [&](const char* s) { return dagCost(parseExpr(s, in), m, in); };
+  const uint32_t div = m[Op::Div], mul = m[Op::Mul];
+  CHECK(cost("a / b") == div);                              // a lone division: unchanged
+  CHECK(cost("v / a") == div - mul + 3 * mul);              // float3 / float1: one rcp, three muls
+  CHECK(cost("v / v") == m.opCost(Op::Div, 3));             // float3 / float3: three rcps
+  CHECK(cost("a / x + b / x") == div + mul + m.fusedAdd);   // the second division reuses rcp(x)
+  CHECK(cost("rcp(x) + a / x") == m[Op::Rcp] + mul + m.fusedAdd);  // ... and so does rcp(x)
+  CHECK(cost("a / 3.0") == mul);                            // compile-time divisor: a multiply
+  CHECK(cost("a / F") == mul);
+  CHECK(dagCost(parseExpr("a / 3.0", in), m) == mul);
+  CHECK(m.binaryCost(Op::Div, 3, 1) == div - mul + 3 * mul);
+  CHECK(m.binaryCost(Op::Div, 3, 3) == m.opCost(Op::Div, 3));
+}
+
+// min16float costs per family (HalfCosts, from OpBench): a win only where the hardware runs fp16 faster.
+TEST(cost_half_precision) {
+  const CostModel &gcn = costAmdGcn5(), &rdna3 = costRdna3(), &gen9 = costIntelGen9(), &turing = costNvidiaTuring(),
+                  &maxwell = costNvidiaMaxwell();
+  CHECK(halfOpCost(gcn, Op::Add, 3) == 2 * gcn[Op::Add]);   // packed: two instructions for three components
+  CHECK(halfOpCost(gcn, Op::Add, 1) == gcn[Op::Add]);       // one component: no gain
+  CHECK(halfOpCost(gcn, Op::Rcp, 3) == gcn.opCost(Op::Rcp, 3));
+  CHECK(halfOpCost(rdna3, Op::Add, 3) == rdna3.opCost(Op::Add, 3));  // no gain measured on RDNA 3
+  CHECK(halfOpCost(gen9, Op::Mad, 1) < gen9[Op::Mad]);      // wider SIMD in fp16
+  CHECK(halfOpCost(turing, Op::Rcp, 1) > turing[Op::Rcp]);  // slower transcendentals
+  CHECK(halfOpCost(maxwell, Op::Mad, 3) == maxwell.opCost(Op::Mad, 3));
+  CHECK(halfConvertCost(maxwell, 3) == 0u);                 // runs at 32 bits: nothing to convert
+  CHECK(halfConvertCost(gcn, 3) == 3 * gcn[Op::Add]);
+  CHECK(halfOpCost(gcn, Op::Floor, 3) == gcn.opCost(Op::Floor, 3));  // no fp16 data: fp32 cost
 }
 
 TEST(cost_contraction) {
@@ -114,7 +150,7 @@ TEST(cost_contraction) {
   CHECK(dagCost(parseExpr("a * b + c", abcx()), costGeneric()) ==
         costGeneric()[Op::Mul] + costGeneric()[Op::Add]);
   // Every non-leaf op costs >= 1 in every model.
-  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costNvidia(), &costNvidiaMaxwell(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaAmpere(), &costNvidiaBlackwell(), &costIntelGen9(), &costIntelGen75(), &costAmdRdna2(), &costAmdRdna4(), &costAmdGcn5(), &costAmdTerascale2()})
+  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costRdna3Rga(), &costNvidia(), &costNvidiaMaxwell(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaAmpere(), &costNvidiaBlackwell(), &costIntelGen9(), &costIntelGen75(), &costIntelGen12(), &costAmdRdna2(), &costAmdRdna4(), &costAmdGcn5(), &costAmdTerascale2()})
     for (size_t i = 2; i < static_cast<size_t>(Op::Count); ++i) CHECK(cm->cost[i] >= 1);
 }
 

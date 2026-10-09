@@ -119,9 +119,62 @@ bool reshadefx::parser::accept_symbol(std::string &identifier, scoped_symbol &sy
 
 	return true;
 }
+// sopt: GLSL type names (see sopt_glsl). Matrices are kept transposed: GLSL matCxR (C columns of R rows) is
+// float{C}x{R} with GLSL column i as row i, so constructors and m[i] keep their meaning and '*' becomes mul with
+// the operands swapped (see sopt_glsl_matrix_mul).
+bool reshadefx::parser::sopt_glsl_type(const std::string &name, type &type)
+{
+	const auto digit = [&](size_t i) -> unsigned int {
+		return i < name.size() && name[i] >= '2' && name[i] <= '4' ? name[i] - '0' : 0; };
+	type.cols = 1;
+	if ((name.size() == 4 && name.compare(0, 3, "vec") == 0) || (name.size() == 5 && name.compare(1, 3, "vec") == 0))
+	{
+		const char prefix = name.size() == 5 ? name[0] : 'f';
+		type.rows = digit(name.size() - 1);
+		type.base = prefix == 'i' ? type::t_int : prefix == 'u' ? type::t_uint : prefix == 'b' ? type::t_bool :
+			(prefix == 'f' || prefix == 'd') ? type::t_float : type::t_void;
+		return type.rows != 0 && type.base != type::t_void;
+	}
+	const size_t m = name.compare(0, 3, "mat") == 0 ? 3 : name.compare(0, 4, "dmat") == 0 ? 4 : 0;
+	if (m != 0)
+	{
+		type.base = type::t_float;
+		type.rows = digit(m);
+		type.cols = name.size() == m + 1 ? type.rows : (name.size() == m + 3 && name[m + 1] == 'x') ? digit(m + 2) : 0;
+		return type.rows != 0 && type.cols != 0;
+	}
+	// Samplers: sampler2D / sampler3D are ReShade FX keywords already; integer and other kinds by name.
+	static const struct { const char *name; type::datatype base; } samplers[] = {
+		{ "isampler1D", type::t_sampler1d_int }, { "isampler2D", type::t_sampler2d_int }, { "isampler3D", type::t_sampler3d_int },
+		{ "usampler1D", type::t_sampler1d_uint }, { "usampler2D", type::t_sampler2d_uint }, { "usampler3D", type::t_sampler3d_uint },
+		{ "sampler2DRect", type::t_sampler2d_float }, { "samplerCube", type::t_sampler3d_float },
+		{ "sampler2DArray", type::t_sampler3d_float }, { "sampler2DShadow", type::t_sampler2d_float } };
+	for (const auto &s : samplers)
+		if (name == s.name)
+		{
+			type.base = s.base;
+			type.rows = 4;
+			return true;
+		}
+	return false;
+}
+
 bool reshadefx::parser::accept_type_class(type &type)
 {
 	type.rows = type.cols = 0;
+
+	// sopt: GLSL type names
+	if (sopt_glsl && peek(tokenid::identifier))
+	{
+		reshadefx::type glsl_type = type;
+		if (sopt_glsl_type(_token_next.literal_as_string, glsl_type))
+		{
+			consume();
+			glsl_type.qualifiers = type.qualifiers;
+			type = glsl_type;
+			return true;
+		}
+	}
 
 	if (peek(tokenid::identifier) || peek(tokenid::colon_colon))
 	{
@@ -862,6 +915,16 @@ bool reshadefx::parser::parse_expression_unary(expression &exp)
 
 		exp.reset_to_rvalue_constant(location, std::move(value));
 	}
+	// sopt: GLSL built-in functions named differently in ReShade FX ('texture' is a keyword there)
+	else if (sopt_glsl && (peek(tokenid::identifier) || peek(tokenid::texture2d) || peek(tokenid::texture3d)) &&
+		sopt_glsl_intrinsic_name(_lexer->input_string().substr(_token_next.offset, _token_next.length)) &&
+		[this]() { backup(); consume(); const bool call = peek('('); restore(); return call; }())
+	{
+		const std::string word = _lexer->input_string().substr(_token_next.offset, _token_next.length);
+		consume();
+		if (!sopt_glsl_intrinsic(word, location, exp))
+			return false;
+	}
 	else if (type type = {}; accept_type_class(type)) // Check if this is a constructor call expression
 	{
 		if (!expect('('))
@@ -916,6 +979,20 @@ bool reshadefx::parser::parse_expression_unary(expression &exp)
 			return false;
 
 		// The total number of argument elements needs to match the number of elements in the result type
+		// sopt: GLSL also takes one scalar (all components) or one larger vector (truncated): a cast
+		if (sopt_glsl && arguments.size() == 1 && num_components != type.components() &&
+			(arguments[0].type.is_scalar() || (arguments[0].type.is_vector() && num_components > type.components())))
+		{
+			const expression argument_exp = std::move(arguments[0]);
+			arguments.clear();
+			for (unsigned int i = 0; i < type.components(); ++i)
+			{
+				expression &component_exp = arguments.emplace_back(argument_exp);
+				if (!argument_exp.type.is_scalar())
+					component_exp.add_constant_index_access(i);
+			}
+			num_components = type.components();
+		}
 		if (num_components != type.components())
 		{
 			error(location, 3014, "incorrect number of arguments to numeric-type constructor");
@@ -1564,6 +1641,14 @@ bool reshadefx::parser::parse_expression_multary(expression &lhs_exp, unsigned i
 			// Parse the right hand side of the binary operation
 			if (!parse_expression_multary(rhs_exp, right_precedence))
 				return false;
+
+			// sopt: GLSL matrix products (a * b = mul(b, a) with the transposed matrices) are not supported yet
+			if (sopt_glsl && (op == tokenid::star || op == tokenid::star_equal) && (lhs_exp.type.is_matrix() || rhs_exp.type.is_matrix()) &&
+				!lhs_exp.type.is_scalar() && !rhs_exp.type.is_scalar())
+			{
+				error(rhs_exp.location, 3000, "sopt: GLSL matrix products are not supported yet");
+				return false;
+			}
 
 			// Deduce the result base type based on implicit conversion rules
 			type type = type::merge(lhs_exp.type, rhs_exp.type);

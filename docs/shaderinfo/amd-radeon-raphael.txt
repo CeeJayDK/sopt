@@ -1,0 +1,655 @@
+GPU: AMD Radeon(TM) Graphics
+vendor 4098, device 5710
+driver: AMD proprietary driver 26.9.2 (AMD proprietary shader compiler) (2.0.353)
+
+VK_KHR_pipeline_executable_properties: yes
+VK_AMD_shader_info: yes
+VK_KHR_performance_query: no
+VK_AMD_gpa_interface: yes
+VK_INTEL_performance_query: no
+
+All device extensions (198):
+  VK_KHR_16bit_storage 1
+  VK_KHR_8bit_storage 1
+  VK_KHR_acceleration_structure 13
+  VK_KHR_bind_memory2 1
+  VK_KHR_buffer_device_address 1
+  VK_KHR_calibrated_timestamps 1
+  VK_KHR_compute_shader_derivatives 1
+  VK_KHR_cooperative_matrix 2
+  VK_KHR_copy_commands2 1
+  VK_KHR_create_renderpass2 1
+  VK_KHR_dedicated_allocation 3
+  VK_KHR_deferred_host_operations 4
+  VK_KHR_depth_clamp_zero_one 1
+  VK_KHR_depth_stencil_resolve 1
+  VK_KHR_descriptor_update_template 1
+  VK_KHR_device_group 4
+  VK_KHR_draw_indirect_count 1
+  VK_KHR_driver_properties 1
+  VK_KHR_dynamic_rendering 1
+  VK_KHR_dynamic_rendering_local_read 1
+  VK_KHR_external_fence 1
+  VK_KHR_external_fence_win32 1
+  VK_KHR_external_memory 1
+  VK_KHR_external_memory_win32 1
+  VK_KHR_external_semaphore 1
+  VK_KHR_external_semaphore_win32 1
+  VK_KHR_format_feature_flags2 2
+  VK_KHR_fragment_shader_barycentric 1
+  VK_KHR_fragment_shading_rate 2
+  VK_KHR_get_memory_requirements2 1
+  VK_KHR_global_priority 1
+  VK_KHR_imageless_framebuffer 1
+  VK_KHR_image_format_list 1
+  VK_KHR_index_type_uint8 1
+  VK_KHR_line_rasterization 1
+  VK_KHR_load_store_op_none 1
+  VK_KHR_maintenance1 2
+  VK_KHR_maintenance2 1
+  VK_KHR_maintenance3 1
+  VK_KHR_maintenance4 2
+  VK_KHR_maintenance5 1
+  VK_KHR_maintenance6 1
+  VK_KHR_maintenance7 1
+  VK_KHR_maintenance8 1
+  VK_KHR_map_memory2 1
+  VK_KHR_multiview 1
+  VK_KHR_pipeline_binary 1
+  VK_KHR_pipeline_executable_properties 1
+  VK_KHR_pipeline_library 1
+  VK_KHR_push_descriptor 2
+  VK_KHR_ray_query 1
+  VK_KHR_ray_tracing_maintenance1 1
+  VK_KHR_ray_tracing_pipeline 1
+  VK_KHR_ray_tracing_position_fetch 1
+  VK_KHR_relaxed_block_layout 1
+  VK_KHR_robustness2 1
+  VK_KHR_sampler_mirror_clamp_to_edge 3
+  VK_KHR_sampler_ycbcr_conversion 14
+  VK_KHR_separate_depth_stencil_layouts 1
+  VK_KHR_shader_atomic_int64 1
+  VK_KHR_shader_clock 1
+  VK_KHR_shader_draw_parameters 1
+  VK_KHR_shader_expect_assume 1
+  VK_KHR_shader_float16_int8 1
+  VK_KHR_shader_float_controls 4
+  VK_KHR_shader_float_controls2 1
+  VK_KHR_shader_integer_dot_product 1
+  VK_KHR_shader_maximal_reconvergence 1
+  VK_KHR_shader_non_semantic_info 1
+  VK_KHR_shader_quad_control 1
+  VK_KHR_shader_subgroup_extended_types 1
+  VK_KHR_shader_subgroup_rotate 2
+  VK_KHR_shader_subgroup_uniform_control_flow 1
+  VK_KHR_shader_terminate_invocation 1
+  VK_KHR_spirv_1_4 1
+  VK_KHR_storage_buffer_storage_class 1
+  VK_KHR_swapchain 70
+  VK_KHR_swapchain_mutable_format 1
+  VK_KHR_synchronization2 1
+  VK_KHR_timeline_semaphore 2
+  VK_KHR_uniform_buffer_standard_layout 1
+  VK_KHR_variable_pointers 1
+  VK_KHR_vertex_attribute_divisor 1
+  VK_KHR_video_decode_av1 1
+  VK_KHR_video_decode_h264 9
+  VK_KHR_video_decode_h265 8
+  VK_KHR_video_decode_queue 8
+  VK_KHR_video_encode_h264 14
+  VK_KHR_video_encode_h265 14
+  VK_KHR_video_encode_queue 12
+  VK_KHR_video_maintenance1 1
+  VK_KHR_video_queue 8
+  VK_KHR_vulkan_memory_model 3
+  VK_KHR_win32_keyed_mutex 1
+  VK_KHR_workgroup_memory_explicit_layout 1
+  VK_KHR_zero_initialize_workgroup_memory 1
+  VK_EXT_4444_formats 1
+  VK_EXT_attachment_feedback_loop_layout 2
+  VK_EXT_border_color_swizzle 1
+  VK_EXT_calibrated_timestamps 2
+  VK_EXT_color_write_enable 1
+  VK_EXT_conditional_rendering 2
+  VK_EXT_conservative_rasterization 1
+  VK_EXT_custom_border_color 12
+  VK_EXT_depth_clamp_control 1
+  VK_EXT_depth_clamp_zero_one 1
+  VK_EXT_depth_clip_control 1
+  VK_EXT_depth_clip_enable 1
+  VK_EXT_depth_range_unrestricted 1
+  VK_EXT_descriptor_buffer 1
+  VK_EXT_descriptor_indexing 2
+  VK_EXT_device_address_binding_report 1
+  VK_EXT_device_fault 2
+  VK_EXT_device_generated_commands 1
+  VK_EXT_dynamic_rendering_unused_attachments 1
+  VK_EXT_extended_dynamic_state 1
+  VK_EXT_extended_dynamic_state2 1
+  VK_EXT_extended_dynamic_state3 2
+  VK_EXT_external_memory_host 1
+  VK_EXT_fragment_shader_interlock 1
+  VK_EXT_frame_boundary 1
+  VK_EXT_full_screen_exclusive 4
+  VK_EXT_global_priority 2
+  VK_EXT_global_priority_query 1
+  VK_EXT_graphics_pipeline_library 1
+  VK_EXT_hdr_metadata 3
+  VK_EXT_host_query_reset 1
+  VK_EXT_image_2d_view_of_3d 1
+  VK_EXT_image_robustness 1
+  VK_EXT_image_sliced_view_of_3d 1
+  VK_EXT_image_view_min_lod 1
+  VK_EXT_index_type_uint8 1
+  VK_EXT_inline_uniform_block 1
+  VK_EXT_line_rasterization 1
+  VK_EXT_load_store_op_none 1
+  VK_EXT_memory_budget 1
+  VK_EXT_memory_priority 1
+  VK_EXT_mesh_shader 1
+  VK_EXT_mutable_descriptor_type 1
+  VK_EXT_nested_command_buffer 1
+  VK_EXT_non_seamless_cube_map 1
+  VK_EXT_pageable_device_local_memory 1
+  VK_EXT_pipeline_creation_cache_control 3
+  VK_EXT_pipeline_creation_feedback 1
+  VK_EXT_pipeline_library_group_handles 1
+  VK_EXT_post_depth_coverage 1
+  VK_EXT_primitive_topology_list_restart 1
+  VK_EXT_private_data 1
+  VK_EXT_provoking_vertex 1
+  VK_EXT_queue_family_foreign 1
+  VK_EXT_robustness2 1
+  VK_EXT_sampler_filter_minmax 2
+  VK_EXT_sample_locations 1
+  VK_EXT_scalar_block_layout 1
+  VK_EXT_separate_stencil_usage 1
+  VK_EXT_shader_atomic_float 1
+  VK_EXT_shader_atomic_float2 1
+  VK_EXT_shader_demote_to_helper_invocation 1
+  VK_EXT_shader_image_atomic_int64 1
+  VK_EXT_shader_module_identifier 1
+  VK_EXT_shader_object 1
+  VK_EXT_shader_replicated_composites 1
+  VK_EXT_shader_stencil_export 1
+  VK_EXT_shader_subgroup_ballot 1
+  VK_EXT_shader_subgroup_vote 1
+  VK_EXT_shader_viewport_index_layer 1
+  VK_EXT_subgroup_size_control 2
+  VK_EXT_texel_buffer_alignment 1
+  VK_EXT_tooling_info 1
+  VK_EXT_transform_feedback 1
+  VK_EXT_vertex_attribute_divisor 3
+  VK_EXT_vertex_input_dynamic_state 2
+  VK_EXT_ycbcr_image_arrays 1
+  VK_AMD_anti_lag 1
+  VK_AMD_buffer_marker 1
+  VK_AMD_device_coherent_memory 1
+  VK_AMD_display_native_hdr 1
+  VK_AMD_draw_indirect_count 2
+  VK_AMD_gcn_shader 1
+  VK_AMD_gpa_interface 1
+  VK_AMD_gpu_shader_half_float 2
+  VK_AMD_gpu_shader_int16 2
+  VK_AMD_memory_overallocation_behavior 1
+  VK_AMD_mixed_attachment_samples 1
+  VK_AMD_shader_ballot 1
+  VK_AMD_shader_core_properties 2
+  VK_AMD_shader_core_properties2 1
+  VK_AMD_shader_early_and_late_fragment_tests 1
+  VK_AMD_shader_explicit_vertex_parameter 1
+  VK_AMD_shader_fragment_mask 1
+  VK_AMD_shader_image_load_store_lod 1
+  VK_AMD_shader_info 1
+  VK_AMD_shader_trinary_minmax 1
+  VK_AMD_texture_gather_bias_lod 1
+  VK_GOOGLE_decorate_string 1
+  VK_GOOGLE_hlsl_functionality1 1
+  VK_GOOGLE_user_type 1
+  VK_VALVE_mutable_descriptor_type 1
+
+==== int (and / xor / add / mul chain) ====
+-- executable 0: ShaderProperties.cs (Executable handles following Vulkan stages:  VK_SHADER_STAGE_COMPUTE_BIT ), subgroup size 64
+  numUsedVgprs = 3   (Number of used VGPRs)
+  numUsedSgprs = 16   (Number of used SGPRs)
+  ldsSizePerLocalWorkGroup = 65536   (LDS size per local workgroup)
+  ldsUsageSizeInBytes = 0   (LDS usage size in Bytes)
+  scratchMemUsageInBytes = 0   (Scratch memory usage in Bytes)
+  -- representation ISA.cs (Executable handles following Vulkan stages:  VK_SHADER_STAGE_COMPUTE_BIT )
+_amdgpu_cs_main:
+	s_version UC_VERSION_GFX10|UC_VERSION_W64_BIT ;  b0802004
+	s_getpc_b64 s[10:11]                    ;  be8a1f80
+	s_inst_prefetch 0x3                     ;  bfa00003
+	v_lshl_add_u32 v0, s7, 6, v0            ;  d7460000 04010c07
+	s_mov_b32 s7, s11                       ;  be87030b
+	s_load_dwordx4 s[8:11], s[6:7], null    ;  f4080203 fa000000
+	v_lshlrev_b32_e32 v0, 2, v0             ;  34000082
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	buffer_load_dword v1, v0, s[8:11], 0 offen ;  e0301000 80020100
+	s_movk_i32 s0, 0x0                      ;  b0000000
+	s_cmp_gt_u32 s5, s0                     ;  bf080005
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	s_nop 0                                 ;  bf800000
+	s_inst_prefetch 0x2                     ;  bfa00002
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_cbranch_scc0 _L8c                     ;  bf84000b
+_L60:
+	v_and_b32_e32 v1, s2, v1                ;  36020202
+	v_xor_b32_e32 v1, s3, v1                ;  3a020203
+	v_mul_lo_u32 v1, v1, s4                 ;  d5690001 00000901
+	v_add_nc_u32_e32 v1, s2, v1             ;  4a020202
+	v_xor_b32_e32 v1, s3, v1                ;  3a020203
+	v_mul_lo_u32 v1, v1, s4                 ;  d5690001 00000901
+	s_add_u32 s0, s0, 1                     ;  80008100
+	s_cmp_gt_u32 s5, s0                     ;  bf080005
+	s_cbranch_scc1 _L60                     ;  bf85fff5
+_L8c:
+	s_inst_prefetch 0x3                     ;  bfa00003
+	buffer_store_dword v1, v0, s[8:11], 0 offen glc ;  e0705000 80020100
+	s_endpgm                                ;  bf810000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+
+  -- representation ELF.cs (Executable handles following Vulkan stages:  VK_SHADER_STAGE_COMPUTE_BIT )
+  (binary, 10469 bytes)
+AMD statistics: VGPRs 3, SGPRs 16
+-- AMD disassembly
+_amdgpu_cs_main:
+	s_version UC_VERSION_GFX10|UC_VERSION_W64_BIT ;  b0802004
+	s_getpc_b64 s[10:11]                    ;  be8a1f80
+	s_inst_prefetch 0x3                     ;  bfa00003
+	v_lshl_add_u32 v0, s7, 6, v0            ;  d7460000 04010c07
+	s_mov_b32 s7, s11                       ;  be87030b
+	s_load_dwordx4 s[8:11], s[6:7], null    ;  f4080203 fa000000
+	v_lshlrev_b32_e32 v0, 2, v0             ;  34000082
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	buffer_load_dword v1, v0, s[8:11], 0 offen ;  e0301000 80020100
+	s_movk_i32 s0, 0x0                      ;  b0000000
+	s_cmp_gt_u32 s5, s0                     ;  bf080005
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	s_nop 0                                 ;  bf800000
+	s_inst_prefetch 0x2                     ;  bfa00002
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_cbranch_scc0 _L8c                     ;  bf84000b
+_L60:
+	v_and_b32_e32 v1, s2, v1                ;  36020202
+	v_xor_b32_e32 v1, s3, v1                ;  3a020203
+	v_mul_lo_u32 v1, v1, s4                 ;  d5690001 00000901
+	v_add_nc_u32_e32 v1, s2, v1             ;  4a020202
+	v_xor_b32_e32 v1, s3, v1                ;  3a020203
+	v_mul_lo_u32 v1, v1, s4                 ;  d5690001 00000901
+	s_add_u32 s0, s0, 1                     ;  80008100
+	s_cmp_gt_u32 s5, s0                     ;  bf080005
+	s_cbranch_scc1 _L60                     ;  bf85fff5
+_L8c:
+	s_inst_prefetch 0x3                     ;  bfa00003
+	buffer_store_dword v1, v0, s[8:11], 0 offen glc ;  e0705000 80020100
+	s_endpgm                                ;  bf810000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+
+
+==== float (fma, rcp, sqrt, floor, max, clamp, sign, exp2) ====
+-- executable 0: ShaderProperties.cs (Executable handles following Vulkan stages:  VK_SHADER_STAGE_COMPUTE_BIT ), subgroup size 64
+  numUsedVgprs = 3   (Number of used VGPRs)
+  numUsedSgprs = 16   (Number of used SGPRs)
+  ldsSizePerLocalWorkGroup = 65536   (LDS size per local workgroup)
+  ldsUsageSizeInBytes = 0   (LDS usage size in Bytes)
+  scratchMemUsageInBytes = 0   (Scratch memory usage in Bytes)
+  -- representation ISA.cs (Executable handles following Vulkan stages:  VK_SHADER_STAGE_COMPUTE_BIT )
+_amdgpu_cs_main:
+	s_version UC_VERSION_GFX10|UC_VERSION_W32_BIT ;  b0804004
+	s_getpc_b64 s[10:11]                    ;  be8a1f80
+	s_inst_prefetch 0x3                     ;  bfa00003
+	s_mov_b32 s0, s6                        ;  be800306
+	s_mov_b32 s1, s11                       ;  be81030b
+	s_load_dwordx4 s[8:11], s[0:1], null    ;  f4080200 fa000000
+	v_lshl_add_u32 v0, s7, 6, v0            ;  d7460000 04010c07
+	v_lshlrev_b32_e32 v0, 2, v0             ;  34000082
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	buffer_load_dword v1, v0, s[8:11], 0 offen ;  e0301000 80020100
+	s_movk_i32 s0, 0x0                      ;  b0000000
+	s_cmp_gt_u32 s5, s0                     ;  bf080005
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	s_nop 0                                 ;  bf800000
+	s_inst_prefetch 0x1                     ;  bfa00001
+	s_cbranch_scc0 _Lcc                     ;  bf840020
+_L4c:
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	v_rcp_f32_e32 v1, v1                    ;  7e025501
+	s_add_u32 s0, s0, 1                     ;  80008100
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	v_sqrt_f32_e32 v1, v1                   ;  7e026701
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	v_mul_f32_e32 v1, s4, v1                ;  10020204
+	v_floor_f32_e32 v1, v1                  ;  7e024901
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	v_max3_f32 v1, s2, v1, s3               ;  d5540001 000e0202
+	v_fma_f32 v1, v1, s2, s4 clamp          ;  d54b8001 00100501
+	v_ldexp_f32 v1, v1, 1                   ;  d7620001 00010301
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	v_cmp_gt_f32_e32 vcc_lo, 0, v1          ;  7c080280
+	v_cndmask_b32_e64 v2, 1.0, -1.0, vcc_lo ;  d5010002 01a9e6f2
+	v_cmp_neq_f32_e32 vcc_lo, 0, v1         ;  7c1a0280
+	v_cndmask_b32_e32 v2, 0, v2, vcc_lo     ;  02040480
+	v_fmac_f32_e32 v1, s2, v2               ;  56020402
+	v_exp_f32_e32 v1, v1                    ;  7e024b01
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	s_cmp_gt_u32 s5, s0                     ;  bf080005
+	s_cbranch_scc1 _L4c                     ;  bf85ffe0
+_Lcc:
+	s_inst_prefetch 0x3                     ;  bfa00003
+	buffer_store_dword v1, v0, s[8:11], 0 offen glc ;  e0705000 80020100
+	s_endpgm                                ;  bf810000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+
+  -- representation ELF.cs (Executable handles following Vulkan stages:  VK_SHADER_STAGE_COMPUTE_BIT )
+  (binary, 14013 bytes)
+AMD statistics: VGPRs 3, SGPRs 16
+-- AMD disassembly
+_amdgpu_cs_main:
+	s_version UC_VERSION_GFX10|UC_VERSION_W32_BIT ;  b0804004
+	s_getpc_b64 s[10:11]                    ;  be8a1f80
+	s_inst_prefetch 0x3                     ;  bfa00003
+	s_mov_b32 s0, s6                        ;  be800306
+	s_mov_b32 s1, s11                       ;  be81030b
+	s_load_dwordx4 s[8:11], s[0:1], null    ;  f4080200 fa000000
+	v_lshl_add_u32 v0, s7, 6, v0            ;  d7460000 04010c07
+	v_lshlrev_b32_e32 v0, 2, v0             ;  34000082
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	buffer_load_dword v1, v0, s[8:11], 0 offen ;  e0301000 80020100
+	s_movk_i32 s0, 0x0                      ;  b0000000
+	s_cmp_gt_u32 s5, s0                     ;  bf080005
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	s_nop 0                                 ;  bf800000
+	s_inst_prefetch 0x1                     ;  bfa00001
+	s_cbranch_scc0 _Lcc                     ;  bf840020
+_L4c:
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	v_rcp_f32_e32 v1, v1                    ;  7e025501
+	s_add_u32 s0, s0, 1                     ;  80008100
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	v_sqrt_f32_e32 v1, v1                   ;  7e026701
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	v_mul_f32_e32 v1, s4, v1                ;  10020204
+	v_floor_f32_e32 v1, v1                  ;  7e024901
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	v_max3_f32 v1, s2, v1, s3               ;  d5540001 000e0202
+	v_fma_f32 v1, v1, s2, s4 clamp          ;  d54b8001 00100501
+	v_ldexp_f32 v1, v1, 1                   ;  d7620001 00010301
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	v_cmp_gt_f32_e32 vcc_lo, 0, v1          ;  7c080280
+	v_cndmask_b32_e64 v2, 1.0, -1.0, vcc_lo ;  d5010002 01a9e6f2
+	v_cmp_neq_f32_e32 vcc_lo, 0, v1         ;  7c1a0280
+	v_cndmask_b32_e32 v2, 0, v2, vcc_lo     ;  02040480
+	v_fmac_f32_e32 v1, s2, v2               ;  56020402
+	v_exp_f32_e32 v1, v1                    ;  7e024b01
+	v_fma_f32 v1, v1, s2, s3                ;  d54b0001 000c0501
+	s_cmp_gt_u32 s5, s0                     ;  bf080005
+	s_cbranch_scc1 _L4c                     ;  bf85ffe0
+_Lcc:
+	s_inst_prefetch 0x3                     ;  bfa00003
+	buffer_store_dword v1, v0, s[8:11], 0 offen glc ;  e0705000 80020100
+	s_endpgm                                ;  bf810000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+

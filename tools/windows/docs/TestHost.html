@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test Host</title>
+<link rel="stylesheet" href="Docs/style.css">
+</head>
+<body>
+<main>
+<header class="top">
+  <h1>Test Host</h1>
+  <p>ReShade on every graphics API, without a game: Direct3D 9, 10, 11 and 12, Vulkan and OpenGL. A window shows a fixed
+  test image (and a depth buffer, like a game's) with ReShade in front of it, so effects can be tested, compared across
+  APIs and benchmarked.</p>
+</header>
+
+<h2>How to use</h2>
+<ol>
+  <li>Extract this zip into a folder.</li>
+  <li>Double-click <code>Test-Host.bat</code> and press a number.</li>
+  <li>Results (screenshots, ReShade's logs and a zip of them) go to the <code>Results</code> folder.</li>
+</ol>
+<p>Nothing outside this folder is touched: the runs use their own folder (<code>run\</code>) with their own
+<code>ReShade.ini</code>; no ReShade installation and no game. ReShade 6.8.0 with add-on support is included.</p>
+
+<h2>The menu</h2>
+<table>
+  <tr><td><code>1</code></td><td><strong>IEEE 754 test on every API.</strong> Runs <code>sopt_IEEE754.fx</code> on each API
+  and takes a screenshot of it (about 2 minutes). Send the zip from the <code>Results</code> folder.</td></tr>
+  <tr><td><code>2</code></td><td>The same on one API you pick.</td></tr>
+  <tr><td><code>3</code></td><td><strong>Your own effect on every API.</strong> Pick an effect from the <code>Effects</code>
+  folder; every technique in it is switched on and each API gets a screenshot. If an effect does not compile on an API,
+  the summary says so and ReShade's log for that API is in the results.</td></tr>
+  <tr><td><code>4</code></td><td><strong>Open the test host with ReShade</strong> on an API you pick and try effects by hand: press
+  <code>Home</code> in the window for ReShade's overlay. Your effect choices are kept between runs. The sopt-timer add-on
+  shows each technique's GPU time in the overlay's add-on tab.</td></tr>
+  <tr><td><code>5</code></td><td><strong>Benchmark a SweetOpt test package:</strong> extract the <code>sopt-compare-*.zip</code>
+  into this folder first. Every original / variant pair is timed on the GPU (Direct3D 11 and Vulkan), with a screenshot
+  per preset.</td></tr>
+  <tr><td><code>6</code> / <code>7</code></td><td>Open the <code>Results</code> / <code>Effects</code> folder.</td></tr>
+</table>
+
+<h2>The IEEE 754 test</h2>
+<p>62 rules for float math (NaN, infinity, signed zero, rounding, conversions), each checked three ways:</p>
+<table>
+  <tr><td>Folded</td><td>from literals only: the compiler works the answer out</td></tr>
+  <tr><td>Literal</td><td>NaN, infinity or -0 written into the shader code as a literal and used on the GPU</td></tr>
+  <tr><td>Run time</td><td>made on the GPU, so nothing can be worked out in advance</td></tr>
+</table>
+<p><strong>ok</strong> = as IEEE 754 and HLSL require, <strong>FAIL</strong> = wrong, <strong>D3D</strong> = differs from
+Direct3D's rule (Vulkan and OpenGL leave the result to the driver there), <strong>yes / no</strong> = either is allowed.
+The title line names the API and the ReShade version. What it found so far is in <code>Docs\IEEE754.md</code>.
+Direct3D 9 shows only the run-time column, one box per test (it has no NaN / infinity literals and no integer
+operations for the text).</p>
+
+<h2>Your own effects</h2>
+<p>Put <code>.fx</code> files (and the headers and textures they use) into the <code>Effects</code> folder; subfolders
+are searched too, so a whole <code>reshade-shaders</code> folder can go there.</p>
+
+<h2>Options</h2>
+<p>From a command prompt in the <code>bin</code> folder:</p>
+<table>
+  <tr><td><code>powershell -File run-test.ps1 -Apis dx11,vulkan -Effect MyEffect.fx</code></td><td>a test on some APIs
+  (<code>dx9</code>, <code>dx10</code>, <code>dx11</code>, <code>dx12</code>, <code>vulkan</code>, <code>gl</code> or
+  <code>all</code>); <code>-Width</code> / <code>-Height</code> (default 1920 x 1080), <code>-Frames</code> (frames with
+  the effect before the screenshot, default 30)</td></tr>
+  <tr><td><code>powershell -File run-test.ps1 -Apis dx12 -Interactive</code></td><td>the host with ReShade, by hand</td></tr>
+  <tr><td><code>powershell -File run-bench.ps1 -Apis dx11 -Frames 600 -Width 2560 -Height 1440</code></td><td>the benchmark
+  with other settings</td></tr>
+  <tr><td><code>-ReShade path\ReShade64.dll</code></td><td>another ReShade (with full add-on support); a
+  <code>ReShade64.dll</code> or <code>ReShade_Setup_*_Addon.exe</code> next to <code>Test-Host.bat</code> is used
+  too</td></tr>
+</table>
+
+<h2>What is in the bin folder</h2>
+<table>
+  <tr><td><code>sopt-host.exe</code></td><td>the test window: a fixed test image and a synthetic depth buffer, vsync off, on
+  any of the six APIs (<code>--api dx9|dx10|dx11|dx12|vulkan|gl</code>)</td></tr>
+  <tr><td><code>sopt-timer.addon64</code> / <code>.addon32</code></td><td>the ReShade add-on that times techniques, runs the
+  benchmark and takes the test screenshots</td></tr>
+  <tr><td><code>run-test.ps1</code>, <code>run-bench.ps1</code>, <code>common.ps1</code></td><td>the scripts behind the
+  menu</td></tr>
+  <tr><td><code>timings.py</code></td><td>merges several benchmark CSVs into one table</td></tr>
+  <tr><td><code>ReShade64.dll</code></td><td>ReShade 6.8.0 with full add-on support, built unchanged from crosire's source
+  (license in <code>Docs\ReShade-LICENSE.md</code>)</td></tr>
+</table>
+<p>To measure what a graphics card's instructions and textures cost, use <strong>GPU Blueprint</strong> (its own download).</p>
+<footer>Test Host by CeeJay.dk, part of SweetOpt. <a href="https://github.com/CeeJayDK/sopt">github.com/CeeJayDK/sopt</a></footer>
+</main>
+</body>
+</html>

@@ -6,13 +6,15 @@
 
 namespace sopt {
 
-// Float is float1; FloatN are HLSL floatN vectors. Bool is a scalar condition.
-enum class Type : uint8_t { Float, Bool, Float2, Float3, Float4 };
-inline constexpr size_t kNumTypes = 5;
+// Float is float1; FloatN are HLSL floatN vectors. Bool is a scalar condition. Uint is a
+// scalar 32-bit unsigned integer (bit tricks, --bits); its value is stored in the float slot
+// as the same bits (std::bit_cast), never as a converted number.
+enum class Type : uint8_t { Float, Bool, Float2, Float3, Float4, Uint };
+inline constexpr size_t kNumTypes = 6;
 inline constexpr uint8_t width(Type t) {
   return t == Type::Float2 ? 2 : t == Type::Float3 ? 3 : t == Type::Float4 ? 4 : 1;
 }
-inline constexpr bool isFloat(Type t) { return t != Type::Bool; }
+inline constexpr bool isFloat(Type t) { return t != Type::Bool && t != Type::Uint; }
 inline constexpr Type floatType(unsigned w) {
   return w == 2 ? Type::Float2 : w == 3 ? Type::Float3 : w == 4 ? Type::Float4 : Type::Float;
 }
@@ -31,6 +33,14 @@ enum class Op : uint8_t {
   // vectors: pure helpers (dot = mul + fmas, length = sqrt(dot), normalize = v *
   // rsqrt(dot(v, v)), distance = length(a - b)), component selection and construction
   Dot, Length, Normalize, Distance, Swizzle, Construct,
+  // integers and bit casts (scalar; owner, 2026-10-06: bit tricks are hard for people to find).
+  // AsUint / AsFloat reinterpret the bits; FToU / FToI convert (truncate, D3D clamps out of range:
+  // NaN -> 0); UToF / IToF convert the unsigned / signed value; IShr is the arithmetic shift of
+  // the signed value. Shift counts use their low 5 bits, as on GPUs.
+  AsUint, AsFloat, FToU, FToI, UToF, IToF,
+  UAnd, UOr, UXor, UShl, UShr, IShr, UAdd, USub, UMul,
+  // logical and / or / not on Bool conditions (a < b && c < d)
+  LAnd, LOr, LNot,
   Count
 };
 
@@ -44,7 +54,12 @@ enum class Syntax : uint8_t { Leaf, Call, Prefix, Infix, Ternary, Swizzle, Const
 //   Same:    floatN -> floatN (normalize).
 //   Swizzle: components of one operand (Node::swz), result width = count.
 //   Construct: operands concatenated, result width = sum (2..4).
-enum class Shape : uint8_t { Leaf, Comp, Cmp, Select, Reduce, Same, Swizzle, Construct };
+//   Int:     uint operands, uint result.
+//   ToUint:  float1 -> uint (bit cast or conversion).
+//   ToFloat: uint -> float1.
+//   Logic:   Bool operands, Bool result (&&, ||, !).
+enum class Shape : uint8_t { Leaf, Comp, Cmp, Select, Reduce, Same, Swizzle, Construct, Int, ToUint, ToFloat, Logic };
+inline constexpr bool isIntShape(Shape s) { return s == Shape::Int || s == Shape::ToUint || s == Shape::ToFloat; }
 
 struct OpInfo {
   std::string_view name;    // FX function name (Call) or internal name
@@ -91,17 +106,50 @@ struct CostModel {
   // cost w times the scalar op; dot = mul + (w-1) fma; swizzle/construct are register
   // moves (cost 1, like a modifier, to keep levels well-founded).
   uint32_t opCost(Op op, unsigned w) const;
+  // A division as the compilers lower it, a * rcp(b) (RGA and ptxas, 2026-10-09): floatN / float1
+  // takes one reciprocal of the divisor and N multiplies. wb = the divisor's width; equals opCost(Div, w)
+  // when wb == w.
+  uint32_t divCost(unsigned w, unsigned wb) const { return rcpPart(wb) + opCost(Op::Mul, w); }
+  // The reciprocal's share of a division by a floatN divisor: what a second division by the same
+  // divisor, which reuses it, does not pay again.
+  uint32_t rcpPart(unsigned wb) const {
+    const uint32_t d = opCost(Op::Div, wb), m = opCost(Op::Mul, wb);
+    return d > m ? d - m : 0;
+  }
+  // opCost of a binary node from its operand widths (only a division by a broadcast scalar differs).
+  uint32_t binaryCost(Op op, unsigned w, unsigned wb) const {
+    return op == Op::Div && wb < w ? divCost(w, wb) : opCost(op, w);
+  }
   bool fusesIntoAdd(Op operand) const {
     return fusedAdd && (operand == Op::Mul || (divIsMul && operand == Op::Div));
   }
 };
 
+// Half precision (min16float; owner, 2026-10-09: "the cost models must tell where fp16 math is actually a win: many
+// cards support it but just run it as fp32"). ReShade writes min16float as min16float on D3D10-12 only (plain float on
+// D3D9, "mediump float" on OpenGL, float + RelaxedPrecision on Vulkan: no effect there); the D3D driver decides whether it
+// runs at 16 bits. Provisional, from the OpBench (D3D11) family medians of mad16 / add16 / rcp16 / sqrt16 / exp2_16 and the
+// CSV header "# min16float"; the conversion cost waits for mix16 (OpBench 0.7.0) reports.
+struct HalfCosts {
+  bool sixteenBit = false;  // the driver runs min16float at 16 bits (else at 32: same cost, no conversions)
+  bool packed = false;      // two components per instruction (AMD packed math): floatN costs ceil(N / 2) instructions
+  uint16_t aluPct = 100;    // add / sub / mul / mad / min / max / lerp / clamp / dot, % of fp32 (per pair when packed)
+  uint16_t mufuPct = 100;   // rcp / rsqrt / sqrt / exp2 / log2 / exp / log / sin / cos / pow / div, % of fp32
+  uint16_t cvtOps = 0;      // one float <-> min16float conversion per component, in plain instructions (add costs)
+};
+const HalfCosts& halfCosts(const CostModel& m);
+// Cost of one node computed in min16float; ops OpBench has no fp16 test for (floor, compares, select ...) cost as fp32.
+uint32_t halfOpCost(const CostModel& m, Op op, unsigned w);
+// Converting n components between float and min16float (one direction).
+uint32_t halfConvertCost(const CostModel& m, unsigned n);
+
 // generic: the M1 placeholder weights, no contraction.
-// rdna3: AMD RDNA3 ISA (RGA gfx1100) in quarter-VALU units: 4 = one VALU op,
-//   transcendentals 16 (VALU + 3 for quarter rate, as fxstat's COST), free source
-//   and output modifiers (neg, abs, saturate) 1, clamp = v_med3, contraction on.
+// rdna3: AMD RDNA 3 measured with OpBench (RX 7900 GRE), units as measured (4 = one dual-issued fma; ops that
+//   cannot dual-issue cost more), free source and output modifiers, contraction on.
 const CostModel& costGeneric();
 const CostModel& costRdna3();
+// rdna3-rga: the earlier rdna3 from RGA gfx1100 instruction counts (VALU 4, MUFU 16), for comparisons and tests.
+const CostModel& costRdna3Rga();
 // nvidia: NVIDIA Ada SASS (ptxas + nvdisasm) in quarter-ALU units, MUFU at 8x.
 const CostModel& costNvidia();
 // nvidia-maxwell: NVIDIA Maxwell (GTX 860M, Quadro M5000M) from OpBench timings, quarter units.
@@ -117,6 +165,8 @@ const CostModel& costNvidiaBlackwell();
 const CostModel& costIntelGen9();
 // intel-gen7.5: Intel Gen7.5 (HD Graphics 4600, Haswell) from OpBench timings, quarter units, math unit ~1 op.
 const CostModel& costIntelGen75();
+// intel-gen12: Intel Gen12 / Xe-LP (Iris Xe) from OpBench timings, quarter units, math unit ~2.75 ops.
+const CostModel& costIntelGen12();
 // amd-rdna2 / amd-rdna4 / amd-gcn5 / amd-terascale2: AMD from sopt-opbench timings (680M + RX 6950 XT;
 // RX 9070 XT; Renoir Vega; HD 7400M), quarter units with one plain VALU instruction = 4.
 const CostModel& costAmdRdna2();

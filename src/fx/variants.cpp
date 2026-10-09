@@ -1,5 +1,7 @@
 #include "fx/variants.hpp"
 
+#include "fx/platforms.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -56,6 +58,7 @@ uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<Input
   const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
   const auto ct = compileTimeNodes(e, inputs);
   const auto folded = amdFoldedNodes(e, uses, m);
+  const auto div = divCosts(e, m, ct);
   auto isArith = [&](uint32_t i) {
     const Op op = e.nodes[i].op;
     return op != Op::Input && op != Op::Const && op != Op::Swizzle && op != Op::Construct;
@@ -76,14 +79,15 @@ uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<Input
     if (folded[i] && (!ct[n.args[0]] || e.nodes[n.args[0]].op == Op::Const) &&
         (!ct[n.args[1]] || e.nodes[n.args[1]].op == Op::Const))
       continue;
-    // Source modifiers of the consuming instruction.
+    // Source modifiers of the consuming instruction; bit casts are no instruction at all.
     if ((n.op == Op::Neg || n.op == Op::Abs) && i != e.root) continue;
+    if (n.op == Op::AsUint || n.op == Op::AsFloat) continue;
     // Output modifier of the producing instruction (clamp(x, 0, 1) is saturate).
     const bool sat = n.op == Op::Saturate ||
                      (n.op == Op::Clamp && isConst(n.args[1], 0.0f) && isConst(n.args[2], 1.0f));
     if (sat && isArith(n.args[0])) continue;
     const bool reduce = info(n.op).shape == Shape::Reduce;
-    cost += m.opCost(sat ? Op::Saturate : n.op, width(reduce ? e.nodes[n.args[0]].type : n.type));
+    cost += n.op == Op::Div ? div[i] : m.opCost(sat ? Op::Saturate : n.op, width(reduce ? e.nodes[n.args[0]].type : n.type));
   }
   return cost;
 }
@@ -103,6 +107,9 @@ std::string variantClass(const Variant& v, int codeBits) {
   std::string s = klassName(v.klass, codeBits);
   if (v.moreAccurate) s += ", more accurate";
   if (v.fewerRegisters && v.notFaster) s += ", fewer registers";
+  if (v.perfFaster) s += v.perfFirst ? ", faster without performance mode" : ", faster in performance mode";
+  if (v.betterScheduling) s += ", better scheduling";
+  if (v.otherGpus) s += ", faster on other GPUs (same on the chosen one)";
   if (v.notFaster) s += " (not faster)";
   return s;
 }
@@ -128,11 +135,59 @@ std::string variantStatement(const Region& r, const std::string& expr) {
   return r.lhs + " " + expr + r.rhs + ";";
 }
 
+void easyPicks(std::vector<RegionResult>& results, std::vector<SourceRewrite>& rewrites, const EasyOptions& eo) {
+  for (RegionResult& rr : results) {
+    int best = -1;
+    long bestKey = 0;
+    for (size_t k = 0; k < rr.variants.size(); ++k) {
+      const Variant& v = rr.variants[k];
+      const bool klassOk = v.klass == Klass::BitExact || v.klass == Klass::Identical8 || v.klass == Klass::Within ||
+                           (eo.tooExact && v.klass == Klass::Accurate);
+      if (!klassOk || v.notFaster || !v.problems.empty() || !v.formatGuard.empty() || !rr.region.guard.empty())
+        continue;
+      const bool amd = v.amd >= 0 && rr.targetAmd >= 0, nv = v.nv >= 0 && rr.targetNv >= 0;
+      if ((amd && v.amd > rr.targetAmd) || (nv && v.nv > rr.targetNv)) continue;
+      if (!v.otherGpus && (amd || nv) && !((amd && v.amd < rr.targetAmd) || (nv && v.nv < rr.targetNv))) continue;
+      // As fast on the chosen card, faster on some families, maybe slower on others (owner, 2026-10-09): taken only
+      // when it helps more Steam users than it slows down (share-weighted change below 0); without survey data,
+      // only when no family gets slower.
+      if (v.otherGpus) {
+        bool anySlower = false;
+        for (size_t f = 0; f < v.platform.size() && f < rr.targetPlatform.size(); ++f)
+          anySlower = anySlower || v.platform[f] > rr.targetPlatform[f];
+        if (shareSurvey().empty() ? anySlower : v.world >= 0.0) continue;
+      }
+      const long key = amd || nv ? (amd ? v.amd : 0) + (nv ? v.nv : 0) : static_cast<long>(v.cost);
+      // Equal on the chosen card: the one that helps the world most (share-weighted).
+      if (best < 0 || key < bestKey || (key == bestKey && v.world < rr.variants[best].world))
+        best = static_cast<int>(k), bestKey = key;
+    }
+    if (best < 0) {
+      rr.variants.clear();
+    } else {
+      Variant v = rr.variants[best];
+      rr.variants = {v};
+    }
+  }
+  rewrites.erase(std::remove_if(rewrites.begin(), rewrites.end(),
+                                [&](const SourceRewrite& rw) {
+                                  if (eo.rewrites == EasyOptions::Rewrites::None) return true;
+                                  return eo.rewrites == EasyOptions::Rewrites::Safe && rw.tag == "B";
+                                }),
+                 rewrites.end());
+}
+
 std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
-                                    const fs::path& outDir, std::string& errors) {
+                                    const fs::path& outDir, std::string& errors,
+                                    const std::vector<SourceRewrite>& rewrites, const WriteOptions& wo) {
   std::map<std::string, std::vector<const RegionResult*>> byFile;
   for (const auto& r : results)
     if (!r.variants.empty()) byFile[r.region.file].push_back(&r);
+  std::map<std::string, std::vector<const SourceRewrite*>> rewritesByFile;
+  for (const auto& r : rewrites) {
+    rewritesByFile[r.file].push_back(&r);
+    byFile[r.file];  // a file with rewrites only is written too
+  }
   std::vector<fs::path> written;
   std::error_code ec;
   fs::create_directories(outDir, ec);
@@ -159,6 +214,8 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       uint32_t first, last;
       const RegionResult* rr;
       bool root;
+      const SourceRewrite* rw = nullptr;  // a classical rewrite's edit instead of a region
+      const LineEdit* edit = nullptr;
     };
     std::vector<Piece> pieces;
     auto overlaps = [&](uint32_t a, uint32_t b) {
@@ -166,6 +223,15 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         if (a <= p.last && p.first <= b) return true;
       return false;
     };
+    // Classical rewrites first: a region on their lines gives way.
+    std::vector<const SourceRewrite*> fileRewrites;
+    for (const SourceRewrite* rw : rewritesByFile[file]) {
+      bool clash = false;
+      for (const LineEdit& e : rw->edits) clash = clash || overlaps(e.first, e.last) || e.last > lines->size();
+      if (clash) continue;
+      fileRewrites.push_back(rw);
+      for (const LineEdit& e : rw->edits) pieces.push_back({e.first, e.last, nullptr, false, rw, &e});
+    }
     for (const RegionResult* rr : regs) {
       const Region& r = rr->region;
       bool clash = overlaps(r.line, r.lastLine) || r.lastLine > lines->size();
@@ -176,18 +242,25 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
     }
     std::sort(pieces.begin(), pieces.end(), [](const Piece& a, const Piece& b) { return a.first < b.first; });
     std::string out =
-        "// Variants generated by sopt (shader superoptimizer). Each SOPT_<file>_<line>\n"
-        "// switch selects the original (0) or a verified alternative (1..n) of one\n"
-        "// statement or window; SOPT_ALL = k selects alternative k everywhere (the last\n"
-        "// one where a region has fewer).\n"
-        "#ifndef SOPT_ALL\n#define SOPT_ALL 0\n#endif\n";
+        wo.clean ? std::string("// Optimized by SweetOpt (sopt-fx, easy mode): the changes marked \"// sopt:\" below are\n"
+                               "// verified to give the same picture (or one within the stated accuracy) and to be faster.\n")
+        : wo.allOn ? std::string("// Optimized by SweetOpt (sopt-fx, easy mode). Each SOPT_<file>_<line> switch is set to the\n"
+                                 "// recommended change (1); set it, or SOPT_ALL, to 0 for the original code.\n"
+                                 "#ifndef SOPT_ALL\n#define SOPT_ALL 1\n#endif\n")
+                   : std::string("// Variants generated by sopt (shader superoptimizer). Each SOPT_<file>_<line>\n"
+                                 "// switch selects the original (0) or a verified alternative (1..n) of one\n"
+                                 "// statement or window; SOPT_ALL = k selects alternative k everywhere (the last\n"
+                                 "// one where a region has fewer).\n"
+                                 "#ifndef SOPT_ALL\n#define SOPT_ALL 0\n#endif\n");
+    if (pieces.empty()) continue;
     bool anyPick = false;
-    for (const Piece& p : pieces)
-      anyPick = anyPick || vendorPick(*p.rr, Vendor::Amd) || vendorPick(*p.rr, Vendor::Nv) || vendorPick(*p.rr, Vendor::Intel);
+    for (const Piece& p : wo.clean || wo.allOn ? std::vector<Piece>{} : pieces)
+      anyPick = anyPick || (p.rr && (vendorPick(*p.rr, Vendor::Amd) || vendorPick(*p.rr, Vendor::Nv) || vendorPick(*p.rr, Vendor::Intel)));
     bool anyTooExact = false;
     for (const Piece& p : pieces)
-      for (const Variant& v : p.rr->variants) anyTooExact = anyTooExact || v.klass == Klass::Accurate;
-    if (anyTooExact)
+      if (p.rr)
+        for (const Variant& v : p.rr->variants) anyTooExact = anyTooExact || v.klass == Klass::Accurate;
+    if (anyTooExact && !wo.clean)
       out += "// SOPT_TOO_EXACT = 0 turns off the \"too exact\" variants: closer to exact math than the\n"
              "// float32 original, so they differ from it where it rounds (fine or better for most\n"
              "// effects; wrong where the effect relies on the rounding).\n"
@@ -198,16 +271,20 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
              "// API (__RENDERER__ < 0x10000: DX9-DX12, where fxc's DXBC reaches the driver).\n"
              "#ifndef SOPT_AUTO\n#define SOPT_AUTO 0\n#endif\n";
     // Switches up front, outside any #if of the source.
+    for (const SourceRewrite* rw : wo.clean ? std::vector<const SourceRewrite*>{} : fileRewrites) {
+      const std::string sw = rewriteSwitch(*rw);
+      out += "#ifndef " + sw + "\n#define " + sw + " SOPT_ALL // 0 = original, 1 = " + rw->description + "\n#endif\n";
+    }
     std::set<const RegionResult*> declared;
     for (const Piece& p : pieces) {
-      if (!declared.insert(p.rr).second) continue;
+      if (wo.clean || !p.rr || !declared.insert(p.rr).second) continue;
       const std::string sw = switchName(p.rr->region);
       const std::string n = std::to_string(p.rr->variants.size());
       const std::string note = " // 0 = original, 1.." + n + " = variants (larger = " + n + ")\n";
       const int amd = vendorPick(*p.rr, Vendor::Amd), nv = vendorPick(*p.rr, Vendor::Nv);
       const int amdDx = vendorPick(*p.rr, Vendor::Amd, true), nvDx = vendorPick(*p.rr, Vendor::Nv, true);
       const int intel = vendorPick(*p.rr, Vendor::Intel), intelDx = vendorPick(*p.rr, Vendor::Intel, true);
-      if (!amd && !nv && !intel) {
+      if ((!amd && !nv && !intel) || wo.allOn) {
         out += "#ifndef " + sw + "\n#define " + sw + " SOPT_ALL" + note + "#endif\n";
         continue;
       }
@@ -228,7 +305,59 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       out += "#else\n#define " + sw + " SOPT_ALL" + note + "#endif\n#endif\n";
     }
     uint32_t next = 1;  // next source line to copy
+    // GLSL: #version (and #extension) must come before anything but comments, so the header
+    // goes after them.
+    bool glslFile = false;
+    for (const Piece& p : pieces) glslFile = glslFile || (p.rr && p.rr->region.glsl);
+    if (glslFile) {
+      uint32_t after = 0;
+      for (uint32_t i = 1; i <= lines->size() && i < pieces.front().first; ++i) {
+        const std::string& l = (*lines)[i - 1];
+        const size_t b = l.find_first_not_of(" \t");
+        if (b != std::string::npos && (l.compare(b, 8, "#version") == 0 || l.compare(b, 10, "#extension") == 0)) after = i;
+      }
+      std::string head;
+      for (; next <= after; ++next) head += (*lines)[next - 1] + "\n";
+      out = head + out;
+    }
     for (const Piece& p : pieces) {
+      if (p.rw && wo.clean) {
+        // The rewrite itself; conditions that must stay (renderer, performance mode) as #if.
+        for (; next < p.first; ++next) out += (*lines)[next - 1] + "\n";
+        const std::string& x = p.edit->extra;
+        const std::string cond = x.rfind(" && ", 0) == 0 ? x.substr(4) : x;
+        if (cond.empty()) {
+          out += "// sopt: " + p.rw->description + "\n";
+          for (const auto& l : p.edit->lines) out += l + "\n";
+          next = p.last + 1;
+          continue;
+        }
+        if (p.edit->lines.empty()) {
+          out += "#if !(" + cond + ") // sopt: " + p.rw->description + "\n";
+        } else {
+          out += "#if " + cond + " // sopt: " + p.rw->description + "\n";
+          for (const auto& l : p.edit->lines) out += l + "\n";
+          out += "#else\n";
+        }
+        for (; next <= p.last; ++next) out += (*lines)[next - 1] + "\n";
+        out += "#endif\n";
+        continue;
+      }
+      if (p.rw) {
+        for (; next < p.first; ++next) out += (*lines)[next - 1] + "\n";
+        const std::string sw = rewriteSwitch(*p.rw);
+        const std::string on = sw + " >= 1" + p.edit->extra;
+        if (p.edit->lines.empty()) {
+          out += "#if !(" + on + ") // sopt: " + p.rw->description + "\n";
+        } else {
+          out += "#if " + on + " // sopt: " + p.rw->description + "\n";
+          for (const auto& l : p.edit->lines) out += l + "\n";
+          out += "#else\n";
+        }
+        for (; next <= p.last; ++next) out += (*lines)[next - 1] + "\n";
+        out += "#endif\n";
+        continue;
+      }
       const RegionResult* rr = p.rr;
       const Region& r = rr->region;
       for (; next < p.first; ++next) out += (*lines)[next - 1] + "\n";
@@ -247,6 +376,11 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         return sw + (last ? " >= " : " == ") + std::to_string(k + 1) + guard + (fg.empty() ? "" : " && (" + fg + ")") +
                (rr->variants[k].klass == Klass::Accurate ? " && SOPT_TOO_EXACT" : "");
       };
+      if (!p.root && wo.clean) {
+        // Inlined into the picked variant (easy picks have no guards or format conditions).
+        next = p.last + 1;
+        continue;
+      }
       if (!p.root) {
         // A statement inlined into the variants: only the original needs it.
         if (anyFormat) {
@@ -265,18 +399,28 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         const Variant& v = rr->variants[k];
         // The last variant also takes larger values, so SOPT_ALL = k works for regions
         // with fewer than k variants.
-        out += std::string(k == 0 ? "#if " : "#elif ") + cond(k) + "\n";
-        char note[320];
+        if (!wo.clean) out += std::string(k == 0 ? "#if " : "#elif ") + cond(k) + "\n";
+        char note[640];
         int len = std::snprintf(note, sizeof(note), " // sopt: %s, cost %u -> %u",
                                 variantClass(v, r.prog.budget.codeBits()).c_str(), rr->targetCost, v.cost);
         if ((v.klass == Klass::Accurate || v.klass == Klass::LessAccurate) && rr->targetExactAbs >= 0 && len > 0)
           len += std::snprintf(note + len, sizeof(note) - len, ", max err vs exact %.2g (original %.2g)",
                                v.worst.exactAbs, rr->targetExactAbs);
-        if (v.amd >= 0 && rr->targetAmd >= 0 && len > 0 && len < 200)
+        if (rr->schedule && len > 0 && len < 500 && (v.otherCost != v.cost || rr->targetOtherCost != rr->targetCost))
+          len += std::snprintf(note + len, sizeof(note) - len, ", %s %u -> %u",
+                               v.perfFirst ? "without performance mode" : "performance mode", rr->targetOtherCost,
+                               v.otherCost);
+        if (rr->schedule && len > 0 && len < 500 && v.amdOther >= 0 && rr->targetAmdOther >= 0)
+          len += std::snprintf(note + len, sizeof(note) - len, " (amd %d -> %d)", rr->targetAmdOther, v.amdOther);
+        if (rr->schedule && len > 0 && len < 500 && v.nvOther >= 0 && rr->targetNvOther >= 0)
+          len += std::snprintf(note + len, sizeof(note) - len, " (nv %d -> %d)", rr->targetNvOther, v.nvOther);
+        if (rr->schedule && len > 0 && len < 500 && v.tail != rr->targetTail)
+          len += std::snprintf(note + len, sizeof(note) - len, ", tail %u -> %u", rr->targetTail, v.tail);
+        if (v.amd >= 0 && rr->targetAmd >= 0 && len > 0 && len < 500)
           len += std::snprintf(note + len, sizeof(note) - len, ", amd %d -> %d", rr->targetAmd, v.amd);
-        if (v.nv >= 0 && rr->targetNv >= 0 && len > 0 && len < 200)
+        if (v.nv >= 0 && rr->targetNv >= 0 && len > 0 && len < 500)
           len += std::snprintf(note + len, sizeof(note) - len, ", nv %d -> %d", rr->targetNv, v.nv);
-        if (v.intel >= 0 && rr->targetIntel >= 0 && len > 0 && len < 200)
+        if (v.intel >= 0 && rr->targetIntel >= 0 && len > 0 && len < 500)
           len += std::snprintf(note + len, sizeof(note) - len, ", intel %d -> %d", rr->targetIntel, v.intel);
         std::string back;
         // Register counts only where they change (register pressure).
@@ -306,10 +450,15 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
           // fxc -O3 folds (v + c) - c to v: the add-round trick only survives as precise.
           const unsigned w = width(v.expr.nodes[v.expr.root].type);
           const std::string tmp = "__sopt_p" + std::to_string(r.line) + "_" + std::to_string(k + 1);
-          out += ind + "precise float" + (w > 1 ? std::to_string(w) : std::string()) + " " + tmp + " = " + text + ";\n";
+          const std::string ty = w > 1 ? (r.glsl ? "vec" : "float") + std::to_string(w) : std::string("float");
+          out += ind + "precise " + ty + " " + tmp + " = " + text + ";\n";
           text = tmp;
         }
         out += ind + variantStatement(r, text) + note + back + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
+      }
+      if (wo.clean) {
+        next = p.last + 1;
+        continue;
       }
       out += "#else\n";
       for (; next <= p.last; ++next) out += (*lines)[next - 1] + "\n";
@@ -330,6 +479,53 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
     written.push_back(dst);
   }
   return written;
+}
+
+// Where each variant helps and harms (owner, 2026-10-09): the static cost on every GPU family as the change against
+// the original, and the Steam-user-weighted change ("world").
+static std::string gpuFamilyTable(const RegionResult& rr) {
+  const auto& ps = platforms();
+  if (rr.targetPlatform.size() != ps.size()) return "";
+  bool any = false;
+  for (const auto& v : rr.variants) any = any || v.platform.size() == ps.size();
+  if (!any) return "";
+  const bool shares = !shareSurvey().empty();
+  char buf[64];
+  std::string s = "\nGPU families (static cost models; change against the original, - = faster):\n\n| # |";
+  for (const auto& p : ps) {
+    s += std::string(" ") + p.vendor + " " + p.label;
+    if (shares) {
+      std::snprintf(buf, sizeof(buf), " (%.1f%%)", p.share);
+      s += buf;
+    }
+    s += " |";
+  }
+  s += shares ? " Steam users |\n|---|" : "\n|---|";
+  for (size_t k = 0; k < ps.size(); ++k) s += "---|";
+  s += shares ? "---|\n| 0 |" : "\n| 0 |";
+  for (int c : rr.targetPlatform) s += " " + std::to_string(c) + " |";
+  s += shares ? " |\n" : "\n";
+  for (size_t k = 0; k < rr.variants.size(); ++k) {
+    const Variant& v = rr.variants[k];
+    if (v.platform.size() != ps.size()) continue;
+    s += "| " + std::to_string(k + 1) + " |";
+    for (size_t f = 0; f < ps.size(); ++f) {
+      const int t = rr.targetPlatform[f], c = v.platform[f];
+      if (c == t) s += " = |";
+      else {
+        std::snprintf(buf, sizeof(buf), " %s%+.0f%% |", c < t ? "**" : "", t > 0 ? 100.0 * (c - t) / t : 0.0);
+        s += buf;
+        if (c < t) s.insert(s.size() - 2, "**");
+      }
+    }
+    if (shares) {
+      std::snprintf(buf, sizeof(buf), " %+.1f%% |", v.world);
+      s += buf;
+    }
+    s += "\n";
+  }
+  if (shares) s += "\nShares: Steam Hardware & Software Survey, " + shareSurvey() + " (cards without a model of their own left out).\n";
+  return s;
 }
 
 std::string markdownReport(const std::vector<RegionResult>& results, const ReportInfo& info) {
@@ -358,6 +554,30 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
        "i.e. the compiler already does it on that backend. \"vs exact\" is the max error "
        "against exact math. \"auto\" marks what SOPT_AUTO = 1 selects on that vendor. Ranges "
        "marked *assumed* are defaults, not facts: check them before using a variant.\n\n";
+  if (info.schedule)
+    s += std::string("Scheduling (regions with uniforms or texture fetches): ") +
+         (info.perfFirst ? "cost is the performance mode cost (uniforms are constants there), \"without perf. mode\" "
+                           "the normal one"
+                         : "\"perf. mode\" is the cost with ReShade's performance mode on (uniforms are constants "
+                           "there)") +
+         "; tail: the cost of the work that waits for the last texture fetch (shorter lets the GPU "
+         "do more while the samples arrive). \"faster in performance mode\" / \"better "
+         "scheduling\" variants are not faster otherwise (at most one instruction slower where "
+         "measured); like the other \"(not faster)\" ones, SOPT_AUTO never picks them.\n\n";
+  if (info.rewrites && !info.rewrites->empty()) {
+    s += "## Classical rewrites\n\nSource changes before the superoptimizer, each under its own switch (0 = original, "
+         "1 = rewritten; SOPT_ALL sets it like the variants). amd: the effect's pixel / compute shaders measured "
+         "(RGA) with the switch off and on, scratch: spilled registers in memory, reads: texture / memory reads.\n\n"
+         "| switch | where | rewrite | amd | scratch | reads | amd, performance mode |\n|---|---|---|---|---|---|---|\n";
+    for (const auto& rw : *info.rewrites) {
+      auto pair = [](int a, int b) { return a < 0 || b < 0 ? std::string("-") : std::to_string(a) + " -> " + std::to_string(b); };
+      s += "| `" + rewriteSwitch(rw) + "` | " + pathFrom(rw.file).filename().string() + ":" + std::to_string(rw.line) +
+           " (" + rw.function + ") | " + escapeCell(rw.description) + " | " + pair(rw.amdBefore, rw.amdAfter) + " | " +
+           pair(rw.scratchBefore, rw.scratchAfter) + " | " + pair(rw.vmemBefore, rw.vmemAfter) + " | " +
+           pair(rw.amdPerfBefore, rw.amdPerfAfter) + " |\n";
+    }
+    s += "\n";
+  }
   if (!info.failed.empty()) {
     s += "## Effects that failed to parse\n\n";
     for (const auto& [f, e] : info.failed) s += "- `" + f + "`: " + escapeCell(e.substr(0, 300)) + "\n";
@@ -370,7 +590,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     s += "### `" + switchName(r) + "` — " + pathFrom(r.file).filename().string() + ":" +
          (r.removed.empty() ? "" : std::to_string(r.removed.front().first) + "-") + std::to_string(r.line) +
          " (" + r.function + ")\n\n";
-    s += "```hlsl\n" + r.original + "\n```\n\n";
+    s += (r.glsl ? "```glsl\n" : "```hlsl\n") + r.original + "\n```\n\n";
     if (!r.guard.empty()) s += "Applies only while `" + r.guard + "` (preprocessor).\n\n";
     s += "Inputs:\n";
     for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
@@ -423,6 +643,8 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       return cell;
     };
     s += "\n\n| # | code | cost |";
+    const bool sched = info.schedule && rr.schedule;
+    if (sched) s += info.perfFirst ? " without perf. mode | tail |" : " perf. mode | tail |";
     if (info.amd) s += " amd | amd vgpr |";
     if (info.nv) s += " nv | nv regs |";
     if (info.intel) s += " intel |";
@@ -430,13 +652,15 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     if (info.dxbc) s += " dxbc |";
     s += std::string(" class | max abs err |") + (exact ? " vs exact |" : "") + " verified |" +
          (autoCol ? " auto |" : "") + "\n|---|---|---|";
+    if (sched) s += "---|---|";
     if (info.amd) s += "---|---|";
     if (info.nv) s += "---|---|";
     if (info.intel) s += "---|";
     if (info.spirv) s += "---|";
     if (info.dxbc) s += "---|";
     s += std::string(exact ? "---|---|---|---|" : "---|---|---|") + (autoCol ? "---|" : "") + "\n";
-    s += "| 0 | `" + escapeCell(toString(r.prog.target, r.prog.inputs)) + "` | " + std::to_string(rr.targetCost) + " |";
+    s += "| 0 | `" + escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)) + "` | " + std::to_string(rr.targetCost) + " |";
+    if (sched) s += " " + std::to_string(rr.targetOtherCost) + " | " + std::to_string(rr.targetTail) + " |";
     if (info.amd) s += " " + withGain(rr.targetAmd, -1) + " | " + regsCell(rr.targetAmdVgprs, -1) + " |";
     if (info.nv) s += " " + withGain(rr.targetNv, -1) + " | " + regsCell(rr.targetNvRegs, -1) + " |";
     if (info.intel) s += " " + withGain(rr.targetIntel, -1) + " |";
@@ -452,6 +676,9 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       const Variant& v = rr.variants[k];
       s += "| " + std::to_string(k + 1) + " | `" + escapeCell(v.text) + "` | " +
            withGain(static_cast<int>(v.cost), static_cast<int>(rr.targetCost)) + " |";
+      if (sched)
+        s += " " + withGain(static_cast<int>(v.otherCost), static_cast<int>(rr.targetOtherCost)) + " | " +
+             withGain(static_cast<int>(v.tail), static_cast<int>(rr.targetTail)) + " |";
       if (info.amd) s += " " + withGain(v.amd, rr.targetAmd) + " | " + regsCell(v.amdVgprs, rr.targetAmdVgprs) + " |";
       if (info.nv) s += " " + withGain(v.nv, rr.targetNv) + " | " + regsCell(v.nvRegs, rr.targetNvRegs) + " |";
       if (info.intel) s += " " + withGain(v.intel, rr.targetIntel) + " |";
@@ -491,6 +718,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       }
       s += "\n";
     }
+    s += gpuFamilyTable(rr);
     for (size_t k = 0; k < rr.variants.size(); ++k)
       if (!rr.variants[k].problems.empty())
         s += "\n**Variant " + std::to_string(k + 1) + "** " + rr.variants[k].problems +
@@ -508,7 +736,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     for (const auto& f : r.facts)
       if (f.assumed) assumed += (assumed.empty() ? "" : ", ") + ("`" + f.input + "`");
     s += "- " + pathFrom(r.file).filename().string() + ":" + std::to_string(r.line) + " (assumed: " +
-         assumed + "): `" + escapeCell(toString(r.prog.target, r.prog.inputs)) + "` -> `" +
+         assumed + "): `" + escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)) + "` -> `" +
          escapeCell(rr.unwritten[0].text) + "` (cost " + std::to_string(rr.targetCost) + " -> " +
          std::to_string(rr.unwritten[0].cost) + ")\n";
   }
@@ -523,7 +751,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     if (rr.measuredNoGain) why += ", no measured gain";
     std::snprintf(buf, sizeof(buf), "- %s:%u (cost %u%s): `%s`\n", pathFrom(r.file).filename().string().c_str(),
                   r.line, rr.targetCost, why.c_str(),
-                  escapeCell(toString(r.prog.target, r.prog.inputs)).c_str());
+                  escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)).c_str());
     s += buf;
   }
   s += "\n## Skipped statements\n\n| reason | count |\n|---|---|\n";
@@ -539,7 +767,8 @@ std::string foundRewrites(const std::vector<RegionResult>& results) {
       "# sopt: faster variants found (sopt-fx), in the rewrite library's format\n"
       "# (library/rewrites.txt). Names are the region's inputs; ranges are what sopt-fx knew\n"
       "# (facts, or assumed where marked). Generalize a rule before adding it to the library\n"
-      "# and check it there with sopt --check-library.\n";
+      "# and check it there with sopt --check-library. Each rule is the original, \"->\", the faster\n"
+      "# form and the ranges, on lines of their own.\n";
   std::set<std::string> seen;
   char buf[256];
   auto ident = [](const std::string& n) {
@@ -570,8 +799,10 @@ std::string foundRewrites(const std::vector<RegionResult>& results) {
     const std::string lhs = toString(r.prog.target, named);
     auto emit = [&](const Variant& v, bool assumed) {
       if (v.notFaster) return;
-      std::string rule = lhs + " -> " + toString(v.expr, named);
-      if (!where.empty()) rule += "   where " + where;
+      // Pattern, arrow and replacement on lines of their own (owner, 2026-10-08: easier to read); the
+      // library parser joins them.
+      std::string rule = lhs + "\n  ->\n" + toString(v.expr, named);
+      if (!where.empty()) rule += "\n  where " + where;
       if (!seen.insert(rule).second) return;
       s += "\n# " + pathFrom(r.file).filename().string() + ":" +
            (r.removed.empty() ? "" : std::to_string(r.removed.front().first) + "-") + std::to_string(r.line) +

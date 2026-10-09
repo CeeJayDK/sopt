@@ -38,6 +38,21 @@ TEST(library_parse) {
   CHECK(lib.rules[1].conds.size() == 1 && lib.rules[1].vars[0].lo == 0.0 && lib.rules[1].vars[0].hi == 1.0);
   CHECK(lib.rules[2].conds.size() == 2 && lib.rules[2].conds[0].kind == RuleCond::Kind::Const);
   CHECK(lib.rules[3].vars[0].type == Type::Float3);
+  // A rule over several lines, as sopt-fx writes sopt-found.txt.
+  const Library multi = parseLibrary(
+      "# region\n"
+      "saturate(x)\n"
+      "  ->\n"
+      "x\n"
+      "  where x in [0, 1]\n"
+      "\n"
+      "lerp(a, b, t) ->\n"
+      "mad(t, b - a, a)\n",
+      "multi");
+  CHECK(multi.rules.size() == 2);
+  CHECK(multi.rules[0].conds.size() == 1 && multi.rules[0].vars[0].hi == 1.0);
+  CHECK(multi.rules[0].source == "multi:2");
+  CHECK(multi.rules[1].vars.size() == 3);
   bool threw = false;
   try {
     parseLibrary("lerp(a, b, t) mad(t, b - a, a)\n", "bad");

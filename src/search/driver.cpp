@@ -2,6 +2,7 @@
 
 #include "search/cuts.hpp"
 #include "search/library.hpp"
+#include "search/reshape.hpp"
 #include "search/subtrees.hpp"
 #include "verify/bound.hpp"
 #include "verify/exact.hpp"
@@ -43,17 +44,62 @@ bool followsExact(const Program& prog, uint64_t seed) {
   return !(hi > lo) || err <= 0.1 * (hi - lo);
 }
 
-// Final pass over the accepted candidates: accuracy variants, problem inputs.
+// Scheduling measures of e (Accepted / RunResult fields); prog's inputs may have their uniforms
+// folded (Options::perfFirst).
+struct Measures {
+  uint32_t normalCost, perfCost, tail, critical;
+};
+Measures measures(const Program& prog, const Expr& e, const CostModel& m) {
+  std::vector<InputDecl> plain = prog.inputs;
+  for (auto& d : plain) d.perfFolded = false;
+  const ScheduleMetrics s = scheduleMetrics(e, m, prog.inputs);
+  return {dagCost(e, m, plain), s.perfCost, s.tail, s.critical};
+}
+void fillMeasures(const Program& prog, const Options& opt, Accepted& a) {
+  const Measures x = measures(prog, a.expr, *opt.search.model);
+  a.normalCost = x.normalCost;
+  a.perfCost = x.perfCost;
+  a.tail = x.tail;
+  a.critical = x.critical;
+}
+// The secondary cost: the other mode's (Options::perfFirst).
+uint32_t otherCost(const Accepted& a, const Options& opt) { return opt.perfFirst ? a.normalCost : a.perfCost; }
+// Main cost, then (Options::schedule) the other mode's cost, the tail and the critical path.
+bool scheduleLess(const Accepted& x, const Accepted& y, const Options& opt) {
+  if (x.cost != y.cost) return x.cost < y.cost;
+  if (opt.schedule) {
+    if (otherCost(x, opt) != otherCost(y, opt)) return otherCost(x, opt) < otherCost(y, opt);
+    if (x.tail != y.tail) return x.tail < y.tail;
+    if (x.critical != y.critical) return x.critical < y.critical;
+  }
+  if (x.klass != y.klass) return x.klass < y.klass;
+  if (x.worst.maxAbs != y.worst.maxAbs) return x.worst.maxAbs < y.worst.maxAbs;
+  return x.text < y.text;
+}
+
+// Final pass over the accepted candidates: accuracy variants, scheduling measures, problem inputs.
 void finish(const Program& prog, const Options& opt, RunResult& res) {
   const Metrics& t = res.targetExact;
   const bool rule = accuracyRule(prog.budget) && opt.exactRule && t.exactRel > 0.0;
+  const Measures tm = measures(prog, prog.target, *opt.search.model);
+  res.targetNormalCost = tm.normalCost;
+  res.targetPerfCost = tm.perfCost;
+  res.targetTail = tm.tail;
+  res.targetCritical = tm.critical;
+  const uint32_t targetOther = opt.perfFirst ? tm.normalCost : tm.perfCost;
   std::vector<Accepted> kept;
   for (auto& a : res.accepted) {
+    fillMeasures(prog, opt, a);
     a.moreAccurate = opt.accuracyVariants && rule && a.klass != Klass::LessAccurate &&
                      4.0 * a.worst.exactRel <= t.exactRel && a.worst.exactAbs <= t.exactAbs;
-    if (a.cost >= res.targetCost && !a.moreAccurate) continue;  // neither cheaper nor more accurate
+    const bool cheaper = a.cost < res.targetCost;
+    const bool near = opt.schedule && a.cost <= res.targetCost + opt.accuracySlack && a.klass != Klass::LessAccurate;
+    a.otherModeFaster = !cheaper && near && otherCost(a, opt) < targetOther;
+    a.betterScheduling = !cheaper && near && a.tail < tm.tail && a.cost <= res.targetCost;
+    if (!cheaper && !a.moreAccurate && !a.otherModeFaster && !a.betterScheduling) continue;
     kept.push_back(std::move(a));
   }
+  std::stable_sort(kept.begin(), kept.end(), [&](const Accepted& x, const Accepted& y) { return scheduleLess(x, y, opt); });
   res.accepted = std::move(kept);
   for (auto& a : res.accepted) a.problems = findProblemRanges(prog, a.expr, a.klass == Klass::LessAccurate);
   // V3: a formal bound where V2 did not cover the whole domain.
@@ -92,6 +138,17 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     RunResult r = optimize(p, opt);
     r.exactOff = true;
     return r;
+  }
+  // Performance mode first (Options::perfFirst): search with the uniforms folded like
+  // compile-time constants; finish() reports both costs.
+  if (opt.perfFirst) {
+    bool unfolded = false;
+    for (const auto& d : progIn.inputs) unfolded = unfolded || (d.rate == InputDecl::Rate::Uniform && !d.perfFolded);
+    if (unfolded) {
+      Program p = progIn;
+      p.inputs = perfInputs(progIn.inputs);
+      return optimize(p, opt);
+    }
   }
   const Program& prog = progIn;
   if (opt.specialize)
@@ -159,20 +216,42 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     }
   }
 
+  // The previous run's candidates (Options::previous): verified again; the cheapest that passes stage 2 lowers the
+  // bound the search starts with.
+  std::vector<Candidate> prevCands;
+  for (const Expr& e : opt.previous) {
+    const uint32_t c = dagCost(e, *opt.search.model, prog.inputs);
+    if (c < res.targetCost && compare(prog, e, stage2, kProfileRef, 1, &stage2Target, s2x, s2s).pass &&
+        (res.previousBest == 0 || c < res.previousBest)) {
+      res.previousBest = c;
+      if (cfg.seedBound == 0 || c < cfg.seedBound) cfg.seedBound = c;
+      cfg.seeds.push_back(e);
+    }
+    prevCands.push_back({e, c});
+  }
+
+  // Scheduling (Options::schedule): reshaped forms of the target and of the library seed.
+  std::vector<Candidate> shapeCands;
+  if (opt.schedule && hasScheduleInputs(prog.inputs)) {
+    for (auto& f : reshapeForms(prog.target, prog.inputs, *opt.search.model)) shapeCands.push_back({std::move(f), 0});
+    if (haveSeed)
+      for (auto& f : reshapeForms(seedProg.target, prog.inputs, *opt.search.model)) shapeCands.push_back({std::move(f), 0});
+  }
+
   std::vector<Candidate> subCands;  // Options::subtrees, computed once
   bool subDone = false;
   std::vector<Candidate> cutCands;  // Options::cuts, computed once
   bool cutDone = false;
   for (uint32_t iter = 0; iter < opt.maxIterations; ++iter) {
     res.iterations = iter + 1;
-    const bool lastIter = iter + 1 == opt.maxIterations;
+    const bool lastIter = iter + 1 == opt.maxIterations || opt.previousOnly;
 
     double ts = nowSeconds();
     // The time limit covers all CEGIS iterations (the overflow search runs to it); a
     // restart after counterexamples gets what is left, at least a tenth.
     cfg.timeLimitSec = std::max(opt.search.timeLimitSec * 0.1, opt.search.timeLimitSec - res.searchSec);
     std::vector<Candidate> cands;
-    {
+    if (!opt.previousOnly) {
       // The bank is freed before the subtree / cut searches, which build their own.
       Enumerator en(prog, tests, cfg);
       cands = en.run(res.search);
@@ -181,7 +260,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     // A library seed's bound can end the search early without a limit: "complete" then only
     // means nothing below the seed in the bank's space (no vector constructors, no
     // helpers), so the part searches run as well.
-    const bool partSearch = res.search.limitHit || haveSeed;
+    const bool partSearch = !opt.previousOnly && (res.search.limitHit || haveSeed);
     if (opt.subtrees && !subDone && partSearch) {
       subDone = true;
       const double tsub = nowSeconds();
@@ -205,6 +284,8 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     cands.insert(cands.end(), cutCands.begin(), cutCands.end());
     cands.insert(cands.end(), subCands.begin(), subCands.end());
     cands.insert(cands.end(), libCands.begin(), libCands.end());
+    cands.insert(cands.end(), shapeCands.begin(), shapeCands.end());
+    cands.insert(cands.end(), prevCands.begin(), prevCands.end());
     for (auto& c : cands) {
       c.expr = simplifyIdentities(c.expr);
       c.cost = dagCost(c.expr, *opt.search.model, prog.inputs);
@@ -321,20 +402,20 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     break;
   }
 
-  std::sort(res.accepted.begin(), res.accepted.end(), [](const Accepted& x, const Accepted& y) {
-    if (x.cost != y.cost) return x.cost < y.cost;
-    if (x.klass != y.klass) return x.klass < y.klass;
-    if (x.worst.maxAbs != y.worst.maxAbs) return x.worst.maxAbs < y.worst.maxAbs;
-    return x.text < y.text;
-  });
+  for (auto& a : res.accepted) fillMeasures(prog, opt, a);
+  std::sort(res.accepted.begin(), res.accepted.end(),
+            [&](const Accepted& x, const Accepted& y) { return scheduleLess(x, y, opt); });
 
   // Alternatives that produce identical values on every verification point under every
   // profile are the same variant for the user (e.g. x < 0.5 ? a : b vs x >= 0.5 ? b : a):
-  // keep only the first (cheapest) of each group.
+  // keep only the first (cheapest) of each group, unless a later one schedules better
+  // (Options::schedule: the other mode's cost or the tail).
   std::vector<Accepted> grouped;
   for (auto& a : res.accepted) {
     bool dup = false;
-    for (const auto& g : grouped) dup = dup || g.worst.valueHash == a.worst.valueHash;
+    for (const auto& g : grouped)
+      dup = dup || (g.worst.valueHash == a.worst.valueHash &&
+                    (!opt.schedule || (otherCost(g, opt) <= otherCost(a, opt) && g.tail <= a.tail)));
     if (!dup) grouped.push_back(std::move(a));
   }
   res.accepted = std::move(grouped);

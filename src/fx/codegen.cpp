@@ -293,7 +293,11 @@ reshadefx::codegen::id Codegen::emit_construct(const reshadefx::location& loc,
                                                const std::vector<reshadefx::expression>& args) {
   id res;
   Value& v = newValue(Value::Kind::Construct, type, loc, res);
-  for (const auto& a : args) v.args.push_back(a.base);
+  for (const auto& a : args) {
+    v.args.push_back(a.base);
+    const auto it = values.find(a.base);
+    v.argConst.push_back(a.is_constant || (it != values.end() && it->second.kind == Value::Kind::Const));
+  }
   return res;
 }
 

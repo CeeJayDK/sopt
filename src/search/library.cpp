@@ -243,18 +243,36 @@ std::string exeDir() {
 
 }  // namespace
 
+std::string executableDir() { return exeDir(); }
+
 Library parseLibrary(std::string_view text, const std::string& name) {
   Library lib;
   lib.path = name;
-  std::istringstream in{std::string(text)};
-  std::string raw;
-  int lineNo = 0;
-  while (std::getline(in, raw)) {
-    ++lineNo;
+  // A rule may span lines (owner, 2026-10-08: sopt-found.txt writes pattern, "->" and replacement on
+  // lines of their own): a line starting with "->" or the word "where", or following one that ends in
+  // "->", continues the rule before it.
+  std::vector<std::pair<int, std::string>> rules;
+  {
+    std::istringstream in{std::string(text)};
+    std::string raw;
+    int n = 0;
+    auto startsWord = [](const std::string& l, const char* w) {
+      const size_t k = std::strlen(w);
+      return l.compare(0, k, w) == 0 && (l.size() == k || !identChar(l[k]));
+    };
+    while (std::getline(in, raw)) {
+      ++n;
+      std::string l = trim(raw.substr(0, raw.find('#')));
+      if (l.empty()) continue;
+      const bool cont = !rules.empty() && (l.compare(0, 2, "->") == 0 || startsWord(l, "where") ||
+                                           (rules.back().second.size() >= 2 &&
+                                            rules.back().second.compare(rules.back().second.size() - 2, 2, "->") == 0));
+      if (cont) rules.back().second += " " + l;
+      else rules.emplace_back(n, l);
+    }
+  }
+  for (const auto& [lineNo, line] : rules) {
     const std::string where = name + ":" + std::to_string(lineNo);
-    std::string line = raw.substr(0, raw.find('#'));
-    line = trim(line);
-    if (line.empty()) continue;
     const size_t arrow = line.find("->");
     if (arrow == std::string::npos) throw ParseError(where + ": expected 'pattern -> replacement'");
     std::string lhsText = trim(std::string_view(line).substr(0, arrow));
@@ -285,6 +303,8 @@ Library parseLibrary(std::string_view text, const std::string& name) {
         if (r.vars[k].name == v) return k;
       throw ParseError(where + ": '" + v + "' in a condition is not a variable of the pattern");
     };
+    // Sides of a variable's domain set by a condition (the default [-100, 100] applies to the others).
+    std::vector<bool> loSet(r.vars.size(), false), hiSet(r.vars.size(), false);
     for (const std::string& c : splitConds(condText)) {
       size_t j = 0;
       while (j < c.size() && identChar(c[j])) ++j;
@@ -337,14 +357,27 @@ Library parseLibrary(std::string_view text, const std::string& name) {
         }
       }
       if (rc.kind == RuleCond::Kind::Range) {
-        // The rule check samples the variable's domain: narrow it to the condition.
-        d.lo = std::max(d.lo, rc.lo);
-        d.hi = std::min(d.hi, rc.hi);
-        if (rc.loOpen && d.lo == rc.lo) d.lo = std::nextafter(d.lo, INFINITY);
-        if (rc.hiOpen && d.hi == rc.hi) d.hi = std::nextafter(d.hi, -INFINITY);
-        if (!(d.lo <= d.hi)) throw ParseError(where + ": empty range for " + v);
+        // The rule check samples the variable's domain: a condition's bound replaces the default
+        // one on its side (x in [256, 7680] lies outside [-100, 100]) and narrows an earlier one.
+        if (std::isfinite(rc.lo)) {
+          d.lo = loSet[rc.var] ? std::max(d.lo, rc.lo) : rc.lo;
+          loSet[rc.var] = true;
+          if (rc.loOpen && d.lo == rc.lo) d.lo = std::nextafter(d.lo, INFINITY);
+        }
+        if (std::isfinite(rc.hi)) {
+          d.hi = hiSet[rc.var] ? std::min(d.hi, rc.hi) : rc.hi;
+          hiSet[rc.var] = true;
+          if (rc.hiOpen && d.hi == rc.hi) d.hi = std::nextafter(d.hi, -INFINITY);
+        }
       }
       r.conds.push_back(rc);
+    }
+    for (size_t k = 0; k < r.vars.size(); ++k) {
+      InputDecl& d = r.vars[k];
+      // One side given beyond the other's default: the default side follows it.
+      if (loSet[k] && !hiSet[k] && d.hi < d.lo) d.hi = d.lo + 200.0;
+      if (hiSet[k] && !loSet[k] && d.lo > d.hi) d.lo = d.hi - 200.0;
+      if (!(d.lo <= d.hi)) throw ParseError(where + ": empty range for " + d.name);
     }
     try {
       r.lhs = folded(parseExpr(lhsText, r.vars));

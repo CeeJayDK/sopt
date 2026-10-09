@@ -35,7 +35,19 @@ struct InputDecl {
   // compiler folds expressions of these, so they cost nothing.
   bool compileTime = false;
   double value = 0.0;  // compileTime: the current value (a preprocessor definition's)
+  // Where the value comes from (owner, 2026-10-08: group math by rate so the compiler can
+  // precompute and schedule it): a uniform (a constant in ReShade's performance mode), a
+  // per-pixel value (interpolant, position, earlier result) or a texture fetch, which arrives
+  // late; fetchOrder: its position among the region's fetches in the source.
+  enum class Rate : uint8_t { Pixel, Uniform, Fetch } rate = Rate::Pixel;
+  uint32_t fetchOrder = 0;
+  // A uniform folded like a compile-time constant (the performance mode cost, see perfInputs).
+  bool perfFolded = false;
+  bool folds() const { return compileTime || perfFolded; }
 };
+
+// The inputs with every uniform folded like a compile-time constant (performance mode).
+std::vector<InputDecl> perfInputs(const std::vector<InputDecl>& inputs);
 
 // Error budget per output value (design 4.2). Color8/Color10: max difference in
 // 8/10-bit code values after quantization. Texcoord: max deviation in pixels at 4K
@@ -83,6 +95,7 @@ class ExprBuilder {
   uint32_t input(uint32_t index, Type type = Type::Float);
   uint32_t constant(float v);
   uint32_t constant(Type type, const float* v);
+  uint32_t constantU(uint32_t v);  // a Type::Uint constant
   // Throws std::invalid_argument if the operand types don't fit the op.
   uint32_t op(Op op, uint32_t a, uint32_t b = 0, uint32_t c = 0);
   uint32_t swizzle(uint32_t a, const uint8_t* comps, unsigned count);
@@ -99,11 +112,32 @@ class ExprBuilder {
 // Static cost with sharing: every distinct node counts once. With contraction, an
 // add/sub over a single-use mul (or div) costs model.fusedAdd.
 uint32_t dagCost(const Expr& e, const CostModel& model = defaultCostModel());
-// The same with compile-time inputs (InputDecl::compileTime): nodes computed only from
+// The same with compile-time inputs (InputDecl::folds): nodes computed only from
 // constants and compile-time inputs are folded by the compiler and cost nothing.
 uint32_t dagCost(const Expr& e, const CostModel& model, const std::vector<InputDecl>& inputs);
-// Per node: computed only from constants and compile-time inputs.
+// Divisions as the compilers lower them (RGA and ptxas, 2026-10-09): a / b = a * rcp(b) with one
+// reciprocal per distinct divisor b, shared by every division by b and by rcp(b) itself, and none for a
+// compile-time b (ct, from compileTimeNodes: x / 3.0 is x * 0.33333334). Per Div node its cost, 0 elsewhere.
+std::vector<uint32_t> divCosts(const Expr& e, const CostModel& model, const std::vector<bool>& ct);
+// That cost per node (dagCost(e, model, inputs) is the sum).
+std::vector<uint32_t> nodeCosts(const Expr& e, const CostModel& model, const std::vector<InputDecl>& inputs);
+// Per node: computed only from constants and compile-time inputs (InputDecl::folds).
 std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& inputs);
+// Secondary measures for scheduling (owner, 2026-10-08), like registers: they break ties and
+// make "better scheduling" / "faster in performance mode" variants, never the main cost.
+// perfCost: dagCost with uniforms folded (ReShade's performance mode). tail: the cost of the
+// nodes that depend on the last texture fetch (the highest InputDecl::fetchOrder among the
+// fetches e reads), i.e. the work left once the last sample arrives; 0 without fetches.
+// critical: the costliest chain of dependent nodes. tail and critical use the costs of
+// nodeCosts(e, model, inputs).
+struct ScheduleMetrics {
+  uint32_t perfCost = 0;
+  uint32_t tail = 0;
+  uint32_t critical = 0;
+};
+ScheduleMetrics scheduleMetrics(const Expr& e, const CostModel& model, const std::vector<InputDecl>& inputs);
+// Whether a program has inputs the secondary measures can tell apart (uniforms or fetches).
+bool hasScheduleInputs(const std::vector<InputDecl>& inputs);
 std::vector<uint32_t> useCounts(const Expr& e);
 // For an add/sub node: the operand index (0/1) that contracts into an fma, else -1.
 int fusedArg(const Expr& e, uint32_t node, const std::vector<uint32_t>& uses, bool divIsMul);
@@ -124,7 +158,12 @@ bool needsPrecise(const Expr& e);
 Type nodeType(const Expr& e, uint32_t node);
 unsigned operandCount(const Node& n);
 std::string toString(const Expr& e, const std::vector<InputDecl>& inputs);
+// The same in GLSL: fract, mix, inversesqrt, roundEven, clamp(x, 0.0, 1.0) for saturate, 1.0 / x
+// for rcp, a * b + c for mad, vecN, floatBitsToUint / uintBitsToFloat, vecN(s) for scalar
+// operands GLSL does not broadcast (pow(v, vec3(2.0))).
+std::string toGlsl(const Expr& e, const std::vector<InputDecl>& inputs);
 std::string formatFloat(float v);
+std::string formatUint(uint32_t v);  // 13u, 0x3F800000u
 
 // HLSL intrinsics that are not ops but written out the way DXC lowers them: radians(x) =
 // x * (pi / 180), degrees(x) = x * (180 / pi), log10(x) = log2(x) * (ln 2 / ln 10), tan(x) =

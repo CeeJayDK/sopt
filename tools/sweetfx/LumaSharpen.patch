@@ -1,0 +1,103 @@
+--- a/Shaders/LumaSharpen.fx
++++ b/Shaders/LumaSharpen.fx
+@@ -8,6 +8,15 @@
+ 
+    Version 1.5.1
+   - UI improvements for Reshade 3.x
++
++   Version 1.6.0
++  - The sample patterns come from tables indexed by the pattern setting instead of one if block per
++    pattern. Without performance mode the compiler ran every pattern's texture fetches (15 instead of 5);
++    now it runs only the chosen one's (AMD RDNA 3: 96 -> 58 instructions, 15 -> 5 fetches; Direct3D 11
++    bytecode: 67 -> 39 instruction slots, 15 -> 5 samples). With performance mode the result is the same
++    as before (the setting is a constant there). Direct3D 9 keeps the if blocks: ps_3_0 cannot index the
++    tables in a pixel shader, so the compiler would turn each lookup into a chain of selects (73 -> 136
++    instruction slots).
+  */
+ 
+ #include "ReShadeUI.fxh"
+@@ -56,6 +65,55 @@
+ //#define CoefLuma float3(1.0/3.0, 1.0/3.0, 1.0/3.0) // Equal weight coefficient
+ 
+    /*-----------------------------------------------------------.
++  /                       Sampling patterns                     /
++  '-----------------------------------------------------------*/
++
++// Each pattern takes 4 texture fetches (each one bilinear, so it samples 4 pixels) around the original
++// pixel: fetch k of pattern p is at tex + BUFFER_PIXEL_SIZE * (Offset[4p + k] * offset_bias + Shift[4p + k]).
++// Indexing the tables by the pattern keeps the compiler from running every pattern's fetches when the
++// pattern is a uniform (performance mode off).
++//
++//   [ NW,   , NE ]
++//   [   ,ori,    ]
++//   [ SW,   , SE ]
++//
++// Pattern 1 (Fast) - A 7 tap gaussian using only 2+1 texture fetches (its 2 fetches twice: the second
++// pair hits the texture cache).
++//   [ 1/9, 2/9,    ]     [ 1 , 2 ,   ]
++//   [ 2/9, 8/9, 2/9]  =  [ 2 , 8 , 2 ]
++//   [    , 2/9, 1/9]     [   , 2 , 1 ]
++// Pattern 2 (Normal) - A 9 tap gaussian using 4+1 texture fetches.
++//   [ .25, .50, .25]     [ 1 , 2 , 1 ]
++//   [ .50,   1, .50]  =  [ 2 , 4 , 2 ]
++//   [ .25, .50, .25]     [ 1 , 2 , 1 ]
++// Pattern 3 (Wider) - An experimental 17 tap gaussian using 4+1 texture fetches.
++//   [   , 4 , 6 ,   ,   ]
++//   [   ,16 ,24 ,16 , 4 ]
++//   [ 6 ,24 ,   ,24 , 6 ]
++//   [ 4 ,16 ,24 ,16 ,   ]
++//   [   ,   , 6 , 4 ,   ]
++// Pattern 4 (Pyramid shaped) - A 9 tap high pass (pyramid filter) using 4+1 texture fetches.
++//   [ .50, .50, .50]     [ 1 , 1 , 1 ]
++//   [ .50,    , .50]  =  [ 1 ,   , 1 ]
++//   [ .50, .50, .50]     [ 1 , 1 , 1 ]
++static const float2 Offset[16] =
++{
++	float2( 1.0/3.0,  1.0/3.0), float2(-1.0/3.0, -1.0/3.0), float2( 1.0/3.0,  1.0/3.0), float2(-1.0/3.0, -1.0/3.0), // Fast: NW, SE (twice)
++	float2( 0.5, -0.5), float2(-0.5, -0.5), float2( 0.5,  0.5), float2(-0.5,  0.5), // Normal: SE, SW, NE, NW
++	float2( 0.4, -1.2), float2(-1.2, -0.4), float2( 1.2,  0.4), float2(-0.4,  1.2), // Wider: SSE, WSW, ENE, NNW
++	float2( 0.0, -1.0), float2(-1.0,  0.0), float2( 1.0,  0.0), float2( 0.0,  1.0)  // Pyramid: SSE, WSW, ENE, NNW
++};
++static const float2 Shift[16] =
++{
++	float2(0.0, 0.0), float2(0.0, 0.0), float2(0.0, 0.0), float2(0.0, 0.0),
++	float2(0.0, 0.0), float2(0.0, 0.0), float2(0.0, 0.0), float2(0.0, 0.0),
++	float2(0.0, 0.0), float2(0.0, 0.0), float2(0.0, 0.0), float2(0.0, 0.0),
++	float2(0.5, 0.0), float2(0.0, -0.5), float2(0.0, 0.5), float2(-0.5, 0.0) // Pyramid: half a pixel across, not scaled by offset_bias
++};
++// Strength per pattern, to approximate the strength of pattern 2 (Normal).
++static const float PatternStrength[4] = { 1.5, 1.0, 0.51, 0.666 };
++
++   /*-----------------------------------------------------------.
+   /                          Main code                          /
+   '-----------------------------------------------------------*/
+ 
+@@ -70,6 +128,19 @@
+ 	/*-----------------------------------------------------------.
+ 	/                       Sampling patterns                     /
+ 	'-----------------------------------------------------------*/
++#if __RENDERER__ >= 0xa000 // Direct3D 10+, OpenGL, Vulkan: from the tables (only the chosen pattern's fetches)
++	const int p = pattern * 4;
++
++	float3 blur_ori = tex2D(ReShade::BackBuffer, tex + BUFFER_PIXEL_SIZE * (Offset[p    ] * offset_bias + Shift[p    ])).rgb;
++	blur_ori +=       tex2D(ReShade::BackBuffer, tex + BUFFER_PIXEL_SIZE * (Offset[p + 1] * offset_bias + Shift[p + 1])).rgb;
++	blur_ori +=       tex2D(ReShade::BackBuffer, tex + BUFFER_PIXEL_SIZE * (Offset[p + 2] * offset_bias + Shift[p + 2])).rgb;
++	blur_ori +=       tex2D(ReShade::BackBuffer, tex + BUFFER_PIXEL_SIZE * (Offset[p + 3] * offset_bias + Shift[p + 3])).rgb;
++
++	blur_ori *= 0.25;  // ( /= 4) Divide by the number of texture fetches
++
++	sharp_strength_luma *= PatternStrength[pattern]; // Adjust strength to aproximate the strength of pattern 2
++
++#else // Direct3D 9: ps_3_0 cannot index the tables in a pixel shader (fxc turns every lookup into selects)
+ 	float3 blur_ori;
+ 
+ 	//   [ NW,   , NE ] Each texture lookup (except ori)
+@@ -151,6 +222,8 @@
+ 		sharp_strength_luma *= 0.666; // Adjust strength to aproximate the strength of pattern 2
+ 	}
+ 
++#endif
++
+ 	 /*-----------------------------------------------------------.
+ 	/                            Sharpen                          /
+ 	'-----------------------------------------------------------*/

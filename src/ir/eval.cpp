@@ -1,6 +1,8 @@
 #include "ir/eval.hpp"
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <cmath>
 
 namespace sopt {
@@ -12,6 +14,21 @@ inline float fMin(float a, float b) { return b < a ? b : a; }
 inline float fMax(float a, float b) { return a < b ? b : a; }
 inline float fSign(float a) { return a > 0.0f ? 1.0f : (a < 0.0f ? -1.0f : 0.0f); }
 inline float fBool(bool v) { return v ? 1.0f : 0.0f; }
+// Integers live in the float slots as their bits.
+inline uint32_t uBits(float a) { return std::bit_cast<uint32_t>(a); }
+inline float fBits(uint32_t a) { return std::bit_cast<float>(a); }
+// D3D float -> uint / int conversions: truncate toward zero, NaN -> 0, out of range clamped.
+inline float fToU(float a) {
+  if (!(a > 0.0f)) return fBits(0u);
+  if (a >= 4294967296.0f) return fBits(0xFFFFFFFFu);
+  return fBits(static_cast<uint32_t>(a));
+}
+inline float fToI(float a) {
+  if (a != a) return fBits(0u);
+  if (a >= 2147483648.0f) return fBits(0x7FFFFFFFu);
+  if (a <= -2147483648.0f) return fBits(0x80000000u);
+  return fBits(static_cast<uint32_t>(static_cast<int32_t>(a)));
+}
 
 #define SOPT_LOOP1(expr)                      \
   for (size_t i = 0; i < n; ++i) {            \
@@ -64,6 +81,21 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
     case Op::Swizzle:
     case Op::Construct:
       return;
+    case Op::AsUint:
+    case Op::AsFloat: SOPT_LOOP1(fBits(uBits(x)))
+    case Op::FToU: SOPT_LOOP1(fToU(x))
+    case Op::FToI: SOPT_LOOP1(fToI(x))
+    case Op::UToF: SOPT_LOOP1(static_cast<float>(uBits(x)))
+    case Op::IToF: SOPT_LOOP1(static_cast<float>(static_cast<int32_t>(uBits(x))))
+    case Op::UAnd: SOPT_LOOP2(fBits(uBits(x) & uBits(y)))
+    case Op::UOr: SOPT_LOOP2(fBits(uBits(x) | uBits(y)))
+    case Op::UXor: SOPT_LOOP2(fBits(uBits(x) ^ uBits(y)))
+    case Op::UShl: SOPT_LOOP2(fBits(uBits(x) << (uBits(y) & 31u)))
+    case Op::UShr: SOPT_LOOP2(fBits(uBits(x) >> (uBits(y) & 31u)))
+    case Op::IShr: SOPT_LOOP2(fBits(static_cast<uint32_t>(static_cast<int32_t>(uBits(x)) >> (uBits(y) & 31u))))
+    case Op::UAdd: SOPT_LOOP2(fBits(uBits(x) + uBits(y)))
+    case Op::USub: SOPT_LOOP2(fBits(uBits(x) - uBits(y)))
+    case Op::UMul: SOPT_LOOP2(fBits(uBits(x) * uBits(y)))
     case Op::Neg: SOPT_LOOP1(-x)
     case Op::Abs: SOPT_LOOP1(std::fabs(x))
     case Op::Saturate: SOPT_LOOP1(fSaturate(x))
@@ -102,6 +134,9 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
     case Op::Ge: SOPT_LOOP2(fBool(x >= y))
     case Op::Eq: SOPT_LOOP2(fBool(x == y))
     case Op::Ne: SOPT_LOOP2(fBool(x != y))
+    case Op::LAnd: SOPT_LOOP2(fBool(x != 0.0f && y != 0.0f))
+    case Op::LOr: SOPT_LOOP2(fBool(x != 0.0f || y != 0.0f))
+    case Op::LNot: SOPT_LOOP1(fBool(x == 0.0f))
     case Op::Mad:
       if (profile.madFused) { SOPT_LOOP3(std::fma(x, y, z)) }
       SOPT_LOOP3(x * y + z)
@@ -152,9 +187,13 @@ void evalNode(const Node& node, const Type* argTypes, const float* const (*arg)[
   const unsigned w = width(node.type);
   switch (info(op).shape) {
     case Shape::Leaf: return;
+    case Shape::Int:
+    case Shape::ToUint:
+    case Shape::ToFloat:
     case Shape::Comp:
     case Shape::Select:
     case Shape::Cmp:
+    case Shape::Logic:
       for (unsigned c = 0; c < w; ++c) {
         const float* p[3] = {nullptr, nullptr, nullptr};
         for (unsigned k = 0; k < node.nargs; ++k) p[k] = arg[k][width(argTypes[k]) == 1 ? 0 : c];

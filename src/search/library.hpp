@@ -69,4 +69,7 @@ struct LibraryForm {
 std::vector<LibraryForm> libraryRewrites(const Program& prog, const Library& lib, const PointSet& samples,
                                          const CostModel& model, unsigned maxSteps = 4, size_t maxForms = 256);
 
+// Folder of the running executable (empty if unknown); tools shipped next to it are found there.
+std::string executableDir();
+
 }  // namespace sopt

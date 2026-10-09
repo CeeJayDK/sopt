@@ -1,16 +1,18 @@
 #include "ir/parser.hpp"
 
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 
 #include "ir/eval.hpp"
 
 namespace sopt {
 namespace {
 
-enum class Tok { End, Num, Ident, Punct };
+enum class Tok { End, Num, UInt, Ident, Punct };
 
 struct Token {
   Tok kind = Tok::End;
@@ -28,6 +30,22 @@ std::vector<Token> tokenize(std::string_view s, int line) {
     const char ch = s[i];
     if (std::isspace(static_cast<unsigned char>(ch))) { ++i; continue; }
     if (ch == '#') break;
+    // Integer literals: hex (0x3f800000, optional u) or decimal with a u suffix (13u).
+    if (std::isdigit(static_cast<unsigned char>(ch))) {
+      const bool hex = ch == '0' && i + 1 < s.size() && (s[i + 1] == 'x' || s[i + 1] == 'X');
+      size_t j = hex ? i + 2 : i;
+      while (j < s.size() && (hex ? std::isxdigit(static_cast<unsigned char>(s[j])) : std::isdigit(static_cast<unsigned char>(s[j])))) ++j;
+      const bool suffix = j < s.size() && (s[j] == 'u' || s[j] == 'U');
+      if (hex || suffix) {
+        const std::string digits(s.substr(hex ? i + 2 : i, j - (hex ? i + 2 : i)));
+        if (digits.empty()) err("bad number");
+        const unsigned long long v = std::strtoull(digits.c_str(), nullptr, hex ? 16 : 10);
+        if (v > 0xFFFFFFFFull) err("integer literal out of range");
+        out.push_back({Tok::UInt, std::string(s.substr(i, j + (suffix ? 1 : 0) - i)), static_cast<double>(v)});
+        i = j + (suffix ? 1 : 0);
+        continue;
+      }
+    }
     if (std::isdigit(static_cast<unsigned char>(ch)) ||
         (ch == '.' && i + 1 < s.size() && std::isdigit(static_cast<unsigned char>(s[i + 1])))) {
       const std::string rest(s.substr(i));
@@ -47,7 +65,7 @@ std::vector<Token> tokenize(std::string_view s, int line) {
       i = j;
       continue;
     }
-    static const char* two[] = {"<=", ">=", "==", "!="};
+    static const char* two[] = {"<<", ">>", "<=", ">=", "==", "!=", "&&", "||"};
     bool matched = false;
     for (const char* t : two) {
       if (s.substr(i, 2) == t) {
@@ -58,7 +76,7 @@ std::vector<Token> tokenize(std::string_view s, int line) {
       }
     }
     if (matched) continue;
-    if (std::string_view("+-*/()<>?:,=[].").find(ch) != std::string_view::npos) {
+    if (std::string_view("+-*/()<>?:,=[].&|^!").find(ch) != std::string_view::npos) {
       out.push_back({Tok::Punct, std::string(1, ch), 0.0});
       ++i;
       continue;
@@ -94,6 +112,7 @@ class ExprParser {
 
   static std::string typeName(Type t) {
     if (t == Type::Bool) return "bool";
+    if (t == Type::Uint) return "uint";
     return width(t) == 1 ? "float" : "float" + std::to_string(width(t));
   }
 
@@ -119,6 +138,22 @@ class ExprParser {
 
   // Builds an op node, folding it if all operands are constants.
   uint32_t make(Op op, uint32_t a, uint32_t b = 0, uint32_t c = 0) {
+    // An integer-valued float literal next to a uint (x >> 13, x + 1) is a uint literal.
+    auto asUintLiteral = [&](uint32_t& v, uint32_t other) {
+      const Node& n = b_.nodes()[v];
+      if (typeOf(other) == Type::Uint && n.op == Op::Const && n.type == Type::Float && n.value[0] >= 0.0f &&
+          n.value[0] < 4294967296.0f && n.value[0] == std::floor(n.value[0]))
+        v = b_.constantU(static_cast<uint32_t>(n.value[0]));
+    };
+    if (info(op).arity == 2) {
+      asUintLiteral(a, b);
+      asUintLiteral(b, a);
+    }
+    if (typeOf(a) == Type::Uint && info(op).arity == 2 && typeOf(b) == Type::Uint) {
+      if (op == Op::Add) op = Op::UAdd;
+      else if (op == Op::Sub) op = Op::USub;
+      else if (op == Op::Mul) op = Op::UMul;
+    }
     const auto& oi = info(op);
     const uint32_t args[3] = {a, b, c};
     Type ts[3];
@@ -131,7 +166,7 @@ class ExprParser {
     }
     bool allConst = true;
     for (uint8_t k = 0; k < oi.arity; ++k) allConst = allConst && isConst(args[k]);
-    if (allConst && isFloat(*t)) {
+    if (allConst && *t != Type::Bool) {
       Node node;
       node.op = op;
       node.type = *t;
@@ -192,7 +227,7 @@ class ExprParser {
   }
 
   uint32_t ternary() {
-    const uint32_t cond = comparison();
+    const uint32_t cond = logicOr();
     if (!isPunct("?")) return cond;
     ++p_;
     const uint32_t x = ternary();
@@ -202,15 +237,69 @@ class ExprParser {
     return make(Op::Select, cond, x, y);
   }
 
+  // C precedence: || below && below | below ^ below & below the comparisons below the shifts.
+  uint32_t logicOr() {
+    uint32_t lhs = logicAnd();
+    while (isPunct("||")) {
+      ++p_;
+      lhs = make(Op::LOr, lhs, logicAnd());
+    }
+    return lhs;
+  }
+  uint32_t logicAnd() {
+    uint32_t lhs = bitOr();
+    while (isPunct("&&")) {
+      ++p_;
+      lhs = make(Op::LAnd, lhs, bitOr());
+    }
+    return lhs;
+  }
+  uint32_t bitOr() {
+    uint32_t lhs = bitXor();
+    while (isPunct("|")) {
+      ++p_;
+      lhs = make(Op::UOr, lhs, bitXor());
+    }
+    return lhs;
+  }
+  uint32_t bitXor() {
+    uint32_t lhs = bitAnd();
+    while (isPunct("^")) {
+      ++p_;
+      lhs = make(Op::UXor, lhs, bitAnd());
+    }
+    return lhs;
+  }
+  uint32_t bitAnd() {
+    uint32_t lhs = comparison();
+    while (isPunct("&")) {
+      ++p_;
+      lhs = make(Op::UAnd, lhs, comparison());
+    }
+    return lhs;
+  }
+
   uint32_t comparison() {
-    const uint32_t lhs = additive();
+    const uint32_t lhs = shift();
     static const std::pair<const char*, Op> ops[] = {
         {"<", Op::Lt}, {"<=", Op::Le}, {">", Op::Gt}, {">=", Op::Ge}, {"==", Op::Eq}, {"!=", Op::Ne}};
     for (const auto& [s, op] : ops) {
       if (isPunct(s)) {
         ++p_;
-        return make(op, lhs, additive());
+        return make(op, lhs, shift());
       }
+    }
+    return lhs;
+  }
+
+  uint32_t shift() {
+    uint32_t lhs = additive();
+    while (isPunct("<<") || isPunct(">>")) {
+      const bool left = peek().text == "<<";
+      ++p_;
+      const uint32_t rhs = additive();
+      // asint(a) >> b is the arithmetic shift.
+      lhs = make(left ? Op::UShl : signed_.count(lhs) ? Op::IShr : Op::UShr, lhs, rhs);
     }
     return lhs;
   }
@@ -236,6 +325,10 @@ class ExprParser {
   }
 
   uint32_t unary() {
+    if (isPunct("!")) {
+      ++p_;
+      return make(Op::LNot, unary());
+    }
     if (isPunct("-")) {
       ++p_;
       return make(Op::Neg, unary());
@@ -264,6 +357,10 @@ class ExprParser {
       ++p_;
       return b_.constant(static_cast<float>(tok.num));
     }
+    if (tok.kind == Tok::UInt) {
+      ++p_;
+      return b_.constantU(static_cast<uint32_t>(tok.num));
+    }
     if (isPunct("(")) {
       ++p_;
       const uint32_t v = ternary();
@@ -285,6 +382,26 @@ class ExprParser {
       expect(")");
       if (tok.text == "float2" || tok.text == "float3" || tok.text == "float4")
         return makeConstruct(args, static_cast<unsigned>(tok.text[5] - '0'));
+      if (args.size() == 1) {
+        // Bit casts and conversions. asint / int mark their result signed (no int type: the
+        // bits are the same), which float(...) and >> then read as signed.
+        const uint32_t a = args[0];
+        const Type t = typeOf(a);
+        const std::string& f = tok.text;
+        if (f == "asuint" || f == "asint") {
+          const uint32_t r = t == Type::Uint ? a : make(Op::AsUint, a);
+          if (f == "asint") signed_.insert(r);
+          return r;
+        }
+        if (f == "asfloat") return t == Type::Float ? a : make(Op::AsFloat, a);
+        if (f == "uint") return t == Type::Uint ? a : make(Op::FToU, a);
+        if (f == "int") {
+          const uint32_t r = t == Type::Uint ? a : make(Op::FToI, a);
+          signed_.insert(r);
+          return r;
+        }
+        if (f == "float") return t == Type::Float ? a : make(signed_.count(a) ? Op::IToF : Op::UToF, a);
+      }
       if (isSugarCall(tok.text, args.size())) {
         if (tok.text == "cross" && (typeOf(args[0]) != Type::Float3 || typeOf(args[1]) != Type::Float3))
           err("cross needs float3 operands");
@@ -305,6 +422,7 @@ class ExprParser {
   const std::vector<InputDecl>& inputs_;
   ExprBuilder& b_;
   int line_;
+  std::unordered_set<uint32_t> signed_;  // nodes written as asint(...) / int(...)
 };
 
 double parseSignedNumber(const std::vector<Token>& t, size_t& p, int line) {
@@ -350,13 +468,20 @@ Program parseProgram(std::string_view text) {
     if (t[0].text == "input") {
       if (!exprText.empty()) err("inputs must be declared before the output");
       // "const": a compile-time constant (a preprocessor definition), folded by the compiler.
-      const size_t o = kw(3, "const") ? 1 : 0;
+      // "uniform": a uniform (a constant in performance mode); "fetch": a texture fetch, in
+      // source order among the fetches (the scheduling measures, see scheduleMetrics).
+      const size_t o = kw(3, "const") || kw(3, "uniform") || kw(3, "fetch") ? 1 : 0;
       const bool typeOk = kw(3 + o, "float") || kw(3 + o, "float2") || kw(3 + o, "float3") || kw(3 + o, "float4");
       if (t[1].kind != Tok::Ident || !kw(2, ":") || !typeOk || !kw(4 + o, "in") || !kw(5 + o, "["))
-        err("expected: input <name> : [const] float[2|3|4] in [lo, hi] [grid N] [= value]");
+        err("expected: input <name> : [const|uniform|fetch] float[2|3|4] in [lo, hi] [grid N] [= value]");
       InputDecl d;
       d.name = t[1].text;
-      d.compileTime = o == 1;
+      d.compileTime = kw(3, "const");
+      if (kw(3, "uniform")) d.rate = InputDecl::Rate::Uniform;
+      if (kw(3, "fetch")) {
+        d.rate = InputDecl::Rate::Fetch;
+        for (const auto& other : prog.inputs) d.fetchOrder += other.rate == InputDecl::Rate::Fetch;
+      }
       d.type = t[3 + o].text == "float" ? Type::Float : floatType(static_cast<unsigned>(t[3 + o].text[5] - '0'));
       size_t p = 6 + o;
       d.lo = parseSignedNumber(t, p, line);

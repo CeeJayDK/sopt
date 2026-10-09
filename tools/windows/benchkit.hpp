@@ -47,7 +47,19 @@ inline void setTitle(const std::string& state) {
   std::string t = gProgram;
   if (!gGpu.empty()) t += "  -  " + gGpu;
   if (!state.empty()) t += "  -  " + state;
-  SetConsoleTitleA(t.c_str());
+  // UTF-8 -> UTF-16: the title's progress bar uses block characters (titleBar).
+  wchar_t w[512];
+  if (!MultiByteToWideChar(CP_UTF8, 0, t.c_str(), -1, w, 512)) w[0] = 0;
+  w[511] = 0;
+  SetConsoleTitleW(w);
+}
+
+// "[██████░░░░] 60%" for the window title (owner, 2026-10-08: progress visible in the taskbar / tab).
+inline std::string titleBar(int pct) {
+  pct = std::max(0, std::min(100, pct));
+  std::string s = "[";
+  for (int k = 0; k < 10; ++k) s += k < pct / 10 ? "\xE2\x96\x88" : "\xE2\x96\x91";  // U+2588 / U+2591
+  return s + "] " + std::to_string(pct) + "%";
 }
 
 // Set on BackgroundJobs' worker thread: fail() there throws, and the job's error is reported by the main
@@ -249,7 +261,7 @@ struct Progress {
   }
   void title() const {
     const int pct = planned ? std::min(100, 100 * steps / planned) : 100;
-    setTitle(std::to_string(pct) + "%" + (gCurrent.empty() ? "" : "  " + gCurrent));
+    setTitle(titleBar(pct) + (gCurrent.empty() ? "" : "  " + gCurrent));
   }
   // The bar for the steps so far: full cells, then the last cell's fill level (6 levels), yellow past 100%.
   void draw() const {

@@ -4,6 +4,7 @@
 #include <bit>
 #include <charconv>
 #include <cmath>
+#include <cstdio>
 #include <stdexcept>
 
 namespace sopt {
@@ -63,6 +64,19 @@ std::vector<uint32_t> inputSlots(const std::vector<InputDecl>& inputs) {
 }
 
 std::optional<Type> inferType(Op op, const Type* args, unsigned nargs, unsigned swzCount) {
+  switch (info(op).shape) {
+    case Shape::Int:
+      for (unsigned k = 0; k < nargs; ++k)
+        if (args[k] != Type::Uint) return std::nullopt;
+      return Type::Uint;
+    case Shape::ToUint: return nargs == 1 && args[0] == Type::Float ? std::optional<Type>(Type::Uint) : std::nullopt;
+    case Shape::ToFloat: return nargs == 1 && args[0] == Type::Uint ? std::optional<Type>(Type::Float) : std::nullopt;
+    case Shape::Logic:
+      for (unsigned k = 0; k < nargs; ++k)
+        if (args[k] != Type::Bool) return std::nullopt;
+      return Type::Bool;
+    default: break;
+  }
   for (unsigned k = 0; k < nargs; ++k)
     if (!isFloat(args[k]) && !(info(op).shape == Shape::Select && k == 0)) return std::nullopt;
   switch (info(op).shape) {
@@ -94,6 +108,10 @@ std::optional<Type> inferType(Op op, const Type* args, unsigned nargs, unsigned 
       if (w < 2 || w > 4) return std::nullopt;
       return floatType(w);
     }
+    case Shape::Int:
+    case Shape::ToUint:
+    case Shape::ToFloat:
+    case Shape::Logic: break;
   }
   return std::nullopt;
 }
@@ -124,9 +142,14 @@ uint32_t ExprBuilder::constant(Type type, const float* v) {
   Node n;
   n.op = Op::Const;
   n.type = type;
-  for (unsigned k = 0; k < width(type); ++k)
-    n.value[k] = (v[k] == 0.0f) ? 0.0f : v[k];  // no signed zero constants
+  for (unsigned k = 0; k < width(type); ++k)  // no signed zero constants (a uint keeps its bits)
+    n.value[k] = (type != Type::Uint && v[k] == 0.0f) ? 0.0f : v[k];
   return intern(n);
+}
+
+uint32_t ExprBuilder::constantU(uint32_t v) {
+  const float f = std::bit_cast<float>(v);
+  return constant(Type::Uint, &f);
 }
 
 uint32_t ExprBuilder::op(Op op, uint32_t a, uint32_t b, uint32_t c) {
@@ -276,9 +299,26 @@ std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& use
   return folded;
 }
 
+std::vector<uint32_t> divCosts(const Expr& e, const CostModel& m, const std::vector<bool>& ct) {
+  std::vector<uint32_t> cost(e.nodes.size(), 0);
+  std::vector<bool> paid(e.nodes.size(), false);  // the divisor's reciprocal is counted already
+  for (const Node& n : e.nodes)
+    if (n.op == Op::Rcp) paid[n.args[0]] = true;
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op != Op::Div) continue;
+    const uint32_t b = n.args[1];
+    cost[i] = m.opCost(Op::Mul, width(n.type));
+    if (!ct[b] && !paid[b]) cost[i] += m.rcpPart(width(e.nodes[b].type));
+    paid[b] = true;
+  }
+  return cost;
+}
+
 uint32_t dagCost(const Expr& e, const CostModel& m) {
   const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
   const auto folded = amdFoldedNodes(e, uses, m);
+  const auto div = divCosts(e, m, compileTimeNodes(e, {}));
   uint32_t cost = 0;
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     const Node& n = e.nodes[i];
@@ -286,7 +326,8 @@ uint32_t dagCost(const Expr& e, const CostModel& m) {
     const unsigned w = width(reduce ? e.nodes[n.args[0]].type : n.type);
     cost += folded[i] ? w
             : (m.fusedAdd && fusedArg(e, i, uses, m.divIsMul) >= 0) ? w * m.fusedAdd
-                                                                     : m.opCost(n.op, w);
+            : n.op == Op::Div ? div[i]
+                              : m.opCost(n.op, w);
   }
   return cost;
 }
@@ -298,7 +339,7 @@ std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& 
     if (n.op == Op::Const) {
       ct[i] = true;
     } else if (n.op == Op::Input) {
-      ct[i] = n.input < inputs.size() && inputs[n.input].compileTime;
+      ct[i] = n.input < inputs.size() && inputs[n.input].folds();
     } else {
       bool all = true;
       for (unsigned k = 0; k < operandCount(n); ++k) all = all && ct[n.args[k]];
@@ -308,11 +349,12 @@ std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& 
   return ct;
 }
 
-uint32_t dagCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
+std::vector<uint32_t> nodeCosts(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
   const auto ct = compileTimeNodes(e, inputs);
   const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
   const auto folded = amdFoldedNodes(e, uses, m);
-  uint32_t cost = 0;
+  const auto div = divCosts(e, m, ct);
+  std::vector<uint32_t> cost(e.nodes.size(), 0);
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     if (ct[i]) continue;
     const Node& n = e.nodes[i];
@@ -321,9 +363,58 @@ uint32_t dagCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>
     const int f = m.fusedAdd ? fusedArg(e, i, uses, m.divIsMul) : -1;
     bool fold = folded[i];
     for (unsigned k = 0; fold && k < operandCount(n); ++k) fold = !ct[n.args[k]] || e.nodes[n.args[k]].op == Op::Const;
-    cost += fold ? w : (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd : m.opCost(n.op, w);
+    cost[i] = fold                         ? w
+              : (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd
+              : n.op == Op::Div            ? div[i]
+                                           : m.opCost(n.op, w);
   }
   return cost;
+}
+
+uint32_t dagCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
+  uint32_t cost = 0;
+  for (uint32_t c : nodeCosts(e, m, inputs)) cost += c;
+  return cost;
+}
+
+std::vector<InputDecl> perfInputs(const std::vector<InputDecl>& inputs) {
+  std::vector<InputDecl> r = inputs;
+  for (auto& d : r) d.perfFolded = d.perfFolded || d.rate == InputDecl::Rate::Uniform;
+  return r;
+}
+
+bool hasScheduleInputs(const std::vector<InputDecl>& inputs) {
+  for (const auto& d : inputs)
+    if (d.rate != InputDecl::Rate::Pixel) return true;
+  return false;
+}
+
+ScheduleMetrics scheduleMetrics(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
+  ScheduleMetrics s;
+  s.perfCost = dagCost(e, m, perfInputs(inputs));
+  const std::vector<uint32_t> cost = nodeCosts(e, m, inputs);
+  // The last fetch e reads.
+  int64_t last = -1;
+  for (const auto& n : e.nodes)
+    if (n.op == Op::Input && n.input < inputs.size() && inputs[n.input].rate == InputDecl::Rate::Fetch &&
+        (last < 0 || inputs[n.input].fetchOrder > inputs[size_t(last)].fetchOrder))
+      last = n.input;
+  std::vector<uint32_t> path(e.nodes.size(), 0);
+  std::vector<bool> late(e.nodes.size(), false);
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    uint32_t longest = 0;
+    bool dep = n.op == Op::Input && int64_t{n.input} == last;
+    for (unsigned k = 0; k < operandCount(n); ++k) {
+      longest = std::max(longest, path[n.args[k]]);
+      dep = dep || late[n.args[k]];
+    }
+    path[i] = longest + cost[i];
+    late[i] = dep;
+    if (dep) s.tail += cost[i];
+  }
+  s.critical = e.nodes.empty() ? 0 : path[e.root];
+  return s;
 }
 
 bool containsInexact(const Expr& e) {
@@ -398,6 +489,13 @@ bool needsPrecise(const Expr& e) {
 
 Type nodeType(const Expr& e, uint32_t node) { return e.nodes[node].type; }
 
+std::string formatUint(uint32_t v) {
+  if (v < 65536u) return std::to_string(v) + "u";
+  char buf[16];
+  std::snprintf(buf, sizeof(buf), "0x%08Xu", v);
+  return buf;
+}
+
 std::string formatFloat(float v) {
   if (std::isnan(v)) return "(0.0 / 0.0)";
   if (std::isinf(v)) return v > 0 ? "(1.0 / 0.0)" : "(-1.0 / 0.0)";
@@ -410,11 +508,41 @@ std::string formatFloat(float v) {
 
 namespace {
 
+// GLSL output (toGlsl): set while printing.
+thread_local bool tlGlsl = false;
+
 uint8_t precOf(const Expr& e, uint32_t idx) {
   const auto& n = e.nodes[idx];
-  if (n.op == Op::Const && width(n.type) == 1 && (n.value[0] < 0.0f || std::signbit(n.value[0])))
+  if (n.op == Op::Const && n.type != Type::Uint && width(n.type) == 1 && (n.value[0] < 0.0f || std::signbit(n.value[0])))
     return 7;
+  if (tlGlsl && n.op == Op::Mad) return info(Op::Add).prec;  // a * b + c
+  if (tlGlsl && n.op == Op::Rcp) return info(Op::Div).prec;  // 1.0 / x
   return info(n.op).prec;
+}
+
+// GLSL: whether a call's scalar operand k may stay scalar next to vector ones (min(v, s),
+// clamp(v, s, s), mix(a, b, s), step(s, v), smoothstep(s, s, v)); others need vecN(s).
+bool glslScalarOk(Op op, unsigned k) {
+  switch (op) {
+    case Op::Min: case Op::Max: return k == 1;
+    case Op::Clamp: return k >= 1;
+    case Op::Lerp: return k == 2;
+    case Op::Step: return k == 0;
+    case Op::Smoothstep: return k <= 1;
+    default: return false;
+  }
+}
+
+std::string_view glslName(Op op, std::string_view name) {
+  switch (op) {
+    case Op::Frac: return "fract";
+    case Op::Rsqrt: return "inversesqrt";
+    case Op::Lerp: return "mix";
+    case Op::Round: return "roundEven";
+    case Op::AsUint: return "floatBitsToUint";
+    case Op::AsFloat: return "uintBitsToFloat";
+    default: return name;
+  }
 }
 
 // A vector constant with all components equal (float3(0.5, 0.5, 0.5)).
@@ -441,6 +569,28 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
     std::string s = scalarSplats && splatConst(c) ? formatFloat(c.value[0]) : print(e, inputs, child);
     return paren ? "(" + s + ")" : s;
   };
+  // GLSL: a scalar operand of a vector call or select where GLSL has no scalar overload as vecN(s).
+  auto arg = [&](unsigned k, bool paren) {
+    const Node& c = e.nodes[n.args[k]];
+    if (tlGlsl && width(n.type) > 1 && (width(c.type) == 1 || (scalarSplats && splatConst(c))) &&
+        !glslScalarOk(n.op, k))
+      return "vec" + std::to_string(width(n.type)) + "(" + sub(n.args[k], false) + ")";
+    return sub(n.args[k], paren);
+  };
+  if (tlGlsl) {
+    switch (n.op) {
+      case Op::Saturate: return "clamp(" + arg(0, false) + ", 0.0, 1.0)";
+      case Op::Rcp: return "1.0 / " + sub(n.args[0], precOf(e, n.args[0]) <= info(Op::Div).prec);
+      case Op::Mad: {
+        const uint8_t pm = info(Op::Mul).prec, pa = info(Op::Add).prec;
+        return sub(n.args[0], precOf(e, n.args[0]) < pm) + " * " + sub(n.args[1], precOf(e, n.args[1]) <= pm) +
+               " + " + sub(n.args[2], precOf(e, n.args[2]) <= pa);
+      }
+      case Op::IToF: return "float(int(" + print(e, inputs, n.args[0]) + "))";
+      case Op::FToI: return "uint(int(" + print(e, inputs, n.args[0]) + "))";
+      default: break;
+    }
+  }
   // a + -c prints as a - c.
   auto negConst = [&](uint32_t child) {
     const Node& c = e.nodes[child];
@@ -452,24 +602,60 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
     const uint8_t p = info(Op::Sub).prec;
     return sub(v, precOf(e, v) < p) + " - " + formatFloat(-c.value[0]);
   }
+  // Integer ops: operands of infix ones always in parentheses unless leaves or calls (C puts
+  // & ^ | below the comparisons); shift counts print without the u suffix.
+  if (isIntShape(oi.shape)) {
+    auto intSub = [&](uint32_t child, bool count) {
+      const Node& c = e.nodes[child];
+      if (count && c.op == Op::Const) return std::to_string(std::bit_cast<uint32_t>(c.value[0]));
+      const Syntax cs = info(c.op).syntax;
+      const bool bare = cs == Syntax::Leaf || cs == Syntax::Call || c.op == Op::IShr ||
+                        (c.op == Op::Const && !(c.type != Type::Uint && c.value[0] < 0.0f));
+      return bare ? print(e, inputs, child) : "(" + print(e, inputs, child) + ")";
+    };
+    switch (n.op) {
+      case Op::IToF: return "float(asint(" + print(e, inputs, n.args[0]) + "))";
+      case Op::FToI: return "asuint(int(" + print(e, inputs, n.args[0]) + "))";
+      case Op::IShr:
+        if (tlGlsl) return "uint(int(" + print(e, inputs, n.args[0]) + ") >> " + intSub(n.args[1], true) + ")";
+        return "asuint(asint(" + print(e, inputs, n.args[0]) + ") >> " + intSub(n.args[1], true) + ")";
+      default: break;
+    }
+    if (oi.syntax == Syntax::Infix) {
+      const bool shift = n.op == Op::UShl || n.op == Op::UShr;
+      return intSub(n.args[0], false) + " " + std::string(oi.symbol) + " " + intSub(n.args[1], shift);
+    }
+    return std::string(tlGlsl ? glslName(n.op, oi.name) : oi.name) + "(" + print(e, inputs, n.args[0]) + ")";
+  }
+  // && and ||: a nested && / || / ?: in parentheses unless it is the same op on the left (C: && binds tighter
+  // than ||, but the parentheses make it plain).
+  if (n.op == Op::LAnd || n.op == Op::LOr) {
+    auto logicSub = [&](uint32_t child, bool left) {
+      const Op co = e.nodes[child].op;
+      const bool paren = co == Op::Select || ((co == Op::LAnd || co == Op::LOr) && !(left && co == n.op));
+      return sub(child, paren);
+    };
+    return logicSub(n.args[0], true) + " " + std::string(oi.symbol) + " " + logicSub(n.args[1], false);
+  }
   switch (oi.syntax) {
     case Syntax::Leaf:
       if (n.op == Op::Input)
         return n.input < inputs.size() ? inputs[n.input].name : "in" + std::to_string(n.input);
+      if (n.type == Type::Uint) return formatUint(std::bit_cast<uint32_t>(n.value[0]));
       if (width(n.type) == 1) return formatFloat(n.value[0]);
       {
-        std::string s = "float" + std::to_string(width(n.type)) + "(";
+        std::string s = (tlGlsl ? "vec" : "float") + std::to_string(width(n.type)) + "(";
         for (unsigned k = 0; k < width(n.type); ++k) s += (k ? ", " : "") + formatFloat(n.value[k]);
         return s + ")";
       }
     case Syntax::Call:
     case Syntax::Construct: {
-      std::string s = oi.syntax == Syntax::Construct ? "float" + std::to_string(width(n.type))
-                                                     : std::string(oi.name);
+      std::string s = oi.syntax == Syntax::Construct ? (tlGlsl ? "vec" : "float") + std::to_string(width(n.type))
+                                                     : std::string(tlGlsl ? glslName(n.op, oi.name) : oi.name);
       s += "(";
       for (uint8_t k = 0; k < n.nargs; ++k) {
         if (k) s += ", ";
-        s += sub(n.args[k], false);
+        s += oi.syntax == Syntax::Construct ? sub(n.args[k], false) : arg(k, false);
       }
       return s + ")";
     }
@@ -489,8 +675,8 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
     }
     case Syntax::Ternary:
       return sub(n.args[0], precOf(e, n.args[0]) < 3) + " ? " +
-             sub(n.args[1], precOf(e, n.args[1]) <= 2) + " : " +
-             sub(n.args[2], precOf(e, n.args[2]) <= 2);
+             arg(1, precOf(e, n.args[1]) <= 2) + " : " +
+             arg(2, precOf(e, n.args[2]) <= 2);
   }
   return "?";
 }
@@ -500,6 +686,20 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
 std::string toString(const Expr& e, const std::vector<InputDecl>& inputs) {
   if (e.nodes.empty()) return "";
   return print(e, inputs, e.root);
+}
+
+std::string toGlsl(const Expr& e, const std::vector<InputDecl>& inputs) {
+  if (e.nodes.empty()) return "";
+  tlGlsl = true;
+  std::string s;
+  try {
+    s = print(e, inputs, e.root);
+  } catch (...) {
+    tlGlsl = false;
+    throw;
+  }
+  tlGlsl = false;
+  return s;
 }
 
 }  // namespace sopt

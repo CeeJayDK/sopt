@@ -162,6 +162,8 @@ int main(int argc, char** argv) {
     else if (a == "--no-affine") opt.search.affine = false;
     else if (a == "--no-inner") opt.search.inner = false;
     else if (a == "--no-inner-prefilter") opt.search.innerPrefilter = false;
+    else if (a == "--no-affine-precheck") opt.search.affinePrecheck = false;
+    else if (a == "--no-div-form") opt.search.divForm = false;
     else if (a == "--no-overflow") opt.search.overflow = false;
     else if (a == "--no-subtrees") opt.subtrees = false;
     else if (a == "--no-cuts") opt.cuts = false;
@@ -191,6 +193,8 @@ int main(int argc, char** argv) {
     else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
     else if (a == "--tests") opt.numTests = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--no-v3") opt.v3 = false;
+    else if (a == "--no-schedule") opt.schedule = false;
+    else if (a == "--perf-mode-first") opt.perfFirst = true;
     else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
     else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);
@@ -200,22 +204,23 @@ int main(int argc, char** argv) {
     else if (a == "--no-exact-rule") opt.exactRule = false;
     else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
     else if (a == "--helpers") opt.search.helpers = true;
+    else if (a == "--bits") opt.search.bits = true;
     else if (a == "--order-model") {
       opt.search.order = costModelByName(next());
       if (!opt.search.order) {
-        std::puts("unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, intel-gen7.5, generic, search)");
+        std::puts("unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen12, intel-gen9, intel-gen7.5, generic, search)");
         return 2;
       }
     }
     else if (a == "--cost-model") {
       opt.search.model = costModelByName(next());
       if (!opt.search.model) {
-        std::puts("unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen9, intel-gen7.5, generic, search)");
+        std::puts("unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen12, intel-gen9, intel-gen7.5, generic, search)");
         return 2;
       }
     } else {
       std::puts("usage: sopt-bench [--examples DIR] [--planted N --size K --inputs I] [--seed S]\n"
-                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model M] [--order-model M] [--no-affine] [--no-inner] [--helpers] [--no-exact-rule] [--no-accuracy-variants]");
+                "                  [--v1 N] [--time S] [--max-bank N] [--cost-model M] [--order-model M] [--no-affine] [--no-inner] [--helpers] [--bits] [--no-exact-rule] [--no-accuracy-variants]");
       return 2;
     }
   }
@@ -227,6 +232,7 @@ int main(int argc, char** argv) {
                                                              : defaultOrderFor(model)).name)).c_str(),
               opt.search.affine ? (opt.search.inner ? ", affine, inner" : ", affine") : "");
   if (opt.search.helpers) std::printf("helpers: lerp/step enumerated\n");
+  if (opt.search.bits) std::printf("bits: integer ops and bit casts enumerated\n");
 
   int failures = 0, knownLimit = 0;
   printHeader();

@@ -50,6 +50,17 @@ namespace reshadefx
 		std::vector<std::string> sopt_hlsl_buffer_names;
 
 		/// <summary>
+		/// sopt addition: parse a GLSL fragment shader (#version 3xx / 4xx core): GLSL type names, qualifiers
+		/// (layout, flat, precision), 'uniform samplerND x' as a texture plus a sampler named x, global 'in' / 'out'
+		/// variables as parameters of the entry point sopt_hlsl_entry ('main', a pixel shader; gl_FragCoord as
+		/// SV_Position), and the built-in functions named differently in ReShade FX (texture, texelFetch, mix,
+		/// fract, mod, lessThan, ...). Only for the dataflow: regions keep the GLSL source text.
+		/// </summary>
+		bool sopt_glsl = false;
+		/// sopt (GLSL mode): the samplers declared at global scope (their names are fetch calls' first argument).
+		std::vector<std::string> sopt_glsl_samplers;
+
+		/// <summary>
 		/// Gets the list of error messages.
 		/// </summary>
 		const std::string &errors() const { return _errors; }
@@ -126,6 +137,21 @@ namespace reshadefx
 		static bool sopt_hlsl_intrinsic_name(const std::string &name);
 		bool sopt_hlsl_intrinsic(const std::string &name, const location &loc, expression &exp);
 		std::vector<sopt_resource> _sopt_resources; // HLSL resource objects
+
+		// sopt: GLSL mode helpers (see sopt_glsl)
+		bool sopt_glsl_type(const std::string &name, type &type);
+		bool sopt_glsl_declaration(bool &handled, bool &parse_success);
+		static bool sopt_glsl_intrinsic_name(const std::string &name);
+		bool sopt_glsl_intrinsic(const std::string &name, const location &loc, expression &exp);
+		struct sopt_glsl_io
+		{
+			std::string name, type_text, semantic;
+			location loc;
+			bool out = false;
+			unsigned int interpolation = 0; // type qualifiers (q_nointerpolation, q_noperspective, q_centroid)
+		};
+		std::vector<sopt_glsl_io> _sopt_glsl_io; // global in / out variables of the entry point
+		std::vector<std::pair<std::string, unsigned int>> _sopt_glsl_sampler_dims; // sampler name, dimension
 
 		std::vector<uint32_t> _loop_break_target_stack;
 		std::vector<uint32_t> _loop_continue_target_stack;

@@ -1,6 +1,7 @@
 #include "verify/verify.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cmath>
 #include <thread>
@@ -120,9 +121,13 @@ bool pointAccurate(const Budget& b, float t, double x, float c, double scale, do
 
 namespace {
 
+// firstFail (threads): the lowest point index where some thread rejected the candidate; a thread stops once
+// its next block starts past it (its points come later, so the merged result, the first failure in point
+// order, is the same as without stopping).
 Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, size_t begin,
                      size_t end, const Profile& profile, const std::vector<float>* targetVals,
-                     const std::vector<double>* exactVals, const std::vector<double>* scaleVals) {
+                     const std::vector<double>* exactVals, const std::vector<double>* scaleVals,
+                     std::atomic<size_t>* firstFail = nullptr) {
   constexpr size_t kBlock = 4096;
   BlockEvaluator et, ec;
   ExactEvaluator ex;
@@ -139,6 +144,7 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
   }
   const size_t total = ps.size();
   for (size_t b = begin; b < end; b += kBlock) {
+    if (firstFail && b > firstFail->load(std::memory_order_relaxed)) break;
     const size_t count = std::min(kBlock, end - b);
     BlockEvaluator::Cols tv{};
     if (targetVals) {
@@ -205,6 +211,11 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
       if (!looseOk && m.loosePass) {
         m.loosePass = false;
         m.looseFailPoint = ps.point(b + i);
+        if (firstFail) {
+          size_t cur = firstFail->load(std::memory_order_relaxed);
+          while (b + i < cur && !firstFail->compare_exchange_weak(cur, b + i, std::memory_order_relaxed)) {
+          }
+        }
         // Rejected: callers only use the failing point, so the remaining points are not
         // compared (each thread's range stops at its own first failure: deterministic).
         return m;
@@ -242,11 +253,12 @@ Metrics compare(const Program& prog, const Expr& cand, const PointSet& ps, const
   std::vector<Metrics> parts(threads);
   std::vector<std::thread> pool;
   const size_t chunk = (n + threads - 1) / threads;
+  std::atomic<size_t> firstFail{SIZE_MAX};  // shared stop: a rejection ends the threads behind it
   for (unsigned t = 0; t < threads; ++t) {
     const size_t b = t * chunk, e = std::min(n, b + chunk);
     if (b >= e) break;
     pool.emplace_back([&, t, b, e] {
-      parts[t] = compareRange(prog, cand, ps, b, e, profile, targetVals, exactVals, scaleVals);
+      parts[t] = compareRange(prog, cand, ps, b, e, profile, targetVals, exactVals, scaleVals, &firstFail);
     });
   }
   for (auto& th : pool) th.join();

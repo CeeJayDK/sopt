@@ -71,7 +71,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path unsigned | Out-Null
           Compress-Archive -Path stage/SweetOpt/* -DestinationPath "unsigned/SweetOpt-$v-windows-x64.zip"
           Compress-Archive -Path stage/GPU-Blueprint/* -DestinationPath "unsigned/GPU-Blueprint-$v.zip"
-          Compress-Archive -Path stage/tools/* -DestinationPath "unsigned/sopt-windows-tools-$v.zip"
+          Compress-Archive -Path stage/Test-Host/* -DestinationPath "unsigned/Test-Host-$v.zip"
       - name: Upload unsigned
         id: upload
         uses: actions/upload-artifact@v4
@@ -169,7 +169,7 @@ jobs:
             echo
             echo "- \`SweetOpt-$VERSION-windows-x64.zip\` / \`SweetOpt-$VERSION-linux-x64.tar.gz\`: SweetOpt, the super sweet shader optimizer: sopt-fx (finds cheaper, verified rewrites of the arithmetic in ReShade FX and HLSL pixel shaders, written next to the originals behind preprocessor switches) and sopt (single expressions); on Windows, double-click SweetOpt.bat. Early release: start with README.html inside, and send feedback at https://github.com/CeeJayDK/sopt/issues. Windows needs the VC++ 2015-2022 redistributable (most gaming PCs have it)."
             echo "- \`GPU-Blueprint-$VERSION.zip\`: measures your graphics card for SweetOpt: OpBench (what math instructions cost), TexBench (texture reads, writes, blending) and ShaderInfo (what the driver reports about compiled shaders), each with a score at the end. Unzip, double-click \`GPU-Blueprint.bat\` (a menu); when a run is done it offers to send the reports (README.html inside explains everything)."
-            echo "- \`sopt-windows-tools-$VERSION.zip\`: the benchmark harness that times SweetOpt's variants in ReShade (run-bench.bat, sopt-host, sopt-timer add-on, ReShade64.dll 6.8.0)."
+            echo "- \`Test-Host-$VERSION.zip\`: ReShade on every graphics API without a game (Direct3D 9, 10, 11, 12, Vulkan, OpenGL): the IEEE 754 float test, your own effects with a screenshot per API, and the benchmark that times SweetOpt's variants. Unzip, double-click \`Test-Host.bat\` (a menu; ReShade 6.8.0 with add-on support included)."
             echo
             echo "Code signing: $signing"
           } > notes.md

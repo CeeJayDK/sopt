@@ -73,3 +73,38 @@ TEST(isa_measure_with_rga) {
   const auto e = measureIsa({&id}, in2, cfg);
   CHECK(!e[0].ok && !e[0].error.empty());
 }
+
+TEST(isa_emit_glsl) {
+  const auto in = inputs(5);
+  const std::string s = emitGlsl(parseExpr("mad(a, b, c) - frac(d) * e", in), in);
+  CHECK(s.rfind("#version 450\n", 0) == 0);
+  CHECK(has(s, "float sopt_region(float a, float b, float c, float d, float e)"));
+  CHECK(has(s, "return a * b + c - fract(d) * e;"));
+  CHECK(has(s, "layout(set = 0, binding = 1) uniform sampler2D soptTex1;"));
+  CHECK(has(s, "sopt_region(in0.x, in0.y, in0.z, in0.w, in1.x)"));
+  const IsaCost c = parseRgaIsa(
+      "; header\n\tv_interp_p10_f32 v4, v2, v0, v2\n\timage_sample_lz v[0:1], v[2:3], s[0:7], s[8:11]\n"
+      "\ts_waitcnt vmcnt(0)\n\tv_fract_f32_e32 v0, v0\n\tv_rcp_f32_e32 v1, v1\n\ts_endpgm\n",
+      "USED_VGPRs,USED_SGPRs\n5,12\n");
+  CHECK(c.ok && c.valu == 2 && c.trans == 1 && c.vmem == 1 && c.cost == 5 && c.vgprs == 5 && c.sgprs == 12);
+}
+
+// RGA's offline GLSL mode; runs only when SOPT_RGA is set.
+TEST(isa_measure_glsl_with_rga) {
+  const char* rga = std::getenv("SOPT_RGA");
+  if (!rga) {
+    std::printf("  skipped: set SOPT_RGA\n");
+    return;
+  }
+  IsaConfig cfg;
+  cfg.rga = rga;
+  cfg.glsl = true;
+  const auto in = inputs(2);
+  const Expr mul = parseExpr("a * b", in);
+  const Expr rcp = parseExpr("rcp(a)", in);
+  const Expr id = parseExpr("a", in);
+  auto r = measureIsa({&mul, &rcp, &id}, in, cfg);
+  CHECK(r[0].ok && r[1].ok && r[2].ok);
+  CHECK(r[0].valu == r[2].valu + 1 && r[0].trans == 0);
+  CHECK(r[1].trans == 1);
+}

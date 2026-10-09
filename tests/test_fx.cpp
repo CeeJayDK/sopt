@@ -4,8 +4,12 @@
 #include <fstream>
 #include <sstream>
 
+#include "ir/parser.hpp"
+#include "fx/blend.hpp"
 #include "fx/frontend.hpp"
+#include "fx/hoist.hpp"
 #include "fx/variants.hpp"
+#include "fx/platforms.hpp"
 #include "search/driver.hpp"
 #include "test.hpp"
 
@@ -1032,3 +1036,280 @@ TEST(fx_namespace) {
   }
 }
 
+
+TEST(fx_table_rewrite) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_table.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  const std::vector<fx::SourceRewrite> rw = fx::tableRewrites(*e);
+  CHECK(rw.size() == 1);  // Weights is written after its initializer
+  if (rw.size() != 1) return;
+  CHECK(rw[0].line == 18 && rw[0].function == "TablePS");
+  CHECK(rw[0].edits.size() == 3);  // the table before the function, the declaration, the use
+  bool use = false;
+  for (const auto& ed : rw[0].edits)
+    for (const auto& l : ed.lines)
+      use = use || l.find("(Preset == 0 ? Custom : sopt_TablePS_Coefficients[Preset])") != std::string::npos;
+  CHECK(use);
+  // Written and parsed with the switch off and on.
+  const fs::path out = fs::temp_directory_path() / "sopt-test-table";
+  std::string errors;
+  const auto files = fx::writeVariants({}, out, errors, rw);
+  CHECK(files.size() == 1 && errors.empty());
+  for (const char* on : {"0", "1"}) {
+    fx::LoadOptions l2;
+    l2.macros.emplace_back(fx::rewriteSwitch(rw[0]), on);
+    std::string err2;
+    CHECK(fx::loadEffect(out / "sopt_table.fx", l2, err2) != nullptr);
+    if (!err2.empty()) std::printf("  %s\n", err2.c_str());
+  }
+  fs::remove_all(out);
+}
+
+TEST(fx_hoist_rewrite) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_hoist.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+  const std::vector<fx::SourceRewrite> rw = fx::hoistRewrites(*e, regions, *costModelByName("rdna3"));
+  CHECK(rw.size() == 1);
+  if (rw.size() != 1) return;
+  CHECK(rw[0].function == "HoistPS" && rw[0].tag == "V");
+  bool wrapper = false, pass = false, flat = false, cheap = false;
+  for (const auto& ed : rw[0].edits) {
+    for (const auto& l : ed.lines) {
+      wrapper = wrapper || l.find("void sopt_VS_HoistPS(in uint id : SV_VertexID, out float4 vpos : SV_Position, "
+                                  "out float2 texcoord : TEXCOORD0") != std::string::npos;
+      pass = pass || l.find("VertexShader = sopt_VS_HoistPS;") != std::string::npos;
+      flat = flat || (l.find("color * sopt_f0.x") != std::string::npos &&  // k = Strength * ... inlined
+                      ed.extra.find("!__RESHADE_PERFORMANCE_MODE__") != std::string::npos);
+    }
+    cheap = cheap || (ed.first <= 23 && ed.last >= 23);  // float2 o = texcoord + Strength * 0.01;
+  }
+  CHECK(wrapper && pass && flat && !cheap);
+  // Written and parsed with the switch off and on, with and without performance mode.
+  const fs::path out = fs::temp_directory_path() / "sopt-test-hoist";
+  std::string errors;
+  const auto files = fx::writeVariants({}, out, errors, rw);
+  CHECK(files.size() == 1 && errors.empty());
+  for (const char* on : {"0", "1"})
+    for (const char* perf : {"0", "1"}) {
+      fx::LoadOptions l2;
+      l2.macros.emplace_back(fx::rewriteSwitch(rw[0]), on);
+      l2.macros.emplace_back("__RESHADE_PERFORMANCE_MODE__", perf);
+      std::string err2;
+      CHECK(fx::loadEffect(out / "sopt_hoist.fx", l2, err2) != nullptr);
+      if (!err2.empty()) std::printf("  %s\n", err2.c_str());
+    }
+  fs::remove_all(out);
+}
+
+TEST(fx_blend_rewrite) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_blend.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  const std::vector<fx::SourceRewrite> rw = fx::blendRewrites(*e, fx::RegionOptions(), 1);
+  // lerp, multiply, min, screen (color.rgb = ...; return color;), add (out parameter); not the sharpen
+  // (B = 1 + Strength)
+  CHECK(rw.size() == 5);
+  if (rw.size() != 5) return;
+  auto has = [&](const fx::SourceRewrite& r, const char* text) {
+    for (const auto& ed : r.edits)
+      for (const auto& l : ed.lines)
+        if (l.find(text) != std::string::npos) return true;
+    return false;
+  };
+  CHECK(rw[0].function == "LerpPS" && has(rw[0], "SrcBlend = ONE; DestBlend = SRCALPHA;") &&
+        has(rw[0], "float4 LerpPS(") && has(rw[0], "return float4("));
+  CHECK(rw[1].function == "VignettePS" && has(rw[1], "SrcBlend = DESTCOLOR; DestBlend = ZERO;"));
+  CHECK(rw[2].function == "DarkenPS" && has(rw[2], "BlendOp = MIN;"));
+  CHECK(rw[3].function == "ScreenPS" && has(rw[3], "SrcBlend = ONE; DestBlend = INVSRCCOLOR;") && has(rw[3], "return float4("));
+  CHECK(rw[4].function == "AddPS" && has(rw[4], "SrcBlend = ONE; DestBlend = ONE;") && has(rw[4], "result = float4("));
+  const fs::path out = fs::temp_directory_path() / "sopt-test-blend";
+  std::string errors;
+  const auto files = fx::writeVariants({}, out, errors, rw);
+  CHECK(files.size() == 1 && errors.empty());
+  for (const char* on : {"0", "1"}) {
+    fx::LoadOptions l2;
+    l2.macros.emplace_back("SOPT_ALL", on);
+    std::string err2;
+    auto e2 = fx::loadEffect(out / "sopt_blend.fx", l2, err2);
+    CHECK(e2 != nullptr);
+    if (!err2.empty()) std::printf("  %s\n", err2.c_str());
+    // With the switch on, three passes blend.
+    if (e2) {
+      int blends = 0;
+      for (const auto& t : e2->cg->mod().techniques)
+        for (const auto& p : t.passes) blends += p.blend_enable[0];
+      CHECK(blends == (on[0] == '1' ? 5 : 0));
+    }
+  }
+  fs::remove_all(out);
+}
+
+TEST(fx_glsl) {
+  // GLSL fragment shaders: in / out globals are the entry point's inputs and outputs, sampler2D
+  // reads are fetches in their GLSL text keyed by the sampler, variants print as GLSL and the
+  // header goes after #version.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_glsl.frag";
+  fx::LoadOptions lo;
+  lo.glsl = true;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) {
+    std::printf("  %s\n", err.c_str());
+    return;
+  }
+  CHECK(e->glsl && e->hlsl);
+  CHECK(fx::textureFactKey(*e, "__sopt_tex_uScene") == "sopt_glsl.frag texture uScene");
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* w = regionOn(regions, 21, true);
+  CHECK(w != nullptr);
+  if (w) {
+    CHECK(w->glsl);
+    const int k = inputNamed(*w, "texture(uScene, vUv + vec2(uTexel.x, 0.0)).xyz");
+    CHECK(k >= 0 && w->facts[k].fetch && w->facts[k].key == "sopt_glsl.frag texture uScene");
+  }
+  const fx::Region* v = regionOn(regions, 22);
+  CHECK(v != nullptr);
+  if (!v) return;
+  const int k = inputNamed(*v, "vUv.x");
+  CHECK(k >= 0 && !v->facts[k].assumed && v->prog.inputs[k].lo == 0.0 && v->prog.inputs[k].hi == 1.0);
+  CHECK(toGlsl(v->prog.target, v->prog.inputs) == "fract(vUv.x * 0.5) * 2.0 + 1.0 - fract(vUv.x * 0.5) * 2.0");
+
+  // GLSL printing: names, mad / rcp / saturate written out, scalars GLSL does not broadcast.
+  const std::vector<InputDecl> in = {{"a", -4, 4, 0, Type::Float3}, {"s", -4, 4, 0, Type::Float}};
+  auto glsl = [&](const char* t) { return toGlsl(parseExpr(t, in), in); };
+  CHECK(glsl("lerp(a, frac(a), s)") == "mix(a, fract(a), s)");
+  CHECK(glsl("pow(a, s)") == "pow(a, vec3(s))");
+  CHECK(glsl("mad(a, s, 0.5) * 2.0") == "(a * s + 0.5) * 2.0");
+  CHECK(glsl("saturate(rsqrt(a)) + rcp(s + 1.0)") == "clamp(inversesqrt(a), 0.0, 1.0) + 1.0 / (s + 1.0)");
+  CHECK(glsl("float3(round(s), 1.0, 2.0)") == "vec3(roundEven(s), 1.0, 2.0)");
+  CHECK(glsl("s < 0.5 ? a : s") == "s < 0.5 ? a : vec3(s)");
+
+  fx::RegionResult rr;
+  rr.region = *v;
+  fx::Variant var;
+  var.expr = parseExpr("1.0", {});
+  var.text = "1.0";
+  var.cost = 0;
+  var.klass = Klass::BitExact;
+  rr.variants.push_back(var);
+  const fs::path out = fs::temp_directory_path() / "sopt_test_glsl_out";
+  std::error_code ec;
+  fs::remove_all(out, ec);
+  std::string errors;
+  const auto files = fx::writeVariants({rr}, out, errors);
+  CHECK(errors.empty() && files.size() == 1);
+  std::ifstream f(out / file.filename());
+  std::stringstream ss;
+  ss << f.rdbuf();
+  CHECK(ss.str().rfind("#version 410 core\n// Variants generated by sopt", 0) == 0);
+  CHECK(ss.str().find("    float v = 1.0;") != std::string::npos);
+  for (const char* all : {"0", "1"}) {
+    fx::LoadOptions lv = lo;
+    lv.macros.emplace_back("SOPT_ALL", all);
+    CHECK(fx::loadEffect(out / file.filename(), lv, err) != nullptr);
+  }
+  fs::remove_all(out, ec);
+}
+
+TEST(fx_easy_mode) {
+  // Easy mode (owner, 2026-10-08): one recommended variant per region (safe picks), written in directly
+  // (clean) or behind switches that default to it.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_glsl.frag";
+  fx::LoadOptions lo;
+  lo.glsl = true;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* v = regionOn(regions, 22);
+  CHECK(v != nullptr);
+  if (!v) return;
+  auto variant = [](const char* text, Klass k, int amd) {
+    fx::Variant var;
+    var.expr = parseExpr(text, {});
+    var.text = text;
+    var.klass = k;
+    var.amd = amd;
+    return var;
+  };
+  fx::RegionResult rr;
+  rr.region = *v;
+  rr.targetAmd = 5;
+  rr.variants = {variant("2.0", Klass::LessAccurate, 1), variant("3.0", Klass::Within, 6),
+                 variant("1.0", Klass::BitExact, 2), variant("4.0", Klass::Accurate, 1)};
+  std::vector<fx::RegionResult> results = {rr};
+  std::vector<fx::SourceRewrite> rewrites;
+  fx::easyPicks(results, rewrites, fx::EasyOptions{});
+  CHECK(results[0].variants.size() == 1 && results[0].variants[0].text == "1.0");  // not less accurate / slower / too exact
+  std::vector<fx::RegionResult> tooExact = {rr};
+  fx::EasyOptions eo;
+  eo.tooExact = true;
+  fx::easyPicks(tooExact, rewrites, eo);
+  CHECK(tooExact[0].variants.size() == 1 && tooExact[0].variants[0].text == "4.0");
+  // Same on the chosen card, faster on some GPU families (owner, 2026-10-09): taken only when the Steam-share
+  // weighted change is negative; among equals the one that helps the world most.
+  {
+    const size_t n = fx::platforms().size();
+    fx::RegionResult other = rr;
+    other.targetAmd = -1;
+    other.targetPlatform.assign(n, 10);
+    auto cross = [&](const char* text, double world, int slowerAt) {
+      fx::Variant var = variant(text, Klass::BitExact, -1);
+      var.otherGpus = true;
+      var.platform.assign(n, 8);
+      if (slowerAt >= 0) var.platform[static_cast<size_t>(slowerAt)] = 12;
+      var.world = world;
+      return var;
+    };
+    other.variants = {cross("5.0", 2.0, 0), cross("6.0", -1.0, 1), cross("7.0", -3.0, 2)};
+    std::vector<fx::RegionResult> picks = {other};
+    fx::easyPicks(picks, rewrites, fx::EasyOptions{});
+    if (!fx::shareSurvey().empty())
+      CHECK(picks[0].variants.size() == 1 && picks[0].variants[0].text == "7.0");
+    else
+      CHECK(picks[0].variants.empty());  // without survey data, no family may get slower
+    other.variants = {cross("8.0", 1.0, -1)};  // slower nowhere: always fine
+    picks = {other};
+    picks[0].variants[0].world = -1.0;
+    fx::easyPicks(picks, rewrites, fx::EasyOptions{});
+    CHECK(picks[0].variants.size() == 1);
+  }
+  const fs::path out = fs::temp_directory_path() / "sopt_test_easy_out";
+  std::error_code ec;
+  for (const bool clean : {true, false}) {
+    fs::remove_all(out, ec);
+    fx::WriteOptions wo;
+    wo.clean = clean;
+    wo.allOn = !clean;
+    std::string errors;
+    CHECK(fx::writeVariants(results, out, errors, {}, wo).size() == 1 && errors.empty());
+    std::ifstream f(out / file.filename());
+    std::stringstream ss;
+    ss << f.rdbuf();
+    const std::string s = ss.str();
+    CHECK(s.rfind("#version 410 core\n// Optimized by SweetOpt", 0) == 0);
+    CHECK(s.find("    float v = 1.0;") != std::string::npos);
+    CHECK((s.find("SOPT_") == std::string::npos) == clean);
+    CHECK(clean || s.find("#define SOPT_ALL 1") != std::string::npos);
+    CHECK(fx::loadEffect(out / file.filename(), lo, err) != nullptr);
+  }
+  fs::remove_all(out, ec);
+}

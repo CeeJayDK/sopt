@@ -1,0 +1,51 @@
+# GPU family shares from the Steam Hardware & Software Survey (owner, 2026-10-09: easy mode weighs variants that are
+# faster on some GPU families and slower on others by how many people own them; read the survey when a version is
+# released, not every run). Run it by hand before a release (Actions > steam-survey > Run workflow on main); it also
+# runs monthly. On main it commits data/steam-gpu-share.txt when the shares changed (GITHUB_TOKEN pushes start no
+# workflows). A push that changes the script, on any branch, only prints the result and keeps the page as an artifact.
+name: steam-survey
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 6 4 * *"  # the 4th of every month (the survey appears in the first days)
+  push:
+    paths:
+      - "tools/site/steam_share.py"
+      - ".github/workflows/steam-survey.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  survey:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the survey's video card page
+        run: |
+          curl -sSL --retry 3 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -H "Accept-Language: en-US" \
+            -o videocard.html "https://store.steampowered.com/hwsurvey/videocard/?l=english"
+          ls -l videocard.html
+      - name: Shares per cost model
+        run: |
+          mkdir -p data
+          python3 tools/site/steam_share.py videocard.html data/steam-gpu-share.txt || {
+            echo "--- parse failed; page excerpt:"; grep -n -m 40 -i "substats\|VIDEO CARDS\|Survey:" videocard.html | cut -c1-300; exit 1; }
+          cat data/steam-gpu-share.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: steam-survey
+          path: |
+            videocard.html
+            data/steam-gpu-share.txt
+      - name: Commit (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/steam-gpu-share.txt
+          git diff --cached --quiet && { echo "shares unchanged"; exit 0; }
+          git commit -m "Steam survey GPU shares: $(sed -n 's/^# survey: //p' data/steam-gpu-share.txt)"
+          git push

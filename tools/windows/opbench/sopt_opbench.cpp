@@ -39,12 +39,15 @@
 // "(shorter is better)" under each section; the progress bar stays within 70 characters.
 
 #include "../benchkit.hpp"
+#include "../expected.hpp"
 #include <d3dcompiler.h>
 
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <regex>
+#include <sstream>
 
 namespace {
 
@@ -104,6 +107,22 @@ const Test kTests[] = {
     {"sqrt", "mad(sqrt(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", ""},
     {"rsqrt", "mad(rsqrt(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", ""},
     {"exp2", "mad(exp2(x), c.x, c.y)", 0.25f, 0.0f, 0.0f, 0.0f, "mad", ""},
+    // Fast approximations (ShaderFastMathLib.h, M. Drobot 2014; bit tricks from Bit Twiddling Hacks): integer guesses on
+    // the float bits, with and without one Newton-Raphson step, polynomial acos / atan, power-of-2 rounding.
+    {"rsqrtnr0", "mad(asfloat(0x5F3759DFu - (asuint(x) >> 1)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad",
+     "rsqrt guess, no NR step (3.4% off): shift, int sub"},
+    {"rsqrtnr1", "mad(rsqrtNR1(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "rsqrt guess + 1 NR step (0.18% off)"},
+    {"rcpnr0", "mad(asfloat(0x7EF311C2u - asuint(x)), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad",
+     "rcp guess, no NR step (5% off): int sub"},
+    {"rcpnr1", "mad(rcpNR1(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "rcp guess + 1 NR step (0.26% off)"},
+    {"sqrtnr0", "mad(asfloat(0x1FBD1DF5u + (asuint(x) >> 1)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad",
+     "sqrt guess, no NR step (4.5% off): shift, int add"},
+    {"pow2floor", "mad(asfloat(asuint(x) & 0x7F800000u), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad",
+     "exp2(floor(log2(x))) from the bits: one and (exact)"},
+    {"exp2floor", "mad(exp2(floor(log2(x))), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "the same written out"},
+    {"pow2ceil", "mad(asfloat((asuint(x) + 0x007FFFFFu) & 0x7F800000u), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "mad",
+     "exp2(ceil(log2(x))) from the bits: add, and (exact)"},
+    {"exp2ceil", "mad(exp2(ceil(log2(x))), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "mad", "the same written out"},
     {"log2", "mad(log2(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", ""},
     {"exp", "mad(exp(x), c.x, c.y)", 0.25f, 0.0f, 0.0f, 0.0f, "mad", "fxc: mul + exp2"},
     {"log", "mad(log(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "fxc: log2 + mul"},
@@ -166,6 +185,16 @@ const Test kTests[] = {
     {"atan2", "mad(atan2(x, c.z), c.x, c.y)", 0.5f, 1.0f, 1.1f, 0.0f, "mad", "fxc: polynomial + quadrant fixes"},
     {"asin", "mad(asin(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul", "fxc: polynomial + sqrt"},
     {"acos", "mad(acos(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul", "fxc: polynomial + sqrt"},
+    {"acos4", "mad(acosFast4(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul",
+     "ShaderFastMathLib acosFast4 (fxc's own acos uses the same polynomial)"},
+    {"atan4", "mad(atanFast4(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul",
+     "ShaderFastMathLib atanFast4: |x| <= 1 only, 1.5e-3 rad off"},
+    // Sebastien Lagarde's minimax forms (2014): acos degree 1, atan odd degree 5 "alternate" (pi/4 + p((x-1)/(x+1))),
+    // the first-quadrant atan2 (x, y > 0 only).
+    {"acos1", "mad(acosP1(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul", "Lagarde acos degree 1 (6.1e-3 rad off)"},
+    {"atan5a", "mad(atanOP5A(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "Lagarde atan odd degree 5 alternate (1.2e-3 rad)"},
+    {"atan2q", "mad(atan2Q(x, c.z), c.x, c.y)", 0.5f, 1.0f, 1.1f, 0.0f, "mad",
+     "Lagarde atan2, first quadrant only (1.2e-3 rad)"},
     {"tan", "mad(tan(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.4f, 0.0f, "mul", "fxc: sincos + div"},
     {"sincos", "mad(sin(x) + cos(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "add", "sin and cos of one value"},
     // More intrinsics (version 5): the rest of ReShade FX's math.
@@ -223,6 +252,16 @@ const Test kTests[] = {
     {"rcp16", "mad(rcp(x), (min16float)c.x, (min16float)c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad16", "", "min16float"},
     {"sqrt16", "mad(sqrt(x), (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad16", "", "min16float"},
     {"exp2_16", "mad(exp2(x), (min16float)c.x, (min16float)c.y)", 0.25f, 0.0f, 0.0f, 0.0f, "mad16", "", "min16float"},
+    {"log2_16", "mad(log2(x), (min16float)c.x, (min16float)c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad16", "", "min16float"},
+    {"max16", "mad(max(x, (min16float)c.z), (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.8f, 0.0f, "mad16", "",
+     "min16float"},
+    // Where fp16 pays (owner, 2026-10-09): packed math pairs components (AMD: float3 = 2 instructions?), and every
+    // switch between float and min16float may cost a conversion. A bare (float)(min16float)x is dropped by fxc, so the
+    // conversions are measured around an fp16 fma (mix16; DXBC marks them "def32 as min16f" / "min16f as def32").
+    {"mad16v3", "mad(x, (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad3v", "3 fp16 fmas (min16float3)",
+     "min16float3"},
+    {"mix16", "mad((float)mad((min16float)x, (min16float)c.z, (min16float)c.w), c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.1f, "mad",
+     "an fp16 fma between fp32 fmas"},
     // Compute (moved from TexBench, owner 2026-10-04: ops in OpBench, texture work in TexBench). gi / ai index
     // groupshared memory / a local array from x and the thread's lane l, so the address differs per lane.
     {"gsbase", "uint gi = (l + uint(x * 64.0)) & 2047u; float v = asfloat((gi & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
@@ -331,6 +370,17 @@ std::string shaderSource(const Test& t, int chains) {
       "float floorAdd(float v) { precise float r = (v + 12582912.0) - 12582912.0; precise float f = r - saturate((r - v) * 1e38); return f; }\n"
       "float frexpM(float v) { float e; float m = frexp(v, e); return m + e * 0.01; }\n"
       "float modfS(float v) { float i; float f = modf(v, i); return f + i * 0.5; }\n"
+      "float rsqrtNR1(float v) { float g = asfloat(0x5F375A86u - (asuint(v) >> 1)); return g * (1.5 - 0.5 * v * g * g); }\n"
+      "float rcpNR1(float v) { float g = asfloat(0x7EF311C3u - asuint(v)); return g * (2.0 - v * g); }\n"
+      "float acosFast4(float v) { float x1 = abs(v); float x2 = x1 * x1; float x3 = x2 * x1;\n"
+      "  float s = -0.2121144 * x1 + 1.5707288; s = 0.0742610 * x2 + s; s = -0.0187293 * x3 + s;\n"
+      "  s = sqrt(1.0 - x1) * s; return v >= 0.0 ? s : 3.14159265 - s; }\n"
+      "float atanFast4(float v) { return v * (-0.1784 * abs(v) - 0.0663 * v * v + 1.0301); }\n"
+      "float acosP1(float v) { float x = abs(v); float r = -0.155972 * x + 1.56467; r *= sqrt(1.0 - x); return v >= 0.0 ? r : 3.141593 - r; }\n"
+      "float atanOP5A(float v) { float a = abs(v); float t = (a - 1.0) / (a + 1.0); float t1 = t * t;\n"
+      "  float r = 0.785398 + ((0.0892423 * t1 - 0.301029) * t1 + 0.998422) * t; return v < 0.0 ? -r : r; }\n"
+      "float atan2Q(float y, float x) { float t = (y - x) / (y + x); float t1 = t * t;\n"
+      "  return 0.785398 + ((0.0892423 * t1 - 0.301029) * t1 + 0.998422) * t; }\n"
       "float fracAdd(float v) { precise float d = v - ((v + 12582912.0) - 12582912.0); precise float f = d + saturate(d * -1e38); return f; }\n"
       "static const float K[16] = {0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.59, 0.60, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66};\n";
   if (t.setup & kGroupshared) s += "groupshared float GS[2048];\ngroupshared uint GSI[64];\n";
@@ -492,6 +542,8 @@ const char* const kDisplayOrder[] = {
     "signsat", "signmad", "signclamp", "signsel", "sign",
     "#Division and transcendentals", "divxy", "rcp", "rsqrt", "sqrt", "div", "exp2", "log2", "log", "exp", "cos", "sin",
     "rcpmax", "pow",
+    "#Fast approximations (ShaderFastMathLib, bit tricks)", "rsqrtnr0", "rsqrtnr1", "rcpnr0", "rcpnr1", "sqrtnr0",
+    "pow2floor", "exp2floor", "pow2ceil", "exp2ceil", "acos4", "acos1", "atan4", "atan5a", "atan2q",
     "#Vector (float2 / float3 / float4)", "mad2v", "mad3v", "mad4v", "dot2", "dot3", "dot4", "cross", "length",
     "distance", "normalize", "reflect", "refract", "faceforward", "det3", "matmul4", "transpose",
     "#Written out by fxc", "smoothstep", "fmod", "sincos", "tan", "atan", "atan2", "asin", "acos",
@@ -499,7 +551,8 @@ const char* const kDisplayOrder[] = {
     "sinh", "cosh",
     "#Integer and conversions", "bitor", "ixmul", "iadd", "iand", "imin", "ishr", "irot", "imul", "popc", "fbh",
     "bitrev", "fbl", "icmpsel", "unitf", "utof", "itof", "ftou", "ftoitof", "udiv", "umod", "idiv", "imod",
-    "#Half precision (min16float)", "mad16", "add16", "mul16", "rcp16", "sqrt16", "exp2_16",
+    "#Half precision (min16float)", "mad16", "add16", "mul16", "max16", "rcp16", "sqrt16", "exp2_16", "log2_16",
+    "mad16v3", "mix16",
     "#Compute: groupshared memory and barriers", "gsread", "gswrite", "gswriteread", "gsread32", "gswrite32", "barrier",
     "groupbarrier", "membarrier",
     "#Compute: groupshared atomics (aAdd = atomicAdd ...; 1 = 64 threads on one address)", "aAdd", "aAnd", "aOr", "aXor",
@@ -509,6 +562,37 @@ const char* const kDisplayOrder[] = {
     "#Parallel issue: an fma and X together (Cost = both; % = of the two one after the other)", "fma+fma", "fma+int",
     "fma+minmax", "fma+cvt", "fma+rcp", "fma+half"};
 
+// What other cards of this card's family measure (expected.hpp, from the reports in docs/opbench; owner,
+// 2026-10-06: a card that differs from its family makes an interesting report).
+struct FamilyCosts {
+  const expected::Family* family = nullptr;
+  std::map<std::string, double> cost;  // test -> throughput cost
+};
+
+FamilyCosts familyOf(const std::string& gpuName, unsigned deviceId) {
+  FamilyCosts fc;
+  std::string name = std::regex_replace(gpuName, std::regex(R"(\((R|TM)\))"), "");
+  name = std::regex_replace(name, std::regex(R"(\s+)"), " ");
+  const char* model = nullptr;
+  for (const expected::Device& d : expected::kDevices)
+    if (d.id == deviceId) model = d.model;
+  for (const expected::Rule& r : expected::kRules)
+    if (!model && std::regex_search(name, std::regex(r.pattern))) model = r.model;
+  if (!model) return fc;
+  for (const expected::Family& f : expected::kFamilies)
+    if (std::strcmp(f.model, model) == 0) fc.family = &f;
+  if (!fc.family) return fc;
+  std::istringstream in(fc.family->costs);
+  std::string test;
+  double v;
+  while (in >> test >> v) fc.cost[test] = v;
+  return fc;
+}
+
+// Off by more than 25% (and more than 1.5 units: small costs are noisy).
+bool differs(double measured, double expected) {
+  return std::fabs(measured - expected) > std::max(0.25 * std::fabs(expected), 1.5);
+}
 
 }  // namespace
 
@@ -554,6 +638,7 @@ int main(int argc, char** argv) {
   const DXGI_ADAPTER_DESC1& desc = ad.desc;
   const std::string& gpuName = ad.name;
   const std::string& driver = ad.driver;
+  const FamilyCosts fam = familyOf(gpuName, desc.DeviceId);
 
   Gpu g;
   const D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;
@@ -725,6 +810,12 @@ int main(int argc, char** argv) {
   const int kBarWidth = std::clamp(cols - 1 - (2 + nameW + 1 + 6 + 2 + 2 + 5 + 2 + 10 + 10), 10, 40);
   std::map<std::string, std::map<std::string, Measured>> results;  // config -> test -> result
   std::vector<std::string> unstable;
+  struct Difference {
+    std::string test;
+    double measured, expected;
+  };
+  std::vector<Difference> different;  // tests where this card differs from its family
+  int compared = 0;                   // tests compared with the family
   auto printSection = [&](const Group& gr) {
     std::printf("\n  %s%s%s\n  %s%-*s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1;96m"), gr.title, st.reset(), st.c("\x1b[90m"),
                 nameW, "Test", "Cost", kBarWidth, "Graph", "Ops", "Comment", st.reset());
@@ -757,6 +848,14 @@ int main(int argc, char** argv) {
       if (shaky) note = st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus";
       else if (x.readings.size() > 2)
         note = std::string("  ") + st.c("\x1b[90m") + std::to_string(x.readings.size()) + " passes" + st.reset();
+      const auto e = fam.cost.find(name);
+      if (!shaky && !pair && e != fam.cost.end()) ++compared;
+      if (!shaky && !pair && e != fam.cost.end() && differs(v, e->second)) {
+        different.push_back({name, v, e->second});
+        char buf[48];
+        std::snprintf(buf, sizeof(buf), "  usually %.1f", e->second);
+        note += std::string(st.c("\x1b[95m")) + buf + st.reset();
+      }
       const double shown = std::fabs(v) < 0.05 ? 0.0 : v;  // no "-0.0"
       const double ops = std::fabs(v / 4.0) < 0.05 ? 0.0 : v / 4.0;
       std::printf("  %-*s %6.1f  %s  %5.1f  %s%s%s%s\n", nameW, name, shown, b.c_str(), ops, color.c_str(), comment,
@@ -812,11 +911,19 @@ int main(int argc, char** argv) {
   std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
   for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, driftOf(c.name));
   const Score sc = score();
+  if (fam.family) {
+    std::fprintf(csv, "# family: %s (%s, %d card%s)\n", fam.family->model, fam.family->label, fam.family->cards,
+                 fam.family->cards == 1 ? "" : "s");
+    std::fprintf(csv, "# differs from the family:");
+    for (const Difference& d : different) std::fprintf(csv, " %s %.1f (usually %.1f);", d.test.c_str(), d.measured, d.expected);
+    std::fprintf(csv, "\n");
+  } else
+    std::fprintf(csv, "# family: none yet\n");
   std::fprintf(csv, "# fp32: %.3f TFLOPS\n# fp16 (min16float): %.3f TFLOPS\n# special functions (rcp): %.1f Gops/s\n", sc.fp32,
                sc.fp16, sc.special);
   std::fprintf(csv,
                "config,test,base,iters,ms,ns_per_step,units,units_vs_base,vs_base_fwd,vs_base_bwd,passes,consensus,readings,"
-               "step,note\n");
+               "step,note,expected\n");
   for (const Config& c : kConfigs)
     for (const Test* t : tests) {
       if (!results[c.name].count(t->name) || results[c.name][t->name].readings.empty()) continue;
@@ -827,10 +934,16 @@ int main(int argc, char** argv) {
         std::snprintf(buf, sizeof(buf), "%s%.3f", readings.empty() ? "" : ";", v);
         readings += buf;
       }
-      std::fprintf(csv, "%s,%s,%s,%u,%.4f,%.6f,%.3f,%.3f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\"\n", c.name, t->name,
+      std::string expect;
+      if (const auto e = fam.cost.find(t->name); e != fam.cost.end() && std::strcmp(c.name, "tput") == 0 && !t->pairStep) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.1f", e->second);
+        expect = buf;
+      }
+      std::fprintf(csv, "%s,%s,%s,%u,%.4f,%.6f,%.3f,%.3f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\",%s\n", c.name, t->name,
                    t->base ? t->base : "", x.r.iters, x.r.ms, x.r.nsPerStep, x.units.value, x.vsBase, x.vsBasePass[0],
                    x.vsBasePass[1], x.readings.size(), x.units.ok ? "yes" : "no", readings.c_str(), t->step,
-                   t->note ? t->note : "");
+                   t->note ? t->note : "", expect.c_str());
     }
   std::fclose(csv);
   };
@@ -918,6 +1031,7 @@ int main(int argc, char** argv) {
               "  Ops     Operations: the cost counted in multiply-adds.\n"
               "          2.0 means \"takes as long as two multiply-adds\".\n"
               "  Graph   Longer bar = slower. Free operations have no bar; a full bar is 25 multiply-adds or more.\n"
+              "  usually The cost other cards of the same family measured, where this card differs by more than 25%%.\n"
               "\n"
               "  The numbers show how fast the GPU is when it is fully busy (as in a game).\n"
               "  Docs\\OpBench.html (README.html next to this program) explains every test in plain words.\n",
@@ -941,6 +1055,33 @@ int main(int argc, char** argv) {
   if (warned)
     std::printf("  For steadier numbers: close other programs, plug in a laptop, set \"Prefer maximum performance\"\n"
                 "  (NVIDIA) or lock the clocks, and run it again.\n");
+  // Compared with the family (owner, 2026-10-06): differences make the report interesting.
+  std::printf("\n  %sCompared with other cards%s\n", st.c("\x1b[1;96m"), st.reset());
+  if (!fam.family)
+    std::printf("  No reports from this GPU's family yet: this report is especially interesting, please send it.\n");
+  else {
+    const int n = fam.family->cards;
+    std::printf("  %s: %d card%s measured so far. ", fam.family->label, n, n == 1 ? "" : "s");
+    if (different.empty())
+      std::printf("This card matches %s in all %d tests compared.\n", n == 1 ? "it" : "them", compared);
+    else {
+      std::printf("This card differs in %s%zu of %d test%s%s (\"usually\" above):\n", st.c("\x1b[95m"),
+                  different.size(), compared, compared == 1 ? "" : "s", st.reset());
+      std::string line = "   ";
+      for (const Difference& d : different) {
+        char buf[80];
+        std::snprintf(buf, sizeof(buf), " %s %.1f (usually %.1f)", d.test.c_str(), d.measured, d.expected);
+        if (line.size() + std::strlen(buf) > size_t(std::max(40, cols - 2))) {
+          std::printf("%s\n", line.c_str());
+          line = "   ";
+        }
+        line += buf;
+      }
+      std::printf("%s\n", line.c_str());
+      if (warned) std::printf("  The warnings above may explain some of them.\n");
+      std::printf("  Such reports are especially interesting: please send this one.\n");
+    }
+  }
   std::printf("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
   if (const Score sc = score(); sc.fp32 > 0.0) {
     std::vector<std::pair<std::string, std::string>> more;

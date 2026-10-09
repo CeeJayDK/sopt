@@ -8,7 +8,7 @@ Foundation signs it for free. Their review is done by people and can take days.
 - `.github/workflows/release.yml`: a tag `v*` (or a manual run, which makes a draft release)
   builds sopt / sopt-fx (Windows and Linux) and the Windows tools, signs the Windows files when
   the SignPath secret exists, and attaches `SweetOpt-<v>-windows-x64.zip`, `SweetOpt-<v>-linux-x64.tar.gz`,
-  `GPU-Blueprint-<v>.zip`, `sopt-windows-tools-<v>.zip` and `SHA256SUMS.txt` to a GitHub Release.
+  `GPU-Blueprint-<v>.zip`, `Test-Host-<v>.zip` and `SHA256SUMS.txt` to a GitHub Release.
 - Version info (name, publisher CeeJay.dk, version) and a manifest on the executables
   (`tools/windows/version.rc.in`, `tools/windows/app.manifest`).
 - README.md: the code signing policy and privacy sections SignPath asks for.
@@ -43,6 +43,7 @@ Foundation signs it for free. Their review is done by people and can take days.
       <pe-file-set>
         <include path="bin/sopt.exe"/>
         <include path="bin/sopt-fx.exe"/>
+        <include path="bin/sopt-fxc.exe"/>
         <for-each><authenticode-sign/></for-each>
       </pe-file-set>
     </zip-file>
@@ -54,10 +55,9 @@ Foundation signs it for free. Their review is done by people and can take days.
         <for-each><authenticode-sign/></for-each>
       </pe-file-set>
     </zip-file>
-    <zip-file path="sopt-windows-tools-*.zip">
+    <zip-file path="Test-Host-*.zip">
       <pe-file-set>
         <include path="bin/sopt-host.exe"/>
-        <include path="bin/sopt-fxc.exe"/>
         <include path="bin/sopt-timer.addon64"/>
         <include path="bin/sopt-timer.addon32"/>
         <for-each><authenticode-sign/></for-each>

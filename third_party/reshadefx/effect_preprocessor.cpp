@@ -475,6 +475,12 @@ void reshadefx::preprocessor::parse()
 			continue;
 		case tokenid::hash_unknown:
 			// Standalone "#" is valid and should be ignored
+			// sopt: GLSL's #version / #extension lines are ignored too
+			if (sopt_glsl && (_token.literal_as_string == "version" || _token.literal_as_string == "extension"))
+			{
+				consume_until(tokenid::end_of_line);
+				continue;
+			}
 			if (_token.length != 0)
 				error(_token.location, "unrecognized preprocessing directive '" + _token.literal_as_string + '\'');
 			if (!expect(tokenid::end_of_line))

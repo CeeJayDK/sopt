@@ -1,7 +1,8 @@
 name: reshade
-# ReShade 6.8.0 (64-bit, full add-on support) built twice from the same source: unchanged and with
+# ReShade 6.8.0 (64-bit, full add-on support) built three times from the same source: unchanged, with
 # tools/reshade/internal-shaders.patch (copy_ps with Load, one bilinear fetch per texel in the OpenGL
-# mipmap shader), so the two DLLs differ only in the patch.
+# mipmap shader), and with tools/reshade/d3d12-mipmaps.patch on top (the same for D3D12's mipmap
+# shader, a suggestion), so the DLLs differ only in the patches.
 on:
   workflow_dispatch:
   push:
@@ -34,6 +35,14 @@ jobs:
           MSYS_NO_PATHCONV=1 msbuild.exe ReShade.sln /t:ReShade /p:Configuration=Release /p:Platform=64-bit /m /v:minimal
           cp bin/x64/Release/ReShade64.dll ../dist/ReShade64-6.8.0-sopt.dll
           git diff --stat
+      - name: Build patched + D3D12
+        shell: bash
+        run: |
+          cd reshade
+          git apply ../tools/reshade/d3d12-mipmaps.patch
+          MSYS_NO_PATHCONV=1 msbuild.exe ReShade.sln /t:ReShade /p:Configuration=Release /p:Platform=64-bit /m /v:minimal
+          cp bin/x64/Release/ReShade64.dll ../dist/ReShade64-6.8.0-sopt-d3d12.dll
+          git diff --stat
       - name: Check the patched DLL
         shell: bash
         run: |
@@ -44,6 +53,10 @@ jobs:
           # copy_ps was recompiled (Load, no sampler), so the bytecode differs.
           ! cmp -s copy_ps-unchanged.cso reshade/res/shaders/copy_ps.cso
           ! cmp -s dist/ReShade64-6.8.0-unchanged.dll dist/ReShade64-6.8.0-sopt.dll
+          # The D3D12 build compiled the bilinear D3D12 shader and embeds its fallback warning.
+          test -s reshade/res/shaders/mipmap_linear_cs_5_0.cso
+          grep -aq "Failed to create bilinear mipmap generation pipeline" dist/ReShade64-6.8.0-sopt-d3d12.dll
+          ! grep -aq "Failed to create bilinear mipmap generation pipeline" dist/ReShade64-6.8.0-sopt.dll
           ls -l dist
       - uses: actions/upload-artifact@v4
         with:
@@ -51,6 +64,8 @@ jobs:
           path: |
             dist/*.dll
             tools/reshade/internal-shaders.patch
+            tools/reshade/d3d12-mipmaps.patch
             tools/reshade/TESTING.md
             tools/reshade/sopt_MipTest.fx
+            tools/reshade/sopt_MipTestInt.fx
             tools/reshade/UPSTREAM.md

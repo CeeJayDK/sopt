@@ -73,6 +73,21 @@ struct Options {
   const Library* libraryRules = nullptr;
   uint32_t librarySteps = 4;
   uint32_t libraryForms = 256;
+  // The previous run's results (owner, 2026-10-09: "the next run could start with the variants found in the previous
+  // run"; sopt-fx keeps them in sopt-cache.txt): candidates over this program's inputs, verified again like the
+  // library's forms; the cheapest that passes stage 2 starts the best-so-far bound. previousOnly: nothing about the
+  // region changed, so no search runs; the earlier candidates are only verified again.
+  std::vector<Expr> previous;
+  bool previousOnly = false;
+  // Scheduling measures (owner, 2026-10-08; scheduleMetrics, search/reshape.hpp): reshaped forms
+  // of the target (math grouped by rate, the last fetch entering last) are candidates, accepted
+  // candidates carry the performance mode cost, tail and critical path, ties are broken by them,
+  // and candidates up to accuracySlack above the target that improve the other mode's cost or the
+  // tail are kept (Accepted::otherModeFaster / betterScheduling). --no-schedule.
+  bool schedule = true;
+  // The performance mode cost (uniforms folded) is the main cost and the normal cost the
+  // secondary one (--perf-mode-first); default the other way round (owner).
+  bool perfFirst = false;
   unsigned threads = 0;          // 0 = hardware concurrency
   SearchConfig search;
 };
@@ -94,10 +109,21 @@ struct Accepted {
   std::vector<ProblemRange> problems;
   // Clearly more accurate than the original against exact math (Options::accuracyVariants).
   bool moreAccurate = false;
+  // Scheduling measures (Options::schedule): the cost without and with performance mode (cost
+  // is one of them, Options::perfFirst), the tail after the last fetch and the critical path.
+  uint32_t normalCost = 0;
+  uint32_t perfCost = 0;
+  uint32_t tail = 0;
+  uint32_t critical = 0;
+  // Not cheaper by the main cost, but cheaper by the other mode's cost (normally: faster in
+  // performance mode), or a shorter tail: kept for that (Options::schedule).
+  bool otherModeFaster = false;
+  bool betterScheduling = false;
 };
 
 struct RunResult {
   uint32_t targetCost = 0;
+  uint32_t targetNormalCost = 0, targetPerfCost = 0, targetTail = 0, targetCritical = 0;  // see Accepted
   std::string targetText;
   std::vector<Accepted> accepted;
   Metrics targetExact;  // the original's error against the exact values (accuracy rule)
@@ -117,6 +143,7 @@ struct RunResult {
   double v3Sec = 0.0;  // Options::v3
   uint32_t libraryForms = 0;     // Options::library: rewritten forms tried
   uint32_t libraryBest = 0;      // ... cost of the cheapest one that passed stage 2 (0 = none)
+  uint32_t previousBest = 0;     // Options::previous: cost of the cheapest that passed stage 2 (0 = none)
   uint32_t cutSearches = 0;  // Options::cuts: parts searched (not cached)
   double cutSec = 0.0;
   uint64_t v2Points = 0;  // domain size when V2 applied, else 0  // passed ref but failed mix/fma/gpu

@@ -1,0 +1,62 @@
+# GPU Blueprint report intake (owner, 2026-10-09: as an Action, it costs no tokens). Every 6 hours and by hand:
+# tools/site/report_intake.py downloads the uploads in the Dropbox folder, keeps the valid OpBench / TexBench / ShaderInfo
+# reports (docs/opbench, docs/texbench + order PNGs, docs/shaderinfo; never overwrites), logs them in
+# docs/notes/intake-log.md (hardware and driver only, never the uploader's name: the log is public), regenerates
+# tools/windows/expected.hpp when OpBench reports came in, commits to main, and only after the push deletes every upload
+# (junk too). Secrets: DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN (setup: tools/site/report_intake.py).
+name: report-intake
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: report-intake
+  cancel-in-progress: false
+
+jobs:
+  intake:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Fetch and save reports
+        env:
+          DROPBOX_FOLDER: ${{ vars.DROPBOX_FOLDER || '/Uploads/GPU Blueprint' }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+        run: |
+          if [ -z "$DROPBOX_REFRESH_TOKEN" ]; then echo "Dropbox secrets not set"; exit 0; fi
+          python3 tools/site/report_intake.py fetch "$RUNNER_TEMP/intake"
+      - name: Expected costs
+        run: |
+          if grep -q "^docs/opbench/" "$RUNNER_TEMP/intake/saved.txt" 2>/dev/null; then
+            python3 tools/windows/gen_expected.py
+          fi
+      - name: Commit, push, delete the uploads
+        env:
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+          DROPBOX_FOLDER: ${{ vars.DROPBOX_FOLDER || '/Uploads/GPU Blueprint' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -f "$RUNNER_TEMP/intake/uploads.json" ] || exit 0
+          git add docs tools/windows/expected.hpp
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -q -m "Reports: $(sed 's#.*/##' "$RUNNER_TEMP/intake/saved.txt" | grep -v '\.png$' | tr '\n' ' ')"
+            for i in 1 2 3 4; do git push && break; git pull --rebase -q; sleep $((i * 4)); done
+            git diff --quiet origin/main HEAD || { echo "push failed: uploads kept"; exit 1; }
+            gh workflow run pages.yml --ref main || true
+            if grep -q '\.png$' "$RUNNER_TEMP/intake/saved.txt"; then gh workflow run optimize-pngs.yml --ref main || true; fi
+          fi
+          python3 tools/site/report_intake.py delete "$RUNNER_TEMP/intake"

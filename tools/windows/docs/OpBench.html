@@ -87,6 +87,15 @@
   <tr><td><code>rcpmax</code></td><td><code>max(rcp(x), c)</code>: the base for the omod tests.</td></tr>
 </table>
 
+<h3>Fast approximations</h3>
+<table>
+  <tr><td><code>rsqrtnr0</code>, <code>rcpnr0</code>, <code>sqrtnr0</code></td><td>the magic-number guesses from Michal Drobot's ShaderFastMathLib (integer shift / subtract on the float's bits, e.g. <code>0x5F3759DF - (asuint(x) &gt;&gt; 1)</code>): very cheap but 3-5% off.</td></tr>
+  <tr><td><code>rsqrtnr1</code>, <code>rcpnr1</code></td><td>the same guess plus one Newton-Raphson step (about 0.2% off): is it still cheaper than the hardware instruction on this card?</td></tr>
+  <tr><td><code>pow2floor</code> / <code>exp2floor</code>, <code>pow2ceil</code> / <code>exp2ceil</code></td><td>the power of 2 at or below / above x: from the float's bits (one or two integer instructions, exact) against <code>exp2(floor(log2(x)))</code> / <code>exp2(ceil(log2(x)))</code>.</td></tr>
+  <tr><td><code>acos4</code>, <code>atan4</code></td><td>ShaderFastMathLib's polynomial acos (fxc's own <code>acos</code> uses the same polynomial) and atan (only for |x| &le; 1), next to <code>acos</code> / <code>atan</code> below.</td></tr>
+  <tr><td><code>acos1</code>, <code>atan5a</code>, <code>atan2q</code></td><td>Sébastien Lagarde's minimax forms: acos of degree 1 (6e-3 rad off), atan of odd degree 5 over the whole range (1.2e-3 rad), and an atan2 for the first quadrant only (x, y &gt; 0), next to <code>acos</code> / <code>atan</code> / <code>atan2</code> below.</td></tr>
+</table>
+
 <h3>Vector (float2 / float3 / float4)</h3>
 <table>
   <tr><td><code>mad2v</code>, <code>mad3v</code>, <code>mad4v</code></td><td>the reference on 2, 3 and 4 components (2, 3, 4 fmas).</td></tr>
@@ -146,6 +155,9 @@
 <h3>Half precision (min16float)</h3>
 <table>
   <tr><td><code>mad16</code>, <code>add16</code>, <code>mul16</code>, <code>rcp16</code>, <code>sqrt16</code>, <code>exp2_16</code></td><td>the same steps in 16-bit floats. AMD RDNA and some other cards run these at twice the rate (two per instruction). Drivers may run min16float at 32 bits instead. The summary and the CSV header say which.</td></tr>
+  <tr><td><code>max16</code>, <code>log2_16</code></td><td>max and log2 in 16-bit floats (pow is exp2 and log2).</td></tr>
+  <tr><td><code>mad16v3</code></td><td>three 16-bit fmas (a <code>min16float3</code>), against <code>mad3v</code>: cards that pack two 16-bit values into one instruction need two instructions for three components, not one and a half.</td></tr>
+  <tr><td><code>mix16</code></td><td>one 16-bit fma between 32-bit fmas, with the switch to 16 bits and back: what changing precision costs, and whether a short stretch of 16-bit math pays (nothing changes where the driver keeps 32 bits).</td></tr>
 </table>
 
 <h3>Compute: groupshared memory and barriers</h3>
@@ -183,8 +195,12 @@
   <tr><td><code>vs_base_fwd</code>, <code>vs_base_bwd</code></td><td>the same for the forward and the backward pass alone</td></tr>
   <tr><td><code>passes</code>, <code>consensus</code>, <code>readings</code></td><td>how many passes the test needed, whether most readings agreed, and every reading (units, ';'-separated)</td></tr>
   <tr><td><code>step</code>, <code>note</code></td><td>the HLSL step, and what it is about</td></tr>
+  <tr><td><code>expected</code></td><td>what other cards of the same family measured (tput only, see below)</td></tr>
 </table>
 <p>The CSV is written again after every section, so a run stopped early still leaves its results.</p>
+
+<h2>Compared with other cards</h2>
+<p>OpBench knows what the cards measured so far cost in each test, per family (architecture: Turing, RDNA 2, Gen9 ...): the median over the family's cards, one report each. A test where your card is more than 25% (and more than 1.5 units) away from that is marked <em>usually N</em> in its section, and the end of the run lists them. Such differences are what make a report especially interesting: a new driver doing something better, a card that belongs in a family of its own, or a run whose clock moved. A card from a family nobody has measured yet says so. The CSV has the family in a <code>#</code> line, the differences in another and the expected cost per test in the <code>expected</code> column. The table is built into OpBench and grows with every release as reports come in.</p>
 
 <h2>The score</h2>
 <table>

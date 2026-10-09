@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "fx/classic.hpp"
 #include "fx/frontend.hpp"
 #include "verify/verify.hpp"
 
@@ -33,6 +34,16 @@ struct Variant {
   bool moreAccurate = false;
   bool fewerRegisters = false;
   bool notFaster = false;
+  // Scheduling measures (owner, 2026-10-08; scheduleMetrics): the cost in the other mode
+  // (performance mode, or without it when that is the main cost: perfFirst) and the tail after
+  // the last texture fetch. perfFaster: not faster, but faster in the other mode (compiled
+  // costs); betterScheduling: not faster, but a shorter tail. Both are notFaster variants.
+  uint32_t otherCost = 0;
+  uint32_t tail = 0;
+  int amdOther = -1, nvOther = -1;  // measured in the other mode (uniforms as constants, or not)
+  bool perfFirst = false;
+  bool perfFaster = false;
+  bool betterScheduling = false;
   // Backend normalization (--backends): instruction counts after the compilers' optimizers
   // (-1 = not measured) and whether the code is identical to the original's there.
   int spirv = -1, dxbc = -1;
@@ -42,12 +53,24 @@ struct Variant {
   // fails, it applies only under this preprocessor condition (e.g. "BUFFER_COLOR_SPACE <= 1"),
   // elsewhere the original is used.
   std::string formatGuard;
+  // GPU families (owner, 2026-10-09; fx/platforms.hpp): compiled cost per platforms() entry and with the chosen
+  // cost model; otherGpus: as fast as the original on the chosen model (or measured the same), faster on another
+  // family; world: share-weighted change over the families in percent (negative = faster; worldChange).
+  std::vector<int> platform;
+  uint32_t compiled = 0;
+  bool otherGpus = false;
+  double world = 0.0;
 };
 
 struct RegionResult {
   Region region;
   std::string effect;  // the .fx it was found in
   uint32_t targetCost = 0;
+  // Scheduling measures of the original (see Variant), for regions with uniforms or fetches.
+  bool schedule = false;
+  uint32_t targetOtherCost = 0;
+  uint32_t targetTail = 0;
+  int targetAmdOther = -1, targetNvOther = -1;  // see Variant
   std::vector<Variant> variants;  // cheapest first; less accurate ones after the others
   // Found, but some input range is assumed (not a fact): only in the report, unless
   // sopt-fx --assumed.
@@ -57,6 +80,8 @@ struct RegionResult {
   int targetAmd = -1, targetNv = -1, targetIntel = -1;
   int targetAmdVgprs = -1, targetAmdSgprs = -1, targetNvRegs = -1;  // see Variant
   int targetSpirv = -1, targetDxbc = -1;  // backend normalization of the original
+  std::vector<int> targetPlatform;  // the original's compiled cost per platforms() entry (see Variant)
+  uint32_t targetCompiled = 0;      // ... and with the chosen cost model
   // The region's inputs with the back buffer as scRGB (FP16, [-0.5, 125]); empty when no
   // input range depends on the back buffer.
   std::vector<InputDecl> hdrInputs;
@@ -100,9 +125,34 @@ std::string variantStatement(const Region& r, const std::string& expr);
 //   #if SOPT_File_12 == 1 ... #else <original> #endif
 // SOPT_ALL (default 0) selects the first variant of every region at once. Returns the
 // written paths.
+// Classical rewrites (fx/classic.hpp) are written too, each under its switch; a region on their
+// lines gives way.
+// Easy mode (owner, 2026-10-08: "a ready file" for people who do not want to choose):
+//   clean:  the picks written in directly, no SOPT_ switches (conditions that must stay, such as
+//           __RENDERER__ or performance mode gates of classical rewrites, stay as #if);
+//   allOn:  the usual variant file, every switch defaulting to its pick (SOPT_ALL default 1, no
+//           SOPT_AUTO block); meant for results reduced by easyPicks (one variant per region).
+struct WriteOptions {
+  bool clean = false;
+  bool allOn = false;
+};
 std::vector<std::filesystem::path> writeVariants(const std::vector<RegionResult>& results,
                                                  const std::filesystem::path& outDir,
-                                                 std::string& errors);
+                                                 std::string& errors,
+                                                 const std::vector<SourceRewrite>& rewrites = {},
+                                                 const WriteOptions& wo = {});
+
+// Easy mode picks (settings default to the safe choices). Per region the one variant we
+// recommend, or none: faster (not an accuracy / register / scheduling only variant), bit-exact,
+// within budget or (tooExact) closer to exact math, no problem inputs, no back buffer format guard,
+// no #if guard; where measured (--isa / --sass) slower on no vendor and faster on one; the
+// lowest measured (else static) cost wins. Classical rewrites: tables and vertex shader moves
+// (Safe), also blend-stage ones (All), or none.
+struct EasyOptions {
+  bool tooExact = false;
+  enum class Rewrites { None, Safe, All } rewrites = Rewrites::Safe;
+};
+void easyPicks(std::vector<RegionResult>& results, std::vector<SourceRewrite>& rewrites, const EasyOptions& eo);
 
 struct ReportInfo {
   std::vector<std::string> effects;              // processed .fx files
@@ -114,6 +164,9 @@ struct ReportInfo {
   bool amd = false, nv = false;           // ISA measurements ran
   bool intel = false;                     // Intel driver statistics loaded (--driver-stats)
   bool spirv = false, dxbc = false;       // backend normalization ran
+  bool schedule = false;                  // scheduling measures (some region has them)
+  const std::vector<SourceRewrite>* rewrites = nullptr;  // classical source rewrites
+  bool perfFirst = false;                 // the performance mode cost is the main cost
 };
 
 std::string markdownReport(const std::vector<RegionResult>& results, const ReportInfo& info);
