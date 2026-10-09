@@ -124,10 +124,9 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
   reciprocals.
 
 ## Open items (details: docs/notes/history.md)
-1. Ponytail code review done 2026-10-09 (intake hardening merged, release.yml now runs the tests). Still open, ask first
-   (a: -o on a source folder refused, b: cache key complete, d: tools/site/test_report_intake.py + expected.hpp check in
-   ci.yml, done 2026-10-10): c) ~40 search options parsed three times (main.cpp, fx_main.cpp, bench.cpp): one shared
-   parser, bench before / after.
+1. Ponytail code review 2026-10-09, all items done 2026-10-10 (PR #21): -o on a source folder refused, complete cache
+   key, tools/site/test_report_intake.py + expected.hpp check in ci.yml, shared search options (src/search/options.cpp,
+   `parseSearchOption`: add new search flags there, not in main.cpp / fx_main.cpp / bench.cpp).
 2. fp16 variants (owner's go): step 1 done (OpBench max16 / log2_16 / mad16v3 / mix16, HalfCosts). Next: step 2 fp16
    evaluator (half / float / mixed profiles), 3 half variants with conversions at region edges in the GPU-family table,
    4 output only for D3D10-12, 5 corpus A/B + sopt-timer test on the owner's NUC (Gen9 should gain, GTX 1660 control).
