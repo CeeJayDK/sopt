@@ -124,6 +124,22 @@ TEST(cost_shared_reciprocal) {
   CHECK(m.binaryCost(Op::Div, 3, 3) == m.opCost(Op::Div, 3));
 }
 
+// min16float costs per family (HalfCosts, from OpBench): a win only where the hardware runs fp16 faster.
+TEST(cost_half_precision) {
+  const CostModel &gcn = costAmdGcn5(), &rdna3 = costRdna3(), &gen9 = costIntelGen9(), &turing = costNvidiaTuring(),
+                  &maxwell = costNvidiaMaxwell();
+  CHECK(halfOpCost(gcn, Op::Add, 3) == 2 * gcn[Op::Add]);   // packed: two instructions for three components
+  CHECK(halfOpCost(gcn, Op::Add, 1) == gcn[Op::Add]);       // one component: no gain
+  CHECK(halfOpCost(gcn, Op::Rcp, 3) == gcn.opCost(Op::Rcp, 3));
+  CHECK(halfOpCost(rdna3, Op::Add, 3) == rdna3.opCost(Op::Add, 3));  // no gain measured on RDNA 3
+  CHECK(halfOpCost(gen9, Op::Mad, 1) < gen9[Op::Mad]);      // wider SIMD in fp16
+  CHECK(halfOpCost(turing, Op::Rcp, 1) > turing[Op::Rcp]);  // slower transcendentals
+  CHECK(halfOpCost(maxwell, Op::Mad, 3) == maxwell.opCost(Op::Mad, 3));
+  CHECK(halfConvertCost(maxwell, 3) == 0u);                 // runs at 32 bits: nothing to convert
+  CHECK(halfConvertCost(gcn, 3) == 3 * gcn[Op::Add]);
+  CHECK(halfOpCost(gcn, Op::Floor, 3) == gcn.opCost(Op::Floor, 3));  // no fp16 data: fp32 cost
+}
+
 TEST(cost_contraction) {
   const CostModel& m = costRdna3();
   // Single-use mul (or div) under add/sub is one fma.

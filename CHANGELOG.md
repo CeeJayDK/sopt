@@ -42,6 +42,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 
 ### GPU Blueprint
 - **Compared with other cards:** OpBench knows what the cards of each family measured so far (Turing, Ampere / Ada, RDNA 2, Gen9 ...) and marks every test where yours differs by more than 25% ("usually 12.0"), with a list at the end: such reports are especially interesting. A card from a family nobody has measured yet is told so too.
+- **Half precision, where it pays:** new `min16float` tests (`max16`, `log2_16`, `mad16v3` = three components at once against `mad3v`, and `mix16` = one 16-bit fma between 32-bit ones, which shows what switching precision costs). SweetOpt will use them to offer 16-bit variants only for the cards that really run 16-bit math faster.
 - **Fast approximations:** new tests for the magic-number rsqrt / rcp / sqrt guesses from Michal Drobot's ShaderFastMathLib (with and without a Newton-Raphson step), its polynomial acos / atan, Sébastien Lagarde's lower-order acos / atan / first-quadrant atan2, and power-of-2 rounding from the float's bits against `exp2(floor(log2(x)))` / `exp2(ceil(log2(x)))`: do they pay off on your card?
 - **Progress in the window title:** OpBench and TexBench show a progress bar in the window title.
 

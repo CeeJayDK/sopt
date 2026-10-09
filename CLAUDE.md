@@ -1736,6 +1736,16 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   Gen9 / Gen12 (packed, ~2x); 0 on Maxwell / Pascal / Turing / Ampere / Blackwell / Gen7.5, -0.4 RDNA 4, +0.2 RDNA 3; rcp16
   never cheaper (RDNA 2 10.2 vs 7.8, Turing 16 vs 12); f16round (conversion) GCN 5 3.2, Gen9 16.6, Pascal / Maxwell 23.9.
   Only Barbatos uses min16float in the corpus.
+  Step 1 (owner's go 2026-10-09, test build 0.6.10): OpBench tests max16, log2_16, mad16v3 (min16float3 vs mad3v: AMD packs
+  pairs, so 3 components should cost 2 instructions) and mix16 (one fp16 fma between fp32 fmas: the conversion cost); a bare
+  (float)(min16float)x is dropped by fxc (checked: harness compiling every test with Microsoft's d3dcompiler_47 under Wine,
+  scratchpad f16/harness.cpp, all 182 compile); fxc packs OpBench's 8 scalar chains into float4 registers, so the packed fp16
+  rates are for pairs. HalfCosts per model (ops.hpp halfCosts / halfOpCost / halfConvertCost, provisional): GCN 5 packed,
+  RDNA 2 packed (transcendentals 130%), Gen9 ALU 60%, Gen12 ALU 55% (transcendentals 115%), Turing transcendentals 133%,
+  RDNA 3 / 4 / Ampere / Blackwell no gain, Maxwell / Pascal / Gen7.5 / GCN 4 at 32 bits (no cost, no conversions); one
+  plain instruction per converted component until mix16 reports arrive. Steps 2-5 (fp16 evaluator with half / float / mixed
+  profiles, half variants with conversions at the region's edges in the family table, D3D10-12 only output, corpus A/B +
+  sopt-timer on the owner's NUC) follow. (6) uniform zero guard: on the list (owner).
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

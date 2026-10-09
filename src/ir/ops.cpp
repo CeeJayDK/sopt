@@ -1,5 +1,8 @@
 #include "ir/ops.hpp"
 
+#include <algorithm>
+#include <utility>
+
 namespace sopt {
 namespace {
 
@@ -358,6 +361,59 @@ const CostModel kAmdTerascale2{"amd-terascale2",
    1, 1, 16, 16, 16, 16, 4, 4, 4, 4, 4, 4, 4, 4, 16,
    4, 4, 1},
   1, true};
+
+// Per family (OpBench D3D11 throughput, family medians; extra cost over each test's base, fp32 mad = 4):
+//   AMD GCN 5: mad16 -2.9 (an fp16 fma ~1.1 against 4), add16 1.5 vs add 2.1, rcp16 8.7 vs 8.5: packed, ~2x.
+//   AMD RDNA 2: mad16 -2.5, add16 1.5 vs 3.0, rcp16 10.2 vs 7.8: packed, transcendentals ~1.3x slower.
+//   AMD RDNA 3 / 4: mad16 +0.2 / -0.4, rcp16 = rcp: no gain (the fp32 chains already dual-issue).
+//   Intel Gen9: mad16 -1.8, add16 2.8 vs 3.9 (~60%), rcp16 = rcp. Gen12: mad16 -1.8, add16 1.9 vs 3.8, rcp16 12.5 vs 10.7.
+//   NVIDIA Turing: mad16 0 (adds 2.0 vs 4.0, but fma not faster), rcp16 16 vs 12; Ampere / Ada / Blackwell: no gain.
+//   Maxwell, Pascal, Intel Gen7.5, AMD GCN 4 (RX 590): the driver reports no 16-bit min precision (runs it at 32 bits).
+// fxc packs OpBench's 8 scalar chains into float4 registers, so the packed figures are for pairs of components.
+const HalfCosts& halfCosts(const CostModel& m) {
+  static const HalfCosts none{};
+  static const std::pair<std::string_view, HalfCosts> table[] = {
+      {"amd-gcn5", {true, true, 100, 100, 1}},
+      {"amd-rdna2", {true, true, 100, 130, 1}},
+      {"rdna3", {true, false, 100, 100, 1}},
+      {"rdna3-rga", {true, false, 100, 100, 1}},
+      {"amd-rdna4", {true, false, 100, 100, 1}},
+      {"intel-gen9", {true, false, 60, 100, 1}},
+      {"intel-gen12", {true, false, 55, 115, 1}},
+      {"nvidia-turing", {true, false, 100, 133, 1}},
+      {"nvidia-ampere", {true, false, 100, 100, 1}},
+      {"nvidia-blackwell", {true, false, 100, 100, 1}},
+      {"nvidia", {true, false, 100, 100, 1}},
+  };
+  for (const auto& [name, h] : table)
+    if (m.name == name) return h;
+  return none;
+}
+
+uint32_t halfOpCost(const CostModel& m, Op op, unsigned w) {
+  const HalfCosts& h = halfCosts(m);
+  auto scaled = [](uint32_t c, unsigned pct) { return std::max<uint32_t>(1, (c * pct + 50) / 100); };
+  switch (op) {
+    case Op::Add: case Op::Sub: case Op::Mul: case Op::Mad: case Op::Min: case Op::Max: case Op::Lerp:
+    case Op::Clamp: case Op::Dot:
+      if (h.packed && w > 1) {
+        // One instruction per pair of components; a dot adds its two half sums at the end.
+        const uint32_t pairs = (w + 1) / 2;
+        return scaled(op == Op::Dot ? pairs * m[Op::Mad] + m[Op::Add] : pairs * m.opCost(op, 1), h.aluPct);
+      }
+      return scaled(m.opCost(op, w), h.aluPct);
+    case Op::Rcp: case Op::Rsqrt: case Op::Sqrt: case Op::Exp2: case Op::Log2: case Op::Exp: case Op::Log:
+    case Op::Sin: case Op::Cos: case Op::Pow: case Op::Div:
+      return scaled(m.opCost(op, w), h.mufuPct);
+    default:
+      return m.opCost(op, w);
+  }
+}
+
+uint32_t halfConvertCost(const CostModel& m, unsigned n) {
+  const HalfCosts& h = halfCosts(m);
+  return h.sixteenBit ? n * h.cvtOps * m.opCost(Op::Add, 1) : 0;
+}
 
 const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }

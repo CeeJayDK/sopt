@@ -155,6 +155,9 @@
 <h3>Half precision (min16float)</h3>
 <table>
   <tr><td><code>mad16</code>, <code>add16</code>, <code>mul16</code>, <code>rcp16</code>, <code>sqrt16</code>, <code>exp2_16</code></td><td>the same steps in 16-bit floats. AMD RDNA and some other cards run these at twice the rate (two per instruction). Drivers may run min16float at 32 bits instead. The summary and the CSV header say which.</td></tr>
+  <tr><td><code>max16</code>, <code>log2_16</code></td><td>max and log2 in 16-bit floats (pow is exp2 and log2).</td></tr>
+  <tr><td><code>mad16v3</code></td><td>three 16-bit fmas (a <code>min16float3</code>), against <code>mad3v</code>: cards that pack two 16-bit values into one instruction need two instructions for three components, not one and a half.</td></tr>
+  <tr><td><code>mix16</code></td><td>one 16-bit fma between 32-bit fmas, with the switch to 16 bits and back: what changing precision costs, and whether a short stretch of 16-bit math pays (nothing changes where the driver keeps 32 bits).</td></tr>
 </table>
 
 <h3>Compute: groupshared memory and barriers</h3>

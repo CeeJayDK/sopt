@@ -125,6 +125,24 @@ struct CostModel {
   }
 };
 
+// Half precision (min16float; owner, 2026-10-09: "the cost models must tell where fp16 math is actually a win: many
+// cards support it but just run it as fp32"). ReShade writes min16float as min16float on D3D10-12 only (plain float on
+// D3D9, "mediump float" on OpenGL, float + RelaxedPrecision on Vulkan: no effect there); the D3D driver decides whether it
+// runs at 16 bits. Provisional, from the OpBench (D3D11) family medians of mad16 / add16 / rcp16 / sqrt16 / exp2_16 and the
+// CSV header "# min16float"; the conversion cost waits for mix16 (OpBench 0.7.0) reports.
+struct HalfCosts {
+  bool sixteenBit = false;  // the driver runs min16float at 16 bits (else at 32: same cost, no conversions)
+  bool packed = false;      // two components per instruction (AMD packed math): floatN costs ceil(N / 2) instructions
+  uint16_t aluPct = 100;    // add / sub / mul / mad / min / max / lerp / clamp / dot, % of fp32 (per pair when packed)
+  uint16_t mufuPct = 100;   // rcp / rsqrt / sqrt / exp2 / log2 / exp / log / sin / cos / pow / div, % of fp32
+  uint16_t cvtOps = 0;      // one float <-> min16float conversion per component, in plain instructions (add costs)
+};
+const HalfCosts& halfCosts(const CostModel& m);
+// Cost of one node computed in min16float; ops OpBench has no fp16 test for (floor, compares, select ...) cost as fp32.
+uint32_t halfOpCost(const CostModel& m, Op op, unsigned w);
+// Converting n components between float and min16float (one direction).
+uint32_t halfConvertCost(const CostModel& m, unsigned n);
+
 // generic: the M1 placeholder weights, no contraction.
 // rdna3: AMD RDNA 3 measured with OpBench (RX 7900 GRE), units as measured (4 = one dual-issued fma; ops that
 //   cannot dual-issue cost more), free source and output modifiers, contraction on.

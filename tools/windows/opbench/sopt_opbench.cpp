@@ -252,6 +252,16 @@ const Test kTests[] = {
     {"rcp16", "mad(rcp(x), (min16float)c.x, (min16float)c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad16", "", "min16float"},
     {"sqrt16", "mad(sqrt(x), (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad16", "", "min16float"},
     {"exp2_16", "mad(exp2(x), (min16float)c.x, (min16float)c.y)", 0.25f, 0.0f, 0.0f, 0.0f, "mad16", "", "min16float"},
+    {"log2_16", "mad(log2(x), (min16float)c.x, (min16float)c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad16", "", "min16float"},
+    {"max16", "mad(max(x, (min16float)c.z), (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.8f, 0.0f, "mad16", "",
+     "min16float"},
+    // Where fp16 pays (owner, 2026-10-09): packed math pairs components (AMD: float3 = 2 instructions?), and every
+    // switch between float and min16float may cost a conversion. A bare (float)(min16float)x is dropped by fxc, so the
+    // conversions are measured around an fp16 fma (mix16; DXBC marks them "def32 as min16f" / "min16f as def32").
+    {"mad16v3", "mad(x, (min16float)c.x, (min16float)c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad3v", "3 fp16 fmas (min16float3)",
+     "min16float3"},
+    {"mix16", "mad((float)mad((min16float)x, (min16float)c.z, (min16float)c.w), c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.1f, "mad",
+     "an fp16 fma between fp32 fmas"},
     // Compute (moved from TexBench, owner 2026-10-04: ops in OpBench, texture work in TexBench). gi / ai index
     // groupshared memory / a local array from x and the thread's lane l, so the address differs per lane.
     {"gsbase", "uint gi = (l + uint(x * 64.0)) & 2047u; float v = asfloat((gi & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
@@ -541,7 +551,8 @@ const char* const kDisplayOrder[] = {
     "sinh", "cosh",
     "#Integer and conversions", "bitor", "ixmul", "iadd", "iand", "imin", "ishr", "irot", "imul", "popc", "fbh",
     "bitrev", "fbl", "icmpsel", "unitf", "utof", "itof", "ftou", "ftoitof", "udiv", "umod", "idiv", "imod",
-    "#Half precision (min16float)", "mad16", "add16", "mul16", "rcp16", "sqrt16", "exp2_16",
+    "#Half precision (min16float)", "mad16", "add16", "mul16", "max16", "rcp16", "sqrt16", "exp2_16", "log2_16",
+    "mad16v3", "mix16",
     "#Compute: groupshared memory and barriers", "gsread", "gswrite", "gswriteread", "gsread32", "gswrite32", "barrier",
     "groupbarrier", "membarrier",
     "#Compute: groupshared atomics (aAdd = atomicAdd ...; 1 = 64 threads on one address)", "aAdd", "aAnd", "aOr", "aXor",
