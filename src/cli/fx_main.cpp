@@ -814,7 +814,9 @@ int main(int argc, char** argv) {
                               fx::compiledCost(a.expr, *opt.search.model, otherIns) < targetOtherCompiled;
       const bool betterScheduling = rr.schedule && !cheaper && a.betterScheduling && compiled <= targetCompiled;
       // As fast here, faster on another GPU family (owner, 2026-10-09).
-      const bool otherGpus = !cheaper && compiled <= targetCompiled && helpsOther && a.klass != Klass::LessAccurate;
+      // Not slower in the other mode (performance mode) on the chosen card either.
+      const bool otherGpus = !cheaper && compiled <= targetCompiled && helpsOther && a.klass != Klass::LessAccurate &&
+                             (!rr.schedule || fx::compiledCost(a.expr, *opt.search.model, otherIns) <= targetOtherCompiled);
       if (!cheaper && !(a.moreAccurate && compiled <= targetCompiled + opt.accuracySlack) && !registerCandidate &&
           !perfFaster && !betterScheduling && !otherGpus) {
         ++rr.onlyContraction;
@@ -1463,7 +1465,10 @@ int main(int argc, char** argv) {
     }
     if (held) {
       std::string list;
-      for (const auto& nm : names) list += (list.empty() ? "" : ", ") + nm;
+      size_t shown = 0;
+      for (const auto& nm : names)
+        if (shown++ < 8) list += (list.empty() ? "" : ", ") + nm;
+      if (names.size() > 8) list += " and " + std::to_string(names.size() - 8) + " more";
       std::printf("%s%zu more region%s ha%s cheaper variants that need value ranges%s (inputs without a known range: %s).\n"
                   "Give their ranges in sopt-facts.txt (SweetOpt.bat: key 8) and run again; until then they are only listed\n"
                   "in sopt-report.md and sopt-found.txt.\n",
