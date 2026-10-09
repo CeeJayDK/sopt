@@ -28,6 +28,7 @@ jobs:
           ref: main
       - name: Fetch and save reports
         env:
+          DROPBOX_FOLDER: ${{ vars.DROPBOX_FOLDER || '/Uploads/GPU Blueprint' }}
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
           DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
           DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
@@ -44,6 +45,7 @@ jobs:
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
           DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
           DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+          DROPBOX_FOLDER: ${{ vars.DROPBOX_FOLDER || '/Uploads/GPU Blueprint' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           [ -f "$RUNNER_TEMP/intake/uploads.json" ] || exit 0
