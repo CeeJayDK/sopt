@@ -189,6 +189,12 @@ const Test kTests[] = {
      "ShaderFastMathLib acosFast4 (fxc's own acos uses the same polynomial)"},
     {"atan4", "mad(atanFast4(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul",
      "ShaderFastMathLib atanFast4: |x| <= 1 only, 1.5e-3 rad off"},
+    // Sebastien Lagarde's minimax forms (2014): acos degree 1, atan odd degree 5 "alternate" (pi/4 + p((x-1)/(x+1))),
+    // the first-quadrant atan2 (x, y > 0 only).
+    {"acos1", "mad(acosP1(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul", "Lagarde acos degree 1 (6.1e-3 rad off)"},
+    {"atan5a", "mad(atanOP5A(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "Lagarde atan odd degree 5 alternate (1.2e-3 rad)"},
+    {"atan2q", "mad(atan2Q(x, c.z), c.x, c.y)", 0.5f, 1.0f, 1.1f, 0.0f, "mad",
+     "Lagarde atan2, first quadrant only (1.2e-3 rad)"},
     {"tan", "mad(tan(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.4f, 0.0f, "mul", "fxc: sincos + div"},
     {"sincos", "mad(sin(x) + cos(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "add", "sin and cos of one value"},
     // More intrinsics (version 5): the rest of ReShade FX's math.
@@ -360,6 +366,11 @@ std::string shaderSource(const Test& t, int chains) {
       "  float s = -0.2121144 * x1 + 1.5707288; s = 0.0742610 * x2 + s; s = -0.0187293 * x3 + s;\n"
       "  s = sqrt(1.0 - x1) * s; return v >= 0.0 ? s : 3.14159265 - s; }\n"
       "float atanFast4(float v) { return v * (-0.1784 * abs(v) - 0.0663 * v * v + 1.0301); }\n"
+      "float acosP1(float v) { float x = abs(v); float r = -0.155972 * x + 1.56467; r *= sqrt(1.0 - x); return v >= 0.0 ? r : 3.141593 - r; }\n"
+      "float atanOP5A(float v) { float a = abs(v); float t = (a - 1.0) / (a + 1.0); float t1 = t * t;\n"
+      "  float r = 0.785398 + ((0.0892423 * t1 - 0.301029) * t1 + 0.998422) * t; return v < 0.0 ? -r : r; }\n"
+      "float atan2Q(float y, float x) { float t = (y - x) / (y + x); float t1 = t * t;\n"
+      "  return 0.785398 + ((0.0892423 * t1 - 0.301029) * t1 + 0.998422) * t; }\n"
       "float fracAdd(float v) { precise float d = v - ((v + 12582912.0) - 12582912.0); precise float f = d + saturate(d * -1e38); return f; }\n"
       "static const float K[16] = {0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.59, 0.60, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66};\n";
   if (t.setup & kGroupshared) s += "groupshared float GS[2048];\ngroupshared uint GSI[64];\n";
@@ -522,7 +533,7 @@ const char* const kDisplayOrder[] = {
     "#Division and transcendentals", "divxy", "rcp", "rsqrt", "sqrt", "div", "exp2", "log2", "log", "exp", "cos", "sin",
     "rcpmax", "pow",
     "#Fast approximations (ShaderFastMathLib, bit tricks)", "rsqrtnr0", "rsqrtnr1", "rcpnr0", "rcpnr1", "sqrtnr0",
-    "pow2floor", "exp2floor", "pow2ceil", "exp2ceil", "acos4", "atan4",
+    "pow2floor", "exp2floor", "pow2ceil", "exp2ceil", "acos4", "acos1", "atan4", "atan5a", "atan2q",
     "#Vector (float2 / float3 / float4)", "mad2v", "mad3v", "mad4v", "dot2", "dot3", "dot4", "cross", "length",
     "distance", "normalize", "reflect", "refract", "faceforward", "det3", "matmul4", "transpose",
     "#Written out by fxc", "smoothstep", "fmod", "sincos", "tan", "atan", "atan2", "asin", "acos",

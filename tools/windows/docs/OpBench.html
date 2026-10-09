@@ -93,6 +93,7 @@
   <tr><td><code>rsqrtnr1</code>, <code>rcpnr1</code></td><td>the same guess plus one Newton-Raphson step (about 0.2% off): is it still cheaper than the hardware instruction on this card?</td></tr>
   <tr><td><code>pow2floor</code> / <code>exp2floor</code>, <code>pow2ceil</code> / <code>exp2ceil</code></td><td>the power of 2 at or below / above x: from the float's bits (one or two integer instructions, exact) against <code>exp2(floor(log2(x)))</code> / <code>exp2(ceil(log2(x)))</code>.</td></tr>
   <tr><td><code>acos4</code>, <code>atan4</code></td><td>ShaderFastMathLib's polynomial acos (fxc's own <code>acos</code> uses the same polynomial) and atan (only for |x| &le; 1), next to <code>acos</code> / <code>atan</code> below.</td></tr>
+  <tr><td><code>acos1</code>, <code>atan5a</code>, <code>atan2q</code></td><td>Sébastien Lagarde's minimax forms: acos of degree 1 (6e-3 rad off), atan of odd degree 5 over the whole range (1.2e-3 rad), and an atan2 for the first quadrant only (x, y &gt; 0), next to <code>acos</code> / <code>atan</code> / <code>atan2</code> below.</td></tr>
 </table>
 
 <h3>Vector (float2 / float3 / float4)</h3>

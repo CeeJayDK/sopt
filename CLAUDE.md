@@ -1706,7 +1706,10 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   the page; graphics.stanford.edu does not resolve here): mostly hardware intrinsics or irrelevant on GPUs; library rules
   exp2(floor(log2(x))) -> asfloat(asuint(x) & 0x7F800000u) and exp2(ceil(log2(x))) -> asfloat((asuint(x) + 0x007FFFFFu) &
   0x7F800000u) (exact on 57M sampled positive normal floats; 197 rules pass) and OpBench pow2floor / exp2floor / pow2ceil /
-  exp2ceil. Test build 0.6.8.
+  exp2ceil. Test build 0.6.8. (3) Lagarde's "Inverse trigonometric functions GPU optimization for AMD GCN" (owner uploaded
+  it; wordpress.com does not resolve here): error table verified, fxc counts (acos 11 vs degree 1 8; atan 18 vs odd degree
+  5 alternate 9; atan2 24 vs first-quadrant 8), his GCN v_mov-per-constant note = OpBench fma1 2.1 vs mad 4 on GCN;
+  docs/inexact-tricks.md; OpBench acos1 / atan5a / atan2q (owner's go). Test build 0.6.9.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).
