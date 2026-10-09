@@ -59,6 +59,20 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
   range (range reduction with a divide, a 4-term polynomial, ~1e-5 rad) at ~13 instructions.
 - **Safe when** (atan) the argument is known to be in [-1, 1] and 1.5e-3 rad is fine.
 
+### Lower-order acos / atan (Sébastien Lagarde, "Inverse trigonometric functions GPU optimization for AMD GCN", 2014)
+- `acosFast(x) = sqrt(1 - |x|) * (1.5707963 - 0.156583|x|)`, mirrored for x < 0 (and asin = pi/2 - acos): max error
+  **9.0e-3 rad (0.52 degrees)**, as the article says (checked 2026-10-09, float32). fxc's own `acos` is the degree-3
+  form (6.8e-5 rad, the ShaderFastMathLib entry above). DXBC (fxc -O3, ps_5_0): 8 instructions vs 11, both with the
+  sqrt, so about 3 full-rate instructions less (~12 units; on Ampere / Ada ~52 vs ~64 units with the sqrt).
+- `atanFast(x)`: `t = |x| < 1 ? |x| : 1 / |x|`, `p = t * (1 - 0.301895t^2 + 0.0872929t^4)`, `|x| < 1 ? p : pi/2 - p`,
+  sign restored: max error **1.35e-3 rad** over the whole range (the article: 1.3e-3), unlike ShaderFastMathLib's
+  atanFast4 it covers |x| > 1. fxc's `atan`: 1.2e-5 rad. DXBC: 12 vs 18 instructions, both with one rcp / divide.
+- **What's wrong:** 130x (acos) and 110x (atan) the error of fxc's versions; 0.5 degrees is visible where an angle is
+  shown or accumulated (polar effects, rotations, hue angles), hidden where it only shapes a smooth falloff (the
+  article's use: lighting terms on GCN, where the quarter-rate sqrt / rcp dominated anyway).
+- **Safe when** the angle error does not reach the output, e.g. a falloff or weight evaluated to 8 bits. Like every
+  entry here they are not within sopt's budgets; the planned `--poly` mode would offer such forms with their error.
+
 ### Bit Twiddling Hacks on GPUs (graphics.stanford.edu/~seander/bithacks.html, checked 2026-10-09)
 - **Use the hardware instead:** counting bits, parity (`countbits(x) & 1`), reversing bits, integer log2 and
   trailing / leading zeros are single HLSL intrinsics (`countbits`, `reversebits`, `firstbithigh`, `firstbitlow`);
