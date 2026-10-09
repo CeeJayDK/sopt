@@ -1670,7 +1670,27 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   "  where ..." on lines of their own; parseLibrary joins a line starting with "->" / "where" or following one ending in "->"
   (library/rewrites.txt stays one line per rule). Window title progress (owner's idea): console::setTitle / titleBar
   ("SweetOpt - [##########] 60%  searching k/n  ~m:ss left", SetConsoleTitleW, xterm OSC 0 elsewhere; "done" at the end)
-  and benchkit titleBar in OpBench / TexBench titles. Test build 0.6.6; the release (GLSL, easy mode) sets 0.7.0.
+  and benchkit titleBar in OpBench / TexBench titles. Test builds 0.6.6, 0.6.7; the release (GLSL, easy mode) sets 0.7.0.
+- Other GPU families (owner, 2026-10-09: "even if we target one platform we would still like optimizations that help
+  other platforms as long as they do not hurt ours"; expert mode shows where variants help and harm; easy mode decides a
+  variant that is equal on the chosen card, faster on some, slower on others by how many GPUs of each family exist, from
+  the Steam survey read at release time; a "saved" summary): src/fx/platforms (12 families = cost models GCN / RDNA 2-4 /
+  Maxwell-Blackwell / Intel Gen7.5-12, shares from data/steam-gpu-share.txt embedded via cmake/embed_library.cmake VAR
+  kSteamGpuShare; worldChange = share-weighted % change). sopt-fx costs every accepted candidate per family (Variant::
+  platform / compiled / world, RegionResult::targetPlatform / targetCompiled); otherGpus = not cheaper on the chosen model,
+  not more, cheaper on some family (not less accurate; max 2, listed after strict / loose; with measurement kept when slower
+  on no measured vendor). --all-platforms (menu: asked after the card, ALLPLAT): also optimize() with rdna3, nvidia-turing,
+  nvidia-ampere, intel-gen9 (allPlatformModels), candidates merged with costs from the chosen model. easyPicks: otherGpus only
+  when world < 0 (no survey data: only when no family gets slower); ties on the chosen cost broken by world. Report: "GPU
+  families" table per region (change per family, bold gains, Steam users column). End of run: "SweetOpt saved: N regions in F
+  files, cost a -> b (-x%) on <model>", faster / slower families (or "every GPU family (lo% to hi%)"), measured AMD / NVIDIA,
+  classical rewrites. Steam survey: tools/site/steam_share.py (MODEL_RULES from build.py + NEAREST: RDNA 1 -> rdna2, GCN 1-4
+  -> gcn5, Kepler -> maxwell, Arc -> gen12, Radeon 7x0M / 8x0M -> rdna3, 6x0M -> rdna2; generic "AMD Radeon Graphics" /
+  "Intel UHD Graphics" = other), workflow steam-survey.yml (manual + monthly on the 4th; commits the file on main; pushes
+  that change the script only print). store.steampowered.com is not reachable from this container (DNS); the workflow log
+  is read with mcp get_job_logs (artifact / log downloads go to blob hosts the gh proxy refuses). September 2026: Ampere/Ada
+  37.6%, Blackwell 23.0, Turing 9.6, Pascal 4.4, RDNA 2 2.8, RDNA 4 2.4, RDNA 3 2.3, GCN 1.9, Gen12 1.8, Gen9 0.9, Maxwell
+  0.2, other 13.2. Run the workflow on main before each release.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

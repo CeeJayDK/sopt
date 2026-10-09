@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sopt VERSION 0.6.6 LANGUAGES C CXX)
+project(sopt VERSION 0.6.7 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -66,6 +66,13 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/library_builtin.cpp
           -DOUT=${CMAKE_CURRENT_BINARY_DIR}/library_builtin.cpp -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_library.cmake
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/library/rewrites.txt ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_library.cmake
   VERBATIM)
+# GPU family shares from the Steam survey (tools/site/steam_share.py), for easy mode's picks.
+add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/steam_share_builtin.cpp
+  COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_CURRENT_SOURCE_DIR}/data/steam-gpu-share.txt
+          -DOUT=${CMAKE_CURRENT_BINARY_DIR}/steam_share_builtin.cpp -DVAR=kSteamGpuShare
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_library.cmake
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/data/steam-gpu-share.txt ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_library.cmake
+  VERBATIM)
 target_link_libraries(sopt-search PUBLIC sopt-verify PRIVATE sopt-zstd)
 sopt_fp_flags(sopt-search)
 
@@ -98,6 +105,8 @@ add_library(sopt-fx-lib
   src/fx/codegen.cpp
   src/fx/frontend.cpp
   src/fx/variants.cpp
+  src/fx/platforms.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/steam_share_builtin.cpp
   src/fx/classic.cpp
   src/fx/hoist.cpp
   src/fx/blend.cpp)

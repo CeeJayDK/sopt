@@ -18,6 +18,7 @@
 #include "fx/blend.hpp"
 #include "fx/frontend.hpp"
 #include "fx/hoist.hpp"
+#include "fx/platforms.hpp"
 #include "fx/variants.hpp"
 #include "measure/isa.hpp"
 #include "measure/backends.hpp"
@@ -143,6 +144,10 @@ void usage() {
       "  --no-blend-stage  no final back buffer blends as blend states (default: a pixel shader\n"
       "                    that returns lerp / multiply / add / screen / min / max of the back buffer\n"
       "                    at its pixel returns the blend's source, switch SOPT_<file>_B<line>)\n"
+      "  --all-platforms   also search with the AMD RDNA 3, NVIDIA Turing, NVIDIA Ampere and Intel Gen9 cost\n"
+      "                    models (about 4x the search time) for variants that help other GPU families without\n"
+      "                    being slower on the chosen one (default: only the chosen model's search; every\n"
+      "                    variant is still costed for all families)\n"
       "  --easy            easy mode: write ready files with our recommended changes put in\n"
       "                    directly, no switches (safe picks: faster on every measured GPU, as\n"
       "                    accurate, no problem inputs; tables and vertex shader moves)\n"
@@ -204,6 +209,7 @@ int main(int argc, char** argv) {
   bool blendStage = true;    // ... and final back buffer blends as blend states (fx/blend.hpp), --no-blend-stage
   // Easy mode (owner, 2026-10-08): ready files with our recommended picks (fx::easyPicks).
   bool easy = false;
+  bool allPlatforms = false;
   fx::WriteOptions easyWrite;
   fx::EasyOptions easyOpt;
   fs::path outDir = "sopt-out";
@@ -333,6 +339,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-hoist") hoist = false;
     else if (a == "--no-blend-stage") blendStage = false;
     else if (a == "--easy") easy = true, easyWrite.clean = true;
+    else if (a == "--all-platforms") allPlatforms = true;
     else if (a == "--easy-switches") easy = true, easyWrite.allOn = true;
     else if (a == "--easy-too-exact") easyOpt.tooExact = true;
     else if (a == "--easy-rewrites") {
@@ -700,6 +707,32 @@ int main(int argc, char** argv) {
     const size_t i = unique[u];
     const auto s0 = std::chrono::steady_clock::now();
     searched[i] = optimize(results[i].region.prog, ropt2);
+    // --all-platforms (owner, 2026-10-09): searches guided by other families' costs find forms the chosen model's
+    // search never generates; their candidates join this region's, costed with the chosen model.
+    if (allPlatforms) {
+      const Program& prog = results[i].region.prog;
+      const std::vector<InputDecl> pins = perfInputs(prog.inputs);
+      for (const CostModel* m : fx::allPlatformModels()) {
+        if (!m || m == opt.search.model || (opt.search.model && std::string(m->name) == opt.search.model->name)) continue;
+        Options o = ropt2;
+        o.search.model = m;
+        o.search.order = nullptr;
+        RunResult extra = optimize(prog, o);
+        std::set<std::string> have;
+        for (const auto& a : searched[i].accepted) have.insert(a.text);
+        for (auto& a : extra.accepted) {
+          if (!have.insert(a.text).second) continue;
+          a.normalCost = dagCost(a.expr, *opt.search.model, prog.inputs);
+          a.perfCost = dagCost(a.expr, *opt.search.model, pins);
+          a.cost = opt.perfFirst ? a.perfCost : a.normalCost;
+          a.otherModeFaster = a.betterScheduling = false;
+          searched[i].accepted.push_back(std::move(a));
+        }
+        searched[i].searchSec += extra.searchSec, searched[i].verifySec += extra.verifySec;
+        searched[i].subtreeSec += extra.subtreeSec, searched[i].cutSec += extra.cutSec;
+        searched[i].totalSec += extra.totalSec;
+      }
+    }
     searchSec[i] = std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
     searchBar.step();
   });
@@ -734,6 +767,18 @@ int main(int argc, char** argv) {
     const std::vector<InputDecl>& mainIns = opt.perfFirst ? perfIns : rr.region.prog.inputs;
     const std::vector<InputDecl>& otherIns = opt.perfFirst ? rr.region.prog.inputs : perfIns;
     const uint32_t targetCompiled = fx::compiledCost(rr.region.prog.target, *opt.search.model, mainIns);
+    // Every GPU family's cost (owner, 2026-10-09: a variant for one card should also help others where it does not
+    // hurt the chosen one).
+    const auto& plats = fx::platforms();
+    rr.targetCompiled = targetCompiled;
+    rr.targetPlatform.resize(plats.size());
+    for (size_t k = 0; k < plats.size(); ++k)
+      rr.targetPlatform[k] = static_cast<int>(fx::compiledCost(rr.region.prog.target, *plats[k].m, mainIns));
+    auto platformCosts = [&](const Expr& e) {
+      std::vector<int> c(plats.size());
+      for (size_t k = 0; k < plats.size(); ++k) c[k] = static_cast<int>(fx::compiledCost(e, *plats[k].m, mainIns));
+      return c;
+    };
     const uint32_t targetOtherCompiled = fx::compiledCost(rr.region.prog.target, *opt.search.model, otherIns);
     rr.schedule = opt.schedule && hasScheduleInputs(rr.region.prog.inputs);
     rr.targetOtherCost = opt.perfFirst ? res.targetNormalCost : res.targetPerfCost;
@@ -746,7 +791,11 @@ int main(int argc, char** argv) {
     };
     const std::string targetText = (rr.region.glsl ? toGlsl : toString)(rr.region.prog.target, rr.region.prog.inputs);
     for (const auto& a : res.accepted) {
-      if (a.cost >= res.targetCost && !a.moreAccurate && !a.otherModeFaster && !a.betterScheduling) continue;
+      const std::vector<int> pcost = platformCosts(a.expr);
+      bool helpsOther = false;
+      for (size_t k = 0; k < pcost.size(); ++k) helpsOther = helpsOther || pcost[k] < rr.targetPlatform[k];
+      if (a.cost >= res.targetCost && !a.moreAccurate && !a.otherModeFaster && !a.betterScheduling && !helpsOther)
+        continue;
       bool moreFetches = false;
       for (size_t k = 0; k < rr.region.facts.size(); ++k)
         if (rr.region.facts[k].fetch) {
@@ -764,14 +813,20 @@ int main(int argc, char** argv) {
       const bool perfFaster = rr.schedule && !cheaper && a.otherModeFaster && compiled <= targetCompiled + opt.accuracySlack &&
                               fx::compiledCost(a.expr, *opt.search.model, otherIns) < targetOtherCompiled;
       const bool betterScheduling = rr.schedule && !cheaper && a.betterScheduling && compiled <= targetCompiled;
+      // As fast here, faster on another GPU family (owner, 2026-10-09).
+      const bool otherGpus = !cheaper && compiled <= targetCompiled && helpsOther && a.klass != Klass::LessAccurate;
       if (!cheaper && !(a.moreAccurate && compiled <= targetCompiled + opt.accuracySlack) && !registerCandidate &&
-          !perfFaster && !betterScheduling) {
+          !perfFaster && !betterScheduling && !otherGpus) {
         ++rr.onlyContraction;
         continue;
       }
       fx::Variant v;
       v.moreAccurate = a.moreAccurate;
-      v.notFaster = !cheaper;
+      v.otherGpus = otherGpus;
+      v.notFaster = !cheaper && !otherGpus;
+      v.platform = pcost;
+      v.compiled = compiled;
+      v.world = fx::worldChange(pcost, rr.targetPlatform);
       v.perfFirst = opt.perfFirst;
       v.perfFaster = perfFaster;
       v.betterScheduling = betterScheduling;
@@ -791,13 +846,24 @@ int main(int argc, char** argv) {
     if (accuracyRule(rr.region.prog.budget) && opt.exactRule) rr.targetExactAbs = res.targetExact.exactAbs;
     // Accurate variants first (cheapest first); less accurate ones only if cheaper than
     // every accurate one, after them: the user decides from their accuracy.
-    std::vector<fx::Variant> strict, loose, accurate, registers, scheduling;
+    std::vector<fx::Variant> strict, loose, others, accurate, registers, scheduling;
     for (auto& v : rr.variants)
       (v.notFaster ? (v.moreAccurate                            ? accurate
                       : v.perfFaster || v.betterScheduling       ? scheduling
                                                                  : registers)
-                   : (v.klass == Klass::LessAccurate ? loose : strict))
+                   : v.otherGpus ? others : (v.klass == Klass::LessAccurate ? loose : strict))
           .push_back(std::move(v));
+    // Faster on other GPU families only: the two that help the world most (share-weighted), then the most families.
+    auto helped = [&](const fx::Variant& v) {
+      int n = 0;
+      for (size_t k = 0; k < v.platform.size(); ++k) n += v.platform[k] < rr.targetPlatform[k];
+      return n;
+    };
+    std::stable_sort(others.begin(), others.end(), [&](const fx::Variant& a, const fx::Variant& b) {
+      if (a.world != b.world) return a.world < b.world;
+      return helped(a) > helped(b);
+    });
+    if (others.size() > 2) others.resize(2);
     auto byCost = [](const fx::Variant& a, const fx::Variant& b) { return a.cost < b.cost; };
     std::stable_sort(strict.begin(), strict.end(), byCost);
     std::stable_sort(loose.begin(), loose.end(), byCost);
@@ -824,6 +890,7 @@ int main(int argc, char** argv) {
     if (scheduling.size() > 2) scheduling.resize(2);
     rr.variants = std::move(strict);
     for (auto& v : loose) rr.variants.push_back(std::move(v));
+    for (auto& v : others) rr.variants.push_back(std::move(v));
     for (auto& v : accurate) rr.variants.push_back(std::move(v));
     for (auto& v : registers) rr.variants.push_back(std::move(v));
     for (auto& v : scheduling) rr.variants.push_back(std::move(v));
@@ -997,6 +1064,20 @@ int main(int argc, char** argv) {
           if (otherMeasured && !otherBetter) v.perfFaster = false;
         }
         const bool scheduling = v.perfFaster || v.betterScheduling;
+        // Measured no faster on AMD / NVIDIA, slower on none, but statically faster on another family (Intel, other
+        // generations): kept for those (owner, 2026-10-09).
+        bool slower = false, otherFaster = false;
+        for (auto [t, c] : {std::pair{rr.targetAmd, v.amd}, std::pair{rr.targetNv, v.nv}, std::pair{rr.targetIntel, v.intel}})
+          slower = slower || (t >= 0 && c >= 0 && c > t);
+        for (size_t k = 0; k < v.platform.size() && k < rr.targetPlatform.size(); ++k)
+          otherFaster = otherFaster || v.platform[k] < rr.targetPlatform[k];
+        if (measured && !better && !slower && otherFaster && !v.moreAccurate && !scheduling &&
+            v.klass != Klass::LessAccurate && (v.otherGpus || !v.notFaster)) {
+          v.otherGpus = true;
+          v.notFaster = false;
+          kept.push_back(std::move(v));
+          continue;
+        }
         if (measured && !better && close && (v.moreAccurate || v.fewerRegisters || scheduling)) {
           v.notFaster = true;  // accuracy / register / scheduling variant: not faster, at most 1 instruction slower
           kept.push_back(std::move(v));
@@ -1019,6 +1100,7 @@ int main(int argc, char** argv) {
       };
       std::stable_sort(kept.begin(), kept.end(), [&](const fx::Variant& a, const fx::Variant& b) {
         if (a.notFaster != b.notFaster) return b.notFaster;  // accuracy / register variants last
+        if (a.otherGpus != b.otherGpus) return b.otherGpus;  // then faster on other GPUs only
         const double ga = gain(a), gb = gain(b);
         if (ga != gb) return ga > gb;
         return a.cost < b.cost;
@@ -1390,6 +1472,65 @@ int main(int argc, char** argv) {
   }
   std::printf("variant check: %s%zu of %zu parses failed%s\n", con.c(checkFailures ? "\x1b[1;91m" : ""), checkFailures,
               checks, con.reset());
+  // What it adds up to (owner, 2026-10-09: "some feel good information"): easy mode counts what it wrote in, expert
+  // mode the first (best) variant of each region with a faster one.
+  {
+    const auto& ps = fx::platforms();
+    long tc = 0, vc = 0, ta = 0, va = 0, tn = 0, vn = 0;
+    std::vector<long> tp(ps.size(), 0), vp(ps.size(), 0);
+    size_t regions = 0;
+    std::set<std::string> filesHit;
+    for (const auto& r : wResults) {
+      if (r.variants.empty() || r.variants[0].notFaster) continue;
+      const fx::Variant& v = r.variants[0];
+      ++regions;
+      filesHit.insert(r.region.file);
+      tc += r.targetCompiled, vc += v.compiled;
+      if (r.targetAmd >= 0 && v.amd >= 0) ta += r.targetAmd, va += v.amd;
+      if (r.targetNv >= 0 && v.nv >= 0) tn += r.targetNv, vn += v.nv;
+      for (size_t k = 0; k < ps.size() && k < r.targetPlatform.size() && k < v.platform.size(); ++k)
+        tp[k] += r.targetPlatform[k], vp[k] += v.platform[k];
+    }
+    if (regions) {
+      auto pct = [](long t, long c) { return t > 0 ? 100.0 * (c - t) / t : 0.0; };
+      std::printf("\n%sSweetOpt saved:%s %zu region%s in %zu file%s, cost %ld -> %ld (%s%.0f%%%s) on %s\n",
+                  con.c("\x1b[1;92m"), con.reset(), regions, regions == 1 ? "" : "s", filesHit.size(),
+                  filesHit.size() == 1 ? "" : "s", tc, vc, con.c("\x1b[1;92m"), pct(tc, vc), con.reset(),
+                  opt.search.model ? std::string(opt.search.model->name).c_str() : "?");
+      std::string faster, slower;
+      char cell[96];
+      double lo = 0, hi = -1e9;
+      size_t nFaster = 0;
+      for (size_t k = 0; k < ps.size(); ++k)
+        if (vp[k] < tp[k]) ++nFaster, lo = std::min(lo, pct(tp[k], vp[k])), hi = std::max(hi, pct(tp[k], vp[k]));
+      if (nFaster == ps.size()) {
+        std::snprintf(cell, sizeof(cell), "every GPU family (%.0f%% to %.0f%%)", lo, hi);
+        faster = cell;
+      }
+      for (size_t k = 0; k < ps.size() && nFaster < ps.size(); ++k) {
+        if (vp[k] == tp[k]) continue;
+        std::snprintf(cell, sizeof(cell), "%s %s (%+.0f%%)", ps[k].vendor, ps[k].label, pct(tp[k], vp[k]));
+        std::string& list = vp[k] < tp[k] ? faster : slower;
+        list += (list.empty() ? "" : ", ") + std::string(cell);
+      }
+      if (!faster.empty()) std::printf("  faster on: %s\n", faster.c_str());
+      if (!slower.empty()) std::printf("  %sslower on: %s%s\n", con.c("\x1b[93m"), slower.c_str(), con.reset());
+      if (ta || tn) {
+        std::string m;
+        if (ta) std::snprintf(cell, sizeof(cell), "AMD %ld -> %ld instructions", ta, va), m += cell;
+        if (tn) std::snprintf(cell, sizeof(cell), "%sNVIDIA %ld -> %ld", m.empty() ? "" : ", ", tn, vn), m += cell;
+        std::printf("  measured: %s\n", m.c_str());
+      }
+      if (!wRewrites.empty()) {
+        long rb = 0, ra = 0;
+        for (const auto& rw : wRewrites)
+          if (rw.amdBefore >= 0 && rw.amdAfter >= 0) rb += rw.amdBefore, ra += rw.amdAfter;
+        if (rb) std::printf("  classical rewrites: %zu, AMD %ld -> %ld instructions in the shaders they touch\n",
+                            wRewrites.size(), rb, ra);
+        else std::printf("  classical rewrites: %zu\n", wRewrites.size());
+      }
+    }
+  }
   console::setTitle(con, "SweetOpt  -  done");
   return info.failed.empty() && checkFailures == 0 ? 0 : 1;
 }

@@ -17,6 +17,9 @@ rem variant behind switches. Easy settings default to the safe choices.
 set "MODE=easy"
 set "TOOEXACT=no"
 set "REWRITES=safe"
+rem Other GPU families (owner, 2026-10-09): variants are always costed for every family; "yes" also searches with the
+rem AMD RDNA 3 / NVIDIA Turing / Ampere / Intel Gen9 models (sopt-fx --all-platforms, about 4x the time).
+set "ALLPLAT=no"
 if exist "bin\SweetOpt.ini" for /f "usebackq eol=# tokens=1,* delims==" %%a in ("bin\SweetOpt.ini") do set "%%a=%%b"
 
 :menu
@@ -32,7 +35,8 @@ if not "%SHADERS%"=="" echo   Shaders folder   %E%[97m%SHADERS%%E%[0m
 if "%TARGET%"=="" echo   Optimize         %E%[97mevery effect in the Shaders folder%E%[0m
 if not "%TARGET%"=="" echo   Optimize         %E%[97m%TARGET%%E%[0m
 echo   Time             %E%[97m%SECONDS% seconds per statement%E%[0m
-echo   Graphics card    %E%[97m%MODELNAME%%E%[0m
+if "%ALLPLAT%"=="no" echo   Graphics card    %E%[97m%MODELNAME%%E%[0m
+if "%ALLPLAT%"=="yes" echo   Graphics card    %E%[97m%MODELNAME%, other families searched too%E%[0m
 if "%MODE%"=="easy" echo   Mode             %E%[97mEasy: ready files with our recommended changes, no switches%E%[0m
 if "%MODE%"=="easy-switches" echo   Mode             %E%[97mEasy: ready files, each change behind a switch%E%[0m
 if "%MODE%"=="expert" echo   Mode             %E%[97mExpert: every variant behind switches, you choose%E%[0m
@@ -167,6 +171,12 @@ if "%k%"=="9" set "MODEL=nvidia-maxwell" & set "MODELNAME=NVIDIA Maxwell (GTX 90
 if "%k%"=="10" set "MODEL=intel-gen9" & set "MODELNAME=Intel Gen9 (HD / UHD Graphics)"
 if "%k%"=="11" set "MODEL=intel-gen7.5" & set "MODELNAME=Intel Gen7.5 (HD Graphics 4600)"
 if "%k%"=="12" set "MODEL=intel-gen12" & set "MODELNAME=Intel Gen12 (Iris Xe)"
+echo.
+echo   Every variant is checked for all graphics card families: it is never slower on yours, and changes that
+echo   also help other cards are kept. Search with the other families' costs too? %E%[90m(finds more of those; about 4x the time)%E%[0m
+choice /c YN /n /m "  Y = yes, N = no: "
+if errorlevel 2 set "ALLPLAT=no" & exit /b
+set "ALLPLAT=yes"
 exit /b
 
 :chooseMode
@@ -228,6 +238,7 @@ if "%MODE%"=="easy" set "EASY=--easy"
 if "%MODE%"=="easy-switches" set "EASY=--easy-switches"
 if not "%MODE%"=="expert" if "%TOOEXACT%"=="yes" set "EASY=%EASY% --easy-too-exact"
 if not "%MODE%"=="expert" set "EASY=%EASY% --easy-rewrites %REWRITES%"
+if "%ALLPLAT%"=="yes" set "EASY=%EASY% --all-platforms"
 cls
 "%~dp0bin\sopt-fx.exe" %INC% -o "%~dp0sopt-out" --time %SECONDS% --cost-model %MODEL% %FACTS% %EASY% "%WHAT%"
 echo.
@@ -307,4 +318,5 @@ if not exist "bin" mkdir "bin"
 >>"bin\SweetOpt.ini" echo MODE=%MODE%
 >>"bin\SweetOpt.ini" echo TOOEXACT=%TOOEXACT%
 >>"bin\SweetOpt.ini" echo REWRITES=%REWRITES%
+>>"bin\SweetOpt.ini" echo ALLPLAT=%ALLPLAT%
 exit /b

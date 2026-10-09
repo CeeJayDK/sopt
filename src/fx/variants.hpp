@@ -53,6 +53,13 @@ struct Variant {
   // fails, it applies only under this preprocessor condition (e.g. "BUFFER_COLOR_SPACE <= 1"),
   // elsewhere the original is used.
   std::string formatGuard;
+  // GPU families (owner, 2026-10-09; fx/platforms.hpp): compiled cost per platforms() entry and with the chosen
+  // cost model; otherGpus: as fast as the original on the chosen model (or measured the same), faster on another
+  // family; world: share-weighted change over the families in percent (negative = faster; worldChange).
+  std::vector<int> platform;
+  uint32_t compiled = 0;
+  bool otherGpus = false;
+  double world = 0.0;
 };
 
 struct RegionResult {
@@ -73,6 +80,8 @@ struct RegionResult {
   int targetAmd = -1, targetNv = -1, targetIntel = -1;
   int targetAmdVgprs = -1, targetAmdSgprs = -1, targetNvRegs = -1;  // see Variant
   int targetSpirv = -1, targetDxbc = -1;  // backend normalization of the original
+  std::vector<int> targetPlatform;  // the original's compiled cost per platforms() entry (see Variant)
+  uint32_t targetCompiled = 0;      // ... and with the chosen cost model
   // The region's inputs with the back buffer as scRGB (FP16, [-0.5, 125]); empty when no
   // input range depends on the back buffer.
   std::vector<InputDecl> hdrInputs;

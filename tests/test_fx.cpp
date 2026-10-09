@@ -9,6 +9,7 @@
 #include "fx/frontend.hpp"
 #include "fx/hoist.hpp"
 #include "fx/variants.hpp"
+#include "fx/platforms.hpp"
 #include "search/driver.hpp"
 #include "test.hpp"
 
@@ -1263,6 +1264,34 @@ TEST(fx_easy_mode) {
   eo.tooExact = true;
   fx::easyPicks(tooExact, rewrites, eo);
   CHECK(tooExact[0].variants.size() == 1 && tooExact[0].variants[0].text == "4.0");
+  // Same on the chosen card, faster on some GPU families (owner, 2026-10-09): taken only when the Steam-share
+  // weighted change is negative; among equals the one that helps the world most.
+  {
+    const size_t n = fx::platforms().size();
+    fx::RegionResult other = rr;
+    other.targetAmd = -1;
+    other.targetPlatform.assign(n, 10);
+    auto cross = [&](const char* text, double world, int slowerAt) {
+      fx::Variant var = variant(text, Klass::BitExact, -1);
+      var.otherGpus = true;
+      var.platform.assign(n, 8);
+      if (slowerAt >= 0) var.platform[static_cast<size_t>(slowerAt)] = 12;
+      var.world = world;
+      return var;
+    };
+    other.variants = {cross("5.0", 2.0, 0), cross("6.0", -1.0, 1), cross("7.0", -3.0, 2)};
+    std::vector<fx::RegionResult> picks = {other};
+    fx::easyPicks(picks, rewrites, fx::EasyOptions{});
+    if (!fx::shareSurvey().empty())
+      CHECK(picks[0].variants.size() == 1 && picks[0].variants[0].text == "7.0");
+    else
+      CHECK(picks[0].variants.empty());  // without survey data, no family may get slower
+    other.variants = {cross("8.0", 1.0, -1)};  // slower nowhere: always fine
+    picks = {other};
+    picks[0].variants[0].world = -1.0;
+    fx::easyPicks(picks, rewrites, fx::EasyOptions{});
+    CHECK(picks[0].variants.size() == 1);
+  }
   const fs::path out = fs::temp_directory_path() / "sopt_test_easy_out";
   std::error_code ec;
   for (const bool clean : {true, false}) {

@@ -1,5 +1,7 @@
 #include "fx/variants.hpp"
 
+#include "fx/platforms.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -106,6 +108,7 @@ std::string variantClass(const Variant& v, int codeBits) {
   if (v.fewerRegisters && v.notFaster) s += ", fewer registers";
   if (v.perfFaster) s += v.perfFirst ? ", faster without performance mode" : ", faster in performance mode";
   if (v.betterScheduling) s += ", better scheduling";
+  if (v.otherGpus) s += ", faster on other GPUs (same on the chosen one)";
   if (v.notFaster) s += " (not faster)";
   return s;
 }
@@ -143,9 +146,20 @@ void easyPicks(std::vector<RegionResult>& results, std::vector<SourceRewrite>& r
         continue;
       const bool amd = v.amd >= 0 && rr.targetAmd >= 0, nv = v.nv >= 0 && rr.targetNv >= 0;
       if ((amd && v.amd > rr.targetAmd) || (nv && v.nv > rr.targetNv)) continue;
-      if ((amd || nv) && !((amd && v.amd < rr.targetAmd) || (nv && v.nv < rr.targetNv))) continue;
+      if (!v.otherGpus && (amd || nv) && !((amd && v.amd < rr.targetAmd) || (nv && v.nv < rr.targetNv))) continue;
+      // As fast on the chosen card, faster on some families, maybe slower on others (owner, 2026-10-09): taken only
+      // when it helps more Steam users than it slows down (share-weighted change below 0); without survey data,
+      // only when no family gets slower.
+      if (v.otherGpus) {
+        bool anySlower = false;
+        for (size_t f = 0; f < v.platform.size() && f < rr.targetPlatform.size(); ++f)
+          anySlower = anySlower || v.platform[f] > rr.targetPlatform[f];
+        if (shareSurvey().empty() ? anySlower : v.world >= 0.0) continue;
+      }
       const long key = amd || nv ? (amd ? v.amd : 0) + (nv ? v.nv : 0) : static_cast<long>(v.cost);
-      if (best < 0 || key < bestKey) best = static_cast<int>(k), bestKey = key;
+      // Equal on the chosen card: the one that helps the world most (share-weighted).
+      if (best < 0 || key < bestKey || (key == bestKey && v.world < rr.variants[best].world))
+        best = static_cast<int>(k), bestKey = key;
     }
     if (best < 0) {
       rr.variants.clear();
@@ -466,6 +480,53 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
   return written;
 }
 
+// Where each variant helps and harms (owner, 2026-10-09): the static cost on every GPU family as the change against
+// the original, and the Steam-user-weighted change ("world").
+static std::string gpuFamilyTable(const RegionResult& rr) {
+  const auto& ps = platforms();
+  if (rr.targetPlatform.size() != ps.size()) return "";
+  bool any = false;
+  for (const auto& v : rr.variants) any = any || v.platform.size() == ps.size();
+  if (!any) return "";
+  const bool shares = !shareSurvey().empty();
+  char buf[64];
+  std::string s = "\nGPU families (static cost models; change against the original, - = faster):\n\n| # |";
+  for (const auto& p : ps) {
+    s += std::string(" ") + p.vendor + " " + p.label;
+    if (shares) {
+      std::snprintf(buf, sizeof(buf), " (%.1f%%)", p.share);
+      s += buf;
+    }
+    s += " |";
+  }
+  s += shares ? " Steam users |\n|---|" : "\n|---|";
+  for (size_t k = 0; k < ps.size(); ++k) s += "---|";
+  s += shares ? "---|\n| 0 |" : "\n| 0 |";
+  for (int c : rr.targetPlatform) s += " " + std::to_string(c) + " |";
+  s += shares ? " |\n" : "\n";
+  for (size_t k = 0; k < rr.variants.size(); ++k) {
+    const Variant& v = rr.variants[k];
+    if (v.platform.size() != ps.size()) continue;
+    s += "| " + std::to_string(k + 1) + " |";
+    for (size_t f = 0; f < ps.size(); ++f) {
+      const int t = rr.targetPlatform[f], c = v.platform[f];
+      if (c == t) s += " = |";
+      else {
+        std::snprintf(buf, sizeof(buf), " %s%+.0f%% |", c < t ? "**" : "", t > 0 ? 100.0 * (c - t) / t : 0.0);
+        s += buf;
+        if (c < t) s.insert(s.size() - 2, "**");
+      }
+    }
+    if (shares) {
+      std::snprintf(buf, sizeof(buf), " %+.1f%% |", v.world);
+      s += buf;
+    }
+    s += "\n";
+  }
+  if (shares) s += "\nShares: Steam Hardware & Software Survey, " + shareSurvey() + " (cards without a model of their own left out).\n";
+  return s;
+}
+
 std::string markdownReport(const std::vector<RegionResult>& results, const ReportInfo& info) {
   std::string s = "# sopt report\n\n";
   size_t withVariants = 0;
@@ -656,6 +717,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
       }
       s += "\n";
     }
+    s += gpuFamilyTable(rr);
     for (size_t k = 0; k < rr.variants.size(); ++k)
       if (!rr.variants[k].problems.empty())
         s += "\n**Variant " + std::to_string(k + 1) + "** " + rr.variants[k].problems +
