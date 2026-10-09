@@ -51,7 +51,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 
 ## GPU Blueprint report intake (only when the owner says "check Dropbox")
 The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 2026-10-09: tokens). Procedure:
-1. Dropbox list_folder "/Uploads/GPU Blueprint" (recursive); touch no other folder. Uploads: "<uploader> - <file>".
+1. Dropbox list_folder "/Apps/GPU Blueprint/Reports" (recursive; was /Uploads/GPU Blueprint until 2026-10-09); touch no other folder. Uploads: "<uploader> - <file>".
 2. Per zip: Dropbox download_link (single use, never preview) + curl, unzip in a fresh folder. Fallback: Dropbox fetch
    (text files concatenated, each after a line with its name; no PNGs).
 3. Valid: OpBench / TexBench CSVs with "# OpBench <v>" / "# TexBench <v>" headers and numeric rows; ShaderInfo .txt
