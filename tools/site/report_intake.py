@@ -29,6 +29,7 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FOLDER = os.environ.get("DROPBOX_FOLDER", "/Uploads/GPU Blueprint")
 VENDORS = {0x10DE: "nvidia", 0x1002: "amd", 0x8086: "intel"}
+MAX_BYTES = 50_000_000  # bigger uploads / zip members are junk (zip bombs, wrong files)
 
 
 def token():
@@ -60,14 +61,13 @@ def list_files(tok):
     try:
         res = api(tok, "files/list_folder", {"path": FOLDER, "recursive": True})
     except urllib.error.HTTPError as e:
-        if e.code == 409:  # folder missing (e.g. an app-folder app): nothing to do
-            print("folder not found:", FOLDER)
-            return []
+        if e.code == 409:  # wrong folder (app-folder apps see their folder as "/"): fail, do not pass silently
+            raise SystemExit("Dropbox folder not found: %s (repository variable DROPBOX_FOLDER)" % FOLDER)
         raise
-    files = [e["path_display"] for e in res["entries"] if e[".tag"] == "file"]
+    files = [(e["path_display"], e["size"]) for e in res["entries"] if e[".tag"] == "file"]
     while res.get("has_more"):
         res = api(tok, "files/list_folder/continue", {"cursor": res["cursor"]})
-        files += [e["path_display"] for e in res["entries"] if e[".tag"] == "file"]
+        files += [(e["path_display"], e["size"]) for e in res["entries"] if e[".tag"] == "file"]
     return files
 
 
@@ -135,7 +135,8 @@ def members(name, data):
     if name.lower().endswith(".zip"):
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as z:
-                return [(os.path.basename(i.filename), z.read(i)) for i in z.infolist() if not i.is_dir()]
+                return [(os.path.basename(i.filename), z.read(i)) for i in z.infolist()
+                        if not i.is_dir() and i.file_size <= MAX_BYTES]
         except zipfile.BadZipFile:
             return []
     return [(os.path.basename(name), data)]
@@ -143,7 +144,8 @@ def members(name, data):
 
 def fetch(work):
     tok = token()
-    uploads = list_files(tok)
+    listed = list_files(tok)
+    uploads = [path for path, _ in listed]
     os.makedirs(work, exist_ok=True)
     with open(os.path.join(work, "uploads.json"), "w") as f:
         json.dump(uploads, f)
@@ -151,48 +153,55 @@ def fetch(work):
         print("nothing uploaded")
         return
     saved, junk, log = [], 0, []
-    for k, path in enumerate(uploads, 1):
-        files = members(path, download(tok, path))
-        reports, pngs = [], {}
-        for name, data in files:
-            kind, text = classify(name, data)
-            if kind == "png":
-                pngs[name] = data
-            elif kind:
-                reports.append((name, kind, text))
-            else:
-                junk += 1
-        for name, kind, text in reports:
-            if kind == "shaderinfo":
-                gpu = text.splitlines()[0][5:].strip()
-                m = re.search(r"vendor (\d+), device (\d+)", text)
-                vid, dev = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
-                drv = re.search(r"^driver: (.*)$", text, re.M)
-                driver, version = drv.group(1) if drv else "?", ""
-            else:
-                h = header(text)
-                gpu, driver = h.get("gpu", "?"), h.get("driver", "?")
-                vid, dev = int(h.get("vendor", "0"), 16), int(h.get("device", "0"), 16)
-                version = text.split("\n", 1)[0][2:]
-            folder = "docs/" + kind
-            base = free_name(folder, slug(gpu, vid, dev), ".txt" if kind == "shaderinfo" else ".csv")
-            ext = ".txt" if kind == "shaderinfo" else ".csv"
-            out = [os.path.join(folder, base + ext)]
-            with open(os.path.join(ROOT, out[0]), "w", encoding="utf-8", newline="\n") as f:
-                f.write(text)
-            if kind == "texbench":  # its pixel order pictures: <csv stem>-order.png / -order-zoom.png
-                stem = os.path.splitext(name)[0]
-                for suffix in ("-order.png", "-order-zoom.png"):
-                    if stem + suffix in pngs:
-                        p = os.path.join(folder, base + suffix)
-                        with open(os.path.join(ROOT, p), "wb") as f:
-                            f.write(pngs.pop(stem + suffix))
-                        out.append(p)
-            saved += out
-            log.append("- upload %d: %s, %s (driver %s): %s" % (k, kind, gpu, driver,
-                                                                ", ".join("`%s`" % p for p in out) +
-                                                                (" (%s)" % version if version else "")))
-        junk += len(pngs)
+    for k, (path, size) in enumerate(listed, 1):
+        if size > MAX_BYTES:
+            junk += 1
+            continue
+        try:  # one broken upload is junk: it must not stop the others (or stay forever, failing every run)
+            files = members(path, download(tok, path))
+            reports, pngs = [], {}
+            for name, data in files:
+                kind, text = classify(name, data)
+                if kind == "png":
+                    pngs[name] = data
+                elif kind:
+                    reports.append((name, kind, text))
+                else:
+                    junk += 1
+            for name, kind, text in reports:
+                if kind == "shaderinfo":
+                    gpu = text.splitlines()[0][5:].strip()
+                    m = re.search(r"vendor (\d+), device (\d+)", text)
+                    vid, dev = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+                    drv = re.search(r"^driver: (.*)$", text, re.M)
+                    driver, version = drv.group(1) if drv else "?", ""
+                else:
+                    h = header(text)
+                    gpu, driver = h.get("gpu", "?"), h.get("driver", "?")
+                    vid, dev = int(h.get("vendor", "0"), 16), int(h.get("device", "0"), 16)
+                    version = text.split("\n", 1)[0][2:]
+                folder = "docs/" + kind
+                base = free_name(folder, slug(gpu, vid, dev), ".txt" if kind == "shaderinfo" else ".csv")
+                ext = ".txt" if kind == "shaderinfo" else ".csv"
+                out = [os.path.join(folder, base + ext)]
+                with open(os.path.join(ROOT, out[0]), "w", encoding="utf-8", newline="\n") as f:
+                    f.write(text)
+                if kind == "texbench":  # its pixel order pictures: <csv stem>-order.png / -order-zoom.png
+                    stem = os.path.splitext(name)[0]
+                    for suffix in ("-order.png", "-order-zoom.png"):
+                        if stem + suffix in pngs:
+                            p = os.path.join(folder, base + suffix)
+                            with open(os.path.join(ROOT, p), "wb") as f:
+                                f.write(pngs.pop(stem + suffix))
+                            out.append(p)
+                saved += out
+                log.append("- upload %d: %s, %s (driver %s): %s" % (k, kind, gpu, driver,
+                                                                    ", ".join("`%s`" % p for p in out) +
+                                                                    (" (%s)" % version if version else "")))
+            junk += len(pngs)
+        except Exception as e:
+            print("upload %d: junk (%s)" % (k, type(e).__name__))
+            junk += 1
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     if saved:
         logpath = os.path.join(ROOT, "docs/notes/intake-log.md")
@@ -215,7 +224,11 @@ def delete(work):
         return
     tok = token()
     for path in uploads:
-        api(tok, "files/delete_v2", {"path": path})
+        try:
+            api(tok, "files/delete_v2", {"path": path})
+        except urllib.error.HTTPError as e:
+            if e.code != 409:  # 409: already gone
+                raise
     print("deleted %d upload(s)" % len(uploads))
 
 
