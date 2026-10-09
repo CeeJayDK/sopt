@@ -399,6 +399,8 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
    and Vulkan (package sopt-compare-2026-09-26c, all presets black; the per-step presets
    made it much easier).
 1. Dropped (owner, 2026-10-06): no readability rewrites back to pure helpers (lerp etc.).
+   After the 0.7.0 release (owner, 2026-10-09): code review / cleanup with the ponytail plugin (not loaded in the
+   session it was asked in: plugins load at session start).
 2. M4: backend normalization done; harness written (sopt-timer + sopt-host + one-click
    run-bench.bat), waiting for the owner's first runs on Windows (AMD/NVIDIA, DX11/Vulkan;
    owner, 2026-10-01: remind them to test it, resend the artifact link and a test package). Then: new test package
