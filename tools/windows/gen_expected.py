@@ -79,7 +79,8 @@ def main():
         fam = families.setdefault(model, {"cards": [], "values": {}})
         fam["cards"].append(name)
         for r in rows:
-            if r.get("consensus", "yes") == "no" or r["test"] in NOISY:
+            # Test names go into C++ string literals: anything but plain names (from an uploaded report) is skipped.
+            if r.get("consensus", "yes") == "no" or r["test"] in NOISY or not re.fullmatch(r"[\w.+-]+", r["test"]):
                 continue
             try:
                 fam["values"].setdefault(r["test"], []).append(float(r["units_vs_base"]))
