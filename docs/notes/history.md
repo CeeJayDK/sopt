@@ -1,0 +1,1744 @@
+# Project history (moved out of CLAUDE.md on 2026-10-09)
+
+The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and reports in the order they happened. CLAUDE.md now keeps only the rules, commands, layout and open items and points here. Search this file (grep) for a topic before re-deriving it.
+
+## Working with the owner
+- No personal data in the repository (owner, 2026-10-05: GDPR): no names, handles or other details of testers or
+  other people next to reports, results or notes; a report is described by its hardware and driver only.
+  Owner (2026-10-06): telling him in chat who uploaded a report (name, email) is welcome, so he can thank them; never
+  outside the chat (repo, commits, notes, site).
+- Owner's principle (2026-09-26): fewer instructions at equal measured speed are still
+  better (less power; faster once the bottleneck moves). Timings (M4 harness) inform, they
+  do not veto such variants. ReShade's own performance statistics need a look too (owner is
+  not sure they are consistent).
+- Christian (CeeJay, SweetFX/ReShade). Communicates in Danish; prefers brief, direct answers.
+  Hardware (owner, 2026-10-01): NVIDIA GTX 1660 and an Intel NUC; no AMD card (AMD numbers come
+  from RGA / ACO only).
+- PNGs (owner, 2026-10-06): run every PNG sent to the owner or committed through ECT -5 first (scratchpad ect/build/ect
+  -5 -strip -quiet; oxipng -o 4 as fallback): a ShaderLab render went from 8.3 MB to 13 KB. Costs no tokens (one quiet
+  local command); image tokens depend on pixel size, not file size.
+- When asking the owner to do or download something, repeat the links/files in that message
+  (resend packages, give the CI run link) so nothing has to be searched for in the thread.
+- Versions (owner, 2026-10-05): raise the last digit of `project(sopt VERSION ...)` in every build sent to the
+  owner or testers (0.5.0 -> 0.5.1 -> ...), so each report's header names the build that made it; the release
+  then sets the next minor version.
+- Do not implement your own improvisations or design changes without asking first.
+  Implementing the agreed milestone plan is fine; flag anything beyond it.
+
+- Cost models (owner, 2026-10-03): make a new cost model as OpBench reports come in and update existing
+  ones when new data shows they are off; cards with identical costs share a model, cards that differ get
+  their own. AMD models (2026-10-03, ops.cpp): scaled so one plain VALU instruction (the card's measured
+  add) = 4, since OpBench's mad base carries extra issue cost on AMD (two scalar constants: 8-byte VOP3 fma
+  on RDNA, an extra v_mov on GCN); amd-rdna2 (680M + RX 6950 XT; the 680M rerun with OpBench 0.3.0, amd-radeon-680m-rembrandt-v3.csv, equals the 6950 XT within ~0.2 on every tput test despite 45% reference drift: the v1 680M run was clock-distorted), amd-rdna4 (RX 9070 XT,
+  units as measured: its fma base dual-issues and add also measures 4), amd-gcn5 (Renoir), amd-terascale2
+  (HD 7400M, VLIW: abs not free, no folds). CostModel::sameMinMaxOnly (rdna2, gcn5): only max(max) /
+  min(min) fold (v_max3 / v_min3), min(max) is an instruction (measured: max3 ~1, minmax ~3 units).
+  Targeted searches (ff/amd, 20 s, the four AMD models): sign -> the mad_sat form (cost 9) on all four (rdna2 19,
+  rdna4 38, gcn5 20, terascale2 17), lerp -> mad(t, b - a, a) (rdna2 9 -> 8, gcn5 12 -> 8, rdna4 10 -> 9); round /
+  floor / ceil / frac / clamp / select / pow / exp: nothing cheaper.
+
+## Commands
+- Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`
+- Tests: `ctest --test-dir build --output-on-failure` (or `build/sopt-tests [filter]`)
+- CLI: `build/sopt examples/screen.sopt --stats`
+- Library: `build/sopt --check-library [--library-file F]` checks every rule (used by default, `--no-library`)
+- FX: `build/sopt-fx -I <reshade-shaders>/Shaders -o out <dir or .fx>... [--isa --sass]`
+  (`--list --skips` shows regions, facts and why statements were skipped)
+  (`--region F[:L]` searches only matching regions, e.g. long runs: `--region ASCII.fx:254 --time 600`;
+  the report's "search limit hit (levels complete to X of Y)": exhaustive up to order-model level X of Y)
+- Bench: `build/sopt-bench --examples examples [--cost-model rdna3]` and
+  `build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30`
+- ISA ranking: `SOPT_FXSTAT=... SOPT_RGA=... build/sopt examples/factor.sopt --isa`,
+  Backend normalization (M4): `sopt-fx ... --backends` ($SOPT_FXSTAT; $SOPT_FXC =
+  sopt-fxc.exe, tools/fxc, run under Wine with Microsoft's d3dcompiler_47.dll off Windows).
+  NVIDIA: `SOPT_PTXAS=... SOPT_NVDISASM=... build/sopt ... --sass` (pip:
+  nvidia-cuda-nvcc-cu12 for ptxas, nvidia-cuda-nvdisasm for nvdisasm).
+  Harness (M4, Windows): `sopt-host --api dx11|vulkan --bench` with ReShade (full add-on
+  support) and `sopt-timer.addon64`; one click: `run-bench.bat` (tools/windows/README.md: ReShade64.dll or
+  the ReShade add-on setup exe + a test package next to it; DX11 + Vulkan, screenshots, results zip);
+  CI artifact Test-Host.
+  Tools: ReShade-Testing-Initiative (`build_reshade_testing_initiative.sh`, needs
+  spirv-tools, flex, bison) and RGA 2.14 (`rga-linux-2.14.tgz` from GitHub releases).
+
+## Layout
+- `src/ir`: op table (`ops.cpp`: exactness, base set, Shape, cost models generic/rdna3/
+  nvidia/search, `CostModel::opCost` per width), float32 evaluator (`evalNode` is the one
+  vector-aware node evaluation), hash-consed Expr DAG (Node: type, swizzle, up to 4
+  operands, vector constants; `inferType`), `.sopt` parser (floatN inputs, swizzles,
+  constructors), printer.
+- `src/verify`: test/sample point generation (vector inputs as scalar slots, see
+  `slotDecls`/`PointSet::slotOf`), block evaluation (component columns), metrics and
+  budget checks per component, V2 exhaustive verification (`compareExhaustive`).
+- `src/search`: `enumerator` (bottom-up by cost, observational equivalence on
+  fingerprints; affine (default, `--no-affine`): outer p * v + q solved by least squares
+  at the goal check, affine chains / two-constant mad, lerp / sign flips / c / v not
+  stored; `--order-model`: levels by one cost model, hits/ranking by the objective,
+  entries with objective cost >= target not stored, level lists sorted by objective;
+  inner (default, `--no-inner`): target ~ p * u(v + c) + q for u = rcp/sqrt/rsqrt, c
+  from a linear reparametrization + Gauss-Newton, then the affine fit; pure helpers
+  lerp/step not enumerated unless `--helpers`, see `isPureHelper` in ops.hpp) and `driver` (CEGIS loop, stage-2 filter, V1 verification, grouping).
+- `src/measure`: `isa` emits a candidate as a ReShade FX effect, runs fxstat + RGA and
+  parses the pixel shader's ISA cost; `sass` emits a PTX kernel (inputs loaded and
+  stored back so they live in registers), runs ptxas + nvdisasm and counts SASS.
+  `backends` (M4 normalization): the same effect through fxstat's optimized SPIR-V
+  (pixel "alu" count, canonical spirv-dis text) and ReShade's HLSL through Microsoft's fxc
+  -O3 (sopt-fxc; instruction lines of the disassembly); identical code to the original =
+  "same" (the compiler already does it on that backend). sopt-fx report columns spirv / dxbc
+  and variant comments. Corpus 2026-09-26 (45 regions, 87 variants): DXBC after fxc
+  identical to the original for 16 (Daltonize's 0 * x / 1 * x terms, PerfectPerspective
+  y * 16 / 9 folding, qUINT_dof floor: fxc does them, they only help the SPIR-V path),
+  fewer for 58, more for 2 (Temporal_AA rational forms, faster in AMD/NVIDIA ISA). SPIR-V
+  identity is too strict (inputs read from the test texture differently, e.g. Daltonize
+  folds to 0 alu in both): counts only; DXBC identity is meaningful.
+- Test Host (owner, 2026-10-06: "one test host to rule them all", ease of use): `Test-Host.bat` menu (IEEE 754 test on
+  every / one API, an Effects\ effect on every API, the host with ReShade on a chosen API by hand, the benchmark,
+  Results\ / Effects\ / guide); scripts bin\run-test.ps1 / run-bench.ps1 / common.ps1 (ReShade per API: d3d9.dll,
+  dxgi.dll for dx10-12, opengl32.dll, Vulkan layer env); package staged as Test-Host\ (CI artifact Test-Host
+  (owner, 2026-10-06: three downloads, SweetOpt / GPU Blueprint / Test Host; was sopt-windows-tools; sopt-fxc.exe moved to SweetOpt's bin\, sopt-fx finds it next to itself when $SOPT_FXC is unset: executableDir()), release Test-Host-<v>.zip; docs/TestHost.html = README.html; run-bench.bat gone).
+  sopt-host `--api dx9|dx10|dx11|dx12|vulkan|gl` (d3d12.dll loaded at run time; depth pass on all but GL: depth9.hlsl
+  float math vs_3_0 + ps_3_0, depth.hlsl as vs_4_0 / vs_5_0). sopt-timer shot mode (ShotAfter / SOPT_TIMER_SHOT=N: N
+  frames with a rendered technique and 7 s for ReShade's banner, save_screenshot, WM_CLOSE 3 s later; 60 s timeout).
+  Checked under Wine (mingw ReShade, Microsoft d3dcompiler_47, WINEDLLOVERRIDES dxgi=n,b etc.): host alone all six APIs;
+  with ReShade + IEEE test screenshots for dx9 / dx10 / dx11 / gl; dx12 crashes in Wine's vkd3d with ReShade loaded
+  (also without the add-on), Vulkan layer does not load under Wine: both need the owner's Windows run. PowerShell parse
+  checks and a stub-host dry run with pwsh 7 (scratchpad pwsh/pwsh).
+  Owner's first Windows run (0.6.2, GTX 1660, 2026-10-06): all six APIs ran and saved screenshots; Vulkan loaded the installed
+  ReShade (implicit layer VK_LAYER_reshade in C:\ProgramData\ReShade, limited add-on build: sopt-timer skipped, no auto shot,
+  window not closed): our layer is now VK_LAYER_sopt_reshade and DISABLE_VK_LAYER_reshade_1=1 keeps the installed one off
+  (0.6.3); run-test.ps1 flags "Skipped loading add-on". Results in tools/reshade/IEEE754.md (+ results/*.png): D3D10/11/12
+  identical; fxc rewrites !(x < 1) to ge (NaN wrong; IEEE strictness keeps lt + movc), NVIDIA GL / Vulkan too; Vulkan run-time
+  inf comparisons fail (no SignedZeroInfNanPreserve: the driver may assume no inf / NaN) plus the ordered != bug; the effect's
+  totals line disagrees with its cells on D3D (fxc compiles the loop differently: context-dependent folding).
+  Fixed (owner's go): pass 1 runs every test once into a 62 x 1 RGBA8 texture, cells and totals read it (0.6.4). Owner: D3D9 not
+  following IEEE 754 is a ReShade issue (effects should behave the same on every API; ReShade has built-in workarounds,
+  more may be needed), not a sopt issue.
+  Owner's 0.6.4 run (GTX 1660): all six APIs OK and closed by themselves (Vulkan with our layer); totals = cells (D3D 7 / 21 / 5);
+  Vulkan / GL / D3D9 identical to the first run; D3D's `inf - inf is NaN` (Literal) flipped to FAIL in the first pass (fxc
+  folds by context). Task 76 waits only on showing crosire (IEEE754.md + results/).
+  DX9 text (owner, 2026-10-06: only if a DX9 test is needed again): CeeJay's ASCII.fx stores 5x5 glyphs in floats (24 mantissa
+  bits + the sign bit, pixel = frac(abs(n * exp2(-x - 1))) >= 0.5), usable to give the IEEE test's SM3 path real text (7x13 font =
+  4 floats per glyph, ~60 used glyphs + text 3 chars per float, fits ps_3_0's 224 constant registers).
+- `tools/windows` (Windows bench, owner 2026-10-01: one folder, documented in its README.md;
+  `run-bench.ps1` / `.bat`: own run folder and ReShade.ini, ReShade as dxgi.dll for DX11 and as a
+  Vulkan layer via VK_ADD_LAYER_PATH / VK_INSTANCE_LAYERS, sopt-timer Screenshots=1).
+  `tools/windows/timer` (sopt-timer, ReShade add-on): passive per-technique GPU timestamps (median,
+  p10-p90, 60-frame mean like ReShade's statistics); bench walks the bundle's sopt-*.ini
+  presets, renders each X_orig / X_sopt pair itself on the frame before any effect (A B B A /
+  B A A B, per-frame paired difference), writes sopt-timer.csv. ReShade does not send an
+  add-on the events its own render_technique causes: validity = the chain rendered the
+  technique this frame. D3D11 frames bracketed by TIMESTAMP_DISJOINT (ReShade never checks).
+  `tools/windows/host` (sopt-host): DX11 / Vulkan window, fixed image, vsync off; Vulkan loaded at
+  run time; synthetic depth (owner's go 2026-09-27): z prepass of a procedural scene,
+  reversed Z, 256x144 grid in 144 draws (generic depth skips <= 3 vertices / <= 8 draws),
+  shaders depth.hlsl -> depth_dxbc.h (Microsoft D3DCompile) and depth.vert -> depth_spv.h;
+  D3D11 SV_VertexID excludes the start vertex, so ids come from a vertex buffer. Checked
+  under Wine with ReShade + DisplayDepth (DX11) and a Vulkan run. CI builds sopt-timer.addon32 too. Headers vendored: third_party/reshade-addon (ReShade 6.8.0 API, ImGui 1.92.5),
+  third_party/vulkan. Add-on must be built with MSVC (member functions returning small
+  structs differ between MSVC and mingw ABIs); tested under Wine/DXVK/lavapipe with a mingw
+  ReShade (DX11 end to end; Vulkan host presents; ReShade Vulkan layer untested there).
+- `third_party/reshadefx`: ReShade 6.8.0 FX lexer/preprocessor/parser, unmodified
+  except `symbolic_macros`, `\` -> `/` and case-insensitive lookup for #include names off Windows (built as C++17). `src/fx/codegen`: its codegen interface recorded as a dataflow graph
+  (values with seq/block, statements Init/Store/Return, loops, samplers, uniforms).
+- `src/fx/frontend`: `loadEffect` (ReShade's predefined macros; `ppLines` maps source
+  lines to preprocessed text), `extractRegions`: pixel-reachable functions, statement
+  text checks (alone on its lines, no macros outside fetch calls), IR building (leaves =
+  variable + member chain with used components, or texture fetch call text in current
+  syntax: `modernFetch` turns deprecated tex2Doffset/tex2Dlodoffset/tex2Dgather(s, c, n)
+  into tex2D(s, c, o)/tex2Dlod(s, c, o)/tex2DgatherR..A (owner via crosire)), windows
+  (single-use temporaries inlined), ranges (`Range`, reaching definitions, loops),
+  budget from use, and a second parse at 5120x1440 (32:9) to drop resolution-dependent ones.
+- `src/fx/variants`: `compiledCost` (contraction, modifiers, swizzles free), variant
+  files (switch per region, `SOPT_ALL`, overlap resolution), Markdown report.
+  `src/cli/fx_main.cpp`: sopt-fx (parallel search, filters, --isa/--sass, re-parse).
+  `src/cli/console`: terminal output of sopt / sopt-fx (owner, 2026-10-04): title box "sopt-fx <v>  -  by
+  CeeJay.dk", section headings, progress bars with a percentage scale and time left (search: per unique
+  region; measurement: per region with variants); colors / UTF-8 blocks only on a terminal (isatty, Windows VT
+  mode; NO_COLOR, TERM=dumb off), block characters as explicit UTF-8 bytes (MSVC without /utf-8).
+- `bench/bench.cpp`: example suite + planted problems. `examples/*.sopt` with `# expect:`.
+
+## Invariants (do not break)
+- CPU evaluation is the float32 reference. Never enable FP contraction or fast-math
+  (`-ffp-contract=off`, MSVC `/fp:precise`). Use `f` suffixes; never promote to double
+  inside evaluation.
+- `eval_golden_exact_ops` hashes must match on MSVC, GCC and Clang. If an exact op's
+  semantics change intentionally, regenerate the hashes and say so.
+- All non-leaf op costs >= 1 in every cost model, fusedAdd included (levels are
+  well-founded). Bank entries are appended in
+  cost order; operands always have lower index.
+- Undefined inputs are don't-care: points where the target is not finite are skipped.
+- Accuracy rule (owner): besides the budget vs the float32 original, a candidate passes
+  a point if at least as close to the exact value as the original (or within the budget
+  of it). Exact values: `verify/exact` (double, only for metrics; never mixed into the
+  float32 evaluation). Not for Exact budgets. Less accurate candidates (`--loose`, owner:
+  "list them with their accuracy, the user decides") are Klass::LessAccurate; the
+  enumerator accepts them as hits, the driver caps them at maxLoose. Bench: same
+  results and first-hit times with and without the rule (examples + 12 planted);
+  verification ~9% slower (exact evaluation).
+- GPU approximations (owner, 2026-09-26): profiles `gpu+` / `gpu-` (Profile::ulpStep) move
+  every inexact op's result (rcp, rsqrt, div as a * rcp(b), exp, log, sin, cos, pow; not
+  sqrt, which the op table counts exact) one float step up / down; verification runs 6
+  profiles. Rel budgets are relative to |t| itself (`relBase`: max(|t|, 1e-30); the old
+  max(1, |t|) floor made them absolute below 1). Both together reject the partial fraction
+  depth rewrite (cancellation near t = 1).
+- Accuracy variants (owner, 2026-09-26; `Options::accuracyVariants`, default on,
+  `--no-accuracy-variants`): `Accepted::moreAccurate` = error vs exact at most 1/4 of the
+  original's (rel, and abs not worse), needs the accuracy rule. Kept up to
+  `accuracySlack` (8) above the target's static cost; sopt-fx keeps them when not faster if
+  at most 1 instruction slower per measured vendor (`Variant::accuracyOnly`, listed last,
+  "more accurate (not faster)", max 2 per region, never SOPT_AUTO). Search side:
+  `SearchConfig::rational` emits the inner rcp fit p / (v + c) + q also as
+  (v - r) * rcp(mad(v, 1/q, c/q)) (no final cancellation; r snapped to a zero of the target,
+  near-integer constants rounded). Found: ReShade depth (t - 1) * rcp(mad(t, 1 - F, -1)).
+  Bench (examples + 12 planted, vs the day before): same results and first-hit times except
+  depth_far (best 28, the accuracy variant, instead of the rejected 24) and planted_1 (its
+  cost-13 candidate is now "less accurate": near the target's zeros its relative error is
+  3e-4 where the original's is float precision; the old floor hid it); verify ~1.5x (6
+  profiles). sopt-fx (ReShade.fxh, facts file): the depth variant is written as "as
+  accurate, more accurate (not faster)", amd 7 -> 8, nv 12 -> 12.
+  Corpus (12 packages): 45 -> 35 regions with variants. Rightly lost: MXAO x2, Tonemap
+  (partial fractions), ColorIsolation x2 (dropped a divide-by-zero guard, abs(d) < 1e-6 ?
+  1e-6 : d), Flashlight x2 (were less accurate); by the rule, likely harmless: BloomingHDR,
+  Flair, EyeAdaption (t * (1 - t) -> t - t * t loses relative precision near t = 1 without
+  fma); falsely lost: Vignette x2 (XOR x + y - 2xy: zero crossing, both cancel). New: PD80
+  Bloom 342-343, iMMERSE FILMGRAIN 287 (faster and more accurate), AstrayFX Smart_Sharp 538.
+  Then (owner's go) error-scale floor: Rel budgets relative to max(|t|, S), S = the target's
+  running rounding-error bound / unit roundoff (ExactEvaluator::withScale, relBase(t, s)):
+  absolute-like where the original itself cancels (Vignette XOR back), relative where the
+  small value is exact (depth partial fraction, MXAO, t - t * t stay rejected). Bench: examples
+  identical, planted_1 recovered (0 not recovered, 1 needs-sharing).
+  Noise guard (2026-09-27, found in the corpus; owner: fine for now): hashes like
+  frac(sin(dot(uv, k)) * 43758.5) became 0.0 / uv.x / uv.y as "less accurate" (float32 sin
+  of large arguments is chaotic, the original is off by up to 1 from exact, and the
+  error-scale floor made rel budgets accept anything). `followsExact` (driver): if the
+  original's max error vs exact > 10% of its range (4096 random points), Budget::vsExact
+  and Budget::errorScale are off (RunResult::exactOff). Corpus: 45 -> 41 regions (ASCII,
+  Common GetRandom, GrainSpread, Limbo_Mod dither gone); bench unchanged. Owner (2026-09-27):
+  variants should be better in some way, faster or more accurate or both; faster usually
+  matters more (8-bit output hides most error); accuracy is written next to each variant
+  and the user chooses. Noise (owner, 2026-09-27): A for now = the guard above (the float32
+  original is the only reference, so only same-noise rewrites pass); B later = a noise mode
+  (variants must stay noise: same range, similar mean/spread, uniform histogram, no
+  neighbour correlation) that could swap in cheaper hashes.
+- Inexact ops (rsqrt, rcp, div, pow, exp, log, sin, cos) are never classified bit-exact.
+  Div is inexact because GPUs lower it to a * rcp(b) with an approximate rcp.
+- Contraction (profile `gpu`, cost model `fusedAdd`) uses one rule, `fusedArg` in
+  `expr.cpp`: an add/sub over a single-use mul (or div) is one fma.
+- Pure helper intrinsics (lerp, step, later smoothstep/length/...) are not enumerated
+  during search (owner's rule: their expansions are tried anyway). Single-instruction
+  intrinsics and modifiers (mad, clamp, saturate, rcp, rsqrt, ...) are.
+- Every new search technique goes behind a flag and must improve time-to-best on the
+  bench (section 6 of the design) before becoming default, unless the owner decides
+  otherwise (shared leaves, subtrees and cut points: default by the owner's decision, 2026-09-27;
+  top-down split and library 2026-09-29, two-phase 2026-10-01). Tests that check what the bank alone
+  reaches (test_rewrites expectRewrite) turn off overflow, shared leaves, subtrees, cuts, top-down,
+  two-phase and the library.
+
+## Known limitations (v1, by design)
+- Bank cost is tree cost: solutions that need a shared intermediate value are missed
+  (bench marks them `needs-sharing`). Planned fix: shared leaves (M7).
+- Bank limit (2M entries) is reached around cost 8 with 3 inputs; ternary ops dominate.
+- One output (float1..4). Vector ops are enumerated only at the target's width (and
+  float1); no constructors or swizzles of computed vectors are enumerated. dot/length/
+  normalize/distance are pure helpers (not enumerated): their expansions over input
+  components are, so e.g. length(v) * length(v) -> dot expansion needs --max-bank 5000000.
+- M2 done criteria changed (owner's helper rule): c.r*a + c.g*b + c.b*c -> dot(...) and
+  sqrt(dot(v, v)) -> length(v) cost the same on GPUs; they are readability rewrites
+  (optional post-search step), not search results. Real vector wins are the examples
+  (normalize_length, length_squared).
+- V2 checks the cheapest 20 alternatives when the domain has <= 2^24 points; elsewhere V3
+  proves a bound where it can (often only part of the domain); the rest is sampled.
+- `generic` costs are placeholders. `rdna3` is calibrated per op on gfx1100 but misses
+  context effects (min(max()) -> med3, extra v_mov for some constants); `--isa` covers them.
+- `rdna3` and `nvidia` enumerate in `search` order by default (rdna3's cheap ops,
+  transcendentals at half cost). Bench (rdna3 objective, 11 examples + 36 planted): search 38 found,
+  rdna3 order 37, generic order 36 (loses cheap-op planted problems). `rdna3` is the default
+  objective. With a separate order, dedup keeps the order-cheapest program
+  of a value, not the objective-cheapest.
+- normalize_x (x * rsqrt(x*x + y*y), rdna3 cost 28, two inputs) is not reached by any
+  order: the bank fills first.
+- NVIDIA data is the CUDA compiler (ptxas), not the graphics driver's; the MUFU weight
+  (8x on sm_86+, 4x on sm_75/80) is from memory of the CUDA guide's throughput table; 4x on
+  sm_75 confirmed by opbench on the GTX 1660 (sm_86+ still unverified).
+- Inner fitting covers u(v + c) for u = rcp/sqrt/rsqrt only (one inner shift, no inner
+  scale: exp/sin/log need one); it costs up to ~40% generation speed on planted problems.
+- Affine and inner fitting use the fingerprint points, so exact budgets rarely fit.
+  With `--no-inner`, inner constants (the c in rcp(t + c)) must come from the constant pool.
+
+- sopt-fx: statements need ops >= 2 and <= 24, <= 4 inputs / 8 components; returns only
+  when `return` starts the line. Windows: single-use temporaries declared once in the
+  same block, and same-variable chains (`findChain`: the root is a whole-variable store,
+  chain members in its block with no other reads of intermediate values;
+  `leavesUnchanged` checks every leaf reads the same value at the root). Windows across
+  #if lines get `Region::guard` (`spanGuard`: the taken branch of every #if group with a
+  directive in the span; variants use `#if SW >= k && guard`, removed statements
+  `#if SW < 1 || !(guard)`). --max-statements / --max-ops bound regions. Fetches
+  nested in another fetch's arguments, user function calls and control flow end a
+  region. Ranges are per variable (one interval for all components), unions over
+  branches (no path sensitivity); back buffer assumed 8-bit SDR; pixel shader inputs
+  come from the passes' vertex shaders (PostProcessVS texcoord = [0, 1] by name), else
+  semantic conventions (owner): TEXCOORD0..9 = [0, 1] as a fact, SV_Position = pixels [0, 7680] (8K, `--max-width`; hardware limit 16384; the texcoord
+  budget is 0.01 px at the same width),
+  COLOR only a suggestion [0, 1] (often abused); struct input members by their semantic. Variants of regions with assumed ranges are not written
+  (sampling misses rare-event differences, e.g. CRT.fx corner()). The static cost
+  model gains only survive `compiledCost`; with --isa/--sass most remaining
+  single-statement gains in SweetFX turn out to be compiler-done already.
+- Result on reshade-shaders + legacy + SweetFX (chain windows, accuracy rule, loose 100):
+  53 effects, 0 parse failures, 731 regions, 22 with gains (new: FilmicPass.fx:87-90
+  sigmoid 1 / (1 + exp(a / 2)) as a rational, less accurate 6.5e-5, amd 10 -> 7,
+  nv 19 -> 13); all variants compile (231 HLSL/SPIR-V builds). With the facts file
+  (depth [0, 1], FAR_PLANE [100, 10000]) sopt-fx finds ReShade.fxh's reversed depth
+  rewrite itself: as accurate (1.3e-7 vs exact, original 2.3e-4), amd 7 -> 6, nv 12 -> 11.
+  Earlier, slim + SweetFX: 33 effects, 283 regions, 11 with measured gains (Daltonize 0*x terms: NVIDIA only; Vignette XOR dot: AMD 3 -> 2,
+  NVIDIA 4 -> 3); all variants compile to HLSL and SPIR-V (spirv-val) for every switch.
+
+- Owner's decisions (M3 review): variants are kept if faster for any measured vendor
+  (per-vendor code: `SOPT_AUTO = 1` in variant files picks per `__VENDOR__` the
+  variant measured fastest, `vendorPick`; default 0 = unchanged; `__DEVICE__` later, M5;
+  per API too (owner, 2026-09-27): DX9-DX12 (`__RENDERER__ < 0x10000`) skip variants fxc
+  compiles to the original's code or to more DXBC, a separate line only where the pick differs); `SOPT_ALL = k` uses the
+  last variant where a region has fewer; constant-input regions are skipped; assumed
+  ranges: track facts further (done for vertex shaders) and ask the user for missing
+  ranges (done: sopt-facts.txt + `--facts`, interactive `--ask`; user ranges apply in
+  the range propagation, key "<file> <function|global> <variable>"); dataflow cut
+  points to split windows: try in M7.
+- Problem inputs (owner 2026-09-25: keep such variants, mark them, the user decides):
+  `verify/problems` (`findProblemRanges`, run on every accepted candidate in the driver)
+  finds input values where a verified variant still fails, e.g. rcp(0.01 * F - 2) at
+  F = 200, which sampling cannot hit: zeros / domain edges of rcp, div, rsqrt, sqrt, log
+  and pow operands that depend on one scalar input, a full check at each, widened to the
+  failing interval. Shown in the report, the variant comment and `sopt` output with the
+  fine ranges ("fails at F = [200, 200.00002] (NaN/inf at some), fine on ..."); never
+  picked by SOPT_AUTO. Not covered: operands of several inputs or vectors.
+  ui_min/ui_max stay facts (owner: values forced outside them are not guaranteed).
+  FAR_PLANE stays [100, 10000] (hard limits [1, int max]; the shipped ReShade.fxh depth
+  rewrite fails for F in [1, 1.2342985]).
+- Preprocessor definitions (owner: compile-time constants): user-changeable numeric
+  ones (`used_macro_definitions`) stay symbolic via a small hook in the vendored
+  preprocessor (`symbolic_macros`: code uses become the identifier `__sopt_<name>`, a
+  uniform in the parse; `#if` keeps the value). `InputDecl::compileTime` inputs: nodes of
+  only constants/compile-time inputs cost 0 (`dagCost(e, m, inputs)`, enumerator
+  `Entry::ctime`, `compiledCost`). Search specializes (`Options::specialize`,
+  `search/generalize.cpp`): compile-time inputs set to `InputDecl::value` (the macro's
+  value), normal search, then each candidate's constants are replaced by <= 4-op
+  expressions of the inputs (tolerance 2e-5 rel, 12 matches per constant, <= 1024
+  combos) and V1-verified over the full range (examples/depth_far.sopt). A definition
+  used as a literal (uniform initializer, DisplayDepth.fx) stays a number (owner: fine,
+  DisplayDepth is a setup/debug effect). ReShade.fxh: the reversed-depth chain (lines
+  108-111) is a window (guard RESHADE_DEPTH_INPUT_IS_REVERSED); owner: FAR_PLANE is almost
+  always 1000, realistic range [100, 10000]; RESHADE_DEPTH_MULTIPLIER stays 1.
+
+- Test corpus (owner): not the legacy branch (deprecated). Use packages from
+  https://github.com/crosire/reshade-shaders/blob/list/EffectPackages.ini (install paths
+  there). 2026-09-24: slim, SweetFX, AstrayFX, Daodan, OtisFX, Fubax, brussell,
+  FXShaders, qUINT, PD80, iMMERSE: 43 regions with gains; all variant files compile
+  (1535 HLSL/SPIR-V builds incl. SOPT_AUTO). iMMERSE parses since 2026-09-25 (backslash
+  includes): 188 regions, 4 with gains (MXAO, SOLARIS), many search-limit hits; it found
+  the chain-from-declaration bug (variant lost the declaration). OtisFX parses fully
+  since includes ignore letter case off Windows (owner: ReShade assumes Windows). Test packages: unique file name per package, steps inside
+  TESTING.txt AND in the chat message. Owner (2026-09-25): add iMMERSE, METEOR
+  and CorgiFX to future test runs, iMMERSE especially (heavy, complex code: stress test). CorgiFX: 9 effects, 148 regions, 4 variants all on assumed ranges.
+  Rerun 2026-09-25 (all 12 packages): 45 regions with variants, all variant files
+  re-parse, no written variant has problem inputs. Flair.fx:599-602 and BeforeAfter.fx:93-95
+  dropped out versus the day before with identical code (commit 53f0285 rebuilt gives the
+  same): time-limited search (BeforeAfter found again with --time 10) and measurement.
+- Render check (owner's suggestion): RTI Shaderlab (`rti/shaderlab/fxrender.py`, runtime
+  built with build_runtime.sh; Wine + mingw + system python3.12 for PIL). Render the
+  original and the variant with SOPT_ALL = 0..3 on a test image, compare pixels. Each
+  effect file name must exist once on the search path (ReShade selects by name): render
+  variants from a copy of the package with the changed files laid over it. Shaderlab's
+  vkd3d d3dcompiler rejects [fastopt] (ReShade's codegen emits it for loops at SM >= 4):
+  patched line 1874 of its effect_codegen_hlsl.cpp to emit [loop]. This found a real bug
+  (constant arrays indexed at run time got the first element's range: Fubax Waveform).
+- Owner's test method (Compare.fx, SweetFX): package with <Effect>-orig.fx / -sopt.fx
+  side by side (techniques and the file's own non-semantic textures suffixed _orig /
+  _sopt: ReShade shares textures by name; changed headers as <H>-orig/-sopt.fxh; -sopt
+  defaults SOPT_ALL 1) and one preset per effect: Capture -> orig -> Restore -> sopt ->
+  Compare (compare_mode 7, difference_scale 20). Techniques from code only (strip
+  comments and strings). Check renders in a full install tree (packages in their
+  installer folders), else headers get included twice via different paths.
+  2026-09-26 owner's DX11 test: Limbo_Mod and Temporal_AA differed, everything else matched.
+  Cause: SweetFX Compare.fx Capture/Restore are float3, so back buffer alpha is not
+  restored and both effects read it (identical code differs too; RGBA Capture/Restore: 0 px).
+  Bundle format since then (owner): everything flat in reshade-shaders/Shaders/sopt/
+  (effects -orig/-sopt, every included header, includes rewritten to bare names since
+  #pragma once goes by path; clashing names get a package prefix), textures in
+  Textures/sopt/, sopt_Compare.fx (float4 copy, sopt_ prefixes), sopt_TintA/B between
+  BeforeAfter's Before and After, one preset per effect and SOPT_ALL step
+  (PreprocessorDefinitions=SOPT_ALL=k, sopt-NN-<Effect>-<k>of<n>.ini). Shaderlab renders the
+  presets as chains (scratch fxrender copy accepting Name@File.fx techniques; depth from a
+  synthetic slDp chunk, or Depth Anything V2 depth: scratch depth/estimate_depth.py runs the
+  ONNX export (github fabio-sim/Depth-Anything-ONNX; huggingface.co is blocked) with
+  ShaderLab's pre/post-processing and embeds the slDp chunk).
+  Found 2026-09-26: the shipped ReShade.fxh reversed-depth variant makes DisplayDepth's
+  normals noisier on the GPU path (Shaderlab: mean |laplacian| 4.71 vs 2.96; depth view
+  identical). Cause: GPU rcp is approximate and the variant ends in a cancellation
+  (~0.00105 - 0.00100), so its relative error at small linear depths is ~5e-6 vs 5e-7
+  (CPU with exact division shows the opposite, hence "as accurate"). The rel budget's
+  max(1, |t|) floor hides it. Excluded from test packages; design fix (model GPU rcp error,
+  relative budgets for small values) to be decided by the owner.
+  A cancellation-free form, (1.0 - d) * rcp(mad(d, F - 1.0, 1.0)), is 160x more accurate
+  than the original (max rel 2.9e-7 vs 4.6e-5 with a 1-ulp rcp) at amd 8 (original 7),
+  nv 12 (12): an accuracy fix, not a speedup; the search only reports cheaper ones.
+  Shaderlab: isnan now emitted as (x != x) (RTI shaderlab/patches/reshade-isnan.patch);
+  PerfectPerspective renders (9 presets identical). Bundle 26c: textures named through
+  macros are bundled too (blueNoise64.png, NeoBloom_LensDirt.png were missing in 26b).
+  RTI fixes pushed to CeeJayDK/ReShade-Testing-Initiative branch
+  claude/shaderlab-loop-attribute ([fastopt] patch, stale Xvfb lock, exec bits).
+
+## Next (per docs/design.md)
+0. M3 done (2026-09-26): owner's manual test of the variants in ReShade passed on DX11
+   and Vulkan (package sopt-compare-2026-09-26c, all presets black; the per-step presets
+   made it much easier).
+1. Dropped (owner, 2026-10-06): no readability rewrites back to pure helpers (lerp etc.).
+   After the 0.7.0 release (owner, 2026-10-09): code review / cleanup with the ponytail plugin (not loaded in the
+   session it was asked in: plugins load at session start).
+2. M4: backend normalization done; harness written (sopt-timer + sopt-host + one-click
+   run-bench.bat), waiting for the owner's first runs on Windows (AMD/NVIDIA, DX11/Vulkan;
+   owner, 2026-10-01: remind them to test it, resend the artifact link and a test package). Then: new test package
+   (bundle presets double as bench presets), merge sopt-timer.csv results into the report.
+3. M5 rest: probe effect, facts database, `__DEVICE__` paths.
+4. M7 search scaling (owner's go 2026-09-27). Default since 2026-09-27 (owner: "not too much
+   extra time; we want the search that finds the best variants"), off with --no-...:
+   `--shared-leaves` (SearchConfig::sharedLeaves: the target's own subexpressions, up to 16,
+   are free level-0 leaves; `upgradeShared` swaps in a cheaper program of the same value;
+   hits not below the target's DAG cost dropped) and `--subtrees` (Options::subtrees,
+   search/subtrees.cpp: when the search hits a limit, subexpressions of cost <= 64, max 24,
+   1 s each, cached per run, searched with rel 1e-6 + accuracy rule; each cheaper form put
+   back and the best disjoint ones combined become candidates, verified as usual).
+   Bench (examples + 12 planted, time 30), shared leaves vs none: normalize_x found (28,
+   never before), rsqrt_affine 24 -> 21, planted_7 found, needs-sharing 0 (was 1), first
+   hits faster; lost: length_squared (at the bank's edge anyway) and planted_1 13 -> 16
+   (the extra leaves fill the bank sooner). Subtrees alone: normalize_x 44, rest the same.
+   Tonemap.fxh:109 (cost 121): both 121 -> 71 (pow(abs(u), 2.0) -> u * u, mads).
+   Corpus (12 packages, --isa --sass --backends --time 3), both flags vs none: 72 regions
+   with variants instead of 41 (none lost; all 350 variant files parse; 49 min vs 34).
+   New e.g. PD80 Sharpening x4 (saturate chains, bit-exact, amd 10 -> 7), FXShaders
+   Convolution gaussian (nv 27 -> 19), Tonemap 109/173, CinematicDOF 587-588, Flair
+   599-602 (back), GloomAO/RadiantGI 2 * abs(x), SnowScape, Technicolor, EyeAdaption.
+   The run found two old bugs: affine hits on vector values built scalar constants
+   (now typed), and a UTF-8 BOM ended up after the generated header (DisplayDepth.fx).
+   Cut points (2026-09-27, default by the owner's decision, `--no-cuts`; search/cuts.cpp):
+   nodes v that the rest reads the inputs below v only through (dominators); top(cut,
+   other inputs) is searched over v's sampled range (box domain exact), sub as in the
+   subtree search (`searchPart`, shared cache), combinations verified as candidates.
+   Survey: 369 of 2365 corpus regions have such cuts (>= 2 ops each side), 202 of them
+   hit the limit. Bench (time 30): identical except rsqrt_affine 21 -> 20. Corpus (same
+   run settings, current defaults vs + --cuts): 72 -> 73 regions (ArtisticVignette
+   153-154 2 * max(abs(uv - 0.5).x, ...), bit-exact, amd 5 -> 3), better variants in PD80
+   Sharpening 246 (amd 13 -> 11), ColorIsolation / CBS (static 17 -> 14, assumed ranges),
+   AspectRatioSuite, Flashlight, Limbo_Mod, ColorfulPoster (static -1); none worse;
+   45 -> 47 min.
+   Quantized OE (2026-09-27, flag `--quant-oe N`, off: not better): fingerprints compared
+   after rounding away the low N mantissa bits (SearchConfig::quantBits); a merged value
+   that is not bitwise equal is still goal-checked but not an operand. N = 8: ~10% of new
+   values merge, no deeper level (levels grow 3-5x), generation ~15% slower. Bench:
+   identical except planted_2 12 -> 10. Corpus (vs a baseline rerun on the same, by then
+   slower machine): 73 regions either way, 8 variants worse (TripleMonitor 412 20 -> 28,
+   ColorLab 118 / PD80 Color_Spaces 142 5 -> 8, ...; the stored first program of a merged
+   value is often not the useful one), 2 slightly better. Corpus timings vary ~30% between
+   runs on this machine: compare only runs made back to back.
+   V3 (2026-09-28, default by the owner's decision, `--no-v3`; verify/bound.cpp): formal
+   bound on |candidate - original| by interval subdivision. Exact difference: naive,
+   first-order and second-order centered forms (interval gradients and Hessians, forward
+   mode; the Hessian difference is exactly 0 for identities, so the remainder ~ width^3),
+   a shared saturate/abs/neg root peeled (1-Lipschitz). Rounding: mean value theorem over
+   the widened arguments, op model as the profiles (u per exact op, 2 ulp inexact, div
+   4 ulp, FTZ 2^-126). A box passes within the budget of the float32 original or
+   (accuracy rule) of the exact value; Rel uses |t| only (no error-scale floor, so
+   stricter). Adds a proof, rejects nothing. Driver (`sopt`): cheapest 3 accepted, 2 s /
+   200k boxes each; sopt-fx: only written variants, after measurement; not inside subtree /
+   cut searches. Examples: rsqrt_affine, rational, sqrt_product proven; normalize_x 99.6%;
+   factor not (x * (a + b) -> mad(a, x, b * x) really is outside rel 1e-6 near a + b = 0;
+   sampling missed it); depth_far not (rel 1e-6, structurally different, compile-time F).
+   Corpus: 126 variants checked in 63 s: 11 proven, 30 more on > 99.99% of the domain,
+   42 partly, 43 not at all (2 more exhaustive by V2); same regions and variants.
+   M7 done.
+
+## Under discussion (not decided — ask before implementing)
+- Speed / RAM round 2 (owner, 2026-09-28: profile, then safe changes; disk-backed bank as a
+  non-default option for single regions): done hash / prefilter / fit speedups (-8..-14%
+  instructions, identical results) and 20-byte entries + freeing the bank before part
+  searches (peak 619 -> 383 MB at a full 2M bank); details in docs/performance-ideas.md.
+  Then (owner): 16-byte packed entries (op/type codebook byte, flag bits incl. isHit,
+  28-bit indices); bank sized by memory (SearchConfig::memBudget; default = RAM available
+  at start minus max(1 GB, 5%) and 256 MB per concurrent search, shared by sopt-fx's
+  parallel regions; --max-mem MB, --max-bank N an extra cap); bank / offsets /
+  fingerprints in fixed chunks (no big reserve, which Windows would commit, no copying);
+  hash table grows. 24 test points instead of 32 (same RAM: 2.48M entries): bench
+  identical, corpus 74 -> 71 regions (Vignette XOR x3 lost, ~11 worse, 6 better): stays
+  32. Fingerprint compression study (3 banks of 1M): delta vs an operand 72-84%, value
+  codebook 75-100%, per-position codebook (owner's idea) 79-98% (only corner test points
+  compress), lz4 per entry 83-93%, zstd per 64 KB block 39-58%: not worth it in RAM
+  (owner agreed: skip fingerprint recompute too), zstd for the disk option.
+  Disk-backed bank (`--disk DIR`, option, not default; search/diskstore.cpp): fingerprints
+  beyond an eighth of the budget go to zstd tiles in a temp file; dedup by two 64-bit
+  hashes; lists split into a RAM segment + per-tile segments at each level's end; tiled
+  unary/binary/ternary loops with <= 4 resident tiles (LRU). normalize_x, 150 MB, 30 s:
+  2.1M entries vs 936k, one more level, 53% compression, same best.
+  Bench (time 30), RAM-budget default vs the old 2M-entry bank: identical results; only
+  normalize_x's first hit later (5.7 s vs 4.4 s: storing more costs time per candidate).
+  30-second searches are rarely memory bound; the bigger bank pays off in longer runs.
+  Deep runs (owner, 2026-09-28): run nothing else heavy at the same time; every sopt
+  process sizes its bank from the RAM free when it starts (two 20-minute --disk runs were
+  OOM-killed next to test runs). Several processes at once: give each --max-mem.
+- Search/verification speed (owner: explore all; order A1-A3, A4, B6/B7): profile,
+  proposals and status in docs/performance-ideas.md. Done: inner-fit monotonicity
+  prefilter (`innerPrefilter`), compare() stops at a rejected candidate's first failure (and, owner's go 2026-10-06,
+  the other threads stop too: a shared lowest-failing-index, so the merged result is unchanged; bench identical, no
+  measurable gain: stage 2 already rejects nearly everything (depth_reversed: 798 at stage 2, 0 in V1) and verify time
+  is V2 / V1 over accepted candidates, which must see every point),
+  sopt-fx maxAlternatives 20 and one search per distinct region. 2026-10-06 (owner's go, identical results):
+  prepare() unpacks operands once, dedup reads only the type byte, and an affine pre-check (SearchConfig::
+  affinePrecheck, `--no-affine-precheck`: three test points' accepted intervals, pairwise slope test; ~99.5% of failing
+  affine fits fail at test point 0, so point order does not help) skips fits that cannot pass: -4..-10% instructions,
+  details in docs/performance-ideas.md. Overflow (default,
+  owner; `--no-overflow`): when the bank is full, keep combining stored entries and only
+  check new values as hits; bench +2 found (length_squared, planted_1), none lost; every
+  search runs to --time, which now covers all CEGIS iterations together (tests that
+  check bank-limited behavior set overflow = false). A4 done: enumerator batches
+  (`flush`: parallel prepare + lookup, serial ordered dedup/store, parallel
+  goalCheck/fits, serial ordered commitHits); same results as one thread;
+  `SearchConfig::threads`. Next: B6 top-down split or B7 shared leaves.
+  Owner: less accurate variants stay in SOPT_ALL; --loose 100 is fine for now.
+- Next (owner, 2026-09-28: "your order is fine, as long as we try them all at some point"):
+  1. top-down split B6 (done, default), 2. snippet library (--library, default) /
+  lerp-step rewrites before the search, 3. long --disk runs on hard regions (running),
+  4. M5 rest (probe effect, facts database, __DEVICE__ paths).
+- Best-so-far bound (owner, 2026-09-28: compare against the best candidate so far, not the
+  original; keep only hits as fast or faster, or as fast and more accurate; the original
+  only for presentation; design.md 4.3). Default, `--no-best-bound`: objLimit_ =
+  min(target, best + slack + 1), `--slack` 1, 0 when the bank is full, -1 (drop ties with
+  the best) when full past half the time; the best is lowered only by hits plausible on
+  512 extra points, at max(obj, DAG cost); a full hit list is pruned (cheapest half kept)
+  instead of ending the search. sopt-fx drops written variants that another variant of the
+  region matches or beats on every measure (Pareto). Top-down split (default since
+  2026-09-29 by the owner's decision, `--no-top-down`):
+  sorted index of stored values at one test point; add/sub/mul/div inverted against the
+  target, second-point filter, then the goal check; only strictly cheaper than the best.
+  Bench (time 30): bound = none except planted_2 12 -> 10; + top-down: length_squared found
+  (16), normalize_x first hit 0.002 s, step_lerp faster. Corpus (12 packages, --isa --sass
+  --backends --time 3, back to back): none 71 regions / 85 variants (68 min), bound 74 / 89
+  (69 min; + Smart_Sharp 479, Vignette 73-75 / 82-84), + top-down 79 / 94 (76 min; + Vignette
+  101, EyeAdaption 155, PD80 Film_Grain 230 / 234 / 240, Flashlight nv -1 x2); Pareto drops
+  121-136 variants per run; all variant files parse. Single-region reruns: DepthAlpha
+  146-150 (44 in the unbounded corpus run, 47 in both others) gives 47 alone in all three
+  modes, and Vignette 73-75 (19 bound, 20 top-down) gives 20 in both: timing noise of
+  parallel runs, nothing lost.
+- Rewrite library (owner, 2026-09-27 / 09-29: verified rewrites that the program, people and
+  AI use; the program adds what it finds): `library/rewrites.txt`, one rule per line,
+  `pattern -> replacement   where x const, t in [0, 1], x >= 0, v : float3   # comment`
+  (names = pattern variables, the same name = the same subexpression, commutative operands
+  either order; search/library.cpp). `sopt --check-library [--library-file F]` and the tests
+  check every rule (rel 1e-6 or at least as close to exact, all 6 profiles, variables in
+  [-100, 100] narrowed by the conditions); the check rejected 3 of the first 36 (lerp forms
+  that cancel). Built in via cmake/embed_library.cmake; at run time $SOPT_LIBRARY or
+  library/rewrites.txt next to the executable (or up to two directories up) wins.
+  `--library` (default since 2026-09-29 by the owner's decision, `--no-library`; `Options::library`): up to 4 rule applications, 256 forms (constants
+  folded, identities removed); forms cheaper than the target are candidates, the cheapest
+  that passes stage 2 sets SearchConfig::seedBound (start of the best-so-far bound), its
+  subexpressions are extra shared leaves (SearchConfig::seeds) and subtrees / cuts also
+  run on it. sopt-fx writes every faster variant (written or assumed-range, not
+  accuracy-only) to sopt-found.txt in the library format (inputs that are not plain
+  names become in1.. with a legend; ranges as `where`); it parses and checks as a library.
+  Owner: start by collecting all found variants there, then study, generalize and add.
+  A seed also makes subtrees / cuts run when the search ends without a limit (the seed's
+  bound can end it early; MartysMods_FILMGRAIN 451 13 -> 5 needs the subtree search).
+  Bench (time 30): examples identical except length_squared 16 -> 12 (2.7 s instead of 75 s)
+  and step_lerp (0.4 s instead of 34 s); planted identical. Corpus (back to back, before the
+  seed / part-search fix): 78 -> 91 regions with variants, 93 -> 106 variants, 70 -> 80 min;
+  new e.g. MultiTonePoster x3, EyeAdaption 148 / 167, Monochrome 115-118, PiecewiseFilmic x2,
+  PD80 Color_Gamut 182 / Color_Balance 176 / Color_Spaces 56, qUINT_lightroom 717; better:
+  Tonemap.fxh 109 / 173 nv 129 -> 81, PD80 Sharpening 244-246 57 -> 54; lost only FILMGRAIN
+  451 (fixed since).
+- Back buffer formats (owner, 2026-09-30: the buffer format gives the range; RGBA8 / RGB10A2
+  sample [0, 1], scRGB FP16 goes to 80+ and below 0): sopt-fx (default, `--no-format-checks`)
+  checks variants of regions that read or write the back buffer again: 10-bit (back buffer
+  inputs on grid 1023; a back buffer output, budget reason "back buffer", counted in 10-bit
+  codes) and scRGB (inputs from a second extraction with RegionOptions::hdrBackBuffer, back
+  buffer [kScRgbLo, kScRgbHi] = [-0.5, 125]; a back buffer output within rel 2^-11). Failing
+  variants get Variant::formatGuard (`BUFFER_COLOR_BIT_DEPTH == 8` / `BUFFER_COLOR_SPACE <= 1`)
+  in the variant's #if; inlined statements come back under the negation of all variant
+  conditions. Corpus: 44 variants checked, none 8-bit only, 5 SDR only, all rightly (they drop
+  a clamp that only [0, 1] makes redundant): EyeAdaption 167 pow(saturate(c), 1/2.2), Tonemap.fxh
+  173 abs(...), PD80 Color_Gamut 182 max(..., 0), PD80 Film_Grain 427 x2 saturate.
+- Two-phase search (owner's idea, 2026-09-29; SearchConfig::twoPhase, default since 2026-10-01 by
+  the owner's decision, `--no-two-phase`): phase 1 slack -1 (only strictly cheaper hits); once there is a hit, from the end of
+  the levels or 75% of the time on, phase 2 goes over the levels again with the slack, trying
+  only candidates phase 1 pruned (`p1Level_` / `p1Limit_`), plus `refitPass` (fitted hits of
+  stored entries that phase 1's bound rejected); top-down and the bank-full pressure are off in
+  phase 2. Bench (time 30): identical bests, searches end sooner. Corpus (library default,
+  run package by package, each package with and without back to back): 94 -> 95 regions (+
+  Fubax Waveform 224-226), 88 -> 84 min (enumeration -10%, subtrees -12%); worse: PD80
+  Film_Grain 230 / 234 / 240 (20 -> 23) and FILMGRAIN 287 (amd 2 -> 3). Film_Grain 230 alone:
+  default 20 in 2 of 2 runs, --two-phase 20 in 1 of 2 (timing dependent). Rerun after the
+  top-down time check and boundBy fixes (12 packages, same build, back to back per package):
+  93 / 93 regions, 105 / 108 variants, 116 / 114 min; only Vignette 73 / 82 differ (static
+  14 -> 15), and Vignette 73 alone gives 14 in both modes in 3 of 3 runs (timing noise).
+  Container note (2026-09-30): the cloud container restarts when the session is idle and a
+  background task hits its time limit; long corpus runs go in chunks of ~20-30 min
+  (scratchpad tp2/pair.sh), one background task each.
+- Full corpus run (owner, 2026-10-01, not urgent): later, every package the installer can
+  install (EffectPackages.ini, 45 entries; we use 12), to collect as many new variants as
+  possible in sopt-found.txt for improving the library. Run in chunks (container note above).
+  Done 2026-10-08 (0.6.4, --isa --sass --backends --time 3, GShade-Shaders skipped by the owner; scratchpad corpus/):
+  43 packages, 441 effects parsed, 4 failed (BX_XIV_ChromakeyPlus #error needs FFXIV's REST add-on; BFBFX AO / GI /
+  ZenWork headers missing in the tree layout), 8010 regions, 477 with variants, 2311 distinct found rewrites, 10.3 h;
+  most variants in RSRetroArch (127 of 930 regions), Depth3D 38, Barbatos 27, FXShaders 27, METEOR 25.
+  library/found/corpus-2026-10-08.txt (every package's sopt-found.txt, not loaded by sopt). It showed a library parser
+  bug: a range condition outside the default [-100, 100] gave "empty range" (now a condition's bound replaces the
+  default on its side).
+  Rotation (owner, 2026-10-01): smaller tests should use other installer packages each time
+  (both arms of an A/B comparison on the same set), so new packages get checked as a bonus and
+  may turn up bugs. Fixed core in every test (owner): ReShade.fxh (used by nearly every effect:
+  depth handling, the standard vertex shader) and DisplayDepth.fx (the tool for checking the
+  depth buffer setup), both the owner's, from reshade-shaders; and SweetFX (popular, the
+  owner's). The rest of reshade-shaders matters little.
+- DXC review (owner, 2026-10-01; sparse clone of microsoft/DirectXShaderCompiler, lib/HLSL/
+  HLOperationLower.cpp, DxilExpandTrigIntrinsics.cpp): intrinsic lowerings give the semantics and
+  cost of ops sopt lacks. Corpus skips (12 packages, `--list --skips`): smoothstep 223, exp2 145,
+  mul (matrix) 101, all 94, radians 76, ddx 51, tan 37, log2 34, cross 33, round 20, fwidth 13,
+  isnan 12, atan2 10, log10 8, ceil 6, atan 6, asin 6. DXC: exp(x) = exp2(x * log2 e), log =
+  log2 * ln 2, log10 = log2 * ln2/ln10, smoothstep = s * s * (3 - 2s) with s = saturate((x - a) /
+  (b - a)), pow = exp2(y * log2 x) except pow(x, 2) = x * x (fxc compat mode: integer exponents as
+  multiply chains), atan/asin/acos/tan as polynomial expansions. Done (owner's go "1, 2, 3"):
+  ops exp2 / log2 (inexact, gpu+/- step them; rdna3 16, nvidia 32: exp = 20 = mul + exp2),
+  round (to nearest even; GLSLstd450Round leaves ties to the driver) / ceil (exact), all non-base
+  (enumerated only when in the target); smoothstep a pure helper evaluated as DXC lowers it
+  (s * (s * (3 - 2s)), the division as the profile divides); radians / degrees / log10 / tan /
+  cross written out at parse time (`buildSugarCall`, expr.cpp; parser and sopt-fx). Library:
+  exp / log / pow -> exp2 / log2 with a constant folded into the multiply, exp2 / log sums, the
+  smoothstep expansion. Corpus (SweetFX + 10 packages, --list): 2328 -> 2487 regions. Open: the
+  exp rules need range conditions (rel 1e-6 vs the accurate CPU exp: the error grows with the
+  exponent), so exp(x * 2.0) on [-4, 4] is not rewritten; the search cannot find exp2(x * c)
+  itself (no inner scale fit).
+- Mesa review (owner sent nir_opt_algebraic.py, nir_opcodes.py, nir_search_helpers.h,
+  aco_optimizer.cpp, 2026-10-01; gitlab.freedesktop.org is blocked here): the rule file run with
+  stub modules (scratchpad mesa/dump.py, translate.py) gives 3461 rules, 188 float rules in
+  sopt's ops, 169 pass `--check-library`, 117 cheaper in rdna3; 57 curated (not trivial, not
+  already in the library) in scratchpad mesa/curated.txt, all pass: waiting for the owner.
+  Failing ones are the add reassociations and lerp <-> a + t(b - a) (the mix profile).
+  ACO (RADV's AMD compiler) context effects the rdna3 model lacks: output modifier omod
+  (x * 2, * 4, * 0.5, also negated, folded into the producing VALU op, needs FTZ and no
+  signed-zero preservation; rcp(x) * 0.5 too), v_max3 / v_min3 (max(max(a, b), c) one
+  instruction), GFX11 v_minmax / v_maxmin (min(max(a, b), c)), v_med3 (clamp to constants),
+  (cond ? 1 : 0) * a -> one cndmask, clamp and neg / abs modifiers free. Owner (2026-10-01): add
+  the 57 curated rules (done) and context costs in rdna3 as the default (done:
+  CostModel::amdFolds, `amdFoldedNodes` in expr.cpp, Enumerator::amdFolds for the objective,
+  compiledCost; `--no-amd-folds`): a mul by +-2 / +-4 / +-0.5 over a single-use, same-width
+  instruction result (not contracted into an fma) and a min / max over a single-use min / max
+  (not itself folded) cost 1 per component. Assumes FTZ fp32 (ACO needs it for omod). Bench (time
+  30, folds vs --no-amd-folds): examples identical; planted_1 16 -> 13, planted_10's target 17 -> 14
+  (same best 4); rsqrt first hit 1.4 -> 3.1 s; generation speed unchanged (rational, 1 s runs).
+  ReShade internal shader patch (tools/reshade, owner's go 2026-10-01): CI workflow `reshade`
+  builds ReShade 6.8.0 64-bit unchanged and patched (copy_ps Load, GL bilinear mipmaps), checks
+  the patched DLL, artifact reshade-6.8.0-sopt with TESTING.md and sopt_MipTest.fx. Owner's test 1
+  (sopt-host --api dx11 --msaa 4, 1920x1080, GTX 1660): screenshots SHA256-identical with Vibrance +
+  Curves and with Vibrance alone; no visible performance difference (expected: a bandwidth-bound
+  full-screen copy, the saving is issue slots / helper lanes, microseconds; not a technique, so
+  sopt-timer does not see it; PIX / Nsight would). OpenGL mipmaps, sopt DLL (owner, GTX 1660,
+  sopt_MipTest vs the 2x2 average of the level above, levels 1-5): red disappears at tolerance
+  0.501 (RGBA8), 0.125 (RGB10A2), 0.063 (RGBA16F), 0.001 (R32F) 8-bit steps = half a step of each
+  format (correct rounding; R32F differs only in the last bits). Unchanged DLL: the same except
+  RGBA16F 0.109-0.117 (level 3 / level 1), just under one fp16 ulp near 1 (0.125): the old shader
+  averages in fp32 and imageStore converts to fp16 by truncation on this driver, while the
+  bilinear fetch already returns a correctly rounded fp16 value. So the patch is equal or more
+  accurate. Both parts tested; reported to crosire by the owner (2026-10-03). Copy test also identical on the Intel Iris 540
+  (owner, 2026-10-01). Write-up for crosire: tools/reshade/UPSTREAM.md. Owner: removed the info log line
+  and the copy sampler (pipeline layout with only the SRV; sampler state, push and destroy gone);
+  re-tested by the owner (D3D11 --msaa 4, GTX 1660): SHA256-identical again.
+  2026-10-08 (owner: integer formats, a D3D12 suggestion patch, the * 0.25 pattern): sopt_MipTest.fx got an RGBA8 256x32
+  texture (levels 6-8 have a 1 texel high parent), new sopt_MipTestInt.fx (R32U / RGBA32I classification). Wine / Mesa GL:
+  unchanged DLL wrong on 256x32 levels 6-8 (reads past the edge = zeros), patched none (clamp; mirror would be the same);
+  integer formats zeros with both (the old shader's float sampler2D / image2D are undefined for them), so the bilinear
+  shader could replace the old file; llvmpipe's RGBA8 filter is within 1 step (GTX 1660: 1/2). tools/reshade/
+  d3d12-mipmaps.patch (on top of internal-shaders.patch, a suggestion: crosire writes his own code): SRV + static
+  sampler, per-pass descriptor blocks, per-level transitions, integer formats keep the old pipeline; compiles with
+  mingw, untested on hardware; owner's go: reduce_clamped (levels 2-6 of a pass: neighbours past a 1-texel parent's edge
+  replaced by the texel inside); tools/reshade/d3d12_mipmap_model.py (CPU model of both shaders vs a box filter): original
+  wrong on non-square textures (256x32 levels 6-8 ...), patched none. CI reshade.yml builds ReShade64-6.8.0-sopt-d3d12.dll
+  too. Owner's mad-chain point (LumaSharpen): weighting each sample as it arrives shortens the tail after the last load
+  (RGA: 4 fmas vs 4 adds + 4 muls after vmcnt(0)), same count. (v0+v1+v2+v3)*0.25: fxc keeps source order (the
+  * 0.5 form 5 DXBC ops vs 4); RGA (AMD Vulkan) rewrites every add form to 3 adds + mul (folds the halves back, no
+  omod); ptxas * 0.5 form 5 vs 4: the current form is fine. sopt-fx on the internal HLSL shaders: imgui_hdr needs float1
+  (parser gap: `#define float1 float` works), mipmap_cs_5_0 has a resource array (unsupported); nothing compiled-cheaper.
+  Owner's idea (go 2026-10-01): sopt-opbench (tools/windows/opbench, measure-gpu.bat, in the
+  sopt-windows-tools artifact): D3D11 compute tests, HLSL generated and compiled at run time with
+  D3DCompile -O3 (the ReShade D3D path), steps x = mad(f(x, c), c.x, c.y) in long chains with
+  per-step cbuffer constants (nothing folds; checked in the DXBC: fxc writes x * 2 as add x, x),
+  cost = (time - base test's time) / mad time * 4; configs tput (8 chains, 1M threads), dep,
+  lat; single ops plus omod / max3 / minmax / satmad / contract. Results in docs/opbench/.
+  Intel Iris 540 (Gen9, NUC, 2026-10-01), tput, extra cost over the base (mad = 4): add / sub /
+  mad / floor / ceil / round / frac / step ~4 (one op), min / max 4.5, neg / abs / saturate ~0
+  (modifiers, satmad 0.0), clamp 8.3 (no med3), max3 / minmax +3 (no 3-operand form), select /
+  lerp 7.4 (two ops), sign 14, rcp / sqrt / rsqrt / exp2 / log2 / cos ~11.9 (3x an fma), sin 13.4,
+  exp 14.3, log 12, pow 29.7; omod2 (x + x after rcp) +2.3, x * 0.5 / x * 3 after rcp +0.8 (the
+  mul pairs with the math op); a mul by a uniform before a mad was free in tput (the driver
+  reassociates x * c1 * c2 with loop-invariant constants) but one op in dep / lat. Latency (lat):
+  simple ops like mad, math ops ~2.9x. The fma rate was 0.31 TFLOPS (~40% of the nominal peak).
+  Owner's go: cost model `intel-gen9` (`--cost-model intel-gen9`, ops.cpp kIntelGen9, search order;
+  owner: Iris 540 / Gen9 differs a lot from Arc, so it is named for Gen9 only). Not used by sopt-fx's
+  measured columns or SOPT_AUTO (no Intel ISA tool). GTX 1660 (Turing, owner, 2026-10-01; docs/opbench/nvidia-gtx-1660.csv), tput, extra over the base:
+  add / sub / mad 4, neg / abs / saturate ~0, rcp / rsqrt / sqrt / exp2 / log2 / sin / cos / div / exp /
+  log 12 (quarter rate; exp / log / div's mul hides under it), floor / ceil / round / frac 12 too
+  (quarter rate on Turing), pow 28, lerp 8, sign 8.4; min / max / step ~0.6 and clamp / select / a second
+  max ~4: FP32 min / max / compare / select run on the ALU pipe beside the FMAs (one is free next to a
+  mad, two cost one op). Owner (2026-10-01): one profile per family / generation where results group,
+  not one per vendor. Cost model `nvidia-turing` (ops.cpp kNvidiaTuring, search order): measured values,
+  min / max / step / compares / select 2 each (additive approximation of the dual pipe). Community runs (owner's call
+  for tests, 2026-10-02; docs/opbench/): RTX 2060 Super = GTX 1660 (nvidia-turing holds for RTX 20 too);
+  RTX 5080 (DXGI reported a 4090 ID, spoofed: its fma rate 57 TFLOPS is a 5080's) and RTX 5090
+  practically identical (Blackwell: MUFU and floor / ceil / round / frac ~23, add 3.4, min / max / step
+  3.3, clamp / select ~8, lerp ~8, sign 18, pow 50); RTX 3050 (Ampere) close except min / max 4.5,
+  clamp / select ~10, sign 28; Intel UHD 630 (Gen9.5, owner's iGPU) = Iris 540 within ~0.5 (intel-gen9 holds
+  for Gen9.5); RTX 2070 = Turing; RTX 4070 (Ada) is unreliable: its mad base ran slow (neg / abs
+  came out -1.8, mul -1.4) and exp2 / log2 / sin / exp doubled while cos did not, i.e. the GPU clock changed
+  during the run; rescaled to neg it matches the RTX 3050 (min 4.5, clamp 9.9, floor / rcp 23.6, sign 31).
+  Rerun with locked clocks (2 runs, nvidia-rtx-4070-locked*.csv): tput = RTX 3050 within ~0.6 on every
+  test (add 3.4, min 4.5, clamp 10, select 11, lerp 7.9, MUFU / floor 23.6, sign 27.7, pow 52), so Ada
+  groups with Ampere (nvidia-ampere covers RTX 30 / 40); run to run tput within 0.2 except single spikes
+  (sqrt 2.2, omod3 2.2, max3 1.1, min 0.55); dep / lat noisier (up to 3.8). Groups follow the
+  architecture names. GT 1030 (Pascal, GP108, ~1.2 TFLOPS from the mad rate): MUFU / floor / ceil / round /
+  frac ~10, add / sub 3.5, min / max / step 6.8 (no free ALU-pipe min / max as on Turing), abs and -abs
+  3.5 (not free here, neg is), saturate 0.2, clamp 14, select 12, lerp 7.6, sign 10.5, pow 24, max3 /
+  minmax +7.1: its own group, no model yet. GTX 1060 6GB (nvidia-gtx-1060-6gb.csv, GP106, v1, clean: neg 0.00) =
+  the GT 1030 within ~0.3 (add 3.5, min / max 6.7, abs 3.5, saturate 0.2, clamp 13.7, select 12, lerp 7.4, MUFU /
+  floor 10, sign 10.3, pow 24, max3 +7.05): Pascal group confirmed (2 cards). Second RTX 4070 (nvidia-rtx-4070-b.csv,
+  0x2786, v1, clean without locked clocks: neg 0.00) = the locked 4070 runs / Ampere (add 3.4, min 4.5, clamp 9.9,
+  select 11, MUFU / floor 23.7, sign 27.6, pow 52). Owner's go (2026-10-03): cost model `nvidia-pascal`
+  (ops.cpp kNvidiaPascal, search order): MUFU / floor / ceil / round / frac / exp / log / div 10, add / mul / mad 4,
+  abs 4 (not free on Pascal; compiledCost still treats abs as a free source modifier for every model), neg /
+  saturate 1, min / max / step / compares 7, clamp 14, select 5 (compare + select 12), lerp 8, sign 10, pow 24.
+  Targeted searches (ff/, 15 s): sign 10 -> 9 (mad_sat form), round 10 -> 8 (add form), signed pow 42 -> 41;
+  floor, clamp, lerp nothing cheaper.
+- Other shader languages (owner, 2026-10-03: "at some point sopt should also work with HLSL and GLSL; I doubt we
+  have to change that much"; "start with HLSL", "pixel shaders first ... and the planned for later": compute /
+  SM6 later, GLSL later). HLSL SM5 pixel shaders done (compute since 2026-10-03, below): sopt-fx reads `.hlsl` / `.hlsli` (or `--hlsl`), entry
+  point `--entry NAME` (default main). The vendored parser's `sopt_hlsl` mode rewrites HLSL constructs to FX
+  text and re-lexes it in place (`sopt_parse_text`): cbuffer / tbuffer members become uniforms, register /
+  packoffset skipped, SamplerState (+ Comparison) declarations dropped, Texture1D/2D/3D/Cube/2DArray[<T>]
+  become textures (Format = RGBA32F: unknown) with an implicit sampler `__sopt_smp_<tex>`, methods
+  (Sample, SampleLevel, SampleGrad, SampleBias, SampleCmp[LevelZero], Load, Gather[Red..Alpha]) map to texND*
+  calls (only for the dataflow: fetches are leaves); fetch leaves keep the HLSL call text (`fetchOpen`). No ReShade macros, no BUFFER_* inputs or second
+  parse, no `__VENDOR__` auto picks (vendorPick 0). Textures have no range from a format: fact key
+  `<file> texture <name> = [lo, hi]` (`textureFactKey`, applied in samplerRange to every read, also values
+  stored from one; HLSL fetch leaves use it; sopt-facts.txt lists such textures). Test tests/fx/sopt_hlsl.hlsl.
+  Compute shaders (owner's go 2026-10-03: "HLSL + FX", resource stores as regions, ranges as proposed): extraction
+  reaches pixel and compute entry points. Thread IDs (uint params with SV_DispatchThreadID / SV_GroupThreadID /
+  SV_GroupID / SV_GroupIndex, read through a cast to float, possibly after a component pick) are float inputs named
+  `float2(id.xy)` (Leaf::intSource; unsigned arithmetic would wrap): dispatch / group ID [0, --max-width], group
+  thread ID [0, max(numthreads) - 1], group index [0, x*y*z - 1], grid 1 (`computeInputRange`; Function::numThreads,
+  max over the passes). Statement::Kind::Write / Region::Kind::Write: the value of tex1D/2D/3Dstore(s, c, value)
+  (Codegen records it; lhs "tex2Dstore(s, c," rhs ")"), budget color8 for an RGBA8 / R8 / RG8 storage texture, else
+  rel ("stored to a resource"); isTexFetch / fetchOpen exclude *store. Groupshared memory: user range by
+  `<file> groupshared <name>` (globalSourceName), listed in sopt-facts.txt. Windows: a storage read is not moved
+  past a Write or an atomic (leavesUnchanged). HLSL (parser sopt_hlsl): `[numthreads]` entry = compute;
+  RWTexture1D/2D/3D/2DArray, RWBuffer, RWStructuredBuffer of scalar / vector T = storage Name on texture
+  __sopt_rwtex<rows>_Name (element scalar or 4-wide, float2 / float3 widened by .xyyy / .xyzz, which Codegen strips
+  from the stored value); `Name[i] = v` / `op=` -> texNDstore, `Name[i]` reads -> texNDfetch (fetch leaves in the HLSL
+  text: fetchOpen knows Name[ via Effect::hlslFetchNames, thread-local while extracting); Buffer / StructuredBuffer of
+  scalar / vector T = 1D texture + sampler (key `<file> buffer <name>`, Effect::hlslBuffers); struct structured buffers,
+  Append / Consume, ByteAddressBuffer = static globals (parse only); GetDimensions = assignments (parse only);
+  GroupMemoryBarrier* / DeviceMemoryBarrier* / AllMemoryBarrier* -> barrier / groupMemoryBarrier / memoryBarrier,
+  Interlocked* -> atomic* (storage overload for Name[i] destinations). Texture2D<float2 / float3> now use a float4
+  sampler + swizzle (FX fetch overloads are scalar / 4-wide). Tests fx_compute (tests/fx/sopt_compute.fx),
+  fx_hlsl_compute (tests/fx/sopt_compute.hlsl); the HLSL test's original and SOPT_ALL = 1 variant compile with
+  Microsoft's fxc cs_5_0 (Wine). Not yet: SM6 / DXC syntax, groupshared stores as regions (store to a global).
+  GLSL fragment shaders (owner, 2026-10-08, for a trial on CeeJayDK/pinball-fantasies-encore's shaders/): `.frag` / `.fs` /
+  `.glsl` or `--glsl` (LoadOptions::glsl; Effect::hlsl is set too = "plain source": no ReShade macros, no second parse, no
+  auto picks, no classical rewrites). Parser mode `sopt_glsl` (vendored reshadefx, beside sopt_hlsl): #version / #extension
+  ignored, GLSL types (vecN / ivec / uvec / bvec / matCxR kept transposed as float{C}x{R}; matrix products error out),
+  `layout(...)` / flat / smooth / noperspective / centroid / precision skipped, `in` / `out` globals become the entry
+  point's parameters (inputs TEXCOORD<n> when a vec2 is named *uv* / *coord* / *tex*, else GLSLIN<n>; outputs SV_TARGET<n>;
+  gl_FragCoord = SV_POSITION, gl_FragColor when there is no out), sampler2D X = texture __sopt_tex_X + sampler X
+  (textureFactKey strips the prefix: key "<file> texture X"), uniform blocks = uniforms, intrinsic renames (fract, mix,
+  inversesqrt, dFdx, roundEven, fma, bit casts) and special forms (atan(y, x), mod, lessThan ..., texture / texelFetch /
+  textureLod / textureGrad / textureOffset / textureSize / textureGather -> tex2D* calls); one-scalar and truncating
+  constructors (vec3(s), vec3(v4)). Frontend: GLSL lookups are fetch leaves in their own text (tlGlslFetches). Printer
+  `toGlsl` (expr.cpp; mad -> a * b + c, rcp -> 1.0 / x, saturate -> clamp(x, 0.0, 1.0), vecN(s) where GLSL has no scalar
+  overload); sopt-fx prints GLSL regions' variants with it; the variant header goes after #version / #extension; precise vecN.
+  Test fx_glsl (tests/fx/sopt_glsl.frag). Variants of a variant file with SOPT_ALL 0..3 pass glslangValidator.
+  Pinball trial (6 shaders, 5 .frag; facts for uSceneSize [1, 4096], textures [0, 1], ...; --time 20 --isa --sass): all parse,
+  24 regions; static finds (crt-lottes ToLinear1 div -> mul 126 -> 76, hd.frag mix expansion 31 -> 26) are already done by
+  the AMD / NVIDIA compilers; only crt-lottes Dist `-(pos - floor(pos) - 0.5)` -> `-(fract(pos) - 0.5)` survives (amd 7 -> 5,
+  nv 8 -> 8, bit-exact). Owner (2026-10-08): measure GLSL faithfully: IsaConfig::glsl (sopt-fx sets it per GLSL region)
+  emits a GLSL 4.50 fragment shader (emitGlsl, toGlsl syntax) and runs RGA's offline GLSL mode (`rga -s vk-offline -c
+  gfx1100 --frag`, glslang + LLPC; no fxstat), parsed like fxstat (parseRgaIsa: cost = VALU + 3 * trans). Pinball: the same
+  numbers as the FX route (both end in AMD's LLPC). NVIDIA stays ptxas (language independent). Owner's go: the Dist change
+  was pushed to the owner's fork CeeJayDK/pinball-fantasies-encore, branch sopt/crt-lottes-dist (`0.5 - fract(pos)`, one
+  commit). The add-round / uint fract forms were not used: slower than fract on Turing, AMD and Intel (only Ampere /
+  Blackwell gain ~3 units).
+  Found with it: variants printed identically to the original (a - c vs a + -c: rdna3 sub 5, add 4) were written; now
+  dropped (fx_main: a.text == targetText).
+  First AMD (amd-radeon-vega-renoir.csv, device 0x1636 = Renoir APU, Vega / GCN5):
+  the base step mad(x, c.x, c.y) is 2 instructions there (GCN's constant bus takes one SGPR per VALU op, so
+  one constant needs a v_mov), so 1 instruction = ~2.1 units: add / sub / min / max / floor / ceil / round /
+  frac 1 op, neg / abs / saturate / satmad free, omod2 / omodhalf 0.0 (output modifier confirmed), omod3
+  1 op (control), step 2, select / lerp 3, sign 5, rcp / sqrt / rsqrt / exp2 / log2 4 (quarter-rate
+  transcendental), exp / sin / cos 5, pow 9, clamp / max3 / minmax 1 op + the v_mov (med3 / max3 one op),
+  mul before a mad folded by the driver (-1.4). GCN, not RDNA (the rdna3 model is from RGA on gfx1100).
+  Owner's parents' laptop (amd-radeon-hd-7400m-as-intel-hd-3000.csv): with
+  switchable graphics on "high performance" DXGI still names the Intel HD 3000 (0x8086 / 0x0116), but the
+  work ran on the Radeon HD 7400M: feature level 11_0 succeeded (HD 3000 has 10_1 only), and the numbers
+  are VLIW (TeraScale 2): add / mul / min / max / floor / abs 2.6, rcp / sqrt / exp2 10.6 tput but 2.5 dep
+  (the transcendental slot runs beside the chain), sin 16, sign 11, pow 24; omod2 / omod3 0.2 alike.
+ GTX 1660 Ti (nvidia-gtx-1660-ti.csv): unreliable like the
+  first RTX 4070 run (neg -1.82, satmad +6.8: the clock changed during the run); the rerun
+  (nvidia-gtx-1660-ti-2.csv, new driver, "Prefer maximum performance") still is: neg -0.55, add 2.9, MUFU
+  14.2, satmad +2.2 (boost / temperature still move the clock; v1 cannot correct it): v2 run wanted.
+  First RDNA (amd-radeon-rx-9070-xt.csv, 0x7550, RDNA 4, clean: neg 0.03): the mad base runs at the
+  dual-issue rate (~46.7 TFLOPS from it, spec ~48.7), so ops that cannot dual-issue show as 2 mads:
+  add / mad2 / contract 4, min / max 4.7, floor / ceil / round / frac / clamp 7.9, select 11.7, step 12.2,
+  lerp 9.7, rcp / rsqrt / sqrt / exp2 / log2 / sin / cos ~26, pow 58, sign 38 (slowest sign so far; the
+  mad_sat form ~8), omod2 / omodhalf ~0 (output modifier on RDNA too), omod3 2.8, max3 / minmax +3.1,
+  satmad -0.45, mul folded (0.38). No RDNA 4 model yet (owner's go needed).
+  First RDNA 2 (amd-radeon-680m-rembrandt.csv, 0x1681 = probably Radeon 680M / 660M, Rembrandt iGPU, v1): neg / abs /
+  saturate -0.5 (the reference ran ~0.5 slow: small drift), so +0.5: add / sub / min / max / floor / ceil / round / frac
+  ~2.4 (as on Renoir, the base mad is ~2 instructions: 1 instruction ~2.2 units), mad2 / contract 3.4, step / select
+  4.3, clamp 5, lerp 5.9, MUFU (rcp / sqrt / exp2 / sin ...) ~6.5 (~3 instructions), sign 12.5, pow 16.5, max3 1.3
+  (v_max3), minmax 2.9, omod2 / omodhalf ~0.3 (output modifier), omod3 1.2, mul folded (-0.9). v2 run wanted.
+  RX 6950 XT (amd-radeon-rx-6950-xt.csv, 0x73A5, Navi 21, RDNA 2 discrete, OpBench 0.3.0, clean: drift 0.45%, all
+  consensus in 2 passes): one VALU instruction ~3 units (add / sub / min / max / floor / ceil / round / frac 2.97, mad2
+  4.0, mul before a mad folded -0.98, as on the 680M), saturate 0.2, satmad 0, omod2 / omodhalf 0.0 (output modifier),
+  omod3 1.4, max3 1.06 (v_max3), minmax 2.94, clamp 5.9 (max + min, no med3 for uniforms), step / select 5, lerp 7,
+  MUFU (rcp / sqrt / rsqrt / exp2 / log2) 7.8, exp / log / sin / cos ~8, pow 19.5, sign 14.1 vs signmad 5.8 /
+  signclamp 5.9 / signbits 5.9 / signsel2 4.9, roundadd 7.7 vs round 3 (worse), flooradd 16.6; int: iadd / iand /
+  imin / ishr / irot / bitrev / utof / ftou ~2.95 (one op), imul 11.7 (quarter rate), popc 0 (v_bcnt_u32 adds its
+  second operand: countbits + add is one instruction), fbh 11.8; half: mad16 -2.5 (packed fp16, 2x rate), add16 /
+  mul16 1.5, rcp16 10.3. = the 680M (RDNA 2 iGPU, ~1.2x scale): two RDNA 2 devices agree.
+  RTX 4090 Laptop (nvidia-rtx-4090-laptop.csv, Ada): tput / dep unreliable (neg -2.6, add / mul / min
+  negative: laptop power management), only lat plausible (rcp / floor ~18, add 4): v2 run wanted. Two more v1 runs (same driver
+  32.0.16.1714): nvidia-rtx-4090-laptop-hybrid.csv ("iGPU + dGPU" mode) is clean (neg -0.03, saturate -0.02) and
+  groups with Ampere / Ada (= RTX 4070 b: add 3.45, min 4.49, clamp 9.1, select 10.1, floor 21.9, sign 25.5), except the
+  MUFU ops ~7% lower (21.9 vs 23.7, pow 48.5 vs 51.8; v1 has one reference per run, so a clock rise mid-run makes later
+  tests look cheaper); nvidia-ampere unchanged. nvidia-rtx-4090-laptop-dgpu.csv ("only dGPU, maybe") is unreliable
+  like the first (neg -2.4, max3 16). An OpBench 0.3.0 run (fresh reference per test) would settle the MUFU gap. Waiting for more reports (AMD, Intel Arc wanted). Vulkan / SPIR-V path not covered (would need SPIR-V compiled in CI).
+- Fast forms of expensive ops (owner, 2026-10-02: "put sopt and you to the task"; go for all five: Ampere /
+  Blackwell models, targeted searches, library rules, opbench tests, precise in sopt-fx).
+  sign: fxc lowers it to lt, lt, iadd, itof (the int->float conversion is quarter rate on Ampere /
+  Blackwell: sign 18-28). Conversion-free exact forms (fxc output checked): saturate(x * 1e38) -
+  saturate(x * -1e38) (mul_sat + add), clamp(x * 1e38, -1, 1) (mul, max, min; AMD med3),
+  x > 0 ? 1 : (x < 0 ? -1 : 0) (lt, lt, and, movc); exact given FTZ (D3D10+ flushes fp32 denormals).
+  x >= 0 ? 1 : -1 (ge + movc) is NOT sign (1 at 0); owner: check it as a context-dependent
+  replacement when sopt runs (exact where the result is multiplied by something 0 at x = 0, e.g.
+  sign(x) * pow(abs(x), g)). round: (x + 12582912.0) - 12582912.0 (RNE, |x| < 2^22) but fxc -O3 folds
+  (x + c) - c to x, even with a uniform c; `precise` (supported by ReShade FX) keeps it ([precise]
+  adds in DXBC). So fxc reassociates float math: sopt variants relying on rounding need `precise`.
+  Done: cost models `nvidia-ampere` / `nvidia-blackwell` (provisional, kNvidiaAmpere / kNvidiaBlackwell,
+  search order); library rules (sign x5 incl. sopt's own find mad(saturate(mad(x, 1e38, 0.5)), 2, -1) =
+  mad_sat + mad, the signed-pow two-way select, the add-round with |x| < 2^22); opbench tests signmad,
+  signsat, signclamp, signsel, signsel2, roundadd (roundAdd helper with precise); `needsPrecise` (expr.cpp:
+  (v + c) - c, (v + c) + -c, mad(a, b, c) - c with |c| >= 2^22): sopt-fx writes such variants as
+  `precise floatN __sopt_p<line>_<k> = ...;` and the measurement effects (emitEffect) as precise. fxc
+  checked: without precise it folds mad(uv.x, 1000, 1.5 * 2^23) - 1.5 * 2^23 to uv.x * 1000 (wrong);
+  precise propagates backwards to the ops feeding the value (no contraction there). Targeted searches
+  (scratchpad ff/, 20 s, 5 models): round 24 / 23 / 12 -> 8 (library); sign: rdna3 16 -> 8 (clamp),
+  intel 14 -> 10 (mad_sat form); floor / frac / ceil: nothing cheaper; signed pow: Turing finds the
+  two-way select. Then floor / ceil / frac rules from the add-round (r - saturate((r - x) * 1e38), r +
+  saturate((x - r) * 1e38), d + saturate(d * -1e38); 5 instructions as precise, fxc checked): Ampere /
+  Blackwell 23-24 -> 20-21. Batch 2 (sign rerun, ceil, clamp, select, lerp, pow, exp, sin): sign 28 / 18
+  -> 10 (mad_sat form) on Ampere / Blackwell; clamp, select, lerp, pow, exp, sin: nothing cheaper
+  (Blackwell min / max raised 3 -> 4 so clamp = min + max: fxc writes clamp as max + min).
+  Exhaustive float check (scratchpad ff/exh.c, every float in [-2^22, 2^22], FTZ): the round, floor,
+  ceil, frac and mad_sat sign forms are exact; sopt's own Blackwell ceil x + C - (x + C - (x + 0.5)) was
+  wrong for x in (0, 6e-8) (x + 0.5 rounds to 0.5, the tie goes to even) but passed sampling: a
+  verification gap. Fix: specialValues adds tiny magnitudes (+-FLT_MIN, 1e-30, 1e-20, 1e-10, 1e-7, 1e-4)
+  inside the range, not for compile-time / library `const` variables; it rejects that ceil; it also
+  showed frac(frac(a)) -> frac(a) (Mesa) wrong for tiny negative a (now `where a >= 0`). Bench (examples,
+  time 30): identical.
+- docs/inexact-tricks.md (owner, 2026-10-02): every not-exact or conditional trick we find, with what is
+  wrong with it and when it is safe (to avoid them when found again, and for programmers who can rule
+  the limitation out). Add new ones there as they turn up.
+- opbench version 2 (owner, 2026-10-02: "make v2 now" with the signing work, no v1 update; built as
+  0.1.0 = `project(sopt VERSION 0.1.0)`, items 1-7 below all done; mingw cross-build and a Wine run checked;
+  CSV readers must skip '#' lines (scratchpad opt/table.py does)). Release / signing (owner's go, plan
+  2026-10-02): `.github/workflows/release.yml` (tag v* or manual = draft: Windows build, version-info check,
+  sopt-opbench-<v>.zip + sopt-windows-tools-<v>.zip + SHA256SUMS.txt; SignPath step only when the secret
+  SIGNPATH_API_TOKEN exists), VERSIONINFO (CompanyName CeeJay.dk, `sopt_version_info` in CMakeLists.txt,
+  tools/windows/version.rc.in) and tools/windows/app.manifest on the exes, README code signing policy +
+  privacy sections, docs/signing.md (the owner's SignPath steps, artifact configuration XML). Was the
+  WISHLIST: (1) warm-up before measuring and a fresh mad base right before every test, so a GPU clock change
+  only hits one test, with a warning when the base drifts (the RTX 4070 run); (2) the new
+  fast-form tests (signmad, signsat, signclamp, signsel, signsel2, roundadd, flooradd, fracadd, already
+  in the code); (3) CSV: gpu / vendor / device / driver once in header lines at the top instead of on every
+  row (owner; the table script must read both formats); (4) a VERSIONINFO resource (product, version, description) and a manifest for
+  sopt-opbench.exe: Windows 11 Defender flags the static-CRT build as Trojan:Win32/Sabsik.FL.A!ml (an ML
+  heuristic false positive on an unsigned exe); the dynamic-CRT build is not flagged (owner, 2026-10-02:
+  keep that one; CMake back to the default runtime, README names the VC++ redistributable). Report false positives at microsoft.com/en-us/wdsi/filesubmission (per
+  build); code signing (Azure Trusted Signing, or SignPath if the repo is public) is the real fix, later.
+  (5) (owner) after the run, print a readable summary in the console: tput cost per op ("rcp costs 23.6 =
+  ~6 mads"), grouped (free / cheap / one op / expensive), with colors (ANSI via
+  ENABLE_VIRTUAL_TERMINAL_PROCESSING, plain text fallback) and some ASCII / terminal art; warnings for a
+  drifting base shown there too. Layout (owner): header banner with program name and the measured card,
+  below it "Also detected in system:" with the other adapters (as --list shows them); then one row per
+  test in aligned columns: test name, cost, bar, comment (free / cheap / one op / expensive, "≈6 mads").
+  Each other adapter gets "Use --adapter N to test this" on its right; colors that fit. Display order is
+  fixed, the same on every card: from cheapest to most expensive as expected on most cards (not sorted by
+  the measured card's costs). Measuring order is free; with a fresh base per test it hardly matters.
+  (6) (owner's go) every test twice, forward then backward through the list, averaged: slow drift
+  cancels, and spikes (RTX 4070 sqrt +2.2) show as a disagreement between the two passes (flag it);
+  about double the run time.
+  (7) (owner's go) export `NvOptimusEnablement = 1` and `AmdPowerXpressRequestHighPerformance = 1` from
+  the exe so laptops with switchable graphics hand it the discrete GPU (owner's parents' laptop: Radeon HD
+  7400M + Intel HD 3000; --list showed only the Intel GPU, which is feature level 10_1 and cannot run it).
+  0.1.0 released 2026-10-02 (PR #2 merged; this session cannot push tags: release.yml run manually on main
+  makes a draft, the owner publishes it, which creates the tag). Owner's first v2 run (GT 1030): every box /
+  bar character printed as '?': MSVC compiled the tools without /utf-8, so "█" went to the ANSI code
+  page (one '?' each; a console code page problem would show 3 characters each); the mingw / Wine build
+  looked right. 0.1.1: /utf-8 /we4566 on the Windows tools, "~N.N mads" with one decimal. The run itself:
+  reference drift 48% (tput) / 30% (dep), yet results = the clean v1 GT 1030 run (min 6.8, abs 3.5, MUFU
+  ~10, pow 24): the fresh reference per test works.
+  Second RTX 5080 (nvidia-rtx-5080-b.csv, v1, real device ID 0x2C02, clean: neg -0.1) = the first 5080 and the
+  5090s (add / min / max 3.2, clamp 8, floor / MUFU 22.4, sign 18.3, pow 52): Blackwell group confirmed.
+  opbench version 3 = 0.2.0 (owner, 2026-10-03: testers are the hard part, a test takes seconds, "include a
+  lot"; all four groups): Test::type (float, float2..4, uint, min16float; uint constants are random 32-bit
+  patterns with c.x odd), vector tests vs mad2v..mad4v (dot2..4, cross, length, distance, normalize,
+  reflect: fxc writes dp3, the driver splits it), fxc-expanded intrinsics (smoothstep, fmod, sincos, tan,
+  atan, atan2, asin, acos), integer chains (x ^ a) * b (iadd, iand, imin, ishr, irot (fxc: bfi), imul,
+  popc, fbh, bitrev, unitf, utof, ftou), ftoitof (with | 1: fxc writes float(int(v)) as one round_z),
+  bitor, signbits (fxc: and + iadd), half precision (mad16 ... exp2_16; CSV header says whether the driver
+  reports 16-bit min precision). Layout (owner): other adapters right after the GPU line, verbose mode
+  headings, capitalized table headings, summary in sections; TESTS.txt (zip) explains every test.
+  0.3.0 (owner, 2026-10-03, after his 0.2.0 run: the 1/8 blocks showed as boxes in the Windows console
+  font): renamed OpBench (target opbench, OpBench.exe, OpBench-<v>.zip); only full / half blocks (CP437):
+  bars with 4 levels per cell from bright / dark color pairs (owner's design), a title box (owner, after a block
+  logo round: "we are overthinking the logo": "OpBench <v> - by CeeJay.dk" in a cyan double-line box, the same
+  printBox as the summary banner; preview renderer for ANSI output: scratch logo/render.py), a 6-level progress
+  bar, Ops column (Cost / 4, one decimal: owner ok); extra passes (owner's redundant-sensor idea): tests
+  whose readings disagree are measured again (alternating direction) until > half agree, max 6 passes
+  (`consensus`, kMaxPasses), CSV columns passes / consensus / readings.
+- OpBench 0.3.0 on the owner's cards (2026-10-03; docs/opbench/intel-uhd-630-v3.csv, nvidia-gtx-1660-v3.csv): both
+  = their v1 runs within 0.1-0.3 on every old test (the 1660 despite 60% reference drift in tput: the fresh
+  reference per test works), all tests consensus in 2-3 passes. New tests, tput: GTX 1660 (Turing): signsel2 -0.2
+  (free), signbits 0.6, signclamp 3.8, signmad 7.7 vs sign 8.2; roundadd 8.0 vs round 12, flooradd / fracadd 20 (worse
+  than floor 12); dot2 / dot3 / dot4 7.6 / 12.5 / 15.9 (= 2 / 3 / 4 fma: no hardware dot), cross 24, normalize /
+  length 24, distance 37; int: ixmul 0.1 over the mad base, iadd 0.6, imul 0.8, iand / imin / ishr 4, irot 8, popc /
+  fbh / bitrev / utof ~12 (quarter rate), ftou 8, ftoitof 27, bitor / signbits 0.6; half: mad16 0, add16 / mul16 2,
+  rcp16 / sqrt16 / exp2_16 16 (vs 12 in fp32); atan 50, atan2 59, asin 36, acos 32, tan 44. UHD 630 (Gen9.5): signmad
+  7.2 / signsel2 3.6 / signbits 7.2 vs sign 14.4; roundadd 7.7 vs round 3.9 (worse), flooradd / fracadd 18.5; dot3 14.4,
+  dot4 18.3, cross 22, length 32; int: ixmul 7.5, imul 7.3 (32-bit mul = 2 ops), ishr 7.3, irot 18, popc / bitrev 4.7,
+  utof / ftou 3.6, ftoitof 15; half: mad16 -1.9 (fp16 faster than fp32), add16 2.6, mul16 0.6, rcp16 12.8; atan 64,
+  atan2 78. omod tests sit under the rcp's issue rate on both (NVIDIA 0, Intel 0.8 for omod2 / half / 3 alike).
+- OpBench output modifier scales (owner, 2026-10-03: "test whether x8 and x0.25 are free ... I expect them NOT
+  to be free on modern hardware, but we want to know"): tests omod4 (AMD's third scale), omod8, omod0.25, omod0.125
+  (DX9-era _x8 / _d4 / _d8), base rcpmax like omod2; with the trunc test released as OpBench 0.4.0 (2026-10-03).
+  Owner's 0.4.0 runs (docs/opbench/intel-uhd-630-v4.csv, nvidia-gtx-1660-v4.csv; old tests = 0.3.0 within 0.6): trunc =
+  round = floor (UHD 630 3.96, one op; GTX 1660 12.0, quarter rate; lat identical to round): not faster. Every omod
+  scale (2, 0.5, 4, 8, 0.25, 0.125) = the x3 control on both (tput: the mul hides beside the rcp, NVIDIA 0, Intel
+  ~0.75; lat: one dependent mul, Intel ~4.4, NVIDIA 4.8): no output modifier on Intel Gen9 / NVIDIA Turing. Whether
+  x4 / x8 / x0.25 are free on AMD (the only one with omod) needs an AMD 0.4.0 report. First AMD 0.4.0 report:
+  RX 6700 XT (amd-radeon-rx-6700-xt.csv, Navi 22, 0x73DF, drift 0.1%, all consensus): = the RX 6950 XT within 0.6 on
+  every tput test (only length / atan / atan2 0.6-1.2 lower): third RDNA 2 device, amd-rdna2 unchanged. omod2 /
+  omodhalf / omod4 0.0 (free), omod8 / omod0.25 / omod0.125 = the x3 control (tput 1.2, lat 3.1): exactly AMD's
+  output modifier set (x2, x4, x0.5), as CostModel::amdFolds assumes. trunc = round = floor (one op, 2.97).
+  Two cards, stock and undervolted (OpBench 0.4.0, 2026-10-04; nvidia-rtx-4090-laptop-v4-stock / -undervolt,
+  nvidia-rtx-2060-stock / -undervolt): reference drift 13-128% in every run, yet every test reached consensus (the
+  fresh reference per reading works) and undervolting changes no cost. RTX 4090 Laptop = RTX 4070 (Ada / nvidia-ampere)
+  within 15% on every tput test (MUFU 23.7, add 3.5, min 4.5, clamp 9.9, sign 27.4-28.2, pow 52): the earlier v1 hybrid
+  run's 7% lower MUFU was drift, nvidia-ampere unchanged. RTX 2060 (0x1F15) = GTX 1660 v4 (Turing) on every test except
+  iand: 1.05 tput / 0.3 lat (~free, like iadd) vs 4.0 / 3.8 on the 1660; driver 32.0.16.2002 vs the 1660's
+  32.0.15.6614, so most likely the newer driver fuses the step's xor and and into one LOP3 (3-input logic op): a
+  driver difference, not hardware.
+- TexBench (owner, 2026-10-04: texture costs next to math, "when to use math and when to use lookup tables";
+  do not assume R8 / RG8 / RGB10A2 / RG11B10F / the other ReShade formats perform as expected, test them; a
+  separate exe since it doubles the run time): tools/windows/texbench/texbench.cpp (target texbench,
+  TexBench.exe, measure-textures.bat, TexBench-<v>.zip in release.yml, TexBench.exe in the tools artifact);
+  OpBench's console / statistics / adapter / timestamp code moved to tools/windows/benchkit.hpp (shared;
+  OpBench checked under Wine after the move). Tests: 19 formats (18 ReShade + RGBA8 sRGB) coherent bilinear
+  (1024^2, 8 x 8 thread tiles, int formats Load) and random Load (4096^2); RGBA8 access / filtering; LUT 256x1,
+  LUT 32^3, random 512^2..8192^2; pixel shader ddx / ddy / fine / coarse / fwidth and Sample bilinear /
+  trilinear (1.5 texels per pixel) / aniso 4:1; render target writes per format (GB/s, 3840 x 2160). Each read's
+  coordinate depends on the previous result; bases compute the same coordinate without reading. Runs under
+  Wine (xvfb-run, lavapipe: functional only, timestamps meaningless there).
+  First runs (owner, GTX 1660, 2026-10-04, 2 runs agree; docs/texbench/nvidia-gtx-1660*.csv; units: mad = 4):
+  coherent bilinear ~39 (~10 mads) for every format up to 32 bits (R8 = RG8 = RGBA8 = RGB10A2 = RG11B10F = sRGB =
+  R16F = R32F), 64-bit and RGBA32F ~102 (half rate), int Load ~35; Load = point = bilinear = gather; trilinear 104,
+  aniso 8:1 485; latency bilinear ~113. ddx / ddy (= coarse) 28, ddx_fine / ddy_fine 12, fwidth 44. LUT 256x1
+  (random) 193, LUT 32^3 1080, random over 512^2 885 .. 8192^2 7740. Two test flaws: (1) "random" format reads:
+  the next coordinate depends only on the value read, so the chain collapses onto as many addresses as the format
+  has distinct values (R8 256 -> cached, 115; R16 / R32F -> DRAM, ~6000): measures data entropy, not the format;
+  (2) writes reach ~300 GB/s (> the 1660's 192 GB/s peak): the smooth gradient compresses (DCC); R8 74 / R16 155
+  GB/s = ROP fill rate. Fixed (owner's go): random 2D reads use x = (t.x + uv.y) * c.z + c.w (int: low 10 bits
+  of tu.x plus uv.y; same op count as the bases), writes run twice per format with one shader (U[0].x picks):
+  noise (integer hash of the pixel) and the smooth gradient, summary Noise / Smooth / Gain. OpBench rerun
+  (nvidia-gtx-1660-v4-2.csv, driver 32.0.15.6614) = v4, iand 3.99 again: the RTX 2060's 1.05 is likely its newer
+  driver; owner will update his driver and rerun.
+  Progress scale (owner): the marking digit of each label (0 of 0%, 5 of 25%, 0 of 50%, 5 of 75%, first 0 of
+  100%) on cell round((cells - 1) * q / 100) (benchkit scaleLine, console Progress).
+  Cache and compression tests (owner's go, 2026-10-04, for topt, the owner's texture sampling optimizer):
+  "Cache sizes" (random Load from RGBA8 textures of 4 KB .. 256 MB in 2x steps), "Cache use" (spread N: random
+  within N x N texels around the thread's pixel, N = 1 .. 256, kSpread with the cbuffer scale, base addr.spread;
+  row / column 32 / 256; group 8x8 / 16x4 / 32x2 / 64x1 via Test::tileW; texel size: R8 / RGBA8 / RGBA16F /
+  RGBA32F random over 1024^2), writes noise / smooth / flat (U[0].x 1 / 0 / 2) with two Gain columns.
+  Intel UHD 630 (docs/texbench/intel-uhd-630.csv, the pre-fix build): unlike NVIDIA, formats differ: bilinear
+  ~35 for R8 .. RGBA8 / R16F / RG16F / R32F, ~93 (half rate) for RGBA8 sRGB, RGB10A2, RG11B10F and the 64-bit
+  formats, RGBA32F 211 (quarter); int Load 22; writes (shared DDR4, ~38 GB/s): RGBA8 / RGBA16F / R32U 38 but
+  RGBA16 / RG16 / R32F / RG32F / RGBA32F ~20-23, sRGB / RGB10A2 / RG11B10F 26-28; ddx / ddy / ddx_fine 5.6,
+  ddy_fine 12.5, fwidth 15.
+  Blending (owner's go): Stage::Blend, RGBA8 / RGB10A2 / RG11B10F / RGBA16F / RGBA32F, plain + add (ONE, ONE),
+  lerp (SRCALPHA, INVSRCALPHA), multiply (DESTCOLOR, ZERO), min (OP_MIN) by blend state vs a shader reading the
+  content texture (blendSource); every pass restores the target from a noise texture by CopyResource, copies
+  timed alone right before and subtracted (blendPass); CSV config "blend" (ms per pass). B/op column (owner:
+  "bandwidth per performance"): texel bytes / Ops for Test::perByte (format coherent / random, texel size).
+  Polish (owner): "(shorter / longer / lower is better)" under every graph / table (OpBench too); B/op became
+  GB/s (texel bytes / (Ops x the reference fma's ns per step)); kFormats ordered by texel size; ddy_coarse and
+  "Sample point" added to the pixel shader section; GPU names in vendor colors (benchkit vendorColor: NVIDIA
+  bright green, AMD bright red, Intel bright blue).
+  Everything ReShade FX / HLSL can do (owner's go 2026-10-04, after a gap list against the parser's
+  intrinsics): OpBench + cosh / sinh / tanh / log10 / radians / ldexp / frexp / modf / isnan / isinf / f16round
+  / bitcast / refract / faceforward / det3 / matmul4 / transpose / fbl / icmpsel / udiv / umod / idiv / imod /
+  itof. TexBench "Texture functions" (offsets, gather G/B/A, Load mip 1, grad, aniso 2/4/16, trilinear in 5
+  formats, real 1D, 3D 1024x1024x2 (Tex::Vol), size queries with an x-dependent mip level (the plain query is
+  hoisted), address modes on kCoherentWide), "Color lookup tables" (Tex::Lut2D N slices side by side, 2 reads +
+  lerp, vs 3D N^3, N = 32 / 64, kLutColor from the pixel position), compute (storage stores per format via
+  Tex::Storage / Test::uav, formats without typed UAV store support skipped; groupshared read / write / stride 32
+  / barriers: fxc drops groupshared writes nothing reads, so computeSource reads GS at the end; 8 atomics on
+  groupshared and R32U storage, own address vs 64 threads on one (not a dispatch: TDR risk); local array
+  (indexable temp), const array (icb), select vs uniform / divergent [branch]), "Pass states" (Stage::Pass: 1-8
+  RGBA8 targets, clears, GenerateMips, heavy 32-sin shader vs stencil 50% / discard tiles / discard pixels).
+  Progress bars: at most benchkit::kMaxCells (70) cells (stepsPerCell).
+  First full run (owner, GTX 1660, 2026-10-04, docs/texbench/nvidia-gtx-1660-v5.csv, docs/opbench/nvidia-gtx-1660-v5.csv):
+  random reads now ~6400-7500 for every format (DRAM bound: the fix works); cache sizes: <= 32 KB ~100, 128 KB -
+  1 MB ~450, 2 MB 940, 4 MB 2640, >= 16 MB ~6000-7400 (texture cache ~64 KB, L2 1.5 MB); spread <= 8 texels ~35,
+  16-32 ~80, 64+ 280-470; row = column (tiled layout); offsets, size queries, address modes, 1D = 2D free; grad 1:1 =
+  aniso 2:1 = trilinear 104, aniso 4:1 231, 16:1 992; trilinear R8 / RGB10A2 / RG11B10F 104, RGBA16F 167, RGBA32F
+  232; tex3D linear 112; LUT 32: 2D (2 reads) 108 vs 3D 104, LUT 64: 187 vs 146 (3D wins); storage stores
+  coherent RGBA8 53, other 32-bit ~67, 64-bit 140-164, 128-bit ~400, random ~7400-8300; groupshared read 1.7 /
+  write 3.8, stride 32 ~460-500 (bank conflicts), barrier 18, groupMemoryBarrier 48, memoryBarrier 66; gs atomics
+  ~1 (CAS 16), 64 on one address 155-545 (CAS 1020); storage atomics ~250-280 (CAS 532), one address ~1000-1240;
+  local array read 40, write + read 848, const array (divergent index) 239; derivatives as before. OpBench: cosh /
+  sinh 28, tanh 44, log10 12, radians ~0, ldexp 7, frexp 26, modf 12, isnan 4, isinf 7, f16round ~0, refract 45,
+  faceforward 23, matmul4 68, transpose free, det3 32, fbl 27, icmpsel 8, udiv / umod ~67, idiv / imod ~82, itof 12,
+  iand still 4.0 (driver 32.0.15.6614). Flaws found and fixed: CSV test names with commas were unquoted; the heavy
+  pass shader folded to a constant in fxc (now cbuffer constants); the branch tests were flattened by the driver
+  (sides now 4 sin / 4 cos); writes measured above the 1660's 192 GB/s (230-300: back to back full-screen draws
+  stay in NVIDIA's on-chip tile cache) - writes and draw pass tests alternate between two targets; blend results
+  were two-valued (~0.42 / ~0.74 ms, copy-based restore) - restore by plain draws, two targets; summary lines fit
+  the console (consoleColumns, names <= 24, CmpXchg), numbers keep their width.
+  Restructure (owner, 2026-10-04: "OpBench for ops, TexBench for texture operations", pixel shader ops stay):
+  groupshared read / write / stride 32 / barriers, groupshared atomics (aAdd .. aCmpXchg, "1" = 64 threads on
+  one address), local / const arrays, select vs branches moved to OpBench (Test::setup kGroupshared /
+  kLocalArray; a step with ';' is statements). TexBench keeps storage stores and storage atomics (aAdd (1) ...).
+  Formats x filtering matrix (owner: point vs bilinear differ in some formats): every format x Load, point,
+  bilinear, gather, trilinear, aniso 2x / 4x / 8x / 16x (MaxAnisotropy on a 16:1 footprint; Test::maxAniso;
+  integer formats Load + gather), one summary table (printMatrix) with the bilinear GB/s; replaces the coherent
+  format list, the RGBA8 access section and the per-format trilinear / aniso tests. Test::needs (format support
+  bits) leaves out what a GPU lacks (storage, gather, mip autogen) and lists it. CSV column "seconds" per test
+  and "# run time" (owner: shrink texture sizes where they do not matter, tune as we go). Graphs grow to 40
+  characters in wide consoles.
+  Maxwell (2026-10-04, OpBench 0.4.0, clean): GTX 860M (GM107, nvidia-gtx-860m.csv) and Quadro M5000M (GM204,
+  nvidia-quadro-m5000m.csv) = Pascal except min / max / step 4.6-4.9 (Pascal 6.8), clamp 11.5 (13.7): cost model
+  `nvidia-maxwell` (kNvidiaMaxwell). The 860M (driver 32.0.15.8278) measures sqrt 24 (rsqrt + rcp), the M5000M
+  (32.0.15.8194) 10: another driver difference. Maxwell integer: imul slow (ixmul base 10, XMAD), utof / ftou ~free,
+  bitrev 3.5, popc 7, fbh 14; min16float runs at 32 bits.
+  GTX 1660 Ti (nvidia-gtx-1660-ti-v4.csv, driver 32.0.16.1714, clean tput) = GTX 1660 except iand 1.1 (1660 on
+  32.0.15.6614: 4.0): with the RTX 2060 (32.0.16.2002: 1.05) the third card where a 32.0.16 driver makes the
+  xor + and one instruction: a driver improvement, not hardware.
+  Confirmed by the owner (2026-10-04): his own GTX 1660 after a driver update measures iand ~1 like the others (same
+  card, only the driver changed; most likely LOP3 merging the and + xor). measure-both.bat (owner): OpBench, then
+  TexBench, no pause in between, pause at the end (tools artifact / zip).
+  Run time (owner: TexBench "takes forever" on the UHD 630): calibrate (Plan) starts at one iteration and, when a
+  compute run still takes > 8 ms, halves the thread groups down to kMinGroups (1024 = 64K threads); texelData uses
+  splitmix64 instead of mt19937 + uniform_real_distribution; "Compiling N shaders ... k" before "Warming up"
+  (TexBench compiled its ~1000 shaders after printing the 2-second warm-up message; OpBench gets the counter too).
+  Run time vs accuracy (owner: "good numbers first, but do not keep users longer than needed"): reps 7 -> 5 in
+  both programs; cache-use tests on 2048^2 (reads stay within 1408 texels), coherent storage writes into 1024^2
+  (random stay 4096^2). Pending the owner's next runs (seconds column): whether the matrix keeps dep / lat
+  (owner: they stay only if we learn something from them).
+  Intel UHD 630 full run (docs/texbench/intel-uhd-630-v5.csv; the build before the write / blend fixes, names with
+  commas unquoted): formats: 8 / 16 / 32-bit bilinear ~35 except sRGB / RGB10A2 / RG11B10F / 64-bit ~93, RGBA32F
+  209, RGBA32U/I Load 86; trilinear R8 93, RGB10A2 / RG11B10F / RGBA16F 209, RGBA32F 441; grad 1:1 79; aniso 2:1 93,
+  4:1 209, 16:1 905; tex3D linear and tex3Dfetch both 93 (3D loads slow); size queries NOT free (tex2Dsize 26,
+  tex3Dsize 77); offsets / gathers / address modes free; LUT 32 2D = 3D 89.6, LUT 64 2D 168 vs 3D 128; cache
+  sizes <= 32 KB ~100, 64 KB 204, 128 KB - 512 KB ~380-520, 1 MB 700, 4 MB 1680, 256 MB 4240 (L3 + shared LLC:
+  gradual); spread <= 4 ~20, 8 30, 16 60, 128+ 290-370; row 256 118 vs column 256 291 (columns cost more here);
+  group shapes equal (29.5); stores coherent 70-72 (R8 114), 64-bit 137, 128-bit 256, random 3400-3900; gs read
+  1.7, write 11.4, stride 32 ~30 (mild bank conflicts), barrier 35, groupMemoryBarrier 4, memoryBarrier 62; gs
+  atomics ~30 (CAS 40), one address 224; storage atomics 94 (CAS 242), one address ~1710; array read 27, write +
+  read 116, const array 94; branch uniform 15.5 vs divergent 31.7 vs select 29.8 (branches work here);
+  derivatives as before. Writes / blending / pass states were shader bound: the 4-hash noise (integer
+  multiplies are slow on Gen9) capped an RGBA8 write at ~11.5 GB/s, linear in bytes per pixel (R8 2.9, RG8 5.7),
+  while the folded "heavy" constant pass wrote at ~40 GB/s (the DDR4's bandwidth). Fixed: kNoise = one Load per
+  pixel from a 128 x 128 noise texture (TN RGBA32F / TNU RGBA32U at t4 / t5, bound once) for writes, blending
+  and pass states. discard per pixel cost 3x there (2.98 vs 0.83 ms).
+  measure-all-gpus.bat (owner): OpBench + TexBench for every GPU in the PC, each once (`--adapters` prints the
+  hardware adapter indices, one per LUID and per vendor / device / subsystem / revision / memory (owner: the GTX 1660
+  was listed twice with different LUIDs, so --adapters printed 0 1 2), no software adapter; the batch loops over them with
+  for /f "usebackq" ... (`call "%~dp0OpBench.exe" --adapters`)); checked under Wine (cmd).
+  Pixel shader order (owner's go 2026-10-04: atomics show how the GPU schedules pixels; runOrder, not a timing,
+  after the measurements, `--filter order`): one full-screen draw into 1024^2, each pixel InterlockedAdd on one
+  counter and stores the number at its position (R32_UINT UAV, read back). Blocks: runs of N numbers (N = 4 ..
+  256), share whose bounding box is exactly N pixels ("compact") + the most common shape; the largest N with >= 75%
+  compact = "pixels shaded together". Tiles: aligned B x B squares, B^2 / (max - min + 1). PNGs (WIC, owner) next to the CSV
+  (order gradient; middle 64^2 8x with block colors and lines). CSV config "order".
+  Results per section (owner, 2026-10-04: "hide the run time" by showing each section as it completes): benchkit
+  Progress::start / pause (erases the bar, scale and blank line) / resume (redraws them filled to the current step);
+  OpBench measures in display-order sections (Group: shown tests + bases / solos with the first section needing them;
+  leftovers last; all 3 configs per section, fwd / bwd within the section), graph scale fixed at 100 units; TexBench
+  prints a section when its last test is done (`left` counts; printMatrix / printTable / printWrites / printBlend /
+  printPass). Final summary = GPU box, warnings, footer.
+  Score boxes (owner, 2026-10-04: "a number users can brag about", spec-list units): benchkit printScore (double-line
+  cyan box, headline in large yellow block digits, bigNumber / threeDigits / visibleColumns). OpBench: fp32 TFLOPS
+  (mean reference fma), fp16 TFLOPS (mad16, only with 16-bit min precision), special functions Gops/s (rcp step).
+  TexBench: texture rate GTexels/s (RGBA8 bilinear whole step time: tex and ALU overlap, so vsBase understates the
+  texture time; spec-like), pixel fill rate (max write GB/s / bytes), memory bandwidth (max noise write). Also as
+  "#" CSV header lines. CSV rewritten at every section display (GPU idle then; owner: not during measurements).
+  Pixel shader order timed too (owner): plain / store / counter + store draws, units per pixel over plain.
+  TexBench 0.5.0 full runs (owner, 2026-10-04; docs/texbench/*-v6.csv): run time 211 s (GTX 1660) and 178 s (UHD 630; the
+  earlier builds took "forever" there). Scores: GTX 1660 165.8 GTexels/s (spec 157 at 1785 MHz: boost above it), 63.5
+  GPixels/s (spec 85.7), 154 GB/s writes (spec 192); UHD 630 15.4 GTexels/s, 9.7 GPixels/s (8 px/clk x 1.2 GHz = 9.6),
+  25.6 GB/s (dual DDR4-2400 peak 38.4). Pixel shader order, GTX 1660: runs of 32 numbers are 4 x 8 pixel blocks (100%
+  compact; a warp = 8 quads), 64 not (0.7%: the next warp lands elsewhere); 512 x 512 tiles 72% contiguous. UHD 630: no
+  numbers at all (all pixels "without a number"; the store itself ran: it costs time) - counter switched from a
+  RWStructuredBuffer to a 1 x 1 R32_UINT texture, counter / missing pixels now CSV rows; rerun wanted.
+  That changed the GTX 1660's result (owner's 0.5.0 run: blocks 0% compact, counter + store 0.75 ms vs 0.04): NVIDIA
+  merges a warp's buffer atomics into one (consecutive numbers per warp: the 4 x 8 blocks), texture atomics are per
+  lane (interleaved, 18x slower). Now: structured buffer first, texture only when the buffer gives no numbers
+  (OrderResult::counterKind, CSV row "counter kind"). Real cause on the UHD 630 (owner's next CSV: counter 2097152 = 2x the pixels):
+  the counter cleared while bound to OM was not reset between the warm-up and the measured draw; now cleared while
+  unbound, and the numbers are taken relative to the smallest one read back. OpBench score: fp16 / rcp from their costs relative to the
+  reference (raw timings came from other moments: 1660 fp16 showed 3.7 vs fp32 4.7 TFLOPS at the same cost, 45% drift).
+  Stall on the owner's UHD 630 (TexBench, after the random section, 2026-10-04): a disjoint timestamp reading (-1)
+  counted as "faster than 2 ms", so calibration doubled the run length blindly (up to 2^20 iterations). Fixed:
+  Timer::time retries disjoint readings (4 tries), calibrate / draw-count loops stop on -1; a query that fails
+  (device removed) or takes > 60 s ends the run with a message naming the test (benchkit gCurrent).
+  Owner confirmed: Windows logged event 4101 (display driver reset, TDR) at the stall. Caret hidden while running
+  (ESC[?25l, restored atexit / Ctrl+C). Scrolling (owner: every update snapped the console to the bottom): option 2,
+  progress only in the window title between sections, the bar redrawn when a section prints (Progress::draw).
+  Title (owner): "<program> - <GPU> - <pct>% <test>" (benchkit gGpu / setTitle), "done" at the end, "stopped (error)"
+  in fail(). Live bar (owner): Progress::live until the first section prints; compiling shows a 30-cell bar + % (and in
+  the title). Background shader compiling per section: owner agreed to wait until after the 0.5.0 release (driver-side
+  compilation beside the measurements needs a test round on real cards).
+  ShaderInfo (owner's go 2026-10-04, after the iand driver finding: the real graphics driver's view instead of
+  ptxas; tools/windows/shaderinfo, ShaderInfo.exe + shader-info.bat in the tools artifact): Vulkan at run time,
+  per GPU: VK_KHR_pipeline_executable_properties (statistics + internal representations of two compute shaders,
+  int.comp / float.comp -> shaders_spv.h; `--spv` adds one), VK_AMD_shader_info (VGPRs, disassembly),
+  VK_KHR_performance_query counters (owner's mention; listed only), yes / no for VK_AMD_gpa_interface (counters, thread
+  traces, PROFILING clock mode: stable clocks for OpBench on AMD later?) and VK_INTEL_performance_query, all device extensions in the file. Report shaderinfo-<gpu>.txt. Lavapipe has none
+  of them (Wine check: runs, reports "nothing"); waiting for the owner's GTX 1660 / Intel reports to decide.
+  First reports (owner, 2026-10-04; docs/shaderinfo/): GTX 1660 (driver 617.14): pipeline executable properties yes but
+  statistics only (Register Count 16, Binary Size 1280 / 768 bytes ~ 16 bytes per SASS instruction, Local Memory Size
+  garbage 2^36), no disassembly, no performance query. UHD 630 (101.2141): Instruction Count (25 / 39 GEN instructions),
+  Cycle Count estimate (87 / 152), SEND count, spills, loops; no disassembly; VK_KHR_performance_query with 195 counters
+  (EU active / stall, FPU0 / FPU1, sampler busy / bottleneck, L3 / GTI bytes, ...) and VK_INTEL_performance_query.
+  So: an Intel instruction / cycle count source (sopt has none) and NVIDIA register counts / binary size from the real
+  drivers; using them in sopt is a design decision for the owner.
+  Owner (2026-10-04): if useful, driver shader statistics could also be a ReShade feature (not this project's scope;
+  a ReShade add-on like sopt-timer would be the natural route).
+  Release 0.5.0 (owner, 2026-10-05: "release tonight so people can use them while I sleep"; one zip for testers):
+  release.yml builds GPU-Bench-<v>.zip (OpBench, TexBench, ShaderInfo, GPU-Bench.bat menu (owner: number keys, colors), measure-main-gpu
+  (renamed from measure-both, owner) / measure-all-gpus run ShaderInfo
+  first, README.txt = tools/windows/GPU-BENCH-README.txt, <Program>-README / <Program>-TESTS) instead of the separate
+  OpBench / TexBench zips; sopt and sopt-windows-tools zips unchanged. The footers name OpBench-TESTS.txt /
+  TexBench-TESTS.txt. Process: PR merged to main, release.yml run manually on main = draft, owner publishes.
+  0.5.0 released 2026-10-05 (PR #11 merged; final runs of both owner cards in docs/opbench/*-v6.csv and
+  docs/texbench/*-v7.csv: order test counter 1048576 via the structured buffer on both, NVIDIA 4 x 8 warp blocks,
+  Intel 4 x 4 (SIMD16); all tests consensus; fp16 = fp32 on the 1660). Release notes (owner): CHANGELOG.md, one
+  `## <version>` section per release (add to the top one as things land); release.yml copies that section into the
+  draft as "What's new" above the downloads list (this session cannot edit releases: the owner pastes otherwise).
+  Next version (owner, 2026-10-05): (1) TexBench matrix without dep (dep = tput within ~5% on both cards, saves
+  ~25-30 s; lat stays: 1660 latency ~3x the tput cost for small formats, Intel's format cost is tput only); dep stays
+  in OpBench; (2) headings "Cost, many in parallel" / "Cost, one dependent chain" / "Latency, one at a time" instead
+  of "Throughput" (the number is a cost, lower is better; CSV codes tput / dep / lat unchanged); (3) background
+  shader compiling per section.
+  Next version work (owner, 2026-10-05, "time to work on the next version"; CHANGELOG.md ## 0.6.0, bump
+  project(VERSION) at release): testers' notes: GPU-Bench.bat is the only batch file (menu: main card, another
+  card picked from OpBench --list, every card, one program, open Reports, open README.html); the programs write
+  to Reports\ (benchkit reportsDir; dumps Reports\Shaders\<Program>\), the menu zips Reports\*.* (files only)
+  into GPU-Bench-Reports.zip with PowerShell Compress-Archive after every run; docs as HTML (owner: a hub in the
+  main folder, the rest in Docs\): tools/windows/docs/README.html -> zip root, OpBench / TexBench / ShaderInfo
+  .html + style.css -> Docs\ (the txt READMEs / TESTS and measure-*.bat / shader-info.bat are gone); beep (raw
+  BEL byte in the .bat) before the final pause; the programs flush console input at exit (keys typed during a
+  run made choice beep afterwards). TexBench matrix without dep (runsIn), headings "Cost, many in parallel" /
+  "Cost, one dependent chain" / "Latency, one at a time". Background compiling: benchkit BackgroundJobs (Win32
+  worker thread below normal priority; fail() on it throws via gWorker and the main thread reports the error at
+  wait()), OpBench one job per section (Group), TexBench one per test, in measuring order; CompileCounter
+  removed. sopt-menu.bat (owner: a menu helps users; sopt and sopt-fx have
+  many options): folder / file dialogs (PowerShell WinForms, typed path as fallback), time 5 / 20 / 60 s, cost
+  model by family, start, --list quick look, open results, value ranges (sopt-facts.txt next to the menu, used
+  via --facts once it exists); settings in sopt-menu.ini; in the sopt release zip and CI artifact sopt-windows.
+  Checked under Wine (cmd: the menu's run / zip / beep paths, sopt-menu look + start + settings round trip;
+  OpBench / TexBench with background compiling; lavapipe too slow for TexBench texture tests past 60 s).
+  Owner (2026-10-05, not now): prune sopt / sopt-fx options some day ("lets discuss this one day"). Not
+  decided: AMD driver ISA (ShaderInfo on the RX 9070 XT) as a measured vendor in sopt like Intel's counts.
+  Testers: Windows Defender quarantined sopt-fx.exe 0.5.0 on the owner's PC (submitted to Microsoft); owner
+  will apply for SignPath (steps in docs/signing.md).
+  First community 0.5.0 reports (2026-10-05): RX 9070 XT (RDNA 4; docs/opbench/amd-radeon-rx-9070-xt-v5.csv,
+  docs/texbench/amd-radeon-rx-9070-xt.csv, docs/shaderinfo/): all tests consensus despite 57% / 97% reference drift;
+  = its v1 run within ~5% (MUFU 24.6 vs 26: v1 drift); omod2 / omod4 / omodhalf free, omod8 / 0.25 = control (AMD's
+  set, as on RDNA 2); iadd / iand ~8 (2 dual-issue mads), imul 28.5; fp16 50 vs fp32 45 TFLOPS (packed fp16 ~ the
+  fp32 dual-issue rate). TexBench (75 s run): 784 GTexels/s, 205 GPixels/s, 655 GB/s; RGBA16F bilinear full rate
+  (= RGBA8, NVIDIA half rate), RGBA32F / trilinear half, aniso 16x ~24x; pixel order: 8 x 8 blocks of 64 (wave64
+  pixel shaders), the 1024^2 target shaded as four 512^2 quadrants in parallel. ShaderInfo: the AMD Windows driver
+  (LLPC 2.0.395) gives VK_AMD_shader_info + executable properties with full RDNA 4 ISA disassembly (VGPRs / SGPRs):
+  max(max()) -> v_max3_num_f32, saturate folds into the producing fma's clamp bit, saturate(x) * 2 stays a separate
+  v_add (omod applies before clamp, so no omod over a saturate; sopt's amdFolds already excludes Saturate from
+  takesOmod), GLSL sign -> 2 x (v_cmp + v_cndmask), integer mul + add -> v_mad_co_u64_u32; VK_AMD_gpa_interface yes.
+  RTX 4060 Ti (Ada, driver 32.0.16.1656; docs/opbench/nvidia-rtx-4060-ti.csv, docs/texbench/): ShaderInfo statistics
+  only, like the GTX 1660; OpBench = RTX 4070 b within 0.05 on every shared test (nvidia-ampere holds), drift 3-15%,
+  all consensus; iadd 0.9 / iand 2.1 / imul 1.4, f16round 5.2; TexBench 77 s, 381 GTexels/s, 124 GPixels/s, 281 GB/s,
+  RGBA16F / RGBA32F / trilinear half rate (AMD RDNA 4: RGBA16F full); pixel order 4 x 8 warp blocks like Turing.
+  GTX 1050 (GP107, driver 32.0.15.7652; docs/opbench/nvidia-gtx-1050.csv, docs/texbench/): = GTX 1060 / GT 1030 on every
+  tput test within 0.2 (third Pascal card: nvidia-pascal holds); no 16-bit min precision reported; TexBench 356 s, 69
+  GTexels/s, 27 GPixels/s, 61 GB/s, RGBA16F / RGBA32F / trilinear ~2.7x RGBA8; pixel order 4 x 8 warp blocks.
+  Vega 8 (Raven Ridge, GCN5, 0x15DD, driver 27.20.22002.57; amd-radeon-vega-8-raven.csv): = Renoir within ~1 unit
+  (transcendentals 7-8 vs 8.5; tput drift 99%, all consensus): amd-gcn5 holds; mad16 -2.7 (packed fp16, 2x). TexBench:
+  RGBA16F bilinear ~5x RGBA8 and RGBA32F ~13x (GCN filters wide formats slowly; RDNA 4 RGBA16F full rate); pixel order
+  8 x 8 (wave64), quadrants like RDNA 4. Score caveat (both GCN APUs): fp32 0.365 TFLOPS vs ~1.1 spec, because the
+  reference mad with two scalar constants is 2 instructions on GCN (an extra v_mov); fp16 1.1 is the real rate. Fix
+  (e.g. a score from a mad with one constant) needs the owner's go.
+  GTX 1660 Ti (TU116, driver 32.0.16.1714; docs/opbench/nvidia-gtx-1660-ti-v5.csv, texbench, shaderinfo): OpBench 0.5.0 =
+  the owner's GTX 1660 v6 within 0.8 on every simple test (long composites like udiv / matmul4 / refract 2-10% lower),
+  all consensus at 37% drift: nvidia-turing holds; fp32 4.96 / fp16 4.94 TFLOPS; TexBench 259 s, 189 GTexels/s, 68
+  GPixels/s, 244 GB/s (GDDR6; the 1660's GDDR5 154); ShaderInfo statistics only; pixel order 4 x 8 warp blocks.
+  fp32 score test (owner's go, 2026-10-05, for 0.6.0): OpBench `fma1` = mad(x, x, c.x) (one constant; x converges to
+  -0.37); score fp32 = the faster of the reference and fma1 (fp16 / rcp stay relative to the reference). Lavapipe
+  under Wine shows fma1 absurdly slow next to an absurdly fast reference (its timings are meaningless); real cards to
+  confirm (GCN should show fma1 ~2, NVIDIA ~4).
+  OpBench first compile batch (owner, 2026-10-05: sources are already written / compiled per section; make the first
+  batch small): job 0 = the reference mad alone, so the warm-up starts at once and section 1 compiles during it.
+  RTX 3050 Laptop (0x25A2, driver 32.0.16.1088; docs/opbench|texbench|shaderinfo/nvidia-rtx-3050-laptop.*): unreliable
+  like the other laptops (drift 160-240%; add 6.0, sub readings 4.2-7.5, min 9.8, 5 tests without consensus), only the
+  MUFU ops match Ampere (rcp 23.5); TexBench 479 s, pixel order 4 x 8 warp blocks; ShaderInfo statistics only. Its
+  Iris Xe (Gen12 / Xe-LP, driver 101.7084, docs/shaderinfo/intel-iris-xe.txt; OpBench / TexBench not run): Instruction
+  Count (57 / 74) but no Cycle Count (the UHD 630's driver gives one), 181 performance query counters.
+  Names (owner, 2026-10-05): the benchmark suite GPU-Bench is now GPU Blueprint (GPU-Blueprint.bat,
+  GPU-Blueprint-<v>.zip, GPU-Blueprint-Reports.zip; OpBench / TexBench / ShaderInfo keep their names); sopt is now
+  SweetOpt (owner: one name, "the super sweet shader optimizer" as the tagline): title boxes, --version ("sopt-fx
+  (SweetOpt) <v>"), SweetOpt.bat / SweetOpt.ini (was sopt-menu), SweetOpt-<v>-windows-x64.zip / -linux-x64.tar.gz, docs,
+  version resources (ProductName per target: SweetOpt / GPU Blueprint), release titles "SweetOpt <v>" (owner, from 0.6.0). Kept on purpose: program names sopt / sopt-fx,
+  SOPT_* switches, output files (sopt-out, sopt-report.md, sopt-facts.txt, sopt-found.txt), the repo name, CI artifact
+  names. GPU Blueprint menu (owner): key 1 = every card, 2 main, 3 another; after a run it offers to send the reports
+  (Y opens the upload page); key 9 blinks (ESC[5m) while the zip has not been sent (hidden marker Reports\.sent, made
+  when the page is opened, deleted by the next run).
+  Reports zip name (owner, 2026-10-05: after the cards, "less verbose"): bin\zip-reports.ps1 makes Reports-<models>.zip
+  from the report file names without brand words (GTX-1660, UHD-630, Iris-Xe, RX-9070-XT, RTX-3050-Laptop; all brand
+  words -> AMD-Radeon), several cards joined by '+', one zip only (older Reports*.zip removed); the menu finds it with
+  `for %%z in (Reports*.zip)` (Wine's cmd does not expand a quoted wildcard). Dropbox prefixes the uploader name.
+  Web page (owner, 2026-10-05: the rounded cost model numbers online for developers, the pixel order pictures, no personal
+  data): `sopt --cost-models-json` (src/cli/main.cpp: the OpBench models + rdna3, quarter units, flags contraction /
+  output modifier / max3 / minmax, vector helpers at float3), tools/site/build.py (cards per model from docs/opbench
+  report headers: NAME_BY_FILE / NAME_BY_DEVICE fixes, MODEL_RULES regexes, Microsoft WARP skipped; pictures from
+  docs/texbench/*-order*.png), site/ (architecture chips, bars per op group in fma units
+  with modifiers shown as free, one-operation comparison, card table, picture gallery; light / dark). .github/workflows/
+  pages.yml builds it on GitHub (PRs: build only; main: deploy to GitHub Pages) with the PNGs as they are. PNG optimization
+  (owner, 2026-10-05: it held up the release, 20+ min; optimize in the background, never twice, ECT, file and image
+  fingerprints): optimize-pngs.yml (push of docs/texbench/*.png to main, weekly, manual) runs tools/site/optimize_pngs.py:
+  docs/texbench/png-optimized.txt lists <git blob id> <SHA-256 of the RGBA pixels + size> <name>; a file whose blob is
+  listed is done; one showing an image already optimized gets that file back from git history (fetch-depth 0); the rest
+  go through ECT (v0.9.5, built and cached on the runner, ECT_LEVEL in the workflow, provisionally 5); every result must
+  keep the original's pixels (Pillow), else the original stays. Commits to main as github-actions[bot] about every 10 min
+  and at the end, then starts pages.yml (GITHUB_TOKEN pushes start no workflows, so no loop). Benchmark on the 18 order
+  PNGs (476 KB, 4 threads): oxipng -o 2 21.9% 4.6 s, -o 4 26.6% 11 s, -o 6 / max 26.9% 23 s, -o 2 --zopfli 27.9% 166 s;
+  zopflipng -m 26.8% 305 s; optipng -o7 17.7% 83 s; ECT -3 24.2% 7 s, -4 27.9% 10 s, -5 28.1% 14 s, -6 28.2% 22 s, -8
+  28.3% 76 s, -9 29.1% 109 s, -9 --allfilters 30.4% 1800 s. The owner's css-ig.net PNG benchmark (pingo's author, 1354
+  files): oxipng -ao4 ~99% of -Zao6 at 7% of the time; pingo -s4 -l best overall (Windows); ECT best on gradients /
+  screenshots, poor on palettes (not our case); zopflipng slowest and behind. Owner's one-time setup: Settings > Pages > Source: GitHub Actions (the user site
+  CeeJayDK.github.io has the ceejay.dk domain, so this repo's site is ceejay.dk/sopt/).
+  Site pages (owner, 2026-10-05: every DX11 architecture with the missing ones greyed, a TexBench page, a SweetOpt page
+  and a library page, subdirectories): site/index.html (SweetOpt, sign() bars per model), library/ (`sopt --library-json`:
+  rules with [lhs, rhs] dagCost per published model; build.py adds sections / comments from library/rewrites.txt),
+  gpu-blueprint/ (tools/site/architectures.json: every DX11 architecture per vendor, model or null = wanted; coverage
+  grid), gpu-blueprint/texbench/ (data/texbench.json from the newest docs/texbench CSV per card with order rows; matrix
+  heat table, section bars, order picture gallery). Shared common.js (header / nav / footer, data loading) and style.css
+  in the ceejay.dk style (dark grid, JetBrains Mono / Inter, cyan / amber). Order pictures of 8 cards recovered from the
+  session's chat images (all taken after the order-test fix). build.py <models.json> <library.json> <out>.
+  Download layout (owner, 2026-10-05: "only the menu and the readme start page" in the main folder):
+  tools/windows/stage.ps1 stages SweetOpt\ / GPU-Blueprint\ / tools\ for CI (artifacts SweetOpt-windows,
+  GPU-Blueprint, sopt-windows-tools) and release.yml (zips; Linux tarball the same: README.html, bin/, Docs/):
+  launcher + README.html, programs in bin\, Docs\ (pages, style.css, LICENSE.txt). SweetOpt's guide is
+  docs/sweetopt/README.html (QUICKSTART.txt removed), the bench tools' docs/Tools.html; the tools zip no longer
+  carries GPU Blueprint. benchkit reportsDir steps out of a folder named bin (Reports\ next to the batch file);
+  run-bench.ps1 in bin\ uses the parent for results / run / package / ReShade setup; SweetOpt.ini in bin\.
+  Signing config (docs/signing.md) uses bin/ paths.
+  First upload (owner, 2026-10-05, Intel NUC Iris 540, OpBench / TexBench / ShaderInfo with the 0.6.0 build; docs/opbench/
+  intel-iris-540-v6.csv, docs/texbench/intel-iris-540.csv, docs/shaderinfo/intel-iris-540.txt): file name "<uploader name> -
+  GPU-Blueprint-Reports.zip"; the cloud container cannot download it (*.dropboxusercontent.com denied by the network policy),
+  but the Dropbox connector's fetch returns the zip's text files concatenated, each after a line with its file name (PNGs
+  only as names): enough for the CSVs / txt. OpBench = the v1 Iris 540 run within 0.9 (add 7.96, rcp 16.1, sign 22.3 units
+  incl. the base), all consensus; fma1 = mad (4.0, one constant costs nothing extra on Intel); TexBench 412 s, 10.7
+  GTexels/s, 6.8 GPixels/s, 22.8 GB/s, pixel order 4 x 4 (SIMD16) like the UHD 630. Report uploads (owner: Dropbox, a
+  separate service from his Google Drive): file request "GPU Blueprint reports" (id jmwykzlbulwo8ltkyule,
+  https://www.dropbox.com/request/jmwykzlbulwo8ltkyule) into /Uploads/GPU Blueprint (one /Uploads/<project> folder per
+  project); GPU-Blueprint.bat key 9 (only when picked, asks first) opens the page and shows the zip in Explorer.
+  Scheduled task "GPU Blueprint report intake" (trig_01RggLdp3vQTNdxhpVXZhXFa, every 6 h, fires into this session: a
+  fresh-session routine created from here gets no connectors / repo) downloads, checks and saves reports, then deletes
+  everything in that folder. Owner allowed *.dropboxusercontent.com in the environment's network settings (2026-10-05):
+  download_link + curl works (tested), whole zips incl. PNGs; Dropbox fetch stays the fallback.
+  OpBench / TexBench 0.5.0 batch (owner sent the CSVs in chat, 2026-10-05; no PNGs): all tests consensus in every report.
+  HD Graphics 4600 (Haswell, Gen7.5, 0x0416, driver 20.19.15.5171; docs/opbench|texbench/intel-hd-graphics-4600.csv): unlike Gen9
+  the math unit is cheap (rcp / rsqrt / sqrt / exp2 / log2 / sin / cos / log / div ~3.4-3.6 in tput, dep and lat alike = one op;
+  exp 6.8, pow 11.5), min / max / step 6.7-7.4, clamp 11.7, compare + select 7.3, lerp 6.9, sign 14.7, integer ops half rate
+  (iadd 6.5, imul 23), no omod, no max3 (5.0); new cost model `intel-gen7.5` (kIntelGen75, search order, SweetOpt.bat key J;
+  one card). TexBench: 9.1 GTexels/s, 2.3 GPixels/s, 23.6 GB/s; RGBA16F bilinear and trilinear = RGBA8 bilinear (~38), RGBA32F
+  467 (12x), aniso 16x 957; pixel order 4 x 4 (SIMD16). Raphael iGPU (Ryzen 7000, 0x164E, "AMD Radeon(TM) Graphics", driver
+  32.0.21043.10005; amd-radeon-raphael.csv) = RX 6950 XT / 680M within ~10% (one VALU op 2.72 vs 2.97, max3 1, omod2 / 4 free,
+  omod8 = control, mad16 -2.5): fourth RDNA 2 device, amd-rdna2 unchanged; TexBench 8 x 8 (wave64) pixel blocks. GTX 860M and
+  Quadro M5000M 0.5.0 (nvidia-gtx-860m-v5.csv, nvidia-quadro-m5000m-v5.csv) = their 0.4.0 runs within 0.05 (the 860M's sqrt
+  still 24, same driver); RTX 2060 0.5.0 (nvidia-rtx-2060-v5.csv) = its v4 stock run / GTX 1660 (iand 1.06, driver 32.0.16.2002);
+  RTX 4090 Laptop 0.5.0 (nvidia-rtx-4090-laptop-v5.csv, drift 168%, all consensus) = Ampere / Ada within ~3%. TexBench of the
+  four NVIDIA cards: 4 x 8 warp blocks; RGBA16F / RGBA32F / trilinear ~2.7x RGBA8 bilinear; the 4090 Laptop's scores (108
+  GTexels/s, 46 GB/s) are throttled (laptop power, 140% drift, 399 s run), not the card's real rates. Site: NAME_BY_DEVICE
+  0x164E, MODEL_RULES Raphael -> amd-rdna2, HD Graphics 42xx-46xx / Iris 5100 / 5200 -> intel-gen7.5.
+  TexBench findings (owner, 2026-10-05: "do this, not that" conclusions, universal and per family, in the repo and on
+  the website; specific tests to verify them): docs/texbench/FINDINGS.md (the website's TexBench page renders it:
+  build.py markdown_html -> data/texbench-findings.html). From 15 cards: one bilinear read for a 2 x 2 average (= one point
+  read up to 32-bit texels; GCN 5 and RDNA 2 RGBA32F, GCN 5 RGBA16F: 4 reads win); Load cheaper than Sample on RDNA and Ada /
+  Ampere for <= 32-bit texels but slower for 64 / 128-bit on Ampere / Ada (the ReShade copy Load patch: biggest win RDNA and
+  RTX 30 / 40 with 8 / 10-bit back buffers, neutral elsewhere, maybe a loss with scRGB on RTX 30 / 40); 3 gathers beat 4 reads
+  for RGBA8 RGB on Maxwell-Turing / Intel / GCN, not on RDNA / Ada, never for 64-bit (except HD 4600); 3D LUT >= 2D slices;
+  stencil / tile discard halve a heavy pass, per-pixel discard saves nothing; ddx_fine half the cost of ddx on NVIDIA; clears
+  free; Intel Gen9 filters sRGB / RGB10A2 / RG11B10F at ~1/3 rate. Test fixes for 0.6.0 (owner's go): blend source noise
+  shifted + swizzled (restore pass and blended pass wrote the same noise: lerp / min blend measured free on the GTX 1660);
+  "Trilinear vs anisotropic 2x" on the same SampleGrad footprints (1:1 at level 0.5, 2:1; the matrix's aniso columns use 16:1,
+  a smaller mip); "Cache use, pixel shader" (ps spread N, Test::psPixel: P = the pixel's own texel); "Do this, not that: 2 x 2
+  texels" (avg: 1 bilinear / 4 Load / 4 point / 3 gathers; each (max): 4 Load / 4 point / 3 gathers; RGBA8 / RGBA16F /
+  RGBA32F; Test::skipDep); "Copy and downsample passes" (copy Sample / Load, half bilinear / 4 Load; RGBA8 / RGB10A2 / RGBA16F
+  / RGBA32F; kPassCopySample .. kPassDownLoad, printPass per section). Website redesign (owner: readability, colors, the grid
+  background distracts): left to another agent.
+  First 0.6.0 TexBench runs (owner, 2026-10-05, GTX 1660 driver 32.0.16.1714 + UHD 630 31.0.101.2141; build of 988bdb3,
+  headers still say 0.5.0; docs/texbench/*-v8.csv, docs/opbench/*-v7.csv, docs/shaderinfo/*-2.txt): every new test ran, all
+  consensus. Measured: 2 x 2 average 1 bilinear 2-6x cheaper than 4 Loads (1660 RGBA8 11.4 vs 57.5) in every format, 3
+  gathers in between; 2 x 2 each (max): 3 gathers 2x faster than 4 reads for RGBA8, still ahead for RGBA16F / RGBA32F (the
+  single-read estimate said 4 reads for 64-bit: several reads do not add up, only side-by-side tests decide); point = Load;
+  trilinear = aniso 2x on round footprints, aniso 2x ~2x (RGBA16F 1660 3.7x) on 2:1 footprints (the old "same cost" was the
+  16:1 test's smaller mip); ps spread = compute spread within ~10% (knee 8-16 texels on both); copy passes Sample = Load on
+  the 1660, UHD 630 RGBA16F Load 11% slower; half-size downsample passes bilinear = 4 Loads (memory bound); blend fix
+  confirmed (lerp / min now 0.41 ms like add, plain 0.32), blend state 2-3% faster than the shader on the 1660 except RGBA32F
+  (~10% slower), UHD 630 +-10%. OpBench fma1 = mad on both (4.02 / 3.98). FINDINGS.md updated (measured vs *estimated*).
+  Release build check (owner, 2026-10-05, 0.6.0 from main; docs/opbench/*-v8.csv, docs/texbench/*-v9.csv, docs/shaderinfo/*-3.txt):
+  headers say 0.6.0, all tests consensus; UHD 630 = the previous run within 10% on every test, GTX 1660 too except 15 of 993
+  TexBench tests at 10-20% (71% reference drift); findings unchanged.
+  0.6.0 released 2026-10-05 (PR #15 merged, tag v0.6.0, title renamed to SweetOpt by the owner). Next test build: 0.6.1.
+  Iris 540 with the 0.6.0 release (owner's NUC, driver 31.0.101.2121; docs/opbench/intel-iris-540-v7.csv,
+  docs/texbench/intel-iris-540-v2.csv + PNGs, docs/shaderinfo/intel-iris-540-2.txt = the earlier report): OpBench = its
+  first 0.6.0 run within 10% except noise-level tests (omod half / 0.25 1.8 -> 0.4, transpose, barriers), all consensus,
+  drift 13-26%; TexBench 348 s, 10.7 GTexels/s, 6.7 GPixels/s, 22.8 GB/s, 2 tests without consensus (copy Sample RGBA8,
+  blend plain: readings falling as the GPU warmed). New tests = UHD 630 within ~2% (2 x 2 texels, trilinear vs aniso,
+  ps spread): Gen9 / Gen9.5 behave alike. Passes 1.5-2.5x slower than the UHD 630 (memory), and there half-size
+  downsampling by bilinear beats 4 Loads (RGBA8 1.44 vs 1.67 ms, RGB10A2 1.37 vs 1.87); FINDINGS.md updated.
+  RTX 5080 (Blackwell, 0x2C02, driver 32.0.16.1714 / 617.14; docs/opbench/nvidia-rtx-5080-v6.csv, docs/texbench/nvidia-rtx-5080.csv
+  + PNGs, docs/shaderinfo/nvidia-rtx-5080.txt): first Blackwell report with OpBench 0.6.0 / TexBench. OpBench = the v1 5080
+  runs within ~1 unit (add 3.5, min 3.4, clamp 7.9, select 8.2, MUFU / floor 22.5-24.4, sign 17.9, pow 51), all consensus
+  at 55% drift; nvidia-blackwell holds. Integer (first data; the model's integer costs were Ampere's): iadd 0.2, iand 0.7,
+  imul 0.7, ishr 6.8, utof / itof 6.8, ftou 14.7 = the RTX 4060 Ti's: the Ampere values fit. fma1 3.6, mad16 -0.4 (fp16 =
+  fp32), signmad 7.2 / signsel2 3.0 vs sign 17.9; fp32 58 TFLOPS. TexBench 259 s, 972 GTexels/s, 327 GPixels/s, 843 GB/s; all
+  consensus. New: in compute (dependent reads) RGBA8 point 21, Load 51, bilinear 76 units (point = bilinear on every other
+  card; the pixel shader's Sample point = bilinear here too); 2 x 2 each: 4 Loads beat 3 gathers for RGBA8 / RGBA16F (141 vs
+  187, 207 vs 351), gathers win RGBA32F (352 vs 680), 4 points slowest; 2 x 2 average: 1 bilinear 73 vs 4 Loads 141; trilinear =
+  aniso 2x round, aniso 2x 2:1 2.2x; ddx_fine 24 vs ddx 52; copy Sample = Load; blend state RGBA8 add 25% faster, RGBA32F 20%
+  slower; LUT 64: 3D 8% faster; stencil / tile discard halve the heavy pass. Pixel order 4 x 8 warp blocks. ShaderInfo statistics
+  only (like every NVIDIA). FINDINGS.md updated (Blackwell rows; gathers are not the 2 x 2 answer there).
+  Iris Xe (Gen12 / Xe-LP, 0x9A49, driver 32.0.101.7084; OpBench / TexBench 0.5.0 sent by the owner in chat 2026-10-06,
+  docs/opbench/intel-iris-xe.csv, docs/texbench/intel-iris-xe.csv; no PNGs): drift ~8%, all tests consensus in both. OpBench:
+  Gen9-like for most simple ops (add / min / max / floor / round / frac 3.6-4, clamp / select / lerp 7.6, max3 / minmax
+  +3.6, iadd / iand / utof / ftou ~4, imul 7.9, mad16 -1.8 = fp16 2x, fp32 1.84 / fp16 3.42 TFLOPS) but its own in 33 of
+  156 tests vs the intel-gen9 family table: math unit 10.7 for all of rcp ... cos and exp / log (Gen9 12.2, exp 14.7: the
+  scale mul hides), step 7.2 (Gen9 4.2), sign 17.6 (14.5), dot3 / dot4 19.4 / 25.1 (14.4 / 18.2), normalize 21.6 (28.4),
+  ldexp 7.5 (14.5), f16round 4.3 (16.6), irot 11.4 (18); compute very different (groupshared reads / writes / barriers
+  cheaper, groupshared atomics 18 vs 27, one address 455 vs 250, local array write 16500 vs 116: spills). The family
+  rules have no Gen12 entry (no "usually" marks for it). TexBench (139 s; 56.0 GTexels/s, 25.3 GPixels/s, 26.6 GB/s):
+  sRGB / RGB10A2 / RG11B10F filter at full rate (Gen9 1/3), dependent Load ~1.7x a point sample (RGBA8 Load 17 vs point 10
+  fma units; Gen9 equal), 16 / 32-bit float aniso 2x Gen9's relative cost, ddx / ddy cheaper (3.5), cache knee 4 MB
+  (L3) then DRAM; copy passes Sample = Load (memory bound); pixel order 4 x 4 blocks (SIMD16) like Gen9.
+  RX 7900 GRE (RDNA 3, Navi 31, 0x744C, driver 32.0.32015.2008 / LLPC 2.0.406; owner sent the reports zip in chat 2026-10-06;
+  docs/opbench|texbench|shaderinfo/amd-radeon-rx-7900-gre.*, order PNGs; the same zip had a ShaderInfo report of a Raphael
+  iGPU (0x164E, "AMD proprietary shader compiler" 2.0.353): docs/shaderinfo/amd-radeon-raphael.txt): first RDNA 3 measured
+  with OpBench (the rdna3 model is from RGA). OpBench 0.6.0, drift 21 / 39 / 12%, all consensus: = the RX 9070 XT (RDNA 4,
+  amd-rdna4) within ~10% on nearly every tput test (dual-issue fma base: add 3.7, min / max 4.7, floor / ceil / round / frac
+  7.8, clamp 7.8, select 10.9, step 12, lerp 9.6, MUFU 26.8-28.6, pow 57, sign 35.5 vs signmad 7.3, imul 29, iadd / ishr /
+  utof ~7.2, popc free); omod2 / omodhalf / omod4 free (-0.1), omod8 = control 2.4; max3 / minmax +3; fp32 51.4 / fp16 45.2
+  TFLOPS (min16float no faster). So in measured units the rdna3 model (VALU 4, MUFU 16, floor 4, step 8, select 4) is off;
+  amd-rdna4's row fits it. ShaderInfo: full RDNA 3 ISA (v_max3_f32, saturate as the fma clamp bit, GLSL sign = 2 x v_cmp +
+  v_cndmask, v_mad_u64_u32 for integer mul + add). TexBench 0.6.0 (86 s; 693 GTexels/s, 205 GPixels/s, 814 GB/s; 3 random
+  store tests without consensus, drift 70%): RGBA8 Load 9.0 vs point 30 fma units (Load much cheaper, as on RDNA 2 / 4),
+  RGBA16F bilinear 30 (~RGBA8 25), pixel order 8 x 8 blocks of 64 (wave64) like RDNA 4; 99 of 304 tput tests differ > 30%
+  from the 9070 XT (memory / caches).
+  Owner's go (2026-10-06, "update rdna3 too"): `rdna3` = the RX 7900 GRE's OpBench costs (kRdna3, dual-issue units like
+  amd-rdna4: VALU 4, floor 8, MUFU 27, div 27 (measured c / x 25.8: the mul hides under the rcp), step 12, select 5, sign
+  36, pow 57, imul 29; amd folds / max3 / minmax kept); the old RGA-based row stays as `rdna3-rga` (mechanics tests use
+  it). Bench (time 30, before = old rdna3; costs in new units, planted problems differ since they are generated per
+  model): examples all found except depth_reversed (goal 32 = 1000 / mad(t, 998001, 999) - c, best 35 even in 120 s and
+  with any order model; old model 24 < goal 25): the inner fit emits p * rcp(v + c) + q (35), not the div form whose mul
+  and add fold (32); rsqrt first hit 2.2 -> 23.5 s, step_lerp / length_squared faster; planted 0 not recovered.
+  Div form (owner's go 2026-10-06; SearchConfig::divForm, default, `--no-div-form`): inner rcp fits also emitted as
+  p / (v + c) (+ q), cost add + div (+ fusedAdd). Bench (time 30, on vs off): depth_reversed 35 -> 32 (goal reached
+  again), rational 35 -> 32, everything else and all first hits the same; planted identical.
+  IEEE 754 / NaN (owner, 2026-10-06; tools/reshade/sopt_IEEE754.fx from gen_ieee754.py, 62 tests x Folded / Literal /
+  Run time, built-in DejaVu Sans Mono bitmap font, fits 1920x1080 at scale 2; findings tools/reshade/IEEE754.md): ReShade
+  6.8.0 SPIR-V writes float != and float -> bool as OpFOrdNotEqual (effect_codegen_spirv.cpp 2195 / 1723: false for NaN;
+  fix OpFUnordNotEqual); HLSL / GLSL write infinity literals with swapped signs (effect_codegen_hlsl.cpp 626,
+  effect_codegen_glsl.cpp 536; shown by the Wine D3D11 and GL runs); SM3 rejects NaN / inf literals; FMin / FMax /
+  FClamp / Round on Vulkan leave D3D's NaN / tie rules to the driver. fxc -O3 without D3DCOMPILE_IEEE_STRICTNESS
+  (ReShade's flags) assumes inputs are never NaN / inf: isnan(x) and x != x on cbuffer / texture values -> false, x / x
+  -> 1, x - x -> 0, isnan(inf - inf) / rsqrt(0) == inf -> false; precise keeps the checks; the strictness flag costs
+  +5-60% DXBC instructions (SMAA 247 -> 310). My earlier "fxc compiles isnan and x != x alike" held only for computed
+  values. Owner (2026-10-06): do not rule out variants because of a ReShade bug: !(a == b) <-> a != b back in the
+  library. Signalling NaNs: no use on GPUs (no traps, payloads not preserved); (bool)-NaN = (bool)NaN.
+  Intake 2026-10-06 (Dropbox, one zip): RTX 4090 desktop (AD102, 0x2684, driver 32.0.16.1047; docs/opbench|texbench|
+  shaderinfo/nvidia-rtx-4090.*, order PNGs): OpBench 0.6.0, drift 28 / 37 / 22%, all consensus; = RTX 4060 Ti on 160 of
+  163 tput tests within max(25%, 1.5) (add 3.4, min 4.5, clamp 9.9, select 11, floor 23.6, sign 27.7, pow 48.7, iand 2.1,
+  imul 1.3; rcp 21.8 like the 4090 Laptop's 21.9): nvidia-ampere holds, now 5 cards (expected.hpp regenerated); fp32 83.4 /
+  fp16 79.0 TFLOPS. TexBench 315 s, 1323 GTexels/s, 409 GPixels/s, 904 GB/s, all consensus; pixel order 4 x 8 warp blocks.
+  ShaderInfo statistics only (Register Count / Binary Size), like every NVIDIA. AMD iGPU ShaderInfo (0x13C0, "AMD
+  Radeon(TM) Graphics", likely Granite Ridge (Ryzen 9000, RDNA 2); driver 25.11.1, compiler 2.0.353;
+  docs/shaderinfo/amd-radeon-granite-ridge.txt): VGPRs / SGPRs and disassembly like the Raphael report; no OpBench.
+  Then its OpBench / TexBench 0.6.0 (2026-10-06, driver 32.0.21033.3005; docs/opbench|texbench/amd-radeon-granite-ridge.*,
+  order PNGs; the zip's RTX 4090 files were the ones already saved): drift 0.1%, all consensus; = Raphael on all 164 tput tests
+  within max(25%, 1.5) (one VALU op 2.98, max3 1.0, omod2 / 4 free, omod8 = control, mad16 -2.45, fma1 3.0 vs mad 4: the second
+  constant costs extra on RDNA 2): fifth RDNA 2 device, amd-rdna2 unchanged (site NAME_BY_DEVICE 0x13C0 + MODEL_RULES, expected.hpp
+  regenerated); fp32 0.53 / fp16 1.03 TFLOPS. TexBench 139 s, 17.6 GTexels/s, 16.3 GPixels/s, 62.1 GB/s, pixel order 8 x 8 (wave64).
+  Intake 2026-10-08 (6 zips, all OpBench / TexBench 0.6.0, every OpBench test consensus except the second RTX 4090): reruns of known
+  cards with the 0.6.0 build, each = its earlier report on every tput test within max(25%, 1.5): HD Graphics 4600 (Gen7.5,
+  -v6, TexBench 274 s, 9.0 GTexels/s), GTX 860M (Maxwell, sqrt still 24 on driver 32.0.15.8278, TexBench 207 s, 49.7 GTexels/s),
+  Quadro M5000M (Maxwell, 158 s, 109 GTexels/s), the Raphael iGPU (0x164E, sold as Radeon 610M; = amd-radeon-raphael, 148 s),
+  RTX 4090 Laptop (0x2757, driver 32.0.16.1742, 195% drift yet all consensus, = Ampere / Ada; 338 s, 329 GTexels/s), RTX 2060
+  (0x1F15, iand 1.0 on 32.0.16.2002, 183 s, 194 GTexels/s). New: Vega 7 (0x1636 Renoir, driver 31.0.21925.1001; first full
+  OpBench of it: = the v1 Renoir run on all 40 shared tests; fma1 2.1 vs mad 4: GCN's constant bus, fp32 1.40 / fp16 2.67
+  TFLOPS; TexBench 182 s, 38.5 GTexels/s, 8 x 8 blocks). RX 590 (Polaris 30, GCN 4, 0x67DF, driver 31.0.21925.1001; first GCN 4):
+  = Vega 7 (GCN 5) on simple ops (one VALU op 2.1 units, MUFU 8.4, max3 1.2, minmax 2.1, omod2 / 4 free, omod8 = control, signmad
+  4.4 vs sign 10.6) but sin / cos 16.9 vs 10.6 and no packed fp16 (mad16 0 vs -2.9; fp16 = fp32), atomics / barriers differ;
+  22 of 164 tests off from Vega 7: a GCN 4 model would be amd-gcn5 with sin / cos ~1.6x and fp16 at fp32 cost (owner's go
+  needed); fp32 7.03 TFLOPS (spec 7.1); TexBench 128 s, 197 GTexels/s, 49 GPixels/s, 223 GB/s, 8 x 8 blocks. Second RTX 4090
+  desktop (0x2684, driver 32.0.16.1664): throttled (420% drift, 11 tests without consensus, fp32 43 of 83 TFLOPS), otherwise =
+  the first 4090 (atomics noise only); left out of expected.hpp (gen_expected UNRELIABLE). UHD Graphics 770 (Alder Lake,
+  Gen12): ShaderInfo only (docs/shaderinfo/intel-uhd-770.txt). Files: docs/opbench|texbench|shaderinfo, -v6 / -2 names.
+  RX Vega 11 (Picasso APU, GCN 5, 0x15D8, driver 31.0.21925.1001 / Vulkan 26.5.2; owner sent the reports in chat 2026-10-08;
+  docs/opbench|texbench|shaderinfo/amd-radeon-rx-vega-11-picasso.*, order PNGs): OpBench 0.6.0, drift 60 / 2 / 79%, all 164 tests
+  consensus, = Vega 7 Renoir on every tput test within max(25%, 1.5) (one VALU op 2.07, max3 1.1, minmax 2.1, omod2 / 4 free, omod8 =
+  control, rcp 8.5, sin / cos / sign 10.6, signmad 4.4, mad16 -2.9, fma1 2.1): amd-gcn5 holds, now 3 cards (expected.hpp
+  regenerated; site NAME_BY_DEVICE 0x15D8); fp32 1.91 / fp16 3.68 TFLOPS. TexBench 193 s, drift 581% yet all consensus; 27.7
+  GTexels/s, 10.5 GPixels/s, 40.4 GB/s; RGBA8 bilinear 17.7 / Load 15.8 units, RGBA16F 95 (5x), RGBA32F 270 (15x) like Vega 8;
+  pixel order 8 x 8 (wave64). ShaderInfo: VK_AMD_shader_info + executable properties (compiler 2.0.279), like the other AMDs.
+  Intake 2026-10-08 (Dropbox, one zip, 0.6.0): third RTX 4090 desktop report (0x2684, driver 32.0.16.1656;
+  docs/opbench|texbench|shaderinfo/nvidia-rtx-4090-c.*, order PNGs): throttled again (drift 158 / 161 / 153%, fp32 40.1 of 83
+  TFLOPS; TexBench 367 s, 466 GTexels/s, 108 GPixels/s, 216 GB/s vs the first 4090's 1323 / 409 / 904), yet 163 of 164 tests
+  consensus (modf not) and = the first 4090 on 159 of 164 tput tests within max(25%, 1.5) (only omod2, mad3v, smoothstep and two
+  atomics off); left out of expected.hpp (UNRELIABLE); TexBench all 995 rows consensus, pixel order 4 x 8 warp blocks. ShaderInfo
+  of a Raphael iGPU (0x164E, driver 23.20.44, compiler 2.0.283, older than the earlier reports' 2.0.353;
+  docs/shaderinfo/amd-radeon-raphael-3.txt).
+  Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
+  "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
+  step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
+  clamp / select nothing cheaper.
+  Owner's decisions (2026-10-06): ECT level 5 stays (best ratio in the benchmark; -4 is close and faster, but the
+  optimizer runs in the background); ShaderInfo as a measured source: wait for more reports; integer / bit tricks and
+  casts in the search: yes (plan first); expected costs per cost model in OpBench / TexBench: yes, if it does not bloat
+  the programs; pruning sopt / sopt-fx options: only after much more experience.
+  OpBench parallel issue (owner's go, 2026-10-04: VLIW slots / scalar designs / co-issue): Test::pairStep /
+  pairType / solo: odd chains run the pair step, so a throughput run interleaves 4 mad chains and 4 X chains;
+  summary Cost = 2 x the pair's units (one fma + one X), comment = % of 4 + X alone ("in parallel" below 85%):
+  fma+fma (control), fma+int, fma+minmax, fma+cvt, fma+rcp, fma+half; solo tests int, minmax1, cvt1, rcp1,
+  half1. dep / lat are meaningless for pair tests (one chain = the mad chain).
+  Expected costs (owner's idea 2026-10-04, go 2026-10-06 "if it won't bloat the benchmarks"): OpBench only so far
+  (TexBench costs follow memory / clocks too much for a 25% rule; not done). tools/windows/gen_expected.py ->
+  tools/windows/expected.hpp (~22 KB source; RERUN IT WHEN OPBENCH REPORTS ARE ADDED): families = cost models by
+  tools/site/build.py MODEL_RULES / NAME_BY_DEVICE / NAME_BY_FILE, expected = median tput units_vs_base over the
+  family's cards (newest report per card, clean ones only: |neg| <= 0.3, not in UNRELIABLE; readings with consensus;
+  transpose left out as noise). OpBench (familyOf: device table, then regex on the name without (R) / (TM)) marks a
+  test "usually N" (magenta) when |measured - expected| > max(25%, 1.5 units), pair tests and no-consensus tests not
+  compared; summary "Compared with other cards" (family, cards, "matches them in all N tests compared" or the list,
+  "please send this one"; no family: "especially interesting"); CSV "# family:", "# differs from the family:" and an
+  `expected` column (last). Checked against every report in docs/opbench: clean in-family runs flag 0-2 tests (the
+  GTX 1660's iand on the old driver, Maxwell's sqrt driver split, Iris 540 / UHD 630 groupbarrier), the clock-distorted
+  runs 15-33. Driver recommendations (owner's idea) need more data first.
+- Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
+  nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
+  changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
+  and ptxas -v (`parsePtxasRegs`); informative only at first). Register variants (owner, 2026-10-04: "2-pass
+  looks for variants that may not be faster but might be preferable in other ways"; part 2 first): with --isa /
+  --sass, accepted candidates that are not statically cheaper (up to accuracySlack above) are measured too (max 2
+  per region, `registers` bucket); kept as Variant::fewerRegisters + notFaster (renamed from accuracyOnly) when
+  some vendor's VGPRs / regs drop, none rise, and every vendor is at most 1 instruction slower; labeled "fewer
+  registers (not faster)", listed last, never SOPT_AUTO, not in sopt-found.txt; registers join the Pareto check
+  (amdVgprs, nvRegs). Part 1 (later, behind a flag, bench / corpus runs to see the impact): the second phase also
+  keeps the best hit per extra static measure (critical path, live values, MUFU ops). Polynomial approximations
+  (`--poly`, planned; owner 2026-10-03: after the full corpus run): a special mode for development, not a default; its approximations go into
+  docs/inexact-tricks.md. Later (owner): the compiler's output as a seed or comparison variant; instead /
+  first (owner): do what the compilers do by reading their source (done for Mesa nir_opt_algebraic, ACO,
+  DXC lowerings: library pre-pass seeds the search; fxc is closed). Owner's go 2026-10-03 for more sources:
+  spirv-opt (SPIRV-Tools source/opt/folding_rules.cpp) was already mined earlier (constant merges); its
+  remaining float folds are negation shuffles (no gain) and cancellations ((a - b) + b -> a, (y / x) * x -> y,
+  (x * y) / x -> y), left out on purpose (they break rounding tricks; docs/inexact-tricks.md). DXC's LLVM
+  (lib/Transforms/InstCombine, lib/Analysis/InstructionSimplify.cpp, lib/Transforms/Utils/SimplifyLibCalls.cpp;
+  DXC's own lib/Analysis/DxilSimplify.cpp only folds mad(0, a, b)): 31 rules added (library 129 -> 160, all pass
+  --check-library): constant mul pushed into add ((x * a + b) * c -> mad(x, a * c, b * c); (x + b) * c only
+  without cancellation, x and b of one sign), divide chains ((x / y) / z -> x / (y * z) etc. with |y|, |z| in
+  [1e-15, 1e15]), a / (b / x), x * log2(y * 0.5) -> mad(x, log2(y), -x), pow(2, x) -> exp2(x), sqrt(x * x * y),
+  log / exp / pow / sqrt compositions (log(exp(x)) -> x, pow(exp2(x), y) -> exp2(x * y), sqrt(pow(x, y)) ...). Order model (owner): test whether preferring cheap ops really
+  finds cheaper candidates sooner (bench 2026-09: search order 38 found, rdna3 order 37, generic 36) and count
+  which ops the found variants use (sopt-found.txt), once the library / found list is bigger.
+  OpBench trunc test (a tester's suggestion, 2026-10-03: "trunc drops something rather than deciding by sign,
+  could be faster"): added; fxc writes it as round_z, the same rounding family as floor / ceil / round.
+- Too exact (owner, 2026-10-03: rules that are exact in real math but differ from float math "could be fine
+  or in fact better for the effect - something for the user to decide"): Klass::Accurate is labeled "too
+  exact" (was "as accurate"); sopt-fx variant files define SOPT_TOO_EXACT (default 1, owner) and too-exact
+  variants apply only while it is set (`&& SOPT_TOO_EXACT` in their #if; removed statements come back under
+  the negation like format guards); never SOPT_AUTO. `precise` (owner: yes): a region that writes, reads or
+  directly feeds a precise variable (`touchesPrecise`, frontend.cpp) gets vsExact = false and errorScale =
+  false (budget reason "precise: float math only"). Found while testing: sopt turned the add-round (x + C) - C
+  into x as "too exact", and with the exact rule off still as "within budget" via the error-scale floor (rel
+  budget scaled by the original's rounding bound ~|x + C|); precise regions now keep it. Without precise, fxc
+  folds (x + C) - C to x anyway. Loose x error-scale floor accepted r = Amount for (uv.x * Amount + C) - C
+  as "less accurate" (100 x the scaled budget = 1260 absolute); owner: cap less accurate at 100x the
+  original's error: pointLoose ignores the error scale (loose x plain budget, or loose x the original's
+  error vs exact).
+- First sopt release (owner, 2026-10-03: "release sopt itself, so users can play with it and give input"; Windows
+  + Linux, with 0.4.0, a quick-start guide): release.yml jobs windows (+ sopt-<v>-windows-x64.zip: sopt.exe,
+  sopt-fx.exe, QUICKSTART.txt = docs/QUICKSTART.txt, LICENSE; version resources on both exes), linux (ubuntu-22.04,
+  -static-libstdc++ -static-libgcc, sopt-<v>-linux-x64.tar.gz) and release (collects both, SHA256SUMS.txt, draft on
+  manual runs). `--version` on sopt / sopt-fx. Feedback: GitHub issues. docs/signing.md artifact config has the
+  sopt zip.
+- Integer / bit tricks (owner, 2026-10-02, after Massalin's 1987 superoptimizer): float <-> int bit
+  conversions may hide tricks (e.g. +-1 by copying the sign bit onto 1.0, asfloat((asuint(x) &
+  0x80000000) | 0x3f800000), 2 int ops, 1 at 0 like the two-way sign); owner: let sopt try to find such
+  forms itself, which needs bitcast / integer ops in sopt (design change, not decided). Corpus count
+  (12 packages, --list --skips): ~280 statements skipped for non-float reasons (non-float variable 164,
+  arithmetic 64, select 22, intrinsic 13, fetch 11) + ~130 windows, against ~2500 float regions; most
+  are int loop counters / indices. Real bit code (shifts, asuint / asfloat, reversebits) is almost all
+  iMMERSE (LAUNCHPAD, mmx_qmc / mmx_sfc / mmx_hash: hashes, QMC sequences, space-filling curves; it
+  already uses asfloat((u >> 9) | 0x3F800000) - 1 for uint -> [0, 1)).
+  Done (owner's go 2026-10-06, "plan first", then: bit tricks first, expected costs next): Type::Uint (scalar; the value
+  is held in the float slot as its bits), ops AsUint / AsFloat / FToU / FToI / UToF / IToF / UAnd / UOr / UXor / UShl /
+  UShr / IShr / UAdd / USub / UMul (Shape::Int / ToUint / ToFloat, base = false; D3D conversion rules, shift counts & 31),
+  parser (hex / u literals, & | ^ << >> with C precedence, asint / int mark signedness for float(...) and >>), printer
+  (float(asint(a)), asuint(int(a)), asuint(asint(a) >> b)), exact evaluator (uint values as exact integers, casts on the
+  float32-rounded operand), PTX (%r registers), V3 gives up on them, compiledCost counts bit casts free; costs in every
+  model from the OpBench integer tests (bit casts 1 = the minimum; conversions Turing 8 / 12, Ampere 14 / 7, Pascal /
+  Maxwell 2, AMD 4, imul quarter rate on AMD 16). The bank's op/type code is a dense table now (OpTypeCodes; op x type no
+  longer fits a byte). `--bits` (SearchConfig::bits; sopt, sopt-fx, bench): integer ops enumerated with a constant pool
+  (1, 9, 23, 31, 127, sign / abs / exponent / mantissa masks, 1.0's bits, 0x5F3759DF / 0x7EF311C7 / 0x1FBD1DF5; floats
+  127, 2^23, 2^-23); integer entries are not canonicalized and quantized dedup is off. Bench (examples, time 30): without
+  --bits identical bests and first hits; with --bits the same bests but slower (rsqrt first hit 2.1 -> 22.9 s,
+  length_squared 3.1 -> 18.2 s): stays a flag. -0.0 (owner: keep, mark, the user decides): findProblemRanges checks every
+  scalar input whose range holds 0 at -0.0 for candidates with integer ops (ProblemRange::negZero, "differs at x = -0.0",
+  never SOPT_AUTO); random sampling never draws -0. Found: x >= 0 ? 1 : -1 -> asfloat(0x3F800000u | (0x80000000u &
+  asuint(x))) (Ampere 10 -> 6, differs at -0.0); exp2(n) for integer n -> asfloat(0x3F800000u + (asuint(int(n)) << 23))
+  (rdna3 16 -> 13, Ampere 24 -> 22; exact, the GPU exp2 1 ulp off under gpu+/-); floor(log2(x)) -> mad(float(0x007FFFFFu |
+  asuint(x)), 2^-23, -128) (rdna3 20 -> 13, Gen9 16 -> 13) and mad(asfloat(0x3F800000u - (asuint(x) >> 23)), -2^24, 2^24 -
+  127) (Turing 24 -> 11, no int -> float conversion): "too exact" (the float32 original rounds wrong just below powers of
+  2, so an exact budget rejects them); ldexp not reached in 60 s (one level too deep). Targeted searches (scratchpad
+  ffb/, 16 intrinsics x 9 models, 20 s): bits help only the signed power (asfloat(asuint(pow(abs(x), g)) | (asuint(x) &
+  0x80000000u)): Turing 41 -> 36, Pascal 42 -> 39, Blackwell 73 -> 58; Ampere 85 -> 63 via a sign-bit 1.0) and Pascal's
+  frac (x - float(uint(x)) for x >= 0, 10 -> 8: conversions are cheap there); exp2 / log2 / rcp / rsqrt / sqrt / pow /
+  exp / floor / ceil / clamp / select: no exact bit form; the earlier fast forms found again. Library (183 rules, all
+  pass): the bit tricks above (exp2 of an integer, ldexp, three floor(log2) forms, abs mask, sign-bit copies, signed power,
+  floor / frac via uint for x >= 0) and the owner's wiki tricks (Shader Tips, Tricks and Optimizations: abs(a) ==
+  -abs(b) for both zero, a == -b / a == b where the signs are known (owner: abs is not free on every card), mad(x, x, -x)
+  <= 0 for x in [0, 1], the saturated two-value form; pow(x, 1.5) / sqrt via rsqrt); logical and / or / not (owner's go
+  2026-10-06): ops LAnd / LOr / LNot (Shape::Logic, Bool -> Bool, base = false: enumerated only when the target has
+  them; cost of the integer and, ! 1), parser && || ! with C precedence, printer parenthesizes a nested different
+  && / || / ?:, eval / exact / V3 (a deciding operand settles it) / PTX (and.pred ...) / sopt-fx (tokenid
+  ampersand_ampersand / pipe_pipe / exclaim on scalar bools; RESHADEFX_SHORT_CIRCUIT is 0, so they are plain binary
+  ops). Library: the wiki rules in && / || form and !(a == b) -> a != b (195 rules, all pass). Found a verification gap
+  with it: (A == 0 && B == 0) ? c.r : c.g -> c.g passed as "bit-exact" (no sample has A = B = 0); thresholdPoints now
+  adds joint points (every compared input at its threshold together, or a random half, plus each one's neighbours) when
+  the target has >= 2 comparisons with an input operand; the variant is then abs(A) == -abs(B) ? c.r : c.g (18 -> 13).
+  any / all on vectors: not yet (vector comparisons are not in the IR). Exhaustive C check (every positive
+  normal float): the three floor(log2) forms, floor / frac via uint and exp2 of an integer are exact. ReShade's FX parser
+  accepts the written syntax (asuint / asfloat / asint / hex u literals); sopt-fx does not read integer code in shaders as
+  regions (skipped as before).
+- Back buffer size inputs (owner's go 2026-10-02; sopt-fx default since 2026-10-02 by the owner's decision, `--no-buffer-inputs`): BUFFER_WIDTH /
+  BUFFER_HEIGHT symbolic as `uniform int __sopt_...` (int keeps BUFFER_WIDTH / 3 an integer division;
+  only int -> float conversions of them become compile-time float inputs, range [1, --max-width] as a
+  fact, grid 1, value = the parse's 1920 / 1080); lines that need a constant (texture / array sizes,
+  static const) fail to parse that way and go to LoadOptions::symbolicExclude (preprocessor
+  `symbolic_exclude`, retried until it parses: `loadEffectBufferSymbolic`); object-like macros that expand
+  to symbolic names, numbers, float types and punctuation (BUFFER_SCREEN_SIZE, BUFFER_RCP_WIDTH) pass the
+  "uses a macro" check (`sourceTokens`); variant code writes float(BUFFER_WIDTH). 12 packages: +86
+  regions, 0 parse failures; ReShade::PixelSize etc. (static const in ReShade.fxh) still numbers (39
+  "depends on BUFFER_WIDTH/HEIGHT"). The owner's dithers (Nostalgia 530, Deband 229, DisplayDepth 243) are
+  regions now: nothing cheaper than frac(dot()). A/B (time 3, new vs baked): reshade-shaders 37 -> 43
+  regions, Fubax 181 -> 210, Warp-FX 54 -> 52 (RadialSlitScan ar_raw = H / W: baked it was 0.5625 and the
+  2560x1440 second parse has the same aspect ratio, so the old check misses aspect-ratio-only
+  dependence; open: second parse at another aspect ratio?), same regions with variants; SweetFX 10 -> 26
+  regions with variants, all 16 new in ASCII.fx and WRONG ones among them: gray < 4.0 * quant ->
+  gray < 0.25 "bit-exact" (right only for quant = 1/16; line 338 is in the quant = 1/13 branch).
+  Cause: with symbolic sizes the interval analysis widens gray to [-1.3, 25600] (trunc(S / block * tex)
+  * (block / S) loses the correlation), and uniform sampling misses the 0.06-wide window where the
+  threshold differs (baked: gray ~[0, 1], caught). Hence off by default. Fix proposed to the owner:
+  threshold points (for comparisons / step / select whose operand is an input, sample that input at the
+  other operand's value and its neighbours), and maybe ranges from the specialized sizes.
+  Owner's go (2026-10-02) for both, threshold points first: done, `thresholdPoints` (verify/points.cpp):
+  for Lt..Ne / step / min / max / clamp nodes with an input (component) as one operand, 4 random base
+  points each with that input at the other operand's value and its two neighbours (grid steps on a
+  grid), up to 512 points; only in makeRandomPoints(withSpecials) (stage 2, V1, library check, bound
+  points), not the search's test points. The ASCII case (tests threshold_points) is rejected now; all
+  129 library rules pass. Bench (examples, time 30, before / after): identical bests, iterations and
+  first hits, verify times the same. Second parse now 5120x1440 (32:9 super ultrawide, owner;
+  fx::kAltWidth / kAltHeight) instead of 2560x1440 (same aspect as 1920x1080): 12 packages + Warp-FX,
+  aspect-ratio-only regions newly skipped: AspectRatioSuite 191 / 196, LAUNCHPAD 802 / 803, qUINT_dof 359,
+  Warp-FX RadialSlitScan 44 (none of them in a test package). Next: narrower ranges for size-derived
+  values, then static const initializers (ReShade::PixelSize etc.: the deprecated static const branch of
+  ReShade.fxh is the one ReShade compiles; the function form is only under __RESHADE_FXC__).
+  Leaf ranges over 12 common back buffer sizes done (`leafRange`, kBufferSizes; ASCII gray [-1.3, 12.2],
+  baked [-1.3, 6.2]). SweetFX A/B (time 3, both with threshold points): baked 10 of 310 regions with
+  variants, --buffer-inputs 10 of 318, the same regions (the wrong ASCII variants are gone); baked equals
+  the run before the threshold points. Default still off: asked the owner.
+  Static consts (owner: ReShade::PixelSize etc. are fixed per resolution and recompiled when it changes,
+  like the macros): named expressions (parser `sopt_named_expressions`, LoadOptions::namedExpressions;
+  a global static const with a non-literal initializer is parsed again at each use, errors point at its
+  declaration; fallback without them when the exclusion loop cannot converge). 12 packages: "depends on
+  BUFFER_WIDTH/HEIGHT" 39 -> 0, +43 regions; Warp-FX (now laid out as installed: its effects include
+  ../ReShade.fxh, so 8 of 10 failed to parse in the earlier A/B) 80 regions baked, 101 buffer inputs.
+  Search A/B (time 3, baked vs buffer inputs, both with threshold points and named expressions):
+  Warp-FX 6 -> 16 regions with variants (all the same correct lerp(ar_raw, 1, a * 0.01) -> mad(0.01, a -
+  a * ar_raw, ar_raw) in BulgePinch / Ripple / Swirl / SplicedRadials / ZigZag, amd 3 -> 2, nv 3 -> 2,
+  blocked before by ar_raw = H / W), OtisFX 4 -> 3 (CinematicDOF 966 had no variant row in the baked
+  run either), iMMERSE 7 / 7 (same regions), SweetFX 10 / 10; all variant files parse.
+- Scheduling measures (owner, 2026-10-08: "group calculations by where the data comes from so they can be
+  precalculated, start texture fetches early, minimize their tail"; a secondary measure like registers; go for the plan):
+  InputDecl::rate (Pixel / Uniform / Fetch + fetchOrder; .sopt `input x : uniform|fetch float ...`; sopt-fx: user
+  uniforms of FX effects (no `source` annotation; plain HLSL has no performance mode) and fetch leaves in source order),
+  perfFolded / folds() (uniforms folded like compile-time inputs: perfInputs). scheduleMetrics (expr.cpp): perfCost
+  (dagCost with uniforms folded), tail (cost of the nodes depending on the last fetch), critical path; nodeCosts
+  refactored out of dagCost. search/reshape.cpp reshapeForms: sums / products flattened through single-use same-type
+  nodes, rebuilt in rate order (const, macro, uniform, pixel, fetches in order; product terms as mad), second form
+  multiplies a const / uniform weight into a sum that reads a fetch (the mad chain); forms no better on any measure
+  dropped; candidates like the library's (target + seed). Driver (Options::schedule, default, --no-schedule;
+  Options::perfFirst, --perf-mode-first: recursion with perfInputs): Accepted normalCost / perfCost / tail / critical,
+  ties broken by the other mode's cost, tail, critical path; kept when not cheaper but otherModeFaster (up to
+  accuracySlack above) or betterScheduling (tail shorter at no more cost); value-hash dedup keeps better-scheduled ones.
+  sopt: schedule line and perf / tail columns. sopt-fx: Variant perfFaster / betterScheduling (notFaster, scheduling
+  bucket, max 2, never SOPT_AUTO, not in sopt-found.txt), comments ", performance mode a -> b (amd x -> y) (nv ...), tail
+  t -> u", report columns; with --isa / --sass the other mode is measured too (uniforms as compile-time constants at lo +
+  0.37 (hi - lo) through specializeForCompiler); a perf-faster variant must be measurably faster there where measured.
+  Checked: fxc and AMD's driver issue loads in dependency order (nested mad text order does not matter); test effect:
+  (a + b + c + d) * 0.25 -> mad chain "better scheduling", tail 8 -> 4; color + (color - blur) * S * O -> * (S * O)
+  "faster in performance mode" 14 -> 10, measured amd 2 -> 2 (AMD's compiler already folds it), nv 3 -> 2. Bench
+  (examples, time 10): identical bests (no rates in the examples). Not done: AMD ISA tail (instructions after the last
+  s_waitcnt vmcnt(0), needs RGA ISA text per candidate). Corpus A/B (2026-10-08, SweetFX + DisplayDepth + potatoFX, 415
+  regions, --isa --sass --backends --time 3, on vs --no-schedule): 21 vs 13 regions with faster variants (new, all from the
+  reshaped forms: LiftGammaGain 29-33 x4, saturate(mad(c, 1.5 - L * 0.5, L * 0.5 - 0.5)) nv 12 -> 10, dxbc 9 -> 8, perf. mode
+  33 -> 15; Tonemap 40-42 x4), none lost; 6 "better scheduling" variants (FakeHDR 37 / 48 mad chains, LumaSharpen 109 / 127,
+  Sepia 15 / 17), 1 more "fewer registers"; search time identical, wall 3100 vs 2041 s (more variants measured, the other
+  mode too); all variant files parse (98 / 56).
+- Classical rewrites (owner, 2026-10-08: "the regular optimizer tricks before we start superoptimizing"; src/fx/classic.cpp,
+  hoist.cpp, blend.cpp; SourceRewrite = line edits under SOPT_<file>_<tag><line>, rewrites take their lines first, regions on
+  them give way; with --isa each is measured alone (RGA, the effect's pixel / compute shaders summed, both modes) and kept on a
+  gain with neither mode worse; without --isa only the table rewrites with non-constant entries). (1) tables (tag T,
+  --no-classic): local arrays of constants indexed at run time -> static const tables; corpus 113 candidates, measured gain
+  only Monochrome (58 -> 15 VALU, scratch 19 -> 0; all-constant arrays are folded by fxc and LLPC already). Proposed SweetFX
+  LumaSharpen 1.6.0 (tools/sweetfx/: patterns from tables, D3D10+ only; 96 -> 58 VALU, 15 -> 5 fetches without performance
+  mode). (2) vertex shader (tag V, --no-hoist): per pixel shader whose passes share one plain void vertex shader, the largest
+  region subexpressions constant per draw (uniforms; flat, nointerpolation, D3D10+) or affine in interpolated inputs, costing
+  more than ~2 / ~3 add units per component, go to float4 outputs of a wrapper sopt_VS_<PS> (calls the original VS); statements
+  whose moved values fold in performance mode switch only with !__RESHADE_PERFORMANCE_MODE__. Test effect 37 -> 6 (perf 11 ->
+  4). Corpus (2026-10-08): 112 candidates in 97 effects, 55 kept (best BasicCRT 32 -> 23, perf 23 -> 19; DPX 168 -> 139;
+  Deconverge 19 -> 15; anamorpho 32 -> 27), 34 worse without performance mode (cheap affine parts in large shaders), 5 dropped
+  for +1 in performance mode only (Phosphor 46 -> 18 but perf 11 -> 12, BaBa_PHDR, AdaptiveTonemapper, FocalDOF, TrackingRays).
+  (3) blend stage (tag B, --no-blend-stage; owner's idea): a pixel shader drawing to the back buffer (PostProcessVS, no blend
+  state, one return) returning per channel A + B * d (d = the back buffer at its own texcoord, a fetch or a never-written local)
+  or min / max(d, X) returns the source: float4(A, B) ONE / SRCALPHA (B scalar, lerp), DESTCOLOR / ZERO, ONE / ONE, ONE /
+  INVSRCCOLOR (B = 1 - A), BlendOp MIN / MAX; destination alpha kept; verified with the source clamped and one more 8-bit code
+  (the blend unit rounds the source), 10-bit / scRGB failures become guards; regions re-extracted with minOps 1. Test effect:
+  2-3 instructions less per pass (the back buffer fetch goes). Corpus: only 2 candidates (Daodan RetroTint screen,
+  LightPersistance max): out-parameter outputs (Layer.fx) and color.rgb = ...; return color are not followed yet.
+  tools/sweetfx/BlendModes.fxh (owner: a blend mode header for everyone, our own formulas): 27 modes (W3C + image editor
+  extras), Blend(mode, b, s, opacity), BLENDMODES_STATE_* + Source_* for the 8 blend-stage modes (+ subtract); SweetOpt forms
+  (overlay / hard light without a select: max(s, mad(2 - 2b, s - 1, 1)) * saturate(2b), pin light clamp(b, 2s - 1, 2s),
+  exclusion mad(2b, 0.5 - s, s), ...), all within one 8-bit step of the W3C formulas; the full switch 238 -> 218 SPIR-V alu.
+  Next (owner): Layer.fx 2.0 with all blend modes, a quad vertex shader (move / rotate / scale), copies as Layer2.fx etc.
+  (questions asked: mouse placement, LAYER_BLEND_STATE macro, quad, per-copy size defines).
+  Owner (2026-10-08): (3) a rewrite faster without performance mode but slower with it is kept with `&&
+  !__RESHADE_PERFORMANCE_MODE__` on every edit (never slower; ReShade defines the macro already, no feature request
+  needed): Phosphor 46 -> 18, performance mode stays 11. (4) blend stage also for the last store to an out SV_Target /
+  COLOR parameter (`result = SRC;`) and for `color.rgb = ...;` / `color = ...;` right before `return color;` (store ->
+  `return SRC;`, the return removed); budget forced to Color8; the back buffer's alpha is kept (the developer checks). Fixed
+  on the way: a whole float3 local initialized from the back buffer (no suffix) was never recognized as d. A rewrite that
+  drops a texture read (fxstat vmem) counts as a gain at equal cost (report column "reads").
+- Easy mode (owner, 2026-10-08: users asked for "a ready file", for newbies; owner: both outputs, settings in the menu that
+  default to the safe choices): sopt-fx `--easy` (fx::WriteOptions::clean: the picks written in, no SOPT_ switches; rewrite
+  conditions that must stay, __RENDERER__ / performance mode, stay as #if) and `--easy-switches` (allOn: the usual file reduced
+  to the picks, SOPT_ALL default 1, no SOPT_AUTO block); fx::easyPicks: per region the variant with the lowest measured (else
+  static) cost among faster ones (not notFaster), bit-exact / 8-bit identical / within budget (`--easy-too-exact` adds too
+  exact), no problem inputs, no format guard, no #if guard, where measured slower on no vendor and faster on one; rewrites
+  `--easy-rewrites none|safe|all` (safe = tables + vertex shader, default; all adds the blend stage). The report and
+  sopt-found.txt still list everything. Test fx_easy_mode. SweetOpt.bat: key M (easy, then "keep a switch for each change?"
+  Y/N, or expert), key E (easy settings: too exact no/yes, rewrites safe/all/none, reset), MODE / TOOEXACT / REWRITES in
+  SweetOpt.ini, default easy; key 2 option 4 picks a GLSL / HLSL file without a Shaders folder (no -I then); file dialog
+  lists .hlsli / .frag / .fs / .glsl. cmd gotcha found under Wine: `if A if B (x) else (y)` binds the else to the outer if
+  (toggling setting 2 flipped setting 1): use gotos. Owner's 0.6.5 test (Pinball crt-lottes, Turing): "0 of 13 regions have
+  cheaper variants" although two were found (held back: assumed ranges, no facts): result lines now say "(needs value ranges,
+  see below)" and a summary line names the inputs and menu key 8. sopt-found.txt (owner): pattern, "  ->", replacement and
+  "  where ..." on lines of their own; parseLibrary joins a line starting with "->" / "where" or following one ending in "->"
+  (library/rewrites.txt stays one line per rule). Window title progress (owner's idea): console::setTitle / titleBar
+  ("SweetOpt - [##########] 60%  searching k/n  ~m:ss left", SetConsoleTitleW, xterm OSC 0 elsewhere; "done" at the end)
+  and benchkit titleBar in OpBench / TexBench titles. Test builds 0.6.6, 0.6.7; the release (GLSL, easy mode) sets 0.7.0.
+- Other GPU families (owner, 2026-10-09: "even if we target one platform we would still like optimizations that help
+  other platforms as long as they do not hurt ours"; expert mode shows where variants help and harm; easy mode decides a
+  variant that is equal on the chosen card, faster on some, slower on others by how many GPUs of each family exist, from
+  the Steam survey read at release time; a "saved" summary): src/fx/platforms (12 families = cost models GCN / RDNA 2-4 /
+  Maxwell-Blackwell / Intel Gen7.5-12, shares from data/steam-gpu-share.txt embedded via cmake/embed_library.cmake VAR
+  kSteamGpuShare; worldChange = share-weighted % change). sopt-fx costs every accepted candidate per family (Variant::
+  platform / compiled / world, RegionResult::targetPlatform / targetCompiled); otherGpus = not cheaper on the chosen model,
+  not more, cheaper on some family (not less accurate; max 2, listed after strict / loose; with measurement kept when slower
+  on no measured vendor). --all-platforms (menu: asked after the card, ALLPLAT): also optimize() with rdna3, nvidia-turing,
+  nvidia-ampere, intel-gen9 (allPlatformModels), candidates merged with costs from the chosen model. easyPicks: otherGpus only
+  when world < 0 (no survey data: only when no family gets slower); ties on the chosen cost broken by world. Report: "GPU
+  families" table per region (change per family, bold gains, Steam users column). End of run: "SweetOpt saved: N regions in F
+  files, cost a -> b (-x%) on <model>", faster / slower families (or "every GPU family (lo% to hi%)"), measured AMD / NVIDIA,
+  classical rewrites. Steam survey: tools/site/steam_share.py (MODEL_RULES from build.py + NEAREST: RDNA 1 -> rdna2, GCN 1-4
+  -> gcn5, Kepler -> maxwell, Arc -> gen12, Radeon 7x0M / 8x0M -> rdna3, 6x0M -> rdna2; generic "AMD Radeon Graphics" /
+  "Intel UHD Graphics" = other), workflow steam-survey.yml (manual + monthly on the 4th; commits the file on main; pushes
+  that change the script only print). store.steampowered.com is not reachable from this container (DNS); the workflow log
+  is read with mcp get_job_logs (artifact / log downloads go to blob hosts the gh proxy refuses). September 2026: Ampere/Ada
+  37.6%, Blackwell 23.0, Turing 9.6, Pascal 4.4, RDNA 2 2.8, RDNA 4 2.4, RDNA 3 2.3, GCN 1.9, Gen12 1.8, Gen9 0.9, Maxwell
+  0.2, other 13.2. Run the workflow on main before each release.
+- Previous-run reuse (owner, 2026-10-09: "the next run could start with the variants found in the previous run"):
+  sopt-fx writes outDir/sopt-cache.txt (blocks "shape <input types>|<target over in0..>", "key <optionsKey>|<searchKey>",
+  "cand <accepted text over in0..>", "end"; up to 8 keys per shape, entries of regions not in the run kept). Next run:
+  same key = Options::previousOnly (no enumeration / subtrees / cuts / --all-platforms searches, one CEGIS round, the
+  cached candidates verified again); same shape, other key = Options::previous (candidates verified again, the cheapest
+  passing stage 2 sets seedBound and joins cfg.seeds; RunResult::previousBest). optionsKey = version, model, time and the
+  search flags. --no-cache. Pinball crt-lottes (Turing, --time 10): 25 s -> 1.1 s unchanged, same results.
+- Articles the owner sends (2026-10-09: "look at them and discuss; some are assumptions we can now prove or disprove"):
+  (1) Drobot's ShaderFastLibs (ShaderFastMathLib.h): checked numerically and against our costs, docs/inexact-tricks.md
+  (several of its error claims are wrong: sqrt NR0 4.5% not < 0.7%, rcp NR0 5.1% not < 0.4%, rcp NR1 0.26% not < 0.02%,
+  atan 1.5e-3 rad not 7e-5 and only |x| <= 1; fxc's acos already is its polynomial); OpBench tests rsqrtnr0 / rsqrtnr1 /
+  rcpnr0 / rcpnr1 / sqrtnr0 / acos4 / atan4 (section "Fast approximations"). (2) Bit Twiddling Hacks (the owner uploaded
+  the page; graphics.stanford.edu does not resolve here): mostly hardware intrinsics or irrelevant on GPUs; library rules
+  exp2(floor(log2(x))) -> asfloat(asuint(x) & 0x7F800000u) and exp2(ceil(log2(x))) -> asfloat((asuint(x) + 0x007FFFFFu) &
+  0x7F800000u) (exact on 57M sampled positive normal floats; 197 rules pass) and OpBench pow2floor / exp2floor / pow2ceil /
+  exp2ceil. Test build 0.6.8. (3) Lagarde's "Inverse trigonometric functions GPU optimization for AMD GCN" (owner uploaded
+  it; wordpress.com does not resolve here): error table verified, fxc counts (acos 11 vs degree 1 8; atan 18 vs odd degree
+  5 alternate 9; atan2 24 vs first-quadrant 8), his GCN v_mov-per-constant note = OpBench fma1 2.1 vs mad 4 on GCN;
+  docs/inexact-tricks.md; OpBench acos1 / atan5a / atan2q (owner's go). Test build 0.6.9.
+- GPT research list (owner, 2026-10-09: "verify, do not take it as gospel"; 57 items, most already in sopt or CPU-only).
+  (1) Divisions (done, owner's go): AMD (RGA) and NVIDIA (ptxas) compile c.rgb / y like c.rgb * rcp(y) (one rcp, amd 8 /
+  nv 11 both), share one rcp across a / y + b / y and turn x / 3.0 into a multiply (no MUFU), but the static model charged
+  full divisions (rdna3 c / y 81 vs 39). Now `divCosts` (expr.cpp; dagCost, nodeCosts, compiledCost): a / b = rcp share
+  (CostModel::rcpPart(wb) = Div(wb) - Mul(wb)) once per distinct non-compile-time divisor, shared with rcp(b) itself, plus
+  Mul(w); a lone same-width division costs Div(w) as before; enumerator: CostModel::binaryCost for (floatN, float1)
+  divisions, a compile-time divisor costs Mul(w) (minOp lowered to Mul for the bound). Bench (time 30, examples + 12
+  planted): identical bests and first hits. SweetFX + DisplayDepth (time 3, before / after): 46 -> 45 regions with variants (DPX
+  50 RGB_Curve / 2.0 -> * 0.5 was a fake gain), "saved" 2450 -> 1546 became an honest 1845 -> 1309 on rdna3. (3) length(v) < r -> dot(v, v) < r * r: differs only within ~1 float step of the
+  threshold (0 of 6 full 4K screens), docs/inexact-tricks.md; not a library rule (exact budgets reject it; 17 corpus uses,
+  nearly all in if conditions). (4) E-graph (equality saturation) not needed: the library pre-pass never reached its 256-form
+  cap on SweetFX (665 searches, 0.47 forms each). (5) STOKE-style stochastic search: owner's go to try later, behind a flag,
+  bench decides. (6) uniform zero guard (if (Strength != 0) around work a uniform scales; for performance mode off): asked.
+  Not applicable: wave intrinsics, warp-aggregated atomics, threadgroup / wave size tuning: ReShade FX has none of them
+  (owner, 2026-10-09: ReShade only adds features once they have wide real-world support; SM6 wave ops are still new).
+  z3 (SMT solver) not installed; integer code is rare in the corpus.
+  (2) fp16 / min16float (owner's go for a plan; "the cost models must tell where fp16 math is actually a win"): ReShade 6.8
+  writes min16float as min16float on D3D10-12 (SM >= 4), plain float on D3D9, "mediump float" on OpenGL (desktop GL ignores
+  precision qualifiers; real half types need GL_AMD_gpu_shader_half_float / GL_NV_gpu_shader5, which ReShade's GLSL codegen
+  supports but runtime.cpp turns off: enable_16bit_types = false for GL and Vulkan) and float + RelaxedPrecision on Vulkan
+  (RGA gfx1100: identical ISA to float). OpBench (D3D11) family medians, fp16 vs fp32: mad16 -2.9 GCN 5, -2.5 RDNA 2, -1.8
+  Gen9 / Gen12 (packed, ~2x); 0 on Maxwell / Pascal / Turing / Ampere / Blackwell / Gen7.5, -0.4 RDNA 4, +0.2 RDNA 3; rcp16
+  never cheaper (RDNA 2 10.2 vs 7.8, Turing 16 vs 12); f16round (conversion) GCN 5 3.2, Gen9 16.6, Pascal / Maxwell 23.9.
+  Only Barbatos uses min16float in the corpus.
+  Step 1 (owner's go 2026-10-09, test build 0.6.10): OpBench tests max16, log2_16, mad16v3 (min16float3 vs mad3v: AMD packs
+  pairs, so 3 components should cost 2 instructions) and mix16 (one fp16 fma between fp32 fmas: the conversion cost); a bare
+  (float)(min16float)x is dropped by fxc (checked: harness compiling every test with Microsoft's d3dcompiler_47 under Wine,
+  scratchpad f16/harness.cpp, all 182 compile); fxc packs OpBench's 8 scalar chains into float4 registers, so the packed fp16
+  rates are for pairs. HalfCosts per model (ops.hpp halfCosts / halfOpCost / halfConvertCost, provisional): GCN 5 packed,
+  RDNA 2 packed (transcendentals 130%), Gen9 ALU 60%, Gen12 ALU 55% (transcendentals 115%), Turing transcendentals 133%,
+  RDNA 3 / 4 / Ampere / Blackwell no gain, Maxwell / Pascal / Gen7.5 / GCN 4 at 32 bits (no cost, no conversions); one
+  plain instruction per converted component until mix16 reports arrive. Steps 2-5 (fp16 evaluator with half / float / mixed
+  profiles, half variants with conversions at the region's edges in the family table, D3D10-12 only output, corpus A/B +
+  sopt-timer on the owner's NUC) follow. (6) uniform zero guard: on the list (owner).
+- Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
+  that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
+  early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).
+- Precomputing equivalent instruction forms per input domain to prune the search
+  (only one representative per equivalence class needs to be enumerated).
