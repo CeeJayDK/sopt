@@ -107,6 +107,22 @@ const Test kTests[] = {
     {"sqrt", "mad(sqrt(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", ""},
     {"rsqrt", "mad(rsqrt(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", ""},
     {"exp2", "mad(exp2(x), c.x, c.y)", 0.25f, 0.0f, 0.0f, 0.0f, "mad", ""},
+    // Fast approximations (ShaderFastMathLib.h, M. Drobot 2014; bit tricks from Bit Twiddling Hacks): integer guesses on
+    // the float bits, with and without one Newton-Raphson step, polynomial acos / atan, power-of-2 rounding.
+    {"rsqrtnr0", "mad(asfloat(0x5F3759DFu - (asuint(x) >> 1)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad",
+     "rsqrt guess, no NR step (3.4% off): shift, int sub"},
+    {"rsqrtnr1", "mad(rsqrtNR1(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "rsqrt guess + 1 NR step (0.18% off)"},
+    {"rcpnr0", "mad(asfloat(0x7EF311C2u - asuint(x)), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad",
+     "rcp guess, no NR step (5% off): int sub"},
+    {"rcpnr1", "mad(rcpNR1(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "rcp guess + 1 NR step (0.26% off)"},
+    {"sqrtnr0", "mad(asfloat(0x1FBD1DF5u + (asuint(x) >> 1)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad",
+     "sqrt guess, no NR step (4.5% off): shift, int add"},
+    {"pow2floor", "mad(asfloat(asuint(x) & 0x7F800000u), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad",
+     "exp2(floor(log2(x))) from the bits: one and (exact)"},
+    {"exp2floor", "mad(exp2(floor(log2(x))), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "the same written out"},
+    {"pow2ceil", "mad(asfloat((asuint(x) + 0x007FFFFFu) & 0x7F800000u), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "mad",
+     "exp2(ceil(log2(x))) from the bits: add, and (exact)"},
+    {"exp2ceil", "mad(exp2(ceil(log2(x))), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "mad", "the same written out"},
     {"log2", "mad(log2(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", ""},
     {"exp", "mad(exp(x), c.x, c.y)", 0.25f, 0.0f, 0.0f, 0.0f, "mad", "fxc: mul + exp2"},
     {"log", "mad(log(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "fxc: log2 + mul"},
@@ -169,6 +185,10 @@ const Test kTests[] = {
     {"atan2", "mad(atan2(x, c.z), c.x, c.y)", 0.5f, 1.0f, 1.1f, 0.0f, "mad", "fxc: polynomial + quadrant fixes"},
     {"asin", "mad(asin(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul", "fxc: polynomial + sqrt"},
     {"acos", "mad(acos(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul", "fxc: polynomial + sqrt"},
+    {"acos4", "mad(acosFast4(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul",
+     "ShaderFastMathLib acosFast4 (fxc's own acos uses the same polynomial)"},
+    {"atan4", "mad(atanFast4(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.3f, 0.0f, "mul",
+     "ShaderFastMathLib atanFast4: |x| <= 1 only, 1.5e-3 rad off"},
     {"tan", "mad(tan(x * c.z), c.x, c.y)", 0.5f, 1.0f, 0.4f, 0.0f, "mul", "fxc: sincos + div"},
     {"sincos", "mad(sin(x) + cos(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "add", "sin and cos of one value"},
     // More intrinsics (version 5): the rest of ReShade FX's math.
@@ -334,6 +354,12 @@ std::string shaderSource(const Test& t, int chains) {
       "float floorAdd(float v) { precise float r = (v + 12582912.0) - 12582912.0; precise float f = r - saturate((r - v) * 1e38); return f; }\n"
       "float frexpM(float v) { float e; float m = frexp(v, e); return m + e * 0.01; }\n"
       "float modfS(float v) { float i; float f = modf(v, i); return f + i * 0.5; }\n"
+      "float rsqrtNR1(float v) { float g = asfloat(0x5F375A86u - (asuint(v) >> 1)); return g * (1.5 - 0.5 * v * g * g); }\n"
+      "float rcpNR1(float v) { float g = asfloat(0x7EF311C3u - asuint(v)); return g * (2.0 - v * g); }\n"
+      "float acosFast4(float v) { float x1 = abs(v); float x2 = x1 * x1; float x3 = x2 * x1;\n"
+      "  float s = -0.2121144 * x1 + 1.5707288; s = 0.0742610 * x2 + s; s = -0.0187293 * x3 + s;\n"
+      "  s = sqrt(1.0 - x1) * s; return v >= 0.0 ? s : 3.14159265 - s; }\n"
+      "float atanFast4(float v) { return v * (-0.1784 * abs(v) - 0.0663 * v * v + 1.0301); }\n"
       "float fracAdd(float v) { precise float d = v - ((v + 12582912.0) - 12582912.0); precise float f = d + saturate(d * -1e38); return f; }\n"
       "static const float K[16] = {0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.59, 0.60, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66};\n";
   if (t.setup & kGroupshared) s += "groupshared float GS[2048];\ngroupshared uint GSI[64];\n";
@@ -495,6 +521,8 @@ const char* const kDisplayOrder[] = {
     "signsat", "signmad", "signclamp", "signsel", "sign",
     "#Division and transcendentals", "divxy", "rcp", "rsqrt", "sqrt", "div", "exp2", "log2", "log", "exp", "cos", "sin",
     "rcpmax", "pow",
+    "#Fast approximations (ShaderFastMathLib, bit tricks)", "rsqrtnr0", "rsqrtnr1", "rcpnr0", "rcpnr1", "sqrtnr0",
+    "pow2floor", "exp2floor", "pow2ceil", "exp2ceil", "acos4", "atan4",
     "#Vector (float2 / float3 / float4)", "mad2v", "mad3v", "mad4v", "dot2", "dot3", "dot4", "cross", "length",
     "distance", "normalize", "reflect", "refract", "faceforward", "det3", "matmul4", "transpose",
     "#Written out by fxc", "smoothstep", "fmod", "sincos", "tan", "atan", "atan2", "asin", "acos",

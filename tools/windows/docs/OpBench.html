@@ -87,6 +87,14 @@
   <tr><td><code>rcpmax</code></td><td><code>max(rcp(x), c)</code>: the base for the omod tests.</td></tr>
 </table>
 
+<h3>Fast approximations</h3>
+<table>
+  <tr><td><code>rsqrtnr0</code>, <code>rcpnr0</code>, <code>sqrtnr0</code></td><td>the magic-number guesses from Michal Drobot's ShaderFastMathLib (integer shift / subtract on the float's bits, e.g. <code>0x5F3759DF - (asuint(x) &gt;&gt; 1)</code>): very cheap but 3-5% off.</td></tr>
+  <tr><td><code>rsqrtnr1</code>, <code>rcpnr1</code></td><td>the same guess plus one Newton-Raphson step (about 0.2% off): is it still cheaper than the hardware instruction on this card?</td></tr>
+  <tr><td><code>pow2floor</code> / <code>exp2floor</code>, <code>pow2ceil</code> / <code>exp2ceil</code></td><td>the power of 2 at or below / above x: from the float's bits (one or two integer instructions, exact) against <code>exp2(floor(log2(x)))</code> / <code>exp2(ceil(log2(x)))</code>.</td></tr>
+  <tr><td><code>acos4</code>, <code>atan4</code></td><td>ShaderFastMathLib's polynomial acos (fxc's own <code>acos</code> uses the same polynomial) and atan (only for |x| &le; 1), next to <code>acos</code> / <code>atan</code> below.</td></tr>
+</table>
+
 <h3>Vector (float2 / float3 / float4)</h3>
 <table>
   <tr><td><code>mad2v</code>, <code>mad3v</code>, <code>mad4v</code></td><td>the reference on 2, 3 and 4 components (2, 3, 4 fmas).</td></tr>

@@ -59,6 +59,25 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
   range (range reduction with a divide, a 4-term polynomial, ~1e-5 rad) at ~13 instructions.
 - **Safe when** (atan) the argument is known to be in [-1, 1] and 1.5e-3 rad is fine.
 
+### Bit Twiddling Hacks on GPUs (graphics.stanford.edu/~seander/bithacks.html, checked 2026-10-09)
+- **Use the hardware instead:** counting bits, parity (`countbits(x) & 1`), reversing bits, integer log2 and
+  trailing / leading zeros are single HLSL intrinsics (`countbits`, `reversebits`, `firstbithigh`, `firstbitlow`);
+  the page's 12-24 operation forms lose to them even where the instruction is quarter rate (popcount ~12 units
+  on Turing). Branchless abs / min / max / sign / conditional negate: GPUs have min / max instructions, free neg /
+  abs modifiers and a select (movc). Morton interleave by magic numbers is also the GPU way (no bit-deposit
+  instruction).
+- **Compilers do it for constants:** modulus by `1 << s`, merging bits by a mask, swaps. Not for a uniform: `x % N`
+  with N a known power of 2 is `x & (N - 1)` (integer divide / modulo ~67-82 units on Turing vs ~4); SweetOpt does
+  not read integer code as regions yet, so that one is for programmers.
+- **Float tricks:** integer log2 of a float (`(asuint(x) >> 23) - 127`) and the power of 2 at or below / above x
+  (`asfloat(asuint(x) & 0x7F800000)` = `exp2(floor(log2(x)))`, `asfloat((asuint(x) + 0x007FFFFF) & 0x7F800000)` =
+  `exp2(ceil(log2(x)))`) are library rules: exact for every positive normal float (checked against exact math on
+  57 million floats), while the float originals go through approximate log2 / exp2 and can land a power of 2 off
+  right next to one ("too exact"). The page's denormal branch does not matter on GPUs (D3D10+ flushes fp32
+  denormals). Two integer ops instead of log2 + round + exp2 (Ampere / Ada ~70 units -> ~3).
+- **Irrelevant for shaders:** zero / equal / less-than byte tests in a word, next bit permutation, 64-bit multiply
+  and modulus tricks, swapping with XOR.
+
 ### The `* 1e38` saturate forms (sign, and the floor / ceil / frac forms below)
 - `sign(x) -> mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0)` (mad_sat + mad, 2 instructions; found
   by sopt), `saturate(x * 1e38) - saturate(x * -1e38)`, `clamp(x * 1e38, -1.0, 1.0)`.

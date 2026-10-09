@@ -260,6 +260,11 @@ x * exp2(floor(n)) -> asfloat(asuint(x) + (asuint(int(floor(n))) << 23))   where
 floor(log2(x)) -> float(asuint(x) >> 23) - 127.0   where x in [1.2e-38, 3e38]
 floor(log2(x)) -> mad(float(0x007FFFFFu | asuint(x)), 1.1920929e-07, -128.0)   where x in [1.2e-38, 3e38]   # sopt: the conversion rounds up to (e + 1) * 2^23
 floor(log2(x)) -> mad(asfloat(0x3F800000u - (asuint(x) >> 23)), -16777216.0, 16777089.0)   where x in [1.2e-38, 3e38]   # sopt (Turing): no int -> float conversion
+# Power of 2 at or below / at or above x (Bit Twiddling Hacks, "round up to the next highest power of 2 by float casting"):
+# keep only the exponent bits, or round the mantissa up into the exponent first. Two integer ops instead of
+# log2 + floor / ceil + exp2, and exact where the GPU's approximate log2 / exp2 can land wrong next to a power of 2.
+exp2(floor(log2(x))) -> asfloat(asuint(x) & 0x7F800000u)   where x in [1.2e-38, 3e38]
+exp2(ceil(log2(x))) -> asfloat((asuint(x) + 0x007FFFFFu) & 0x7F800000u)   where x in [1.2e-38, 1.7e38]
 # abs as a mask (where abs is not a free modifier: Pascal, Maxwell, TeraScale)
 abs(x) -> asfloat(asuint(x) & 0x7FFFFFFFu)
 # Copy x's sign bit (differ at x = -0.0: -0 >= 0 is true, its sign bit is set; marked when used)

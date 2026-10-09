@@ -1698,6 +1698,15 @@ cost model and NVIDIA SASS ranking (`--sass`, ptxas + nvdisasm), `intel-gen12`, 
   cached candidates verified again); same shape, other key = Options::previous (candidates verified again, the cheapest
   passing stage 2 sets seedBound and joins cfg.seeds; RunResult::previousBest). optionsKey = version, model, time and the
   search flags. --no-cache. Pinball crt-lottes (Turing, --time 10): 25 s -> 1.1 s unchanged, same results.
+- Articles the owner sends (2026-10-09: "look at them and discuss; some are assumptions we can now prove or disprove"):
+  (1) Drobot's ShaderFastLibs (ShaderFastMathLib.h): checked numerically and against our costs, docs/inexact-tricks.md
+  (several of its error claims are wrong: sqrt NR0 4.5% not < 0.7%, rcp NR0 5.1% not < 0.4%, rcp NR1 0.26% not < 0.02%,
+  atan 1.5e-3 rad not 7e-5 and only |x| <= 1; fxc's acos already is its polynomial); OpBench tests rsqrtnr0 / rsqrtnr1 /
+  rcpnr0 / rcpnr1 / sqrtnr0 / acos4 / atan4 (section "Fast approximations"). (2) Bit Twiddling Hacks (the owner uploaded
+  the page; graphics.stanford.edu does not resolve here): mostly hardware intrinsics or irrelevant on GPUs; library rules
+  exp2(floor(log2(x))) -> asfloat(asuint(x) & 0x7F800000u) and exp2(ceil(log2(x))) -> asfloat((asuint(x) + 0x007FFFFFu) &
+  0x7F800000u) (exact on 57M sampled positive normal floats; 197 rules pass) and OpBench pow2floor / exp2floor / pow2ceil /
+  exp2ceil. Test build 0.6.8.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

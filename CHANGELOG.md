@@ -11,6 +11,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 - **Value ranges:** when a cheaper variant was found but not written because an input's range was unknown, the result line says "needs value ranges" and the summary names the inputs and how to give their ranges (`sopt-facts.txt`, menu key 8). Before, it read "0 of 13 regions have cheaper variants" even when two were found.
 - **sopt-found.txt:** the original, `->` and the faster form are on lines of their own, so they are easy to tell apart (the rewrite library reads rules over several lines too).
 - **Other graphics cards:** every variant is costed for all GPU families (AMD GCN, RDNA 2 / 3 / 4, NVIDIA Maxwell to Blackwell, Intel Gen7.5 / 9 / 12). Variants that are as fast on your card but faster on others are kept ("faster on other GPUs"), the report has a table per statement showing where each variant helps and where it harms, and easy mode weighs a variant that helps some families and slows others by how many Steam users own each family (Steam Hardware & Software Survey, September 2026). `--all-platforms` (menu: asked after the graphics card) also searches with other families' costs, about 4x the time.
+- **Library:** `exp2(floor(log2(x)))` and `exp2(ceil(log2(x)))` become one or two integer instructions on the float's bits (exact for every positive float, from Bit Twiddling Hacks).
 - **Faster second runs:** a run keeps its results in `sopt-out\sopt-cache.txt`. The next run into the same folder does not search unchanged statements again (it only verifies the earlier results: the Pinball crt-lottes shader 25 s -> 1 s), and statements whose ranges or options changed start from the earlier finds, so the search only looks for something cheaper still. `--no-cache` searches everything from scratch.
 - **"SweetOpt saved":** a summary at the end of a run: regions changed, the cost on your card before and after, which families get faster (or slower), and the measured instructions when AMD / NVIDIA measurement ran.
 - **Progress in the window title:** SweetOpt, OpBench and TexBench show a progress bar and the percentage in the console window's title, so the progress is visible in the taskbar and in terminal tabs.
@@ -40,6 +41,8 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 
 ### GPU Blueprint
 - **Compared with other cards:** OpBench knows what the cards of each family measured so far (Turing, Ampere / Ada, RDNA 2, Gen9 ...) and marks every test where yours differs by more than 25% ("usually 12.0"), with a list at the end: such reports are especially interesting. A card from a family nobody has measured yet is told so too.
+- **Fast approximations:** new tests for the magic-number rsqrt / rcp / sqrt guesses from Michal Drobot's ShaderFastMathLib (with and without a Newton-Raphson step), its polynomial acos / atan, and power-of-2 rounding from the float's bits against `exp2(floor(log2(x)))` / `exp2(ceil(log2(x)))`: do they pay off on your card?
+- **Progress in the window title:** OpBench and TexBench show a progress bar in the window title.
 
 ## 0.6.0
 
