@@ -1,0 +1,2 @@
+# Share of Steam users per SweetOpt cost model, in percent: not read yet (workflow steam-survey.yml writes it).
+# survey: none
