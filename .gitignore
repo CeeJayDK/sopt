@@ -4,3 +4,4 @@ out/
 .vscode/
 *.user
 push.bat
+__pycache__/
