@@ -47,7 +47,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
   publishes (this session cannot push tags). Run the steam-survey workflow on main before each release.
 - pages.yml builds the site (tools/site/build.py) from docs/opbench / texbench; optimize-pngs.yml compresses report PNGs.
 - After adding OpBench reports: rerun `tools/windows/gen_expected.py` (writes tools/windows/expected.hpp).
-- Release 0.7.0 waits for the owner's test of the current build.
+- 0.7.0 released 2026-10-09. Next: ponytail code review (open item 1), then fp16 step 2.
 
 ## GPU Blueprint report intake (only when the owner says "check Dropbox")
 The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 2026-10-09: tokens). Procedure:
@@ -62,7 +62,8 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 5. Only after the push delete every file in the folder. 6. Tell the owner per GPU what came in (uploader name in chat).
 - Action (owner's wish, no tokens): .github/workflows/report-intake.yml + tools/site/report_intake.py (every 6 h on main,
   commits reports + docs/notes/intake-log.md, regenerates expected.hpp, then deletes the uploads). Needs the repo secrets
-  DROPBOX_APP_KEY / DROPBOX_APP_SECRET / DROPBOX_REFRESH_TOKEN and a Full Dropbox app; runs once it is on main.
+  DROPBOX_APP_KEY / DROPBOX_APP_SECRET / DROPBOX_REFRESH_TOKEN (app-folder app "GPU Blueprint") and the repo variable
+  DROPBOX_FOLDER=/Reports (app-relative). On main since 0.7.0; check its runs if reports stop arriving.
 
 ## Layout
 - `src/ir`: ops (`ops.cpp`: op table, exactness, cost models, `CostModel::opCost` / `divCost` / `binaryCost`, HalfCosts),
@@ -122,15 +123,15 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
   reciprocals.
 
 ## Open items (details: docs/notes/history.md)
-1. Release 0.7.0 after the owner's test of build 0.6.10 (GPU Blueprint + SweetOpt CI artifacts of commit 99b8634).
+1. Next session: code review / cleanup with the ponytail plugin (owner, after 0.7.0). Bench before / after; no behavior changes
+   without asking.
 2. fp16 variants (owner's go): step 1 done (OpBench max16 / log2_16 / mad16v3 / mix16, HalfCosts). Next: step 2 fp16
    evaluator (half / float / mixed profiles), 3 half variants with conversions at region edges in the GPU-family table,
    4 output only for D3D10-12, 5 corpus A/B + sopt-timer test on the owner's NUC (Gen9 should gain, GTX 1660 control).
 3. Uniform zero guard (owner: on the list): `if (Strength != 0)` around work a uniform scales, for performance mode off;
    a classical rewrite measured per effect.
 4. STOKE-style stochastic search (owner's go to try later, behind a flag, bench decides).
-5. After 0.7.0: code review / cleanup with the ponytail plugin (needs a new session; plugins load at session start).
-6. Waiting on others: IEEE 754 test results for crosire (tools/reshade/IEEE754.md); ReShade patches (UPSTREAM.md).
-7. Planned / parked: `--poly` approximation mode; test package from the full corpus run; M5 rest (probe effect, facts
+5. Waiting on others: IEEE 754 test results for crosire (tools/reshade/IEEE754.md); ReShade patches (UPSTREAM.md).
+6. Planned / parked: `--poly` approximation mode; test package from the full corpus run; M5 rest (probe effect, facts
    database, `__DEVICE__` paths); M4 harness results merged into reports; Layer.fx 2.0 (questions asked); noise mode;
    GCN 4 model; driver-statistics (ShaderInfo) as a measured source (wait for reports); pruning sopt options (later).
