@@ -1416,6 +1416,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   atomics off); left out of expected.hpp (UNRELIABLE); TexBench all 995 rows consensus, pixel order 4 x 8 warp blocks. ShaderInfo
   of a Raphael iGPU (0x164E, driver 23.20.44, compiler 2.0.283, older than the earlier reports' 2.0.353;
   docs/shaderinfo/amd-radeon-raphael-3.txt).
+  Intake 2026-10-10 (report-intake Action, 4 uploads, after the Dropbox refresh token was renewed): every OpBench report
+  matches its family with nothing differing. RX 9070 XT (driver 32.0.32015.2008, OpBench / TexBench 0.7.0, *-2): fp32 50.6
+  TFLOPS vs 45.3 in the 0.5.0 report (+12%, rcp unchanged 3188 vs 3177: likely clock), drift 10 / 11 / 7%; TexBench 82 s,
+  789 GTexels/s, 207 GPixels/s, 653 GB/s (= 0.5.0 report), drift 118% (was 97%). UHD 630 (driver 31.0.101.2141), two runs
+  (0.6.10 *-2, 0.7.0 *-3): fp32 0.443 / 0.452 TFLOPS (earlier 0.436-0.450), drift 15% / 1%; TexBench 180 / 178 s, 15.5
+  GTexels/s, 9.9-10.1 GPixels/s, 29 GB/s. GTX 1660 (driver 32.0.16.1714 / 617.14), two runs (0.6.10 *-2, 0.7.0 *-3):
+  fp32 4.57 / 4.55 TFLOPS (= 0.6.0's 4.55), drift high as usual (21-30 / 36 / 57-77%); TexBench 215 / 207 s, 166
+  GTexels/s, 64-66 GPixels/s, 156 GB/s. Iris 540 (driver 31.0.101.2121, 0.6.10, *-2): fp32 0.310 TFLOPS (= earlier),
+  drift 12 / 12 / 25%; TexBench 356 s, 10.7 / 6.7 / 22.4 (= earlier). ShaderInfo for all four.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
