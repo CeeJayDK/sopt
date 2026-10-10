@@ -140,15 +140,16 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
     };
     const tip = (c) => (c.alt ? `${c.op} ${c.label}: ${c.alt.rhs}${c.alt.where ? `  (where ${c.alt.where})` : ""}` : c.label);
     const head = el("tr", {}, el("th", { class: "arch", text: "architecture" }),
-      ...cols.map((c) => el("th", { class: "o" + (c.alt ? " alt" : ""), title: tip(c), text: c.label })));
+      ...cols.map((c, k) => el("th", { class: "o" + (c.alt ? " alt" : "") + (!c.alt && k ? " gs" : ""), title: tip(c), text: c.label })));
     const body = data.models.map((m) => el("tr", {},
       el("th", { class: "arch", style: `--c:${VENDOR_COLOR[m.vendor]}`, title: `${m.vendor} ${m.title}`, text: m.title }),
-      ...cols.map((c) => {
+      ...cols.map((c, k) => {
         const q = c.cost(m);
         const better = c.alt && q != null && q < m.costs[c.op];
         const td = cell(q, c.alt ? (better ? "var(--cyan)" : "var(--text-faint)") : VENDOR_COLOR[m.vendor], better);
         td.title = tip(c);
         if (c.alt) td.classList.add("alt");
+        else if (k) td.classList.add("gs");  // a new operation starts
         return td;
       })));
     document.getElementById("cmp").replaceChildren(el("thead", {}, head), el("tbody", {}, ...body));

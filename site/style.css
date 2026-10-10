@@ -45,8 +45,9 @@ h3 { font-family: var(--mono); font-weight: 500; font-size: 16px; color: #fff; m
 
 /* chips */
 .picker { display: grid; gap: 10px; margin: 6px 0 14px; }
-.vendor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.vendor > span { font-family: var(--mono); font-size: 12px; color: var(--text-faint); width: 110px; }
+/* the vendor name is a label column: wrapped chips stay right of it */
+.vendor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; position: relative; padding-left: 116px; }
+.vendor > span { font-family: var(--mono); font-size: 12px; color: var(--text-faint); width: 110px; position: absolute; left: 0; top: 6px; }
 .chip { border: 1px solid var(--line-bright); background: var(--panel); color: var(--text); font: 13px var(--mono);
   padding: 5px 11px; cursor: pointer; }
 .chip:hover { border-color: var(--c); color: #fff; }
@@ -107,6 +108,8 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numer
 .cmp thead th.arch { color: var(--text-faint); font-size: 11.5px; vertical-align: bottom; }
 .cmp th.o { white-space: nowrap; font: 500 12.5px var(--mono); color: var(--text); text-align: right; vertical-align: bottom; }
 .cmp th.o.alt { color: var(--text-faint); font-weight: 400; }
+/* a brighter line between operations (each with its alternatives), none inside a group */
+.cmp .gs { border-left: 2px solid var(--text-faint); }
 .cmp td.c { text-align: right; font: 13px var(--mono); font-variant-numeric: tabular-nums; min-width: 56px; }
 .cmp td.alt { font-size: 12.5px; color: var(--text-faint); }
 .cmp td.better { color: var(--cyan); font-weight: 500; }
@@ -169,7 +172,8 @@ footer.site p { margin: 4px 0; max-width: 90ch; }
   h1 { font-size: 26px; }
   .row { grid-template-columns: 92px 1fr 54px; gap: 8px; }
   .row.wide { grid-template-columns: 132px 1fr 54px; }
-  .vendor > span { width: 100%; }
+  .vendor { padding-left: 0; }
+  .vendor > span { width: 100%; position: static; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
