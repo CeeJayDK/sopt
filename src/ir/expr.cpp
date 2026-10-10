@@ -424,13 +424,59 @@ bool containsInexact(const Expr& e) {
 }
 
 bool isSugarCall(std::string_view name, size_t arity) {
-  if (arity == 1) return name == "radians" || name == "degrees" || name == "log10" || name == "tan";
-  return arity == 2 && name == "cross";
+  if (arity == 1)
+    return name == "radians" || name == "degrees" || name == "log10" || name == "tan" || name == "asin" || name == "acos" ||
+           name == "all" || name == "any";
+  return arity == 2 && (name == "cross" || name == "fmod");
 }
 
 uint32_t buildSugarCall(ExprBuilder& b, std::string_view name, const uint32_t* args, size_t arity) {
   if (!isSugarCall(name, arity)) throw std::invalid_argument("unknown intrinsic " + std::string(name));
   const auto& ns = b.nodes();
+  // Expansions with a compare and a select run per component (sopt's compares are scalar), joined again.
+  const unsigned w = std::max<unsigned>(width(ns[args[0]].type), arity > 1 ? width(ns[args[1]].type) : 1u);
+  auto comp = [&](uint32_t v, unsigned k) {
+    const uint8_t sw[1] = {static_cast<uint8_t>(k)};
+    return width(b.nodes()[v].type) == 1 ? v : b.swizzle(v, sw, 1);
+  };
+  auto perComponent = [&](auto&& one) {
+    uint32_t parts[4];
+    for (unsigned k = 0; k < w; ++k) parts[k] = one(comp(args[0], k), arity > 1 ? comp(args[1], k) : 0);
+    return w == 1 ? parts[0] : b.construct(parts, w);
+  };
+  // acos / asin as fxc writes them (Abramowitz & Stegun 4.4.45, its constants as float32):
+  // p = ((|x| c0 + c1) |x| + c2) |x| + c3, s = sqrt(1 - |x|), acos = p s + (x < -x ? pi - 2 p s : 0), asin = pi/2 - acos.
+  auto acos1 = [&](uint32_t x) {
+    const uint32_t a = b.op(Op::Abs, x);
+    uint32_t p = b.op(Op::Mad, a, b.constant(-0.0187293f), b.constant(0.0742610f));
+    p = b.op(Op::Mad, p, a, b.constant(-0.2121144f));
+    p = b.op(Op::Mad, p, a, b.constant(1.5707288f));
+    const uint32_t s = b.op(Op::Sqrt, b.op(Op::Sub, b.constant(1.0f), a));
+    const uint32_t t = b.op(Op::Mul, s, p);
+    const uint32_t neg = b.op(Op::Lt, x, b.op(Op::Neg, x));
+    const uint32_t c = b.op(Op::Select, neg, b.op(Op::Mad, t, b.constant(-2.0f), b.constant(3.14159265f)), b.constant(0.0f));
+    return b.op(Op::Mad, p, s, c);
+  };
+  if (name == "acos") return perComponent([&](uint32_t x, uint32_t) { return acos1(x); });
+  if (name == "asin")
+    return perComponent([&](uint32_t x, uint32_t) { return b.op(Op::Sub, b.constant(1.57079637f), acos1(x)); });
+  // x % y (HLSL fmod: the result takes x's sign) as fxc writes it: s = (x y >= -(x y)) ? y : -y, frac(rcp(s) x) s.
+  if (name == "fmod")
+    return perComponent([&](uint32_t x, uint32_t y) {
+      const uint32_t m = b.op(Op::Mul, y, x);
+      const uint32_t s = b.op(Op::Select, b.op(Op::Ge, m, b.op(Op::Neg, m)), y, b.op(Op::Neg, y));
+      return b.op(Op::Mul, b.op(Op::Frac, b.op(Op::Mul, b.op(Op::Rcp, s), x)), s);
+    });
+  // all / any of a float vector: every / some component != 0 (a bool is itself).
+  if (name == "all" || name == "any") {
+    if (ns[args[0]].type == Type::Bool) return args[0];
+    uint32_t r = 0;
+    for (unsigned k = 0; k < w; ++k) {
+      const uint32_t t = b.op(Op::Ne, comp(args[0], k), b.constant(0.0f));
+      r = k ? b.op(name == "all" ? Op::LAnd : Op::LOr, r, t) : t;
+    }
+    return r;
+  }
   // Operands are built one statement at a time: argument evaluation order is unspecified,
   // and node order decides how the DAG prints.
   if (name == "radians" || name == "degrees") {

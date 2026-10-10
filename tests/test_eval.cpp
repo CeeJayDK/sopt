@@ -117,6 +117,29 @@ TEST(eval_fma_differs) {
   CHECK(!same(ev(Op::Mad, a, b, c, kProfileRef), ev(Op::Mad, a, b, c, kProfileFma)));
 }
 
+// asin / acos / fmod / all / any are written out as fxc writes them: close to the real functions (A&S 4.4.45: error
+// <= 6.8e-5 for acos), fmod with x's sign, all / any as component != 0.
+TEST(eval_sugar_intrinsics) {
+  auto run = [](const char* src, auto&& check) {
+    const Program p = parseProgram(src);
+    const PointSet ps = makeRandomPoints(p, 4096, 7, true);
+    const std::vector<float> v = evalAll(p.target, ps, kProfileRef);
+    int bad = 0;
+    for (size_t i = 0; i < ps.size(); ++i) bad += !check(ps.point(i), v[i]);
+    CHECK(bad == 0);
+  };
+  run("input x : float in [-1, 1]\noutput r = acos(x)\nbudget r : abs 1e-4\n",
+      [](const std::vector<float>& x, float r) { return std::fabs(r - std::acos(x[0])) <= 1e-4f; });
+  run("input x : float in [-1, 1]\noutput r = asin(x)\nbudget r : abs 1e-4\n",
+      [](const std::vector<float>& x, float r) { return std::fabs(r - std::asin(x[0])) <= 1e-4f; });
+  run("input x : float in [-50, 50]\ninput y : float in [0.5, 3]\noutput r = fmod(x, y)\nbudget r : abs 1e-4\n",
+      [](const std::vector<float>& x, float r) { return std::fabs(r - std::fmod(x[0], x[1])) <= 1e-4f; });
+  run("input v : float2 in [-1, 1]\noutput r = all(v) ? 1.0 : 0.0\nbudget r : exact\n",
+      [](const std::vector<float>& x, float r) { return r == ((x[0] != 0.0f && x[1] != 0.0f) ? 1.0f : 0.0f); });
+  run("input v : float2 in [-1, 1]\noutput r = any(v) ? 1.0 : 0.0\nbudget r : exact\n",
+      [](const std::vector<float>& x, float r) { return r == ((x[0] != 0.0f || x[1] != 0.0f) ? 1.0f : 0.0f); });
+}
+
 // Cross-compiler check (M0 done criterion): these hashes must be identical on
 // MSVC, GCC and Clang. If an exact op changes, regenerate the values.
 TEST(eval_golden_exact_ops) {

@@ -143,5 +143,6 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 7. sign() fast forms (owner, 2026-10-10): one (mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0), 2.25 on every model so far)
    beats the others everywhere; once OpBench reports cover the families, drop the slower ones from library/rewrites.txt.
    Not before.
-8. Intrinsics sopt still skips (75 effects, 2026-10-10): all() 46 statements, mul() (matrices) 18, fwidth 8 (needs
-   neighbours: never), float % 7 (fmod: now possible with trunc), asin / acos 4 (fxc writes them out).
+8. Intrinsics sopt still skips (75 effects, 2026-10-10): mul() (matrices) 18, fwidth 8 (needs neighbours: never). Done
+   2026-10-10 (+42 regions): float % / %= (fxc's fmod), all / any (also of a vector comparison), asin / acos (fxc's
+   A&S polynomial), a bool read as float (cond ? 1 : 0). Next candidates: atan / atan2 (fxc writes them out too).

@@ -438,9 +438,9 @@ size_t assignmentOp(const std::string& s, char& compound) {
     if (c != '=' || depth != 0) continue;
     if (i + 1 < s.size() && s[i + 1] == '=') return std::string::npos;  // ==
     const char p = i ? s[i - 1] : ' ';
-    if (p == '<' || p == '>' || p == '!' || p == '=' || p == '%' || p == '&' || p == '|' || p == '^')
+    if (p == '<' || p == '>' || p == '!' || p == '=' || p == '&' || p == '|' || p == '^')
       return std::string::npos;
-    compound = (p == '+' || p == '-' || p == '*' || p == '/') ? p : 0;
+    compound = (p == '+' || p == '-' || p == '*' || p == '/' || p == '%') ? p : 0;
     return compound ? i - 1 : i;
   }
   return std::string::npos;
@@ -701,6 +701,22 @@ class Extractor {
   ~Extractor() {
     tlBracketFetches = nullptr;
     tlGlslFetches = false;
+  }
+  // all(v) / any(v) of a float vector: the parser casts v to boolN first (!= 0, as all / any expand it); the float v.
+  uint32_t floatBeforeBoolCast(uint32_t id) const {
+    const Value& a = cg_.values.at(id);
+    using O = reshadefx::expression::operation;
+    if (a.kind != Value::Kind::Chain || a.chain.size() != 1 || a.chain[0].op != O::op_cast) return id;
+    if (!a.chain[0].from.is_floating_point() || !a.chain[0].to.is_boolean() || !cg_.values.count(a.base)) return id;
+    return a.base;
+  }
+  static bool isComparison(tokenid t) {
+    return t == tokenid::less || t == tokenid::less_equal || t == tokenid::greater || t == tokenid::greater_equal ||
+           t == tokenid::equal_equal || t == tokenid::exclaim_equal;
+  }
+  static Op comparisonOp(tokenid t) {
+    return t == tokenid::less ? Op::Lt : t == tokenid::less_equal ? Op::Le : t == tokenid::greater ? Op::Gt
+         : t == tokenid::greater_equal ? Op::Ge : t == tokenid::equal_equal ? Op::Eq : Op::Ne;
   }
   bool isScalarBool(uint32_t id) const {
     const auto& t = cg_.values.at(id).type;
@@ -1037,7 +1053,8 @@ void Extractor::collect(uint32_t id) {
       const bool arith = v.op == tokenid::plus || v.op == tokenid::minus ||
                          v.op == tokenid::star || v.op == tokenid::slash ||
                          v.op == tokenid::plus_equal || v.op == tokenid::minus_equal ||
-                         v.op == tokenid::star_equal || v.op == tokenid::slash_equal;
+                         v.op == tokenid::star_equal || v.op == tokenid::slash_equal ||
+                         v.op == tokenid::percent || v.op == tokenid::percent_equal;  // float %: fmod
       if (!cmp && !arith) throw Unsupported("binary operator");
       if (arith && !isFloatType(v.type)) throw Unsupported("non-float arithmetic");
       if (cmp && !(v.type.is_boolean() && v.type.is_scalar())) throw Unsupported("vector comparison");
@@ -1059,6 +1076,21 @@ void Extractor::collect(uint32_t id) {
       if (fetchText_.count(id)) {
         Leaf& l = fetchLeaf(id);
         l.mask |= (1u << l.type.rows) - 1;
+        return;
+      }
+      if ((v.name == "all" || v.name == "any") && v.args.size() == 1) {  // a bool from a float vector or comparison
+        const uint32_t arg = floatBeforeBoolCast(v.args[0]);
+        const Value& a = cg_.values.at(arg);
+        if (a.kind == K::Binary && isComparison(a.op) && !a.type.is_scalar()) {
+          for (uint32_t x : a.args) {
+            if (!isFloatType(cg_.values.at(x).type)) throw Unsupported("intrinsic argument");
+            collect(x);
+          }
+        } else if (isFloatType(a.type) || isScalarBool(arg)) {
+          collect(arg);
+        } else {
+          throw Unsupported("intrinsic argument");
+        }
         return;
       }
       const auto op = opFromCall(v.name, static_cast<uint8_t>(v.args.size()));
@@ -1117,7 +1149,9 @@ uint32_t Extractor::applyVectorChain(uint32_t node,
       for (unsigned k = 0; k < n; ++k) broadcast = broadcast && sw[k] == 0;
       if (!identity && !broadcast) node = b.swizzle(node, sw, n);
     } else if (op.op == O::op_cast) {
-      // float -> floatN broadcast: componentwise ops broadcast float1 operands
+      // float -> floatN broadcast: componentwise ops broadcast float1 operands. A bool read as a float is 1.0 or 0.0.
+      if (op.from.is_boolean() && op.from.is_scalar() && op.to.is_floating_point() && b.nodes()[node].type == Type::Bool)
+        node = b.op(Op::Select, node, b.constant(1.0f), b.constant(0.0f));
     } else {
       throw Unsupported("access chain");
     }
@@ -1195,6 +1229,13 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         case tokenid::greater_equal: op = Op::Ge; break;
         case tokenid::equal_equal: op = Op::Eq; break;
         case tokenid::exclaim_equal: op = Op::Ne; break;
+        case tokenid::percent: case tokenid::percent_equal: {  // float x % y: HLSL fmod, as fxc writes it
+          uint32_t a[2] = {build(v.args[0], b), build(v.args[1], b)};
+          scalarizeConstants(a, 2, b);
+          r = buildSugarCall(b, "fmod", a, 2);
+          built_[id] = r;
+          return r;
+        }
         default: throw Unsupported("binary operator");
       }
       uint32_t a[2] = {build(v.args[0], b), build(v.args[1], b)};
@@ -1212,6 +1253,26 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       if (fetchText_.count(id)) {
         const Leaf& l = fetchLeaf(id);
         r = b.input(l.input, floatType(std::popcount(l.mask)));
+        break;
+      }
+      if ((v.name == "all" || v.name == "any") && v.args.size() == 1) {
+        const uint32_t arg = floatBeforeBoolCast(v.args[0]);
+        const Value& a = cg_.values.at(arg);
+        if (a.kind == K::Binary && isComparison(a.op) && !a.type.is_scalar()) {  // all(x > y): per component
+          const uint32_t x = build(a.args[0], b), y = build(a.args[1], b);
+          const Op cmp = comparisonOp(a.op);
+          auto comp = [&](uint32_t n, unsigned k) {
+            const uint8_t sw[1] = {static_cast<uint8_t>(k)};
+            return width(b.nodes()[n].type) == 1 ? n : b.swizzle(n, sw, 1);
+          };
+          for (unsigned k = 0; k < a.type.rows; ++k) {
+            const uint32_t t = b.op(cmp, comp(x, k), comp(y, k));
+            r = k ? b.op(v.name == "all" ? Op::LAnd : Op::LOr, r, t) : t;
+          }
+          break;
+        }
+        const uint32_t x = build(arg, b);
+        r = buildSugarCall(b, v.name, &x, 1);
         break;
       }
       if (isSugarCall(v.name, v.args.size())) {

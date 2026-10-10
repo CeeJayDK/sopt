@@ -1091,6 +1091,23 @@ TEST(fx_int_conversions) {
   }
 }
 
+TEST(fx_sugar_intrinsics) {
+  // float %, %=, all (a float vector the parser casts to bool2), any (a vector comparison), asin, acos.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_intrinsics.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  for (uint32_t line : {16u, 18u, 19u, 20u, 21u, 22u}) {
+    const fx::Region* r = regionOn(regions, line);
+    CHECK(r != nullptr);
+    if (!r) std::printf("  no region on line %u\n", line);
+  }
+}
+
 TEST(fx_hoist_rewrite) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_hoist.fx";
   fx::LoadOptions lo;

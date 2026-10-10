@@ -1449,6 +1449,16 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   few chains on VLIW) and Test::pairCount (the last N chains run pairStep: fma4+rcp = 4 fma + 1 rcp, one VLIW5 bundle);
   the summary compares n fma + m X with them one after the other ((n + m) / m chain steps vs 4 n / m + X alone; the
   1:1 pairs read as before). GTX 1660 (Turing, scalar): ilp1..6 4.0 (ilp2 4.7, once), fma4+rcp 21.3 = 67% of 31.5.
+  More intrinsics (owner's go, 2026-10-10; 75 effects in "Reshade test": all() blocked 46 statements, mul 18, fwidth 8,
+  float % 7, asin / acos 4): sugar expansions in expr.cpp buildSugarCall as fxc (cs/ps_5_0) writes them, constants read
+  as hex from D3DDisassemble: acos = A&S 4.4.45 (|x| -0.0187293, 0.0742610, -0.2121144, 1.5707288; p * sqrt(1 - |x|) +
+  (x < -x ? pi - 2 p s : 0)), asin = pi/2 - acos; x % y = s = (x y >= -(x y)) ? y : -y, frac(rcp(s) x) s; all / any =
+  component != 0 joined by && / ||; per component where a compare / select is involved (compares are scalar).
+  Frontend: % and %= (assignmentOp), all / any of a float vector (through the parser's cast to boolN) or of a vector
+  comparison (per component), a bool cast to float = select(b, 1, 0). Regions 1055 -> 1097; left: mul, fwidth.
+  ReShade 6.8.0 intrinsics (104, effect_symbol_table_intrinsics.inl) = REFERENCE.md's list except ddx_coarse / ddx_fine /
+  ddy_coarse / ddy_fine (in the source, not documented). Not in ReShade but in HLSL: fmod (the % operator does it),
+  isfinite, clip; in GLSL: mod (floor-based), fma, asinh / acosh / atanh, packUnorm4x8 / unpackUnorm4x8, inverse.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
