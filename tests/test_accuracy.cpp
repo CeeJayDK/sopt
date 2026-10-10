@@ -131,6 +131,7 @@ TEST(noise_not_replaced) {
       "output r = frac(sin(dot(uv, float2(23.2345, 84.1234))) * 56758.95)\n"
       "budget r : rel 1e-6\n");
   Options opt;
+  opt.search.model = costModelByName("rdna3");  // on NVIDIA the exact add-round frac (library) is cheaper
   opt.v1Points = 1u << 16;
   opt.loose = 100;
   opt.search.timeLimitSec = 1.0;

@@ -10,8 +10,8 @@ set "BEL="
 set "SHADERS="
 set "TARGET="
 set "SECONDS=5"
-set "MODEL=rdna3"
-set "MODELNAME=AMD RDNA 3 (Radeon RX 7000)"
+set "MODEL=nvidia-ampere"
+set "MODELNAME=NVIDIA Ampere (RTX 30, RTX 40)"
 rem Output (owner, 2026-10-08): easy = ready files with our picks, easy-switches = the same with switches, expert = every
 rem variant behind switches. Easy settings default to the safe choices.
 set "MODE=easy"
