@@ -76,7 +76,27 @@ def read_report(path):
 
 def clean_name(name):
     name = re.sub(r"\((R|TM)\)", "", name)
-    return re.sub(r"\s+", " ", name).strip()
+    name = re.sub(r"\s+", " ", name).strip()
+    name = re.sub(r" Series$", "", name)  # "Radeon RX 590 Series" -> "AMD Radeon RX 590"
+    return "AMD " + name if name.startswith("Radeon") else name
+
+
+def section_title(lines):
+    """A library comment block as a short heading and the rest as its description: the first line up to a source note
+    in parentheses or an explanation after a colon; notes such as "(owner, 2026-10-02; docs/opbench/)" are dropped.
+    A formula heading (lerp(a, b, t) = ...) keeps its parentheses."""
+    owner = r"\s*\([^()]*\bowner\b[^()]*\)"
+    text = re.sub(owner, "", " ".join(lines)).strip()
+    title = re.sub(owner, "", lines[0]).strip()
+    title = re.sub(r"\s*\([A-Z][^()=*+]*\)\s*$", "", title)  # a trailing source note such as (DXC)
+    head = title.split(" (", 1)[0]
+    if " = " not in head:
+        title = head
+    title = re.split(r"(?<! ): |\. ", title, maxsplit=1)[0].rstrip(":.;,")  # not the colon of "? 1 : 0"
+    about = text[len(title):].lstrip(" :.").strip() if text.startswith(title) else text
+    if re.match(r"[a-z]{2}|a ", title) and " = " not in title:  # a word, not x * 2^n or a formula
+        title = title[:1].upper() + title[1:]
+    return title, about
 
 
 def model_of(card):
@@ -92,18 +112,18 @@ def library_data(library_path):
         lib = json.load(f)
     lines = open(os.path.join(ROOT, "library", "rewrites.txt"), encoding="utf-8").read().splitlines()
     heading_at = {}  # line number -> the comment block above it (after a blank line)
-    heading = ""
+    heading = []
     block = []
     for i, line in enumerate(lines, 1):
         if line.startswith("#"):
             block.append(line.lstrip("#").strip())
         elif not line.strip():
             if block:
-                heading = " ".join(b for b in block if b)
+                heading = [b for b in block if b]
             block = []
         else:
             if block:
-                heading = " ".join(b for b in block if b)
+                heading = [b for b in block if b]
                 block = []
             heading_at[i] = heading
     for r in lib["rules"]:
@@ -112,7 +132,7 @@ def library_data(library_path):
         r["line"] = n
         r["comment"] = raw.split("#", 1)[1].strip() if "#" in raw else ""
         r["where"] = r["text"].split(" where ", 1)[1].strip() if " where " in r["text"] else ""
-        r["section"] = heading_at.get(n, "")
+        r["section"], r["about"] = section_title(heading_at[n]) if heading_at.get(n) else ("", "")
         del r["source"]
     return lib
 

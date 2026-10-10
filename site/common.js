@@ -38,6 +38,46 @@ function barRow(name, value, scale, color, opts = {}) {
     el("span", { class: "val" + (free ? " free" : ""), text: opts.label ?? (free ? "free" : num(value)) }));
 }
 
+// Heat colors: the warming stripes' 16 shades (Ed Hawkins; ColorBrewer Blues / Reds), dark blue = cheapest, dark
+// red = most expensive, in steps on a log scale between lo and hi (owner, 2026-10-10).
+const STRIPES = ["#08306b", "#08519c", "#2171b5", "#4292c6", "#6baed6", "#9ecae1", "#c6dbef", "#deebf7",
+  "#fee0d2", "#fcbba1", "#fc9272", "#fb6a4a", "#ef3b2c", "#cb181d", "#a50f15", "#67000d"];
+function heatColor(v, lo, hi) {
+  const t = hi > lo ? Math.max(0, Math.min(1, Math.log(v / lo) / Math.log(hi / lo))) : 0;
+  const k = Math.min(STRIPES.length - 1, Math.floor(t * STRIPES.length));
+  return { bg: STRIPES[k], fg: k >= 4 && k <= 11 ? "#10161a" : "#fff" };
+}
+// The scale under a heat table: each shade with the value where it starts.
+function heatScale(lo, hi, unit) {
+  return el("div", { class: "scale" }, el("span", { class: "lab", text: "cheaper" }),
+    ...STRIPES.map((c, k) => el("span", { class: "sw", style: `background:${c}`, title: `from ${num(lo * Math.pow(hi / lo, k / STRIPES.length))}` })),
+    el("span", { class: "lab", text: "more expensive" }),
+    el("span", { class: "range", text: `${num(lo)} to ${num(hi)} ${unit}, log scale` }));
+}
+
+// Vendor names in their brand colors wherever they appear in the page content, also in what is drawn later
+// (owner, 2026-10-10: NVIDIA green, AMD red, Intel blue). Not in <option> (no colors there) or code.
+const VENDOR_WORD = /\b(NVIDIA|AMD|Intel|Qualcomm|Moore Threads)\b/;
+function brand(root) {
+  const skip = (n) => !n.parentElement || n.parentElement.closest(".vn, option, select, code, pre, script, style");
+  const found = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (VENDOR_WORD.test(n.data) && !skip(n)) found.push(n);
+  for (const n of found) {
+    const parts = n.data.split(new RegExp(VENDOR_WORD.source, "g"));  // odd indices are the vendor names
+    n.replaceWith(...parts.map((p, k) => (k % 2 ? el("span", { class: "vn", style: `color:${VENDOR_COLOR[p]}`, text: p }) : p)));
+  }
+}
+document.addEventListener("DOMContentLoaded", () => {
+  const main = document.querySelector("main");
+  if (!main) return;
+  brand(main);
+  new MutationObserver((records) => {
+    for (const r of records)
+      for (const n of r.addedNodes) if (n.nodeType === 1 ? !n.classList.contains("vn") : n.parentElement) brand(n.nodeType === 1 ? n : n.parentElement);
+  }).observe(main, { childList: true, subtree: true });
+});
+
 (function frame() {
   const page = document.body.dataset.page;
   const link = (href, text, key) => el("a", { href: ROOT + href, class: page === key ? "on" : null, text });

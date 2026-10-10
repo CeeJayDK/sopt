@@ -1,18 +1,17 @@
-/* SweetOpt / GPU Blueprint pages at ceejay.dk/sopt/: the look of ceejay.dk (dark grid, JetBrains Mono + Inter,
-   cyan and amber accents). */
+/* SweetOpt / GPU Blueprint pages at ceejay.dk/sopt/: the look of ceejay.dk (dark, JetBrains Mono + Inter, cyan and
+   amber accents). Text colors keep a contrast of at least 7:1 (body), 4.5:1 (faint) on the panels (owner, 2026-10-10:
+   easier to read, no grid background). */
 :root {
-  --bg: #0a0e10; --panel: #12181a; --panel-2: #171f22; --line: #263136; --line-bright: #3a4a50;
+  --bg: #0e1416; --panel: #161e21; --panel-2: #1c2629; --line: #2b383d; --line-bright: #42545a;
   --cyan: #5eead4; --cyan-dim: #2d5a54; --amber: #f5a623;
-  --text: #d7dee0; --text-dim: #8b989c; --text-faint: #56646a; --track: #1c2528;
+  --text: #e8eef0; --text-dim: #b3c0c4; --text-faint: #8a989d; --track: #243034;
   --nvidia: #8cc63f; --amd: #ff6166; --intel: #4fa3ff; --qualcomm: #8c9eff; --moore: #f5a623; --free: #56646a;
   --mono: "JetBrains Mono", ui-monospace, Consolas, monospace; --sans: Inter, system-ui, "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); }
 body {
-  margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 var(--sans);
-  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
-  background-size: 64px 64px; background-position: -1px -1px; background-attachment: fixed;
+  margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 var(--sans);
 }
 ::selection { background: var(--cyan-dim); color: #fff; }
 a { color: var(--cyan); text-decoration: none; }
@@ -46,8 +45,9 @@ h3 { font-family: var(--mono); font-weight: 500; font-size: 16px; color: #fff; m
 
 /* chips */
 .picker { display: grid; gap: 10px; margin: 6px 0 14px; }
-.vendor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.vendor > span { font-family: var(--mono); font-size: 12px; color: var(--text-faint); width: 110px; }
+/* the vendor name is a label column: wrapped chips stay right of it */
+.vendor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; position: relative; padding-left: 116px; }
+.vendor > span { font-family: var(--mono); font-size: 12px; color: var(--text-faint); width: 110px; position: absolute; left: 0; top: 6px; }
 .chip { border: 1px solid var(--line-bright); background: var(--panel); color: var(--text); font: 13px var(--mono);
   padding: 5px 11px; cursor: pointer; }
 .chip:hover { border-color: var(--c); color: #fff; }
@@ -99,6 +99,41 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numer
 .heat td.num { color: #0a0e10; font-weight: 500; }
 .heat td.empty { background: transparent; color: var(--text-faint); }
 
+/* one group of operations on every architecture: architectures as rows, operations as columns (bars line up down a
+   column), heatmap or compact bars, alternatives from the rewrite library as columns marked →1, →2 */
+.cmp th { text-transform: none; letter-spacing: 0; }
+.cmp td, .cmp th { padding: 6px 8px; }
+.cmp th.arch { position: sticky; left: 0; z-index: 1; background: var(--panel); text-align: left; white-space: nowrap;
+  font: 13px var(--mono); color: var(--text); border-left: 3px solid var(--c, transparent); }
+.cmp thead th.arch { color: var(--text-faint); font-size: 11.5px; vertical-align: bottom; }
+.cmp th.o { white-space: nowrap; font: 500 12.5px var(--mono); color: var(--text); text-align: right; vertical-align: bottom; }
+.cmp th.o.alt { color: var(--text-faint); font-weight: 400; }
+/* a brighter line between operations (each with its alternatives), none inside a group */
+.cmp .gs { border-left: 2px solid #fff; }
+.cmp th.arch { border-right: 2px solid #fff; }
+.cmp thead th { border-bottom: 2px solid #fff; }
+.cmp td.c { text-align: right; font: 13px var(--mono); font-variant-numeric: tabular-nums; min-width: 56px; }
+.cmp td.alt { font-size: 12.5px; color: var(--text-faint); }
+.cmp td.better { color: var(--cyan); font-weight: 500; }
+/* the bar sits in the cell's bottom padding: rows are as high as in the heatmap */
+.cmp td.c:not(.hot) { position: relative; }
+.cmp .mini { position: absolute; left: 8px; right: 8px; bottom: 3px; height: 3px; background: var(--track); }
+.cmp .mini .bar { height: 100%; }
+.cmp td.free { color: var(--text-faint); }
+.cmp td.hot { border-bottom-color: var(--bg); }
+.cmp td.hot.alt:not(.better) { opacity: .7; }
+.cmp td.hot.better { box-shadow: inset 0 0 0 2px var(--cyan); }
+.scale { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin-top: 10px; font: 12px var(--mono); color: var(--text-faint); }
+.scale .sw { width: 22px; height: 14px; }
+.scale .lab { padding: 0 8px; }
+.scale .range { flex-basis: 100%; margin-top: 4px; }
+.alts { margin-top: 10px; font-size: 13.5px; }
+.alts h4 { margin: 14px 0 6px; font: 11.5px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); }
+.alts div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 3px 0; }
+.alts b { font: 500 13px var(--mono); color: var(--text); min-width: 80px; }
+.alts code { overflow-wrap: anywhere; }
+.alts small { color: var(--text-faint); }
+
 /* cards on the start page */
 .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-top: 8px; }
 .card { background: var(--panel); padding: 18px 22px; }
@@ -108,6 +143,7 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numer
 .card:hover .go { color: var(--cyan); border-color: var(--cyan-dim); }
 
 /* rewrites */
+.panel .about { margin: 6px 0 4px; color: var(--text-dim); font-size: 13.5px; max-width: 90ch; }
 .rule { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .rule:last-child { border-bottom: 0; }
 .rule .code { font: 14px var(--mono); color: var(--text); overflow-wrap: anywhere; }
@@ -141,7 +177,8 @@ footer.site p { margin: 4px 0; max-width: 90ch; }
   h1 { font-size: 26px; }
   .row { grid-template-columns: 92px 1fr 54px; gap: 8px; }
   .row.wide { grid-template-columns: 132px 1fr 54px; }
-  .vendor > span { width: 100%; }
+  .vendor { padding-left: 0; }
+  .vendor > span { width: 100%; position: static; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
