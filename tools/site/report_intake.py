@@ -22,6 +22,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -39,8 +40,12 @@ def token():
         "client_id": os.environ["DROPBOX_APP_KEY"],
         "client_secret": os.environ["DROPBOX_APP_SECRET"],
     }).encode()
-    with urllib.request.urlopen("https://api.dropboxapi.com/oauth2/token", data) as r:
-        return json.load(r)["access_token"]
+    try:
+        with urllib.request.urlopen("https://api.dropboxapi.com/oauth2/token", data) as r:
+            return json.load(r)["access_token"]
+    except urllib.error.HTTPError as e:
+        # Dropbox says why (invalid_grant: refresh token wrong or revoked; invalid_client: app key / secret)
+        sys.exit(f"Dropbox token: HTTP {e.code} {e.read().decode(errors='replace')[:300]}")
 
 
 def api(tok, endpoint, args):

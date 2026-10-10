@@ -27,6 +27,7 @@
 #include "measure/sass.hpp"
 #include "measure/tools.hpp"
 #include "search/driver.hpp"
+#include "search/options.hpp"
 #include "search/library.hpp"
 #include "verify/bound.hpp"
 
@@ -255,7 +256,7 @@ int main(int argc, char** argv) {
   backCfg.wine = "wine";
 #endif
   if (const char* v = std::getenv("SOPT_WINE")) backCfg.wine = v;
-  bool noAmdFolds = false;
+  SearchArgs args;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     auto next = [&]() -> const char* {
@@ -279,60 +280,16 @@ int main(int argc, char** argv) {
     else if (a == "--region") regionFilter.push_back(next());
     else if (a == "--skips") skips = true;
     else if (a == "--variants") numVariants = std::strtoul(next(), nullptr, 10);
-    else if (a == "--time") opt.search.timeLimitSec = std::strtod(next(), nullptr);
-    else if (a == "--max-bank") opt.search.maxBank = std::strtoull(next(), nullptr, 10);
-    else if (a == "--v1") opt.v1Points = std::strtoull(next(), nullptr, 10);
     else if (a == "--jobs") jobs = std::max(1ul, std::strtoul(next(), nullptr, 10));
     else if (a == "--max-inputs") ropt.maxInputs = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--max-ops") ropt.maxOps = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--max-statements")
       ropt.maxStatements = std::max<uint32_t>(1, static_cast<uint32_t>(std::strtoul(next(), nullptr, 10)));
-    else if (a == "--cost-model") {
-      opt.search.model = costModelByName(next());
-      if (!opt.search.model) { std::fprintf(stderr, "unknown cost model\n"); return 2; }
+    else if (int r = parseSearchOption(a, next, opt, args)) {
+      if (r < 0) return 2;
     } else if (a == "--isa") isa = true;
     else if (a == "--assumed") allowAssumed = true;
-    else if (a == "--no-exact-rule") opt.exactRule = false;
-    else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
-    else if (a == "--no-overflow") opt.search.overflow = false;
-    else if (a == "--no-subtrees") opt.subtrees = false;
-    else if (a == "--no-cuts") opt.cuts = false;
-    else if (a == "--slack") opt.search.slack = std::atoi(next());
-    else if (a == "--no-best-bound") opt.search.bestBound = false;
-    else if (a == "--top-down") opt.search.topDown = true;
-    else if (a == "--no-top-down") opt.search.topDown = false;
-    else if (a == "--library") opt.library = true;
-    else if (a == "--no-library") opt.library = false;
-    else if (a == "--bits") opt.search.bits = true;
-    else if (a == "--two-phase") opt.search.twoPhase = true;
-    else if (a == "--no-two-phase") opt.search.twoPhase = false;
-    else if (a == "--no-amd-folds") noAmdFolds = true;
-    else if (a == "--library-file") {
-      static Library lib;  // alive for the whole run
-      const char* f = next();
-      try {
-        lib = loadLibrary(f);
-      } catch (const std::exception& e) {
-        std::fprintf(stderr, "%s\n", e.what());
-        return 2;
-      }
-      opt.library = true;
-      opt.libraryRules = &lib;
-    }
-    else if (a == "--disk") opt.search.diskDir = next();
-    else if (a == "--disk-max") opt.search.diskBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1073741824.0);
-    else if (a == "--max-mem") opt.search.memBudget = static_cast<size_t>(std::strtod(next(), nullptr) * 1048576.0);
-    else if (a == "--tests") opt.numTests = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
-    else if (a == "--no-v3") opt.v3 = false;
-    else if (a == "--no-schedule") opt.schedule = false;
-    else if (a == "--perf-mode-first") opt.perfFirst = true;
-    else if (a == "--v3-time") opt.v3Time = std::strtod(next(), nullptr);
-    else if (a == "--quant-oe") opt.search.quantBits = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
-    else if (a == "--cut-time") opt.cutTime = std::strtod(next(), nullptr);
-    else if (a == "--no-shared-leaves") opt.search.sharedLeaves = false;
-    else if (a == "--subtree-time") opt.subtreeTime = std::strtod(next(), nullptr);
-    else if (a == "--subtree-max-cost") opt.subtreeMaxCost = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--facts") factsFile = next();
     else if (a == "--ask") ask = true;
     else if (a == "--no-macro-inputs") symbolic = false;
@@ -368,10 +325,22 @@ int main(int argc, char** argv) {
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     else collect(a, inputs);
   }
-  if (noAmdFolds) opt.search.model = withoutAmdFolds(opt.search.model);
+  if (args.noAmdFolds) opt.search.model = withoutAmdFolds(opt.search.model);
   if (inputs.empty()) {
     usage();
     return 2;
+  }
+  // Variants are written as <outDir>/<source file name>: an input or include folder as outDir would overwrite originals.
+  {
+    std::vector<fs::path> srcDirs = load.includePaths;
+    for (const auto& p : inputs) srcDirs.push_back(fs::absolute(p).parent_path());
+    for (const auto& d : srcDirs) {
+      std::error_code ec;
+      if (fs::equivalent(outDir, d, ec)) {
+        std::fprintf(stderr, "-o %s is a source folder: its files would be overwritten\n", outDir.string().c_str());
+        return 2;
+      }
+    }
   }
   const auto t0 = std::chrono::steady_clock::now();
 
@@ -717,13 +686,17 @@ int main(int argc, char** argv) {
   std::string optionsKey;
   {
     char buf[512];
-    std::snprintf(buf, sizeof(buf), "%s %s t%g b%d l%g x%d a%d L%d s%d c%d td%d tp%d bb%d sl%d sc%d pf%d n%u seed%u ap%d",
+    std::snprintf(buf, sizeof(buf),
+                  "%s %s t%g b%d l%g x%d a%d L%d s%d c%d td%d tp%d bb%d sl%d sc%d pf%d n%u seed%u ap%d "
+                  "lf%zx mb%llu of%d q%u ct%g st%g sm%u sh%d",
                   SOPT_VERSION, opt.search.model ? std::string(opt.search.model->name).c_str() : "?",
                   opt.search.timeLimitSec, opt.search.bits ? 1 : 0, opt.loose, opt.exactRule ? 1 : 0,
                   opt.accuracyVariants ? 1 : 0, opt.library ? 1 : 0, opt.subtrees ? 1 : 0, opt.cuts ? 1 : 0,
                   opt.search.topDown ? 1 : 0, opt.search.twoPhase ? 1 : 0, opt.search.bestBound ? 1 : 0, opt.search.slack,
                   opt.schedule ? 1 : 0, opt.perfFirst ? 1 : 0, opt.numTests, static_cast<unsigned>(opt.seed),
-                  allPlatforms ? 1 : 0);
+                  allPlatforms ? 1 : 0, args.libraryHash, static_cast<unsigned long long>(opt.search.maxBank),
+                  opt.search.overflow ? 1 : 0, static_cast<unsigned>(opt.search.quantBits), opt.cutTime, opt.subtreeTime,
+                  static_cast<unsigned>(opt.subtreeMaxCost), opt.search.sharedLeaves ? 1 : 0);
     optionsKey = buf;
   }
   struct CacheEntry {

@@ -58,6 +58,7 @@ add_library(sopt-search
   src/search/subtrees.cpp
   src/search/cuts.cpp
   src/search/library.cpp
+  src/search/options.cpp
   src/search/reshape.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/library_builtin.cpp)
 # The rewrite library is built in (used when library/rewrites.txt is not found at run time).

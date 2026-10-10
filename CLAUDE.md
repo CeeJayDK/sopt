@@ -24,6 +24,8 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
   testers (now 0.7.0, released); the next test build is 0.7.1.
 - CHANGELOG.md: one `## <version>` section per release, add to the top section as things land (release.yml copies it).
+  Changelog, release notes and README.md are for laymen (owner, 2026-10-10): plain English, short, what changes for the
+  user, no option names or internals (those go in docs/notes/history.md, docs/technical.md).
 - PNGs sent to the owner or committed: ECT -5 first (`ect -5 -strip -quiet`, oxipng -o 4 as fallback).
 - Commits: no model IDs anywhere in the repo. End commit messages with the session's attribution trailer.
 
@@ -67,6 +69,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
   DROPBOX_FOLDER=/Reports (app-relative). On main since 0.7.0; check its runs if reports stop arriving.
 
 ## Layout
+(Per-file map with a flow diagram: docs/code-map.md; update it when files are added, moved or change purpose.)
 - `src/ir`: ops (`ops.cpp`: op table, exactness, cost models, `CostModel::opCost` / `divCost` / `binaryCost`, HalfCosts),
   float32 evaluator (`evalNode`), hash-consed Expr DAG (`expr.cpp`: dagCost / nodeCosts / divCosts / fusedArg /
   amdFoldedNodes / scheduleMetrics, printers incl. `toGlsl`), `.sopt` parser.
@@ -124,13 +127,9 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
   reciprocals.
 
 ## Open items (details: docs/notes/history.md)
-1. Ponytail code review done 2026-10-09 (intake hardening merged, release.yml now runs the tests). Still open, ask first:
-   a) sopt-fx -o equal to an input folder overwrites the originals, same-named inputs overwrite each other
-   (variants.cpp writeVariants, fx_main.cpp effect copy): refuse with fs::equivalent / duplicate names;
-   b) sopt-cache.txt key (fx_main.cpp optionsKey) misses the library file text and --max-bank / --no-overflow /
-   --quant-oe / --cut-time / --subtree-time: such reruns only re-verify; c) ~40 search options parsed three times
-   (main.cpp, fx_main.cpp, bench.cpp): one shared parser, bench before / after; d) a pytest for report_intake.py /
-   gen_expected.py in ci.yml.
+1. Ponytail code review 2026-10-09, all items done 2026-10-10 (PR #21): -o on a source folder refused, complete cache
+   key, tools/site/test_report_intake.py + expected.hpp check in ci.yml, shared search options (src/search/options.cpp,
+   `parseSearchOption`: add new search flags there, not in main.cpp / fx_main.cpp / bench.cpp).
 2. fp16 variants (owner's go): step 1 done (OpBench max16 / log2_16 / mad16v3 / mix16, HalfCosts). Next: step 2 fp16
    evaluator (half / float / mixed profiles), 3 half variants with conversions at region edges in the GPU-family table,
    4 output only for D3D10-12, 5 corpus A/B + sopt-timer test on the owner's NUC (Gen9 should gain, GTX 1660 control).

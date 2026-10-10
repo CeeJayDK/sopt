@@ -173,7 +173,8 @@ std::optional<SourceRewrite> hoistShader(const Effect& fx, const Function& ps, c
     for (const auto& s : ps.stmts) stored = stored || (s.kind == Statement::Kind::Store && s.var == id);
     const unsigned modifiers = reshadefx::type::q_nointerpolation | reshadefx::type::q_centroid;
     if (vsOut.count(key) && !isPosition(key) && p.type.is_floating_point() && !(p.type.qualifiers & modifiers) &&
-        !(vsOut[key]->type.qualifiers & modifiers) && !stored)
+        !(vsOut[key]->type.qualifiers & modifiers) && !stored &&
+        vsOut[key]->type.rows == p.type.rows && vsOut[key]->type.cols == p.type.cols)  // the wrapper reads the VS's
       varyings.insert(p.name);
   }
 

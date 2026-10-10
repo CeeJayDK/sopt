@@ -132,6 +132,38 @@ std::optional<SourceRewrite> tableRewrite(const Codegen& cg, const Function& f, 
     if (s.kind == Statement::Kind::Store && s.var == init.var) return std::nullopt;
   if (!dynamic) return std::nullopt;  // constant indices: the compiler folds them anyway
 
+  // Other entries are evaluated at each use instead of at the declaration: only arithmetic on constants,
+  // uniforms and locals / parameters never stored to (no calls, texture reads or values that change in between).
+  auto stable = [&](auto&& self, uint32_t id) -> bool {
+    const auto it = cg.values.find(id);
+    if (it == cg.values.end()) return false;
+    const Value& v = it->second;
+    switch (v.kind) {
+      case Value::Kind::Const: return true;
+      case Value::Kind::Load: {
+        const auto var = cg.variables.find(v.base);
+        if (var == cg.variables.end()) return false;
+        if (var->second.kind == Variable::Kind::Uniform) return true;
+        if (var->second.kind != Variable::Kind::Local && var->second.kind != Variable::Kind::Param) return false;
+        for (const auto& s : f.stmts)
+          if (s.kind == Statement::Kind::Store && s.var == v.base) return false;
+        return true;
+      }
+      case Value::Kind::Chain: return self(self, v.base);
+      case Value::Kind::Unary: case Value::Kind::Binary: case Value::Kind::Ternary: case Value::Kind::Construct:
+      case Value::Kind::Intrinsic:
+        if (v.kind == Value::Kind::Intrinsic && (v.name.rfind("tex", 0) == 0 || v.name.rfind("atomic", 0) == 0))
+          return false;
+        for (uint32_t a : v.args)
+          if (!self(self, a)) return false;
+        return true;
+      default: return false;
+    }
+  };
+  if (!allConst)
+    for (size_t k = 0; k < isConst.size(); ++k)
+      if (!isConst[k] && !stable(stable, ival->second.args[k])) return std::nullopt;
+
   const std::string file = var.loc.source;
   if (file.empty() || f.loc.source != file) return std::nullopt;
   const std::vector<std::string>* lines = sourceLines(file);
