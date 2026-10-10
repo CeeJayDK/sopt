@@ -1428,6 +1428,14 @@ Range Extractor::range(uint32_t id) {
     case K::Call: break;
   }
   if (r.known && !(std::isfinite(r.lo) && std::isfinite(r.hi))) r = Range::unknown();
+  // Integer values truncate (casts, integer division: int(1.5) = 3 / 2 = 1): widen to whole numbers.
+  // A cast to int inside a chain counts too (float m = int(x): float(int(x)) in one chain).
+  bool truncates = v.type.is_integral();
+  for (const auto& op : v.chain)
+    truncates = truncates || (op.op == reshadefx::expression::operation::op_cast && op.to.is_integral() &&
+                              op.from.is_floating_point());
+  if (r.known && truncates && (std::floor(r.lo) != r.lo || std::ceil(r.hi) != r.hi))
+    r = derived(std::floor(r.lo), std::ceil(r.hi), {&r});
   memo[id] = r;
   return r;
 }
@@ -1685,9 +1693,24 @@ Range semanticConvention(const std::string& semantic, double maxWidth) {
 void Extractor::useKinds(uint32_t id, bool& cmp, bool& coord, bool& other, int depth) {
   if (depth > 4) { other = true; return; }
   const auto ui = users_.find(id);
+  const auto self = cg_.values.find(id);
+  const bool isFloat = self != cg_.values.end() && self->second.type.is_floating_point();
+  if (self != cg_.values.end() && self->second.kind == Value::Kind::Load && self->second.type.is_integral()) {
+    const auto var = cg_.variables.find(self->second.base);  // a float variable read as int (implicit cast)
+    if (var != cg_.variables.end() && var->second.type.is_floating_point()) {
+      cmp = true;
+      return;
+    }
+  }
   if (ui != users_.end())
     for (uint32_t u : ui->second) {
       const Value& uv = cg_.values.at(u);
+      // Converted to an integer (int(x), int2(x, y), a tex2Dfetch coordinate): truncation is a threshold.
+      if (isFloat && uv.type.is_integral() && (uv.kind == Value::Kind::Chain || uv.kind == Value::Kind::Load ||
+                                               uv.kind == Value::Kind::Construct)) {
+        cmp = true;
+        continue;
+      }
       switch (uv.kind) {
         case Value::Kind::Chain:
         case Value::Kind::Load: useKinds(u, cmp, coord, other, depth + 1); break;

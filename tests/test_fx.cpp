@@ -1069,6 +1069,28 @@ TEST(fx_table_rewrite) {
   fs::remove_all(out);
 }
 
+TEST(fx_int_conversions) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_int.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  // p is read as int2: 1.9999999 and 2.0 pick different texels, so it must be exact.
+  const fx::Region* p = regionOn(regions, 16);
+  CHECK(p != nullptr && p->prog.budget.kind == Budget::Kind::Exact);
+  // n = int(Scale), Scale in [1.5, 2.5]: n is 1 or 2, not 1.5 .. 2.5.
+  const fx::Region* s = regionOn(regions, 18);
+  CHECK(s != nullptr);
+  if (s) {
+    bool n = false;
+    for (const auto& d : s->prog.inputs) n = n || (d.name == "n" && d.lo <= 1.0 && d.hi >= 2.0);
+    CHECK(n);
+  }
+}
+
 TEST(fx_hoist_rewrite) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_hoist.fx";
   fx::LoadOptions lo;
