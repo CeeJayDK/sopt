@@ -21,3 +21,11 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 4: opbench, AMD Radeon RX 9070 XT (driver 32.0.32015.2008): `docs/opbench/amd-radeon-rx-9070-xt-2.csv` (OpBench 0.7.0)
 - upload 4: shaderinfo, AMD Radeon RX 9070 XT (driver AMD proprietary driver 26.9.2 (LLPC) (2.0.406)): `docs/shaderinfo/amd-radeon-rx-9070-xt-2.txt`
 - upload 4: texbench, AMD Radeon RX 9070 XT (driver 32.0.32015.2008): `docs/texbench/amd-radeon-rx-9070-xt-2.csv`, `docs/texbench/amd-radeon-rx-9070-xt-2-order.png`, `docs/texbench/amd-radeon-rx-9070-xt-2-order-zoom.png` (TexBench 0.7.0)
+
+## 2026-10-10 06:02 UTC
+- upload 1: opbench, Intel(R) Iris(R) Xe Graphics (driver 32.0.101.7084): `docs/opbench/intel-iris-xe-2.csv` (OpBench 0.7.0)
+- upload 1: opbench, NVIDIA GeForce RTX 3050 Laptop GPU (driver 32.0.16.1742): `docs/opbench/nvidia-rtx-3050-laptop-gpu.csv` (OpBench 0.7.0)
+- upload 1: shaderinfo, Intel(R) Iris(R) Xe Graphics (driver Intel Corporation 101.7084 (101.7084)): `docs/shaderinfo/intel-iris-xe-2.txt`
+- upload 1: shaderinfo, NVIDIA GeForce RTX 3050 Laptop GPU (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-rtx-3050-laptop-gpu.txt`
+- upload 1: texbench, Intel(R) Iris(R) Xe Graphics (driver 32.0.101.7084): `docs/texbench/intel-iris-xe-2.csv`, `docs/texbench/intel-iris-xe-2-order.png`, `docs/texbench/intel-iris-xe-2-order-zoom.png` (TexBench 0.7.0)
+- upload 1: texbench, NVIDIA GeForce RTX 3050 Laptop GPU (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-3050-laptop-gpu.csv`, `docs/texbench/nvidia-rtx-3050-laptop-gpu-order.png`, `docs/texbench/nvidia-rtx-3050-laptop-gpu-order-zoom.png` (TexBench 0.7.0)

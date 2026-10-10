@@ -1,0 +1,359 @@
+GPU: Intel(R) Iris(R) Xe Graphics
+vendor 32902, device 39497
+driver: Intel Corporation 101.7084 (101.7084)
+
+VK_KHR_pipeline_executable_properties: yes
+VK_AMD_shader_info: no
+VK_KHR_performance_query: yes
+VK_AMD_gpa_interface: no
+VK_INTEL_performance_query: yes
+
+All device extensions (149):
+  VK_EXT_device_address_binding_report 1
+  VK_EXT_full_screen_exclusive 4
+  VK_KHR_swapchain 70
+  VK_KHR_external_memory 1
+  VK_KHR_external_memory_win32 1
+  VK_EXT_external_memory_host 1
+  VK_KHR_external_semaphore 1
+  VK_KHR_external_semaphore_win32 1
+  VK_KHR_external_fence 1
+  VK_KHR_external_fence_win32 1
+  VK_KHR_timeline_semaphore 2
+  VK_KHR_win32_keyed_mutex 1
+  VK_KHR_get_memory_requirements2 1
+  VK_KHR_bind_memory2 1
+  VK_KHR_dedicated_allocation 3
+  VK_KHR_sampler_mirror_clamp_to_edge 3
+  VK_KHR_maintenance1 2
+  VK_KHR_maintenance2 1
+  VK_KHR_maintenance3 1
+  VK_KHR_maintenance4 2
+  VK_KHR_maintenance5 1
+  VK_KHR_maintenance6 1
+  VK_KHR_maintenance7 1
+  VK_KHR_synchronization2 1
+  VK_KHR_shader_draw_parameters 1
+  VK_KHR_push_descriptor 2
+  VK_KHR_descriptor_update_template 1
+  VK_KHR_multiview 1
+  VK_KHR_shader_float16_int8 1
+  VK_KHR_shader_float_controls 4
+  VK_KHR_16bit_storage 1
+  VK_KHR_8bit_storage 1
+  VK_EXT_shader_subgroup_ballot 1
+  VK_EXT_shader_subgroup_vote 1
+  VK_KHR_storage_buffer_storage_class 1
+  VK_KHR_variable_pointers 1
+  VK_KHR_relaxed_block_layout 1
+  VK_EXT_sampler_filter_minmax 2
+  VK_KHR_device_group 4
+  VK_KHR_sampler_ycbcr_conversion 14
+  VK_EXT_ycbcr_2plane_444_formats 1
+  VK_EXT_4444_formats 1
+  VK_EXT_post_depth_coverage 1
+  VK_EXT_shader_viewport_index_layer 1
+  VK_EXT_shader_stencil_export 1
+  VK_EXT_conservative_rasterization 1
+  VK_EXT_sample_locations 1
+  VK_KHR_draw_indirect_count 1
+  VK_EXT_multi_draw 1
+  VK_KHR_image_format_list 1
+  VK_EXT_image_view_min_lod 1
+  VK_KHR_vertex_attribute_divisor 1
+  VK_EXT_vertex_attribute_divisor 3
+  VK_EXT_descriptor_indexing 2
+  VK_EXT_mutable_descriptor_type 1
+  VK_EXT_inline_uniform_block 1
+  VK_KHR_create_renderpass2 1
+  VK_KHR_dynamic_rendering 1
+  VK_KHR_dynamic_rendering_local_read 1
+  VK_EXT_dynamic_rendering_unused_attachments 1
+  VK_KHR_load_store_op_none 1
+  VK_EXT_load_store_op_none 1
+  VK_KHR_swapchain_mutable_format 1
+  VK_KHR_depth_stencil_resolve 1
+  VK_KHR_driver_properties 1
+  VK_KHR_vulkan_memory_model 3
+  VK_EXT_conditional_rendering 2
+  VK_EXT_hdr_metadata 3
+  VK_KHR_fragment_shading_rate 2
+  VK_EXT_depth_clip_enable 1
+  VK_EXT_depth_clip_control 1
+  VK_EXT_scalar_block_layout 1
+  VK_KHR_imageless_framebuffer 1
+  VK_KHR_buffer_device_address 1
+  VK_EXT_buffer_device_address 2
+  VK_KHR_pipeline_library 1
+  VK_EXT_host_query_reset 1
+  VK_KHR_performance_query 1
+  VK_NV_device_diagnostic_checkpoints 2
+  VK_KHR_separate_depth_stencil_layouts 1
+  VK_KHR_shader_clock 1
+  VK_KHR_spirv_1_4 1
+  VK_KHR_uniform_buffer_standard_layout 1
+  VK_EXT_separate_stencil_usage 1
+  VK_EXT_fragment_shader_interlock 1
+  VK_EXT_index_type_uint8 1
+  VK_KHR_index_type_uint8 1
+  VK_EXT_primitive_topology_list_restart 1
+  VK_KHR_shader_subgroup_extended_types 1
+  VK_KHR_line_rasterization 1
+  VK_EXT_line_rasterization 1
+  VK_EXT_memory_budget 1
+  VK_EXT_memory_priority 1
+  VK_EXT_pageable_device_local_memory 1
+  VK_EXT_texel_buffer_alignment 1
+  VK_INTEL_performance_query 2
+  VK_EXT_subgroup_size_control 2
+  VK_EXT_shader_demote_to_helper_invocation 1
+  VK_EXT_pipeline_creation_feedback 1
+  VK_EXT_pipeline_creation_cache_control 3
+  VK_KHR_pipeline_executable_properties 1
+  VK_EXT_graphics_pipeline_library 1
+  VK_EXT_transform_feedback 1
+  VK_EXT_provoking_vertex 1
+  VK_EXT_extended_dynamic_state 1
+  VK_EXT_extended_dynamic_state2 1
+  VK_EXT_extended_dynamic_state3 2
+  VK_EXT_vertex_input_dynamic_state 2
+  VK_EXT_custom_border_color 12
+  VK_EXT_robustness2 1
+  VK_EXT_image_robustness 1
+  VK_EXT_pipeline_robustness 1
+  VK_KHR_calibrated_timestamps 1
+  VK_EXT_calibrated_timestamps 2
+  VK_KHR_shader_integer_dot_product 1
+  VK_KHR_shader_subgroup_uniform_control_flow 1
+  VK_KHR_shader_terminate_invocation 1
+  VK_KHR_workgroup_memory_explicit_layout 1
+  VK_EXT_shader_atomic_float 1
+  VK_KHR_copy_commands2 1
+  VK_KHR_shader_non_semantic_info 1
+  VK_KHR_zero_initialize_workgroup_memory 1
+  VK_EXT_shader_atomic_float2 1
+  VK_EXT_global_priority 2
+  VK_EXT_global_priority_query 1
+  VK_KHR_global_priority 1
+  VK_KHR_format_feature_flags2 2
+  VK_KHR_video_queue 8
+  VK_KHR_video_decode_queue 7
+  VK_KHR_video_decode_h264 8
+  VK_KHR_video_decode_h265 7
+  VK_KHR_video_decode_av1 1
+  VK_EXT_color_write_enable 1
+  VK_NV_compute_shader_derivatives 1
+  VK_KHR_compute_shader_derivatives 1
+  VK_EXT_private_data 1
+  VK_EXT_image_2d_view_of_3d 1
+  VK_EXT_primitives_generated_query 1
+  VK_EXT_shader_module_identifier 1
+  VK_EXT_non_seamless_cube_map 1
+  VK_EXT_attachment_feedback_loop_layout 2
+  VK_KHR_map_memory2 1
+  VK_KHR_shader_maximal_reconvergence 1
+  VK_KHR_shader_quad_control 1
+  VK_EXT_host_image_copy 1
+  VK_KHR_shader_subgroup_rotate 2
+  VK_KHR_shader_expect_assume 1
+  VK_KHR_shader_float_controls2 1
+  VK_EXT_tooling_info 1
+
+Hardware counters (181):
+  GPU / GpuTime: Time elapsed on the GPU during the measurement.
+  GPU / GpuCoreClocks: The total number of GPU core clocks elapsed during the measurement.
+  GPU / AvgGpuCoreFrequencyMHz: Average GPU Core Frequency in the measurement.
+  EU Array/Vertex Shader / VsThreads: The total number of vertex shader hardware threads dispatched.
+  EU Array/Hull Shader / HsThreads: The total number of hull shader hardware threads dispatched.
+  EU Array/Domain Shader / DsThreads: The total number of domain shader hardware threads dispatched.
+  EU Array/Geometry Shader / GsThreads: The total number of geometry shader hardware threads dispatched.
+  EU Array/Pixel Shader / PsThreads: The total number of pixel shader hardware threads dispatched.
+  EU Array/Compute Shader / CsThreads: The total number of compute shader hardware threads dispatched.
+  GPU / GpuBusy: The percentage of time in which the GPU has been processing GPU commands.
+  EU Array / EuActive: The percentage of time in which the Execution Units were actively processing.
+  EU Array / EuStall: The percentage of time in which the Execution Units were stalled.
+  EU Array / EuThreadOccupancy: The percentage of time in which hardware threads occupied EUs.
+  Sampler / Sampler00Busy: The percentage of time in which Slice0 Sampler0 has been processing EU requests.
+  GPU/Sampler / Sampler00Bottleneck: The percentage of time when sampler slice0 dualsubslice0 is bottleneck
+  Sampler / SamplersBusy: The percentage of time in which samplers have been processing EU requests.
+  Sampler / SamplerBottleneck: The percentage of time in which samplers have been slowing down the pipe when processing EU requests.
+  3D Pipe/Rasterizer / RasterizedPixels: The total number of rasterized pixels.
+  3D Pipe/Rasterizer/Hi-Depth Test / HiDepthTestFails: The total number of pixels dropped on early hierarchical depth test.
+  3D Pipe/Rasterizer/Early Depth Test / EarlyDepthTestFails: The total number of pixels dropped on early depth test.
+  3D Pipe/Pixel Shader / SamplesKilledInPs: The total number of samples or pixels dropped in pixel shaders.
+  3D Pipe/Output Merger / PixelsFailingPostPsTests: The total number of pixels dropped on post-PS alpha, stencil, or depth tests.
+  3D Pipe/Output Merger / SamplesWritten: The total number of samples or pixels written to all render targets.
+  3D Pipe/Output Merger / SamplesBlended: The total number of blended samples or pixels written to all render targets.
+  Sampler/Sampler Input / SamplerTexels: The total number of texels seen on input (with 2x2 accuracy) in all sampler units.
+  Sampler/Sampler Cache / SamplerTexelMisses: The total number of texels lookups (with 2x2 accuracy) that missed L1 sampler cache.
+  L3/Data Port/SLM / SlmBytesRead: The total number of GPU memory bytes read from shared local memory.
+  L3/Data Port/SLM / SlmBytesWritten: The total number of GPU memory bytes written into shared local memory.
+  L3/Data Port / ShaderMemoryAccesses: The total number of shader memory accesses to L3.
+  L3/Data Port/Atomics / ShaderAtomics: The total number of shader atomic memory accesses.
+  L3/Data Port / L3ShaderThroughput: The total number of GPU memory bytes transferred between shaders and L3 caches w/o URB.
+  EU Array/Barrier / ShaderBarriers: The total number of shader barrier messages.
+  GTI / GtiReadThroughput: The total number of GPU memory bytes read from GTI.
+  GTI / GtiWriteThroughput: The total number of GPU memory bytes written to GTI.
+  3D Pipe/Input Assembler / VfBottleneck: The percentage of time in which vertex fetch pipeline stage was slowing down the 3D pipeline.
+  3D Pipe/Vertex Shader / VsBottleneck: The percentage of time in which vertex shader pipeline stage was slowing down the 3D pipeline.
+  3D Pipe/Hull Shader / HsBottleneck: The percentage of time in which hull shader pipeline stage was slowing down the 3D pipeline.
+  3D Pipe/Domain Shader / DsBottleneck: The percentage of time in which domain shader pipeline stage was slowing down the 3D pipeline.
+  3D Pipe/Geometry Shader / GsBottleneck: The percentage of time in which geometry shader pipeline stage was slowing down the 3D pipeline.
+  3D Pipe/Stream Output / SoBottleneck: The percentage of time in which stream output pipeline stage was slowing down the 3D pipeline.
+  3D Pipe/Clipper / ClBottleneck: The percentage of time in which clipper pipeline stage was slowing down the 3D pipeline.
+  3D Pipe/Rasterizer/Strip-Fans / SfBottleneck: The percentage of time in which strip-fans pipeline stage was slowing down the 3D pipeline.
+  3D Pipe/Rasterizer/Hi-Depth Test / HiDepthBottleneck: The percentage of time in which early hierarchical depth test pipeline stage was slowing down the 3D pipeline.
+  3D Pipe/Rasterizer/Barycentric Calc / BcBottleneck: The percentage of time in which barycentric coordinates calculation pipeline stage was slowing down the 3D pipeline.
+  3D Pipe/Hull Shader / HsStall: The percentage of time in which hull stall pipeline stage was stalled.
+  3D Pipe/Domain Shader / DsStall: The percentage of time in which domain shader pipeline stage was stalled.
+  3D Pipe/Stream Output / SoStall: The percentage of time in which stream-output pipeline stage was stalled.
+  3D Pipe/Clipper / ClStall: The percentage of time in which clipper pipeline stage was stalled.
+  3D Pipe/Rasterizer/Strip-Fans / SfStall: The percentage of time in which strip-fans pipeline stage was stalled.
+  GPU/Data Port / NonSamplerShader00AccessStalledOnL3: Percentage of time when HDC has messages to L3, but it's stalled due to lack of credits (Slice0 Dualsubslice0)
+  GPU/Data Port / NonSamplerShader01AccessStalledOnL3: Percentage of time when HDC has messages to L3, but it's stalled due to lack of credits (Slice0 Dualsubslice1)
+  GPU/Data Port / NonSamplerShader02AccessStalledOnL3: Percentage of time when HDC has messages to L3, but it's stalled due to lack of credits (Slice0 Dualsubslice2)
+  GPU/Data Port / NonSamplerShader03AccessStalledOnL3: Percentage of time when HDC has messages to L3, but it's stalled due to lack of credits (Slice0 Dualsubslice3)
+  GPU/Data Port / NonSamplerShader04AccessStalledOnL3: Percentage of time when HDC has messages to L3, but it's stalled due to lack of credits (Slice0 Dualsubslice4)
+  GPU/Data Port / NonSamplerShader05AccessStalledOnL3: Percentage of time when HDC has messages to L3, but it's stalled due to lack of credits (Slice0 Dualsubslice5)
+  GPU/3D Pipe/Strip-Fans / PolyDataReady: The percentage of time in which geometry pipeline output is ready
+  GPU/Rasterizer / Rasterizer0InputAvailable: The percentage of time in which slice0 rasterizer input is available
+  GPU/Rasterizer / Rasterizer0OutputReady: The percentage of time in which slice0 rasterizer output is ready
+  GPU/Rasterizer/Early Depth Test / PixelData00Ready: The percentage of time in which slice0  pipe0 post-EarlyZ pixel data is ready (after early Z tests have been applied)
+  GPU/3D Pipe / PSOutput00Available: The percentage of time in which slice0 pipe0 PS output is available
+  GPU/3D Pipe / PSOutput01Available: The percentage of time in which slice0 pipe1 PS output is available
+  GPU/3D Pipe / PSOutput02Available: The percentage of time in which slice0 pipe2 PS output is available
+  GPU/3D Pipe / PixelValues00Ready: The percentage of time in which slice0 pipe0 pixel values are ready
+  GPU/3D Pipe / PixelValues01Ready: The percentage of time in which slice0 pipe1 pixel values are ready
+  GPU/3D Pipe / PixelValues02Ready: The percentage of time in which slice0 pipe2 pixel values are ready
+  GTI / GTRequestQueue00Full: The percentage of time when IDI0 SQ0 is filled above a threshold (usually 48 entries)
+  GTI / GTRequestQueue01Full: The percentage of time when IDI0 SQ1 is filled above a threshold (usually 48 entries)
+  GTI / GTRequestQueue10Full: The percentage of time when IDI1 SQ0 is filled above a threshold (usually 48 entries)
+  GTI / GTRequestQueue11Full: The percentage of time when IDI1 SQ1 is filled above a threshold (usually 48 entries)
+  GTI/L3 / L30Bank0InputAvailable: The percentage of time in which slice0 L3 bank0 has input available
+  GTI/L3 / L30Bank1InputAvailable: The percentage of time in which slice0 L3 bank1 has input available
+  GTI/L3 / L30Bank4InputAvailable: The percentage of time in which slice0 L3 bank4 has input available
+  GTI/L3 / L30Bank5InputAvailable: The percentage of time in which slice0 L3 bank5 has input available
+  GTI/L3 / L30Bank2InputAvailable: The percentage of time in which slice0 L3 bank2 has input available
+  GTI/L3 / L30Bank3InputAvailable: The percentage of time in which slice0 L3 bank3 has input available
+  GTI/L3 / L30Bank6InputAvailable: The percentage of time in which slice0 L3 bank6 has input available
+  GTI/L3 / L30Bank7InputAvailable: The percentage of time in which slice0 L3 bank7 has input available
+  GTI/L3 / L30Bank0OutputReady: The percentage of time in which slice0 L3 bank0 output is ready
+  GTI/L3 / L30Bank4OutputReady: The percentage of time in which slice0 L3 bank4 output is ready
+  GTI/L3 / L30Bank1OutputReady: The percentage of time in which slice0 L3 bank1 output is ready
+  GTI/L3 / L30Bank5OutputReady: The percentage of time in which slice0 L3 bank5 output is ready
+  GTI/L3 / L30Bank2OutputReady: The percentage of time in which slice0 L3 bank2 output is ready
+  GTI/L3 / L30Bank6OutputReady: The percentage of time in which slice0 L3 bank6 output is ready
+  GTI/L3 / L30Bank3OutputReady: The percentage of time in which slice0 L3 bank3 output is ready
+  GTI/L3 / L30Bank7OutputReady: The percentage of time in which slice0 L3 bank7 output is ready
+  GPU/Sampler / Sampler00InputAvailable: The percentage of time in which slice0 dualsubslice0 sampler input is available
+  GPU/Sampler / Sampler01InputAvailable: The percentage of time in which slice0 dualsubslice1 sampler input is available
+  GPU/Sampler / Sampler02InputAvailable: The percentage of time in which slice0 dualsubslice2 sampler input is available
+  GPU/Sampler / Sampler03InputAvailable: The percentage of time in which slice0 dualsubslice3 sampler input is available
+  GPU/Sampler / Sampler04InputAvailable: The percentage of time in which slice0 dualsubslice4 sampler input is available
+  GPU/Sampler / Sampler05InputAvailable: The percentage of time in which slice0 dualsubslice5 sampler input is available
+  GPU/Sampler / Sampler00OutputReady: The percentage of time in which slice0 dualsubslice0 sampler output is ready
+  GPU/Sampler / Sampler01OutputReady: The percentage of time in which slice0 dualsubslice1 sampler output is ready
+  GPU/Sampler / Sampler02OutputReady: The percentage of time in which slice0 dualsubslice2 sampler output is ready
+  GPU/Sampler / Sampler03OutputReady: The percentage of time in which slice0 dualsubslice3 sampler output is ready
+  GPU/Sampler / Sampler04OutputReady: The percentage of time in which slice0 dualsubslice4 sampler output is ready
+  GPU/Sampler / Sampler05OutputReady: The percentage of time in which slice0 dualsubslice5 sampler output is ready
+  GPU/Thread Dispatcher / NonPSThread00ReadyForDispatch: The percentage of time in which non-PS thread is ready for dispatch on slice0 dualsubslice0 thread dispatcher
+  GPU/Thread Dispatcher / NonPSThread01ReadyForDispatch: The percentage of time in which non-PS thread is ready for dispatch on slice0 dualsubslice1 thread dispatcher
+  GPU/Thread Dispatcher / NonPSThread02ReadyForDispatch: The percentage of time in which non-PS thread is ready for dispatch on slice0 dualsubslice2 thread dispatcher
+  GPU/Thread Dispatcher / NonPSThread03ReadyForDispatch: The percentage of time in which non-PS thread is ready for dispatch on slice0 dualsubslice3 thread dispatcher
+  GPU/Thread Dispatcher / NonPSThread04ReadyForDispatch: The percentage of time in which non-PS thread is ready for dispatch on slice0 dualsubslice4 thread dispatcher
+  GPU/Thread Dispatcher / NonPSThread05ReadyForDispatch: The percentage of time in which non-PS thread is ready for dispatch on slice0 dualsubslice5 thread dispatcher
+  GPU/Thread Dispatcher / ThreadHeader00ReadyPort0: The percentage of time in which thread header is ready on slice0 dualsubslice0 thread dispatcher port 0
+  GPU/Thread Dispatcher / ThreadHeader00ReadyPort1: The percentage of time in which thread header is ready on slice0 dualsubslice0 thread dispatcher port 1
+  GPU/Thread Dispatcher / ThreadHeader00ReadyPort2: The percentage of time in which thread header is ready on slice0 dualsubslice0 thread dispatcher port 2
+  GPU/Thread Dispatcher / ThreadHeader00ReadyPort3: The percentage of time in which thread header is ready on slice0 dualsubslice0 thread dispatcher port 3
+  GPU/Thread Dispatcher / ThreadHeader01ReadyPort0: The percentage of time in which thread header is ready on slice0 dualsubslice1 thread dispatcher port 0
+  GPU/Thread Dispatcher / ThreadHeader01ReadyPort1: The percentage of time in which thread header is ready on slice0 dualsubslice1 thread dispatcher port 1
+  GPU/Thread Dispatcher / ThreadHeader01ReadyPort2: The percentage of time in which thread header is ready on slice0 dualsubslice1 thread dispatcher port 2
+  GPU/Thread Dispatcher / ThreadHeader01ReadyPort3: The percentage of time in which thread header is ready on slice0 dualsubslice1 thread dispatcher port 3
+  GPU/Thread Dispatcher / ThreadHeader00Ready: The percentage of time in which thread header is ready on slice0 dualsubslice0 thread dispatcher
+  GPU/Thread Dispatcher / ThreadHeader01Ready: The percentage of time in which thread header is ready on slice0 dualsubslice1 thread dispatcher
+  GPU/Thread Dispatcher / PSThread00ReadyForDispatch: The percentage of time in which PS thread is ready for dispatch on slice0 dualsubslice0 thread dispatcher
+  GPU/Thread Dispatcher / PSThread01ReadyForDispatch: The percentage of time in which PS thread is ready for dispatch on slice0 dualsubslice1 thread dispatcher
+  GPU/Thread Dispatcher / PSThread02ReadyForDispatch: The percentage of time in which PS thread is ready for dispatch on slice0 dualsubslice2 thread dispatcher
+  GPU/Thread Dispatcher / PSThread03ReadyForDispatch: The percentage of time in which PS thread is ready for dispatch on slice0 dualsubslice3 thread dispatcher
+  GPU/Thread Dispatcher / PSThread04ReadyForDispatch: The percentage of time in which PS thread is ready for dispatch on slice0 dualsubslice4 thread dispatcher
+  GPU/Thread Dispatcher / PSThread05ReadyForDispatch: The percentage of time in which PS thread is ready for dispatch on slice0 dualsubslice5 thread dispatcher
+  GPU/Thread Dispatcher / ThreadHeader05Ready: The percentage of time in which thread header is ready on slice0 dualsubslice5 thread dispatcher
+  GPU/Thread Dispatcher / ThreadHeader05ReadyPort0: The percentage of time in which thread header is ready on slice0 dualsubslice5 thread dispatcher port 0
+  GPU/Thread Dispatcher / ThreadHeader05ReadyPort1: The percentage of time in which thread header is ready on slice0 dualsubslice5 thread dispatcher port 1
+  GPU/Thread Dispatcher / ThreadHeader05ReadyPort2: The percentage of time in which thread header is ready on slice0 dualsubslice5 thread dispatcher port 2
+  GPU/Thread Dispatcher / ThreadHeader05ReadyPort3: The percentage of time in which thread header is ready on slice0 dualsubslice5 thread dispatcher port 3
+  GPU/Thread Dispatcher / ThreadHeader02Ready: The percentage of time in which thread header is ready on slice0 dualsubslice2 thread dispatcher
+  GPU/Thread Dispatcher / ThreadHeader03Ready: The percentage of time in which thread header is ready on slice0 dualsubslice3 thread dispatcher
+  GPU/Thread Dispatcher / ThreadHeader04Ready: The percentage of time in which thread header is ready on slice0 dualsubslice4 thread dispatcher
+  GPU/Thread Dispatcher / ThreadHeader02ReadyPort0: The percentage of time in which thread header is ready on slice0 dualsubslice2 thread dispatcher port 0
+  GPU/Thread Dispatcher / ThreadHeader02ReadyPort1: The percentage of time in which thread header is ready on slice0 dualsubslice2 thread dispatcher port 1
+  GPU/Thread Dispatcher / ThreadHeader02ReadyPort2: The percentage of time in which thread header is ready on slice0 dualsubslice2 thread dispatcher port 2
+  GPU/Thread Dispatcher / ThreadHeader02ReadyPort3: The percentage of time in which thread header is ready on slice0 dualsubslice2 thread dispatcher port 3
+  GPU/Thread Dispatcher / ThreadHeader03ReadyPort0: The percentage of time in which thread header is ready on slice0 dualsubslice3 thread dispatcher port 0
+  GPU/Thread Dispatcher / ThreadHeader03ReadyPort1: The percentage of time in which thread header is ready on slice0 dualsubslice3 thread dispatcher port 1
+  GPU/Thread Dispatcher / ThreadHeader03ReadyPort2: The percentage of time in which thread header is ready on slice0 dualsubslice3 thread dispatcher port 2
+  GPU/Thread Dispatcher / ThreadHeader03ReadyPort3: The percentage of time in which thread header is ready on slice0 dualsubslice3 thread dispatcher port 3
+  GPU/Thread Dispatcher / ThreadHeader04ReadyPort0: The percentage of time in which thread header is ready on slice0 dualsubslice4 thread dispatcher port 0
+  GPU/Thread Dispatcher / ThreadHeader04ReadyPort1: The percentage of time in which thread header is ready on slice0 dualsubslice4 thread dispatcher port 1
+  GPU/Thread Dispatcher / ThreadHeader04ReadyPort2: The percentage of time in which thread header is ready on slice0 dualsubslice4 thread dispatcher port 2
+  GPU/Thread Dispatcher / ThreadHeader04ReadyPort3: The percentage of time in which thread header is ready on slice0 dualsubslice4 thread dispatcher port 3
+  GPU / RenderBusy: The percentage of time when render command streamer was busy.
+  GPU / ComputeBusy: The percentage of time when render command streamer was busy.
+  GPU / PoshEngineBusy: The percentage of time when posh command streamer was busy.
+  GPU / BlitterBusy: The percentage of time when blitter command streamer was busy.
+  GPU / VeboxBusy: The percentage of time when vebox command streamer was busy.
+  GPU / Vdbox0Busy: The percentage of time when Vdbox0 command streamer was busy.
+  GPU / Vdbox1Busy: The percentage of time when Vdbox1 command streamer was busy.
+  GPU / RenderAndComputeBusy: The percentage of time when render and compute engines are simultaneously busy
+  GPU / AnyEngineBusy: The percentage of time when any command streamer was busy.
+  EU Array/Vertex Shader / VsFpuActive: The percentage of time in which EU FPU pipeline was actively processing a vertex shader instruction.
+  EU Array/Pixel Shader / PsFpuActive: The percentage of time in which EU FPU pipeline was actively processing a pixel shader instruction.
+  EU Array/Pipes / EuSendActive: The percentage of time in which EU send pipeline was actively processing.
+  EU Array / CsEmActive: The percentage of time in which EU FPU1 pipeline was actively processing a compute shader instruction.
+  EU Array / CsFpuActive: The percentage of time in which EU FPU pipeline was actively processing a compute shader instruction.
+  EU Array / CsSendActive: The percentage of time in which EU send pipeline was actively processing a compute shader instruction.
+  EU Array/Vertex Shader / VsEmActive: The percentage of time in which EU EM pipeline was actively processing a vertex shader instruction.
+  EU Array/Pixel Shader / PsEmActive: The percentage of time in which EU EM pipeline was actively processing a pixel shader instruction.
+  EU Array/Pixel Shader / PsSendActive: The percentage of time in which EU send pipeline was actively processing a pixel shader instruction.
+  EU Array/Hull Shader / HsFpuActive: The percentage of time in which EU FPU pipeline was actively processing a hull shader instruction.
+  EU Array/Domain Shader / DsFpuActive: The percentage of time in which EU FPU pipeline was actively processing a domain shader instructions.
+  EU Array/Vertex Shader / VsSendActive: The percentage of time in which EU send pipeline was actively processing a vertex shader instruction.
+  EU Array/Hull Shader / HsEmActive: The percentage of time in which EU EM pipeline was actively processing a hull shader instructions.
+  EU Array/Domain Shader / DsEmActive: The percentage of time in which EU EM pipeline was actively processing a domain shader instructions.
+  EU Array/Hull Shader / HsSendActive: The percentage of time in which EU send pipeline was actively processing a hull shader instruction.
+  EU Array/Geometry Shader / GsFpuActive: The percentage of time in which EU FPU pipeline was actively processing a geometry shader instructions.
+  EU Array/Geometry Shader / GsEmActive: The percentage of time in which EU EM pipeline was actively processing a geometry shader instructions.
+  EU Array/Geometry Shader / GsSendActive: The percentage of time in which EU send pipeline was actively processing a geometry shader instruction.
+  EU Array/Pipes / FpuActive: The percentage of time in which EU FPU pipeline was actively processing.
+  EU Array/Pipes / EmActive: The percentage of time in which EU EM pipeline was actively processing.
+  EU Array/Pipes / EuFpuEmActive: The percentage of time in which EU FPU and EM pipelines were actively processing.
+  EU Array / EuAvgIpcRate: The average rate of IPC calculated for 2 FPU pipelines.
+  EU Array/Domain Shader / DsSendActive: The percentage of time in which EU send pipeline was actively processing a domain shader instruction.
+  GPU / Counter0: HW test counter 0. Factor: 0.0
+  GPU / Counter1: HW test counter 1. Factor: 1.0
+  GPU / Counter2: HW test counter 2. Factor: 1.0
+  GPU / Counter3: HW test counter 3. Factor: 0.5
+  GPU / Counter4: HW test counter 4. Factor: 0.3333
+  GPU / Counter5: HW test counter 5. Factor: 0.3333
+  GPU / Counter6: HW test counter 6. Factor: 0.16666
+  GPU / Counter7: HW test counter 7. Factor: 0.6666
+  GPU / Counter8: HW test counter 8. Should be equal to 1 in IOStream or in OAG query mode
+  GPU / Counter9: HW test counter 9. Should be equal to 1 in query.
+
+==== int (and / xor / add / mul chain) ====
+-- executable 0: compute (compute shader), subgroup size 32
+  Instruction Count = 57   (Number of GEN instructions in the final generated shader executable.)
+  Basic Block Count = 5   (Number of basic blocks in the final generated shader executable. The number correspond the number of control flow instructions.)
+  Scratch Memory Size = 0   (Number of bytes of scratch memory required by the generated shader executable. If this is non-zero, you may want to adjust your shader to reduce register pressure.)
+  Loop Count = 1   (Number of active loops (not unrolled) in the final generated shader executable.)
+  Workgroup Memory Size = 0   (Number of bytes of workgroup shared memory including any padding.)
+
+==== float (fma, rcp, sqrt, floor, max, clamp, sign, exp2) ====
+-- executable 0: compute (compute shader), subgroup size 32
+  Instruction Count = 74   (Number of GEN instructions in the final generated shader executable.)
+  Basic Block Count = 5   (Number of basic blocks in the final generated shader executable. The number correspond the number of control flow instructions.)
+  Scratch Memory Size = 0   (Number of bytes of scratch memory required by the generated shader executable. If this is non-zero, you may want to adjust your shader to reduce register pressure.)
+  Loop Count = 1   (Number of active loops (not unrolled) in the final generated shader executable.)
+  Workgroup Memory Size = 0   (Number of bytes of workgroup shared memory including any padding.)
