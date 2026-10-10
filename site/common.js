@@ -38,6 +38,29 @@ function barRow(name, value, scale, color, opts = {}) {
     el("span", { class: "val" + (free ? " free" : ""), text: opts.label ?? (free ? "free" : num(value)) }));
 }
 
+// Vendor names in their brand colors wherever they appear in the page content, also in what is drawn later
+// (owner, 2026-10-10: NVIDIA green, AMD red, Intel blue). Not in <option> (no colors there) or code.
+const VENDOR_WORD = /\b(NVIDIA|AMD|Intel|Qualcomm|Moore Threads)\b/;
+function brand(root) {
+  const skip = (n) => !n.parentElement || n.parentElement.closest(".vn, option, select, code, pre, script, style");
+  const found = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (VENDOR_WORD.test(n.data) && !skip(n)) found.push(n);
+  for (const n of found) {
+    const parts = n.data.split(new RegExp(VENDOR_WORD.source, "g"));  // odd indices are the vendor names
+    n.replaceWith(...parts.map((p, k) => (k % 2 ? el("span", { class: "vn", style: `color:${VENDOR_COLOR[p]}`, text: p }) : p)));
+  }
+}
+document.addEventListener("DOMContentLoaded", () => {
+  const main = document.querySelector("main");
+  if (!main) return;
+  brand(main);
+  new MutationObserver((records) => {
+    for (const r of records)
+      for (const n of r.addedNodes) if (n.nodeType === 1 ? !n.classList.contains("vn") : n.parentElement) brand(n.nodeType === 1 ? n : n.parentElement);
+  }).observe(main, { childList: true, subtree: true });
+});
+
 (function frame() {
   const page = document.body.dataset.page;
   const link = (href, text, key) => el("a", { href: ROOT + href, class: page === key ? "on" : null, text });
