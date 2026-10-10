@@ -136,7 +136,8 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 3. Uniform zero guard (owner: on the list): `if (Strength != 0)` around work a uniform scales, for performance mode off;
    a classical rewrite measured per effect.
 4. STOKE-style stochastic search (owner's go to try later, behind a flag, bench decides).
-5. Waiting on others: IEEE 754 test results for crosire (tools/reshade/IEEE754.md); ReShade patches (UPSTREAM.md).
+5. Waiting on others: IEEE 754 test results for crosire (tools/reshade/IEEE754.md); ReShade patches (UPSTREAM.md);
+   intrinsics report (tools/reshade/INTRINSICS.md: missing intrinsics, round / clamp / smoothstep / saturate across APIs).
 6. Planned / parked: `--poly` approximation mode; test package from the full corpus run; M5 rest (probe effect, facts
    database, `__DEVICE__` paths); M4 harness results merged into reports; Layer.fx 2.0 (questions asked); noise mode;
    GCN 4 model; driver-statistics (ShaderInfo) as a measured source (wait for reports); pruning sopt options (later).
