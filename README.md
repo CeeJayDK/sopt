@@ -1,330 +1,62 @@
 # SweetOpt: the super sweet shader optimizer
 
-SweetOpt (programs `sopt-fx` and `sopt`; this repository keeps the short name sopt) finds cheaper, verified alternatives to small arithmetic expressions from shaders.
-Design and roadmap: [docs/design.md](docs/design.md) (Danish).
+**SweetOpt makes your ReShade effects run faster, without changing how they look.**
 
-## Build
+Shaders (the little programs behind ReShade effects like SweetFX) do a lot of math for every
+pixel on your screen. Often the same result can be computed with fewer steps. SweetOpt finds
+those shortcuts automatically, double-checks that the picture stays the same, and writes new
+copies of your effects that use them. Your original files are never changed.
 
-```
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure
-```
+## What you get
 
-## Usage
+- **Faster effects.** Less work for your graphics card means more frames per second, or room
+  for more effects.
+- **The same picture.** Every shortcut is tested on millions of values before it is used. If a
+  change could make even a tiny visible difference, SweetOpt tells you, or leaves it out.
+- **Safe to try.** SweetOpt writes its results to a separate folder. If you don't like them,
+  delete the folder and nothing has changed.
 
-```
-build/sopt examples/screen.sopt [--stats] [--top N] [--time S] [--max-bank N]
-build/sopt examples/screen.sopt --isa [--cost-model rdna3|generic] [--order-model M]
-           [--no-affine] [--no-inner] [--helpers]
-build/sopt-bench --examples examples
-build/sopt-bench --planted 12 --size 3 --inputs 3 --time 30
-```
+## How to use it (Windows)
 
-## ReShade FX effects (`sopt-fx`, M3)
+1. Download `SweetOpt-<version>-windows-x64.zip` from the
+   [Releases](https://github.com/CeeJayDK/sopt/releases) page and unzip it anywhere.
+2. Double-click **SweetOpt.bat**. A simple menu opens.
+3. Press **1** and pick your ReShade `Shaders` folder (the one inside `reshade-shaders`).
+4. Press **5** to start. SweetOpt shows how far it has come and how long is left.
+5. When it is done, press **7** to open the results. The `sopt-out` folder holds the faster
+   copies of your effects.
+6. In ReShade's settings, put the `sopt-out` folder **first** in the effect search paths, so
+   ReShade uses the faster copies. (Or copy your game's `reshade-shaders` folder and try the
+   results there.)
 
-```
-build/sopt-fx -I reshade-shaders/Shaders -o sopt-out SweetFX/Shaders [--isa] [--sass]
-build/sopt-fx -I reshade-shaders/Shaders --list --skips SweetFX/Shaders/SweetFX/Vignette.fx
-```
+The menu starts in **easy mode**: you get ready-to-use files with only the changes we recommend.
+Press **M** for **expert mode** if you want to choose between all the alternatives yourself.
+Press **9** in the menu to open the full guide.
 
-On a terminal sopt-fx shows a title box, section headings and progress bars (with the
-percentage done and the time left) for the search and the measurement; redirected output, or
-`NO_COLOR` set, gives plain text.
+**Tip:** if the results say some shortcuts "need value ranges", press **8**. SweetOpt then asks
+what values a setting can have (for example 0 to 1), which lets it use more shortcuts safely.
 
-Reads every `.fx` (directories recursively) with the ReShade FX preprocessor and
-parser (vendored in `third_party/reshadefx`), finds regions in the functions that pixel
-shaders reach, searches each (in parallel, `--time 5` s and `--max-bank 500000` per
-region) and writes to the output directory:
+## The other tools in this project
 
-- a copy of every changed source file (headers too, and the effects that include
-  them), with one switch per region:
+- **GPU Blueprint** (`GPU-Blueprint-<version>.zip`, double-click `GPU-Blueprint.bat`):
+  measures what your graphics card and driver really do. If you send us the results, SweetOpt
+  learns to make better choices for cards like yours. Thank you!
+- **Test Host** (`Test-Host-<version>.zip`, double-click `Test-Host.bat`): runs ReShade on
+  every graphics API (Direct3D 9 to 12, Vulkan, OpenGL) without a game, to test effects and
+  take screenshots. See [tools/windows/README.md](tools/windows/README.md).
 
-  ```hlsl
-  #ifndef SOPT_Vignette_73
-  #define SOPT_Vignette_73 SOPT_ALL // 0 = original, 1..3 = variants
-  #endif
-  #if SOPT_Vignette_73 == 1
-  		float tc = mad(tex.y, 1.0 - (tex.x + tex.x), tex.x); // sopt: within budget, cost 21 -> 14, amd 3 -> 2, nv 4 -> 3
-  #elif ...
-  #else
-  		float tc = dot(float4(-tex.x, -tex.x, tex.x, tex.y), float4(tex.y, tex.y, 1.0, 1.0)); //XOR
-  #endif
-  ```
+All of them are on the [Releases](https://github.com/CeeJayDK/sopt/releases) page and are built
+automatically from the code in this repository.
 
-  `SOPT_ALL = k` (preprocessor definition in ReShade) selects variant k of every
-  region at once (the last variant where a region has fewer; a switch set on its own
-  wins). With `--isa`/`--sass`, `SOPT_AUTO = 1` makes every switch not set on its own
-  take the variant measured fastest on the GPU's vendor (`__VENDOR__`: AMD 0x1002,
-  NVIDIA 0x10DE; other vendors and regions without a gain there keep the original;
-  less accurate variants are never picked). Point ReShade at the output directory:
-  effects find the changed headers next to them, the rest through the normal include
-  paths.
-- `sopt-report.md`: each region's original (row 0) with its cost, inputs with their
-  ranges and where they come from, the budget, and the variants with cost and measured
-  instructions (with the change in %), class, error vs the original and vs exact math,
-  and which variant SOPT_AUTO picks per vendor; regions without gains; skipped
-  statements by reason.
+## For developers
 
-Every variant effect is re-parsed with `SOPT_ALL = 0..n`.
+SweetOpt also works on plain HLSL and GLSL shaders, and has a command line for scripts.
 
-**Regions.** A region is one statement (`float3 x = ...;`, `x.rgb = ...;`, `x *= ...;`,
-`return ...;`) of pure arithmetic, alone on its lines, without macros (texture fetch
-calls are copied verbatim, so macros inside them are fine), plus windows: the statement
-with the declarations of single-use temporaries it reads, and with the statements
-before it that compute its own variable (chains such as `d = 1.0 - d; d /= F - d;`, in
-straight-line code, when nothing else reads the intermediate values). A variant removes
-the inlined statements. A window across `#if`/`#else`/`#endif` lines applies only while
-they compile as in the parse: its switch becomes `#if SOPT_x >= 1 && (COND)`.
-`--max-statements N` (default 4) and `--max-ops N` (default 24) bound the regions.
-Inputs are the variables and texture fetches it reads. Statements whose value
-depends on `BUFFER_WIDTH/HEIGHT` through a `static const` are found by parsing twice
-and skipped.
+- How it works, all options and how to build it: [docs/technical.md](docs/technical.md)
+- Which file does what (a map of the code): [docs/code-map.md](docs/code-map.md)
+- Design and roadmap: [docs/design.md](docs/design.md) (Danish)
 
-**Facts (input ranges).** `ui_min`/`ui_max` (and `ui_type = "color"`), pixel shader
-inputs from what the passes' vertex shaders write (`PostProcessVS` texcoord in [0, 1],
-other vertex shaders by range analysis, including out parameters of functions they
-call; where that finds nothing, TEXCOORD0..9 are [0, 1] by convention, also for members
-of struct inputs), `SV_Position` in pixels ([0, 7680], 8K; `--max-width N` up to the hardware limit 16384), compute
-shader thread IDs (`SV_DispatchThreadID` / `SV_GroupID` [0, 7680] like `SV_Position`,
-`SV_GroupThreadID` / `SV_GroupIndex` from the group size; read converted to float, as
-`float2(id.xy)`), texture fetches by format (the back buffer as
-8-bit SDR, grid 255; depth [0, 1]), helper parameters from their call sites, and
-interval propagation over reaching definitions. Otherwise the range is *assumed*
-([-1000, 1000]): such regions are searched, but their variants only appear in the
-report (sampling cannot see a difference confined to a small part of a wide range),
-unless `--assumed`.
-
-**Preprocessor definitions.** Numeric definitions the user can change (those the effect
-tests with `#ifndef`, as ReShade shows them) stay symbolic: the effect is parsed a second
-time with each of them as a named compile-time input (their value is still used in
-`#if`). Variants print the name, so they stay valid for every setting, and
-sub-expressions of such inputs and constants cost nothing (the compiler folds them).
-Their range is asked for like other missing ranges (key `macro global NAME`). Other
-macros in a statement still skip it. `--no-macro-inputs` turns this off. In `.sopt`
-files, `input F : const float in [lo, hi] [= value]` declares such an input (value:
-the current setting, default the midpoint).
-
-The search specializes: it runs with each compile-time input set to its value, then
-replaces the numeric constants of every candidate with small expressions of the
-inputs (up to 4 operations over the inputs and 1, 2, 0.5 and the target's constants,
-matching the constant within 2e-5 relative) and verifies the result over the whole
-range. Example: `examples/depth_far.sopt` (ReShade.fxh's reversed depth, cost 29 ->
-24 on rdna3). An effect whose code needs a definition's value as a literal (e.g. as a
-uniform's initializer, DisplayDepth.fx) keeps that definition as a number.
-
-**Missing ranges.** Every run writes `sopt-facts.txt` to the output directory: the
-ranges given so far, and each input without a known range as a commented line with a
-suggestion (from a COLOR semantic, its name, a uniform's default value, or the
-texture it reads):
-
-```
-CRT.fx corner coord = [0, 1]
-# CRT.fx intersect xy = [-1000, 1000]   # no guess (the default); 2 regions
-```
-
-Uncomment or edit lines and rerun with `--facts sopt-facts.txt`. `--ask` asks in the
-terminal instead (Enter takes the suggestion, `s` skips, `q` stops), uniforms and
-parameters first; after each answer the effects are read again, so values computed
-from it get a range too. A range is a fact for the variable wherever the analysis
-has none (key: file, function or `global` for uniforms, variable).
-
-**Compute shaders.** ReShade FX compute passes (`ComputeShader = CS<8, 8>`) and HLSL entry
-points with `[numthreads]` are searched like pixel shaders. A store into a resource
-(`tex2Dstore(s, id.xy, value)`, HLSL `Output[id.xy] = value` and `+=` etc.) is a region:
-the value, budget 8-bit identical for an 8-bit storage texture, else rel 1e-6. Groupshared
-memory has no range: give one per variable (`cs.fx groupshared tile = [0, 1]`), it applies
-to every read.
-
-**Plain HLSL.** `.hlsl` / `.hlsli` files (or any file with `--hlsl`) are read as SM5
-pixel shaders, or compute shaders when the entry point (`--entry NAME`, default `main`) has
-`[numthreads]`: cbuffers, typed textures, sampler states and texture methods (`Sample`,
-`SampleLevel`, `Load`, `GatherRed`, ...), `Name[index]` reads, RW textures and buffers,
-`Buffer` / `StructuredBuffer` of float vectors, groupshared memory, barriers and
-`Interlocked*` are understood (structured buffers of structs and byte address buffers
-only parse: their reads end a region); variant files are written in the same HLSL. An HLSL
-texture or buffer has no format, so its reads have no range: give one per resource
-(`t.hlsl texture gColor = [0, 1]`, `t.hlsl buffer Weights = [0, 1]`), it applies to every
-read. No per-vendor picks (`SOPT_AUTO`) for HLSL.
-
-**Budget from use.** Pixel shader output to an 8-bit target without blending: 8-bit
-identical (color8, max code diff 0). Used in a comparison: exact. Only used as texture
-coordinates: 0.01 px at the largest width (`--max-width`, default 7680 = 8K). Otherwise rel 1e-6.
-
-**What counts as cheaper.** The static cost, after what the GPU compiler does anyway:
-`a * b + c` becomes an fma, neg/abs are source modifiers, saturate and clamp(x, 0, 1)
-an output modifier, swizzles and constructors are free. With `--isa` / `--sass` the
-original and the variants are compiled (fxstat + RGA, ptxas + nvdisasm); a variant is
-kept if some vendor gets faster (it may be slower on another; the report shows both),
-and variants are ranked by their summed relative gain.
-
-## Input format (`.sopt`)
-
-```
-# expect: lerp(a, 1.0, b)        (optional, used by tests/bench)
-input a : float in [0, 1] grid 255
-input b : float in [0, 1] grid 255
-output r = 1.0 - (1.0 - a) * (1.0 - b)
-budget r : color8                 # see budgets below
-```
-
-Inputs and the output can be `float`, `float2`, `float3` or `float4`; every component of
-an input has the same domain. Expressions use HLSL syntax: swizzles (`c.rgb`, `v.x`),
-constructors (`float3(a, b, c)`, `float3(s)`), scalar broadcast (`v * s`), `dot`,
-`length`, `normalize`, `distance`. Comparisons are scalar.
-
-```
-input v : float3 in [-1, 1]
-output r = normalize(v) * length(v)
-budget r : rel 1e-5
-```
-
-Budgets (per output component):
-
-| budget | meaning |
-|---|---|
-| `exact`, `condition`, `temporal`, `depth` | bit-exact |
-| `color8 [maxdiff N]`, `color10 [maxdiff N]` | 8/10-bit code values differ by at most N (default 1) |
-| `texcoord [PX]` | at most PX pixels at 3840 wide (default 0.25) |
-| `abs EPS` | `|candidate - target| <= EPS` |
-| `rel EPS` | `|candidate - target| <= EPS * |target|` (also for small values; near zero candidates pass by the accuracy rule) |
-
-**Accuracy rule** (default; `--no-exact-rule` to disable). The target is the float32
-original, whose own rounding error can exceed the budget. So a candidate also passes
-at a point where it is at least as close to the exact (real-number) value as the
-original is, or within the budget of the exact value. Exact values are computed in
-double precision; the float32 evaluation stays the reference semantics. Candidates
-that pass only this way are classed "too exact": exact in real math, but not the float
-result, so they differ from the original where it rounds. That is fine or better for most
-effects and wrong where an effect relies on the rounding: sopt-fx guards them with
-`SOPT_TOO_EXACT` in the variant files (default 1, set 0 to turn them off; never picked by
-`SOPT_AUTO`). Regions that write, read or feed a `precise` variable are judged against
-float math only (no accuracy rule, no error-scale floor): `precise` says the author wants
-the rounding. Not for exact budgets. Example: ReShade's depth linearization with far plane
-F in [100, 10000] has error 4.2e-4 vs exact math; its cheaper rewrite (cost 29 -> 24) has 1.5e-7.
-
-**Less accurate candidates** (`--loose F`, default 100, 0 = off): candidates within F
-times the budget or F times the original's error vs exact math (color budgets: one
-more code) are listed as "less accurate", with their errors, so the user decides. The
-relative budget's error-scale floor does not apply here.
-sopt-fx writes them after the accurate variants, and only if cheaper than all of them.
-
-`dot`, `length`, `normalize` and `distance` are pure helpers (no GPU has an FP32 dot
-instruction): they are evaluated and costed as their expansions, and the search builds
-the expansions (components of vector inputs are free leaves), not the helpers.
-
-## Output
-
-Every verified alternative cheaper than the target, sorted by cost, with class
-(bit-exact / 8-bit identical / within budget / too exact / less accurate), max error,
-max error vs exact math (and the original's), max 8-bit code difference
-and the fraction of sample points whose 8-bit code changed. Verification is dense
-sampling (1M points) under six semantic profiles: `ref` (HLSL lerp, unfused mad),
-`mix` (GLSL mix formula), `fma` (fused mad), `gpu` (what drivers emit: a single-use
-product under +/- contracted to fma, `a / b` as `a * rcp(b)`), and `gpu+` / `gpu-` (`gpu`
-with every rcp, rsqrt, division, exp, log, sin, cos and pow result one float step up /
-down, as GPU approximations are not correctly rounded).
-
-Accuracy variants: a candidate that is not cheaper but has at most a quarter of the
-original's error against exact math is kept as "more accurate" (sopt-fx: if at most one
-instruction slower per measured vendor; never picked by `SOPT_AUTO`).
-`--no-accuracy-variants` turns this off.
-
-Register variants (sopt-fx with `--isa` / `--sass`): a candidate that is not faster but
-needs fewer registers on a measured vendor (AMD VGPRs, NVIDIA registers per thread) and
-more on none is kept as "fewer registers (not faster)", under the same rule (at most one
-instruction slower per measured vendor, never `SOPT_AUTO`). Registers also count when
-variants of a region are compared: a variant stays if no other is as fast, as accurate
-and as frugal with registers. The counts are those of the region compiled on its own; a
-whole shader may allocate the same either way.
-
-## Exhaustive verification (V2)
-
-When the input domain is small (every grid value, or every float32 of a component in a
-narrow interval) and has at most `--v2-max` points (default 2^24, e.g. an 8-bit RGB
-input or a D24 depth value), the cheapest `--v2` (20) alternatives are checked on every
-point after sampling; the `ver` column shows `all` for those, `smp` for sampled only.
-
-## Cost models
-
-`nvidia` uses NVIDIA Ada SASS costs (same units, transcendentals at 8x, clamp = two
-FMNMX), searched in the same `search` order. `rdna3` (default) uses AMD RDNA3 ISA costs in quarter-VALU units (calibrated with RGA,
-see `src/ir/ops.cpp`), with free modifiers and contraction. `--cost-model generic` uses
-the M1 placeholder weights. Under `rdna3` alone the search does not reach deep
-candidates (bank limit), so it enumerates in `search` order
-(same cheap ops, transcendentals at half cost) while rdna3 still decides hits and
-ranking. `--order-model M` picks another order (e.g. `rdna3`, `generic`).
-
-## Search past a full bank (default; `--no-overflow` to disable)
-
-When the bank is full, the search keeps combining the stored entries and checks the new
-values as hits without storing them, until the time limit (`--time`, which covers all
-CEGIS iterations together). This reaches one more level for the top operation at no
-memory cost: on the bench it found length_squared and a needs-sharing planted problem
-that the bank alone does not reach.
-
-## Symbolic constants (default; `--no-affine` to disable)
-
-Constants are solved instead of enumerated for the outer affine map: every bank entry
-`v` is fitted as `target ~ p * v + q` (least squares on the fingerprint points, then
-the budget check), and entries that are only an affine map of another entry are not
-stored. This finds e.g. `mad(rcp(t + 0.001001001), 0.001002003, -0.0010009935)` for
-ReShade's depth linearization (`examples/depth_reversed.sopt`), which plain
-enumeration does not reach.
-
-Pure helper intrinsics (`lerp`, `step`) are not enumerated during search: their
-expansions (`mad(t, b - a, a)`, `x >= e ? 1 : 0`) are, at the same cost. `--helpers`
-enumerates them too.
-
-It also solves one inner constant (`--no-inner` to disable): `target ~ p * u(v + c) + q` for
-`u = rcp, sqrt, rsqrt` (each is linear in a reparametrization, refined by Gauss-Newton).
-It finds e.g. `rsqrt(t + 0.6666667) * 0.57735026` for `1 / sqrt(3t + 2)`, where 2/3 is
-not in the constant pool (`examples/rational.sopt`, `examples/rsqrt_affine.sopt`).
-
-## Real ISA cost (`--isa`)
-
-Ranks the shown alternatives by the pixel shader's ISA cost on AMD RDNA3: each one
-is emitted as a small ReShade FX effect and compiled with `fxstat` from
-[ReShade Testing Initiative](https://github.com/CeeJayDK/ReShade-Testing-Initiative)
-and AMD's [Radeon GPU Analyzer](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer)
-(about 0.25 s each, run in parallel). The `isa` column is fxstat's COST
-(VALU + 3 x TRANS); `!` marks alternatives that are not cheaper than the target in
-ISA, i.e. the driver already produces the same code.
-
-```
-export SOPT_FXSTAT=/path/to/rti/bin/fxstat SOPT_RGA=/path/to/rga
-build/sopt examples/factor.sopt --isa [--asic gfx1100] [--isa-keep DIR]
-```
-
-The ISA test in `sopt-tests` runs only when both variables are set.
-
-## NVIDIA SASS cost (`--sass`)
-
-Each shown alternative is also emitted as a PTX kernel (approximate transcendentals and
-`a / b` as `a * rcp(b)`, as graphics drivers do; mul/add left for ptxas to contract),
-compiled by `ptxas` for one GPU generation and disassembled by `nvdisasm`. The `nv`
-column is ALU + MOV + 8 x MUFU (FP32 : MUFU throughput 128 : 16 per SM, 4x on sm_75/80;
-from the CUDA programming guide, to be verified). With `--isa` too, rows are ranked by
-AMD then NVIDIA, and `!` per column shows a rewrite that does not help that vendor.
-
-```
-pip install nvidia-cuda-nvcc-cu12 nvidia-cuda-nvdisasm   # ptxas, nvdisasm; no GPU needed
-export SOPT_PTXAS=.../nvidia/cuda_nvcc/bin/ptxas SOPT_NVDISASM=.../nvidia/cu13/bin/nvdisasm
-build/sopt examples/step_lerp.sopt --isa --sass [--sm 75|86|89|120] [--sass-keep DIR]
-```
-
-This is the CUDA compiler, not the graphics driver's shader compiler (believed to share
-the backend); Nsight Graphics on real hardware is the ground truth.
-
-## Windows tools and releases
-
-Ready-built programs are on the [Releases](https://github.com/CeeJayDK/sopt/releases) page:
-`SweetOpt-<version>-windows-x64.zip` / `-linux-x64.tar.gz` (sopt-fx and sopt; on Windows double-click SweetOpt.bat),
-`GPU-Blueprint-<version>.zip` (OpBench, TexBench and ShaderInfo: what your graphics card and driver really do; double-click GPU-Blueprint.bat) and
-`Test-Host-<version>.zip` (ReShade on Direct3D 9-12, Vulkan and OpenGL without a game: the IEEE 754 test, effect tests with a screenshot per API and the benchmark; double-click Test-Host.bat, [tools/windows/README.md](tools/windows/README.md)).
-They are built from this repository by GitHub Actions (`.github/workflows/release.yml`).
-
-### Code signing policy
+## Code signing policy
 
 Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
 [SignPath Foundation](https://signpath.org/) (once the application is approved; until then the
@@ -333,16 +65,14 @@ release files are unsigned and listed with SHA256 checksums).
 - Committers and reviewers: [CeeJayDK](https://github.com/CeeJayDK)
 - Approvers: [CeeJayDK](https://github.com/CeeJayDK)
 
-Only binaries built from this repository's source by its release workflow are signed
+Only programs built from this repository's source by its release workflow are signed
 (OpBench.exe, sopt-host.exe, sopt-fxc.exe, sopt-timer.addon64 / .addon32). ReShade64.dll in the
 tools zip is built unchanged from crosire's ReShade 6.8.0 source and is not signed by this project.
 
-### Privacy
+## Privacy
 
-This program will not transfer any information to other networked systems unless specifically
-requested by the user or the person installing or operating it. OpBench, TexBench and ShaderInfo
-only write into the `Reports` folder next to themselves, and GPU-Blueprint.bat zips that folder;
-sopt-host and the sopt-timer add-on only write their CSV, log and screenshots into the run
-folder. None of the programs use the network. GPU-Blueprint.bat's "Send the reports" option (only
-when the user picks it) opens a Dropbox upload page in the browser, where the user can upload the
-zip (graphics card name, driver version and measurements) by hand.
+None of the programs use the internet. They only write files next to themselves (GPU Blueprint
+into its `Reports` folder, Test Host into its run folder, SweetOpt into its output folder).
+GPU Blueprint's "Send the reports" option, and only if you choose it, opens a Dropbox upload
+page in your browser, where you can upload the zip yourself. It contains your graphics card's
+name, driver version and the measurements, nothing else.

@@ -24,6 +24,8 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
   testers (now 0.7.0, released); the next test build is 0.7.1.
 - CHANGELOG.md: one `## <version>` section per release, add to the top section as things land (release.yml copies it).
+  Changelog, release notes and README.md are for laymen (owner, 2026-10-10): plain English, short, what changes for the
+  user, no option names or internals (those go in docs/notes/history.md, docs/technical.md).
 - PNGs sent to the owner or committed: ECT -5 first (`ect -5 -strip -quiet`, oxipng -o 4 as fallback).
 - Commits: no model IDs anywhere in the repo. End commit messages with the session's attribution trailer.
 
@@ -67,6 +69,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
   DROPBOX_FOLDER=/Reports (app-relative). On main since 0.7.0; check its runs if reports stop arriving.
 
 ## Layout
+(Per-file map with a flow diagram: docs/code-map.md; update it when files are added, moved or change purpose.)
 - `src/ir`: ops (`ops.cpp`: op table, exactness, cost models, `CostModel::opCost` / `divCost` / `binaryCost`, HalfCosts),
   float32 evaluator (`evalNode`), hash-consed Expr DAG (`expr.cpp`: dagCost / nodeCosts / divCosts / fusedArg /
   amdFoldedNodes / scheduleMetrics, printers incl. `toGlsl`), `.sopt` parser.

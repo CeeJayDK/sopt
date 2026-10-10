@@ -2,14 +2,16 @@
 
 What is new in each release, newest first. The release workflow copies the section of the version it
 builds (`## <version>` up to the next `## `) into the release notes, so add to the top section as things land.
+Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
+docs/notes/history.md.
 
 ## 0.7.1
 
 ### SweetOpt
-- **Safer output folder:** `-o` pointing at a folder your shaders (or include headers) are in is refused, so the originals can never be overwritten.
-- **Cache:** a rerun with another `--library-file` (or the file changed), `--max-bank`, `--no-overflow`, `--quant-oe`, `--cut-time`, `--subtree-time`, `--subtree-max-cost` or `--no-shared-leaves` searches again instead of only re-checking the old results.
-- **Table rewrite fix:** a local array is only made a static table when its non-constant entries are uniforms or values that cannot change before the array is read (before, an entry like a local variable changed later, or a texture read, could give a different result).
-- **Vertex shader rewrite:** skipped when the vertex shader writes an output with another size than the pixel shader reads.
+- **Your original shaders are safe:** SweetOpt refuses to save its results into the folder your shaders are in, so it can never overwrite them.
+- **Fixed:** one kind of speed-up (turning a list of numbers into a fixed table) could, in rare cases, change how an effect looks. It is now only used where it is guaranteed to give the same picture.
+- **Fixed:** a rare case where moving work to the vertex shader could produce an effect that does not compile.
+- **Changed settings are noticed:** when you run again with different search settings, SweetOpt searches again instead of reusing the old results.
 
 ## 0.7.0
 
