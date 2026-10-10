@@ -249,7 +249,7 @@ point after sampling; the `ver` column shows `all` for those, `smp` for sampled 
 ## Cost models
 
 `nvidia` uses NVIDIA Ada SASS costs (same units, transcendentals at 8x, clamp = two
-FMNMX), searched in the same `search` order. `rdna3` (default) uses AMD RDNA3 ISA costs in quarter-VALU units (calibrated with RGA,
+FMNMX), searched in the same `search` order. `rdna3` uses AMD RDNA3 ISA costs in quarter-VALU units (calibrated with RGA,
 see `src/ir/ops.cpp`), with free modifiers and contraction. `--cost-model generic` uses
 the M1 placeholder weights. Under `rdna3` alone the search does not reach deep
 candidates (bank limit), so it enumerates in `search` order

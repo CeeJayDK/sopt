@@ -1425,6 +1425,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   fp32 4.57 / 4.55 TFLOPS (= 0.6.0's 4.55), drift high as usual (21-30 / 36 / 57-77%); TexBench 215 / 207 s, 166
   GTexels/s, 64-66 GPixels/s, 156 GB/s. Iris 540 (driver 31.0.101.2121, 0.6.10, *-2): fp32 0.310 TFLOPS (= earlier),
   drift 12 / 12 / 25%; TexBench 356 s, 10.7 / 6.7 / 22.4 (= earlier). ShaderInfo for all four.
+  Default cost model nvidia-ampere (owner, 2026-10-10; was rdna3). Analysis: per-op costs (width 1, every model has
+  add = 4) of the 12 family models compared as mean |log2(cost ratio)| over the float ops (0 = identical, 1 = 2x apart).
+  Clusters: rdna3 ~ rdna4 0.03; ampere ~ blackwell 0.21, ampere ~ rdna3 / rdna4 0.29; rdna2 ~ gen12 0.04 ~ gen9 0.07-0.10,
+  gcn5 ~ gen9 0.17; maxwell ~ pascal 0.14; turing and gen7.5 alone (>= 0.53 to all). Share-weighted distance to each
+  user's own family (Steam September 2026): ampere 0.276, blackwell 0.300, rdna4 0.437, rdna3 0.449, gcn5 0.556, gen9
+  0.646, ..., turing 0.718, gen7.5 1.171 (all ops incl. integer: ampere 0.259 best too). Ampere is the largest group
+  (37.6%) and nearest to the second (Blackwell 23.0%). Under ampere the exact add-round frac (library) beats frac
+  (24 vs 8 on rdna3): test noise_not_replaced pinned to rdna3.
   Why sub costs 5 on RDNA 3 / 4, add 4 (owner's question, 2026-10-10): OpBench's add / sub steps (mad(x + c.z, ..) /
   mad(c.z - x, ..), 8 chains x 16) compiled with RGA 2.14 vk-offline (LLPC, GLSL, gfx1100): identical code, v_add_f32_e32
   v, s, v and v_sub_f32_e32 v, s, v (VOP2, 32-bit), no VOPD (v_dual_*) in either, so not the instruction itself. fxc

@@ -8,6 +8,7 @@ docs/notes/history.md.
 ## 0.7.1
 
 ### SweetOpt
+- **Tuned for the most common graphics cards:** SweetOpt now aims at NVIDIA RTX 30 and RTX 40 cards by default, the largest group of Steam players, and close to the RTX 50 cards too. You can still pick your own card in the menu (key 4).
 - **Your original shaders are safe:** SweetOpt refuses to save its results into the folder your shaders are in, so it can never overwrite them.
 - **Fixed:** one kind of speed-up (turning a list of numbers into a fixed table) could, in rare cases, change how an effect looks. It is now only used where it is guaranteed to give the same picture.
 - **Fixed:** a rare case where moving work to the vertex shader could produce an effect that does not compile.
