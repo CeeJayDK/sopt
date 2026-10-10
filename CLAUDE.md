@@ -102,6 +102,8 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
   value (double, metrics only); not for Exact budgets. Less accurate candidates are listed as such (`--loose`).
   Rel budgets are relative to max(|t|, error scale). Noise guard: if the original itself is far from exact math (hashes),
   exact-based rules are off.
+- Verification points include coincidence points (every input on its range in eighths, and 0): == / != candidates
+  that are wrong only where inputs meet (x + y == z) were passed by random samples (2026-10-10).
 - Six verification profiles incl. gpu+ / gpu- (inexact ops one float step off). Inexact ops (rcp, rsqrt, div, exp, log,
   sin, cos, pow, exp2, log2) are never bit-exact.
 - Contraction rule: `fusedArg` in expr.cpp (an add/sub over a single-use mul or div is one fma).
