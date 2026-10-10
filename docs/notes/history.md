@@ -1433,6 +1433,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   0.646, ..., turing 0.718, gen7.5 1.171 (all ops incl. integer: ampere 0.259 best too). Ampere is the largest group
   (37.6%) and nearest to the second (Blackwell 23.0%). Under ampere the exact add-round frac (library) beats frac
   (24 vs 8 on rdna3): test noise_not_replaced pinned to rdna3.
+  Why sub costs 5 on RDNA 3 / 4, add 4 (owner's question, 2026-10-10): OpBench's add / sub steps (mad(x + c.z, ..) /
+  mad(c.z - x, ..), 8 chains x 16) compiled with RGA 2.14 vk-offline (LLPC, GLSL, gfx1100): identical code, v_add_f32_e32
+  v, s, v and v_sub_f32_e32 v, s, v (VOP2, 32-bit), no VOPD (v_dual_*) in either, so not the instruction itself. fxc
+  (cs_5_0) writes the sub as `add r, -r, cb` (DXBC has no sub). Likely cause, unverified (RGA's dx11 mode needs an AMD
+  driver): AMD's DX11 compiler keeps the neg as a source modifier, v_add_f32_e64 (VOP3, 64-bit), which cannot dual-issue
+  and doubles the code size. The ops.cpp comment "cannot dual-issue" is the measurement's reading, not proven per op.
+  trunc: OpBench measures it (Rounding and sign) at floor's cost on every card (RDNA 3 11.9 vs floor 11.8 with the mad,
+  GTX 1660 16.07 = 16.07, RTX 4090 27.6 = 27.6, UHD 630 7.96 vs 7.98), but sopt's IR has no Trunc op: not in the cost
+  models, the site or the search.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
