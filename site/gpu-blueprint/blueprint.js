@@ -1,4 +1,4 @@
-// GPU Blueprint: cost models per architecture (data/models.json from tools/site/build.py).
+// GPU Blueprint: cost models per architecture (data/models.json and data/library.json from tools/site/build.py).
 "use strict";
 
 const GROUPS = [
@@ -11,7 +11,7 @@ const GROUPS = [
 ];
 const LABEL = { compare: "a < b", select: "c ? a : b", dot3: "dot", length3: "length", normalize3: "normalize", distance3: "distance" };
 
-loadJSON("models").then((data) => {
+Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] }))]).then(([data, lib]) => {
   const byName = Object.fromEntries(data.models.map((m) => [m.name, m]));
   const archs = data.coverage.flatMap((v) => v.architectures.map((a) => ({ ...a, vendor: v.vendor })));
   const scale = Math.max(...data.models.flatMap((m) => Object.values(m.costs).map(fma)));
@@ -95,6 +95,48 @@ loadJSON("models").then((data) => {
   opSel.value = "sign";
   opSel.addEventListener("change", renderOp);
   renderOp();
+
+  // One group across the models, with the library's alternatives: rules whose pattern is the operation alone
+  // (frac(x) -> ...) and whose replacement is not just a value (saturate(x) -> x only holds in a range).
+  const altsOf = (op) => lib.rules.filter((r) => {
+    const m = /^(\w+)\(\s*\w+(\s*,\s*\w+)*\s*\)$/.exec(r.lhs);
+    return m && m[1] === op && !/^[\w.+-]+$/.test(r.rhs.trim()) &&
+      data.models.some((md) => r.costs[md.name] && r.costs[md.name][1] < md.costs[op]);
+  });
+  const short = (s) => (s.length > 30 ? s.slice(0, 29) + "…" : s);
+  const grpSel = document.getElementById("grp");
+  GROUPS.forEach(([title], k) => grpSel.append(el("option", { value: String(k), text: title })));
+  const renderGroup = () => {
+    const ops = GROUPS[Number(grpSel.value)][1].filter((op) => data.models.some((m) => op in m.costs));
+    const max = Math.max(...ops.flatMap((op) => data.models.map((m) => fma(m.costs[op] ?? 0))));
+    const cell = (q, color, cls) => {
+      if (q == null) return el("td", { class: "c free", text: "–" });
+      if (isFree(q)) return el("td", { class: "c free" + (cls ? " " + cls : ""), text: "free" });
+      return el("td", { class: "c" + (cls ? " " + cls : "") }, num(fma(q)),
+        el("div", { class: "mini" }, el("div", { class: "bar", style: `width:${Math.min(100, (fma(q) / max) * 100)}%;--c:${color}` })));
+    };
+    const rows = [];
+    for (const op of ops) {
+      rows.push(el("tr", {}, el("td", { class: "op", text: LABEL[op] || op }),
+        ...data.models.map((m) => cell(m.costs[op], VENDOR_COLOR[m.vendor]))));
+      for (const r of altsOf(op))
+        rows.push(el("tr", { class: "alt" },
+          el("td", { class: "op", title: r.rhs + (r.where ? `  (where ${r.where})` : ""), text: "↳ " + short(r.rhs) + (r.where ? " *" : "") }),
+          ...data.models.map((m) => {
+            const q = r.costs[m.name] && r.costs[m.name][1];
+            const better = q != null && q < m.costs[op];
+            return cell(q, better ? "var(--cyan)" : "var(--text-faint)", better ? "better" : null);
+          })));
+    }
+    document.getElementById("cmp").replaceChildren(
+      el("thead", {}, el("tr", {}, el("th", { text: "operation" }),
+        ...data.models.map((m) => el("th", { class: "m", style: `--c:${VENDOR_COLOR[m.vendor]}`, title: `${m.vendor} ${m.title}`,
+          text: m.title })))),
+      el("tbody", {}, ...rows));
+  };
+  grpSel.value = "3";  // rounding and sign: the library's biggest wins
+  grpSel.addEventListener("change", renderGroup);
+  renderGroup();
 
   // Coverage grid.
   const have = archs.filter((a) => a.model).length;

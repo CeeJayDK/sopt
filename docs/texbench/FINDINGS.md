@@ -1,6 +1,6 @@
 # TexBench findings
 
-What the TexBench reports show, as advice: **do this, not that**. Each point says for which GPUs it holds and gives the
+What the TexBench reports show, as recommendations. Each point says for which GPUs it holds and gives the
 numbers behind it. Costs are in fma units (1.0 = one fused multiply-add at full rate, throughput: many reads in
 parallel), so they compare directly with the cost models. Lower is better.
 
@@ -15,7 +15,7 @@ UHD 630 in every shader test, so the Intel numbers below hold for both); for oth
 their reports come in. The direct tests already corrected two estimates: several reads in a row do not cost
 the sum of single reads, so only the side-by-side tests decide.
 
-## Do this, not that
+## Recommendations
 
 ### Averaging 2 × 2 texels (downsampling, box blurs): one bilinear read
 
