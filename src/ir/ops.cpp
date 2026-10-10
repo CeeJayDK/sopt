@@ -431,7 +431,8 @@ const CostModel& costAmdRdna2() { return kAmdRdna2; }
 const CostModel& costAmdRdna4() { return kAmdRdna4; }
 const CostModel& costAmdGcn5() { return kAmdGcn5; }
 const CostModel& costAmdTerascale2() { return kAmdTerascale2; }
-const CostModel& defaultCostModel() { return kRdna3; }
+// The largest group of Steam users (owner, 2026-10-10: Ampere / Ada, 37.6%, and the closest model to Blackwell's 23%).
+const CostModel& defaultCostModel() { return kNvidiaAmpere; }
 // rdna3 without the context effects (--no-amd-folds).
 const CostModel kRdna3NoFolds = [] {
   CostModel m = kRdna3;
