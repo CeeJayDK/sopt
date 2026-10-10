@@ -96,51 +96,72 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
   opSel.addEventListener("change", renderOp);
   renderOp();
 
-  // One group across the models, with the library's alternatives: rules whose pattern is the operation alone
-  // (frac(x) -> ...) and whose replacement is not just a value (saturate(x) -> x only holds in a range).
+  // One group across the models: architectures as rows, operations as columns (bars line up down a column), each
+  // operation followed by the library's alternatives: rules whose pattern is the operation alone (frac(x) -> ...),
+  // whose replacement is not just a value (saturate(x) -> x only holds in a range) and that win somewhere.
   const altsOf = (op) => lib.rules.filter((r) => {
     const m = /^(\w+)\(\s*\w+(\s*,\s*\w+)*\s*\)$/.exec(r.lhs);
     return m && m[1] === op && !/^[\w.+-]+$/.test(r.rhs.trim()) &&
       data.models.some((md) => r.costs[md.name] && r.costs[md.name][1] < md.costs[op]);
   });
-  const short = (s) => (s.length > 30 ? s.slice(0, 29) + "…" : s);
   const grpSel = document.getElementById("grp");
-  GROUPS.forEach(([title], k) => grpSel.append(el("option", { value: String(k), text: title })));
   const viewSel = document.getElementById("view");
+  GROUPS.forEach(([title], k) => grpSel.append(el("option", { value: String(k), text: title })));
+  // Heatmap: blue (cheap) - yellow - red (expensive), on a log scale within the group.
+  const STOPS = [[47, 95, 168], [224, 182, 50], [194, 59, 46]];
+  const heat = (t) => {
+    const [a, b, u] = t < 0.5 ? [STOPS[0], STOPS[1], t * 2] : [STOPS[1], STOPS[2], t * 2 - 1];
+    const c = a.map((x, k) => Math.round(x + (b[k] - x) * u));
+    const light = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2] > 140;
+    return { bg: `rgb(${c.join(",")})`, fg: light ? "#10161a" : "#fff" };
+  };
   const renderGroup = () => {
     const ops = GROUPS[Number(grpSel.value)][1].filter((op) => data.models.some((m) => op in m.costs));
-    const costs = ops.flatMap((op) => data.models.map((m) => m.costs[op])).filter((q) => q != null && !isFree(q));
-    const max = Math.max(...costs.map(fma)), lo = Math.log(Math.min(...costs)), hi = Math.log(Math.max(...costs));
-    // Heatmap: cheap = cool teal, expensive = warm red, on a log scale within the group.
-    const heat = (q) => {
-      const t = hi > lo ? (Math.log(q) - lo) / (hi - lo) : 0;
-      return `hsl(${170 - 170 * t}, ${45 + 15 * t}%, ${16 + 16 * t}%)`;
-    };
-    const cell = (q, color, cls) => {
+    // Columns: each operation, then its alternatives (↳1, ↳2, ...).
+    const cols = [];
+    // Header lines: operation names alternate (hi, lo), their alternatives' labels take the other line, so a long
+    // name can spill over the empty line of the columns after it.
+    ops.forEach((op, i) => {
+      const line = i % 2 ? "lo" : "hi";
+      cols.push({ op, line, label: LABEL[op] || op, cost: (m) => m.costs[op] });
+      altsOf(op).forEach((r, k) => cols.push({ op, alt: r, line: line === "hi" ? "lo" : "hi", label: `↳${k + 1}`,
+        cost: (m) => r.costs[m.name] && r.costs[m.name][1] }));
+    });
+    const all = cols.flatMap((c) => data.models.map((m) => c.cost(m))).filter((q) => q != null && !isFree(q));
+    const max = Math.max(...all.map(fma)), lo = Math.log(Math.min(...all)), hi = Math.log(Math.max(...all));
+    const heatmap = viewSel.value === "heat";
+    const cell = (q, color, better) => {
       if (q == null) return el("td", { class: "c free", text: "–" });
-      if (isFree(q)) return el("td", { class: "c free" + (cls ? " " + cls : ""), text: "free" });
-      if (viewSel.value === "heat") return el("td", { class: "c hot" + (cls ? " " + cls : ""), style: `background:${heat(q)}`, text: num(fma(q)) });
-      return el("td", { class: "c" + (cls ? " " + cls : "") }, num(fma(q)),
+      if (isFree(q)) return el("td", { class: "c free", text: "free" });
+      const cls = "c" + (better ? " better" : "");
+      if (heatmap) {
+        const h = heat(hi > lo ? (Math.log(q) - lo) / (hi - lo) : 0);
+        return el("td", { class: cls + " hot", style: `background:${h.bg};color:${h.fg}`, text: num(fma(q)) });
+      }
+      return el("td", { class: cls }, num(fma(q)),
         el("div", { class: "mini" }, el("div", { class: "bar", style: `width:${Math.min(100, (fma(q) / max) * 100)}%;--c:${color}` })));
     };
-    const rows = [];
-    for (const op of ops) {
-      rows.push(el("tr", {}, el("td", { class: "op", text: LABEL[op] || op }),
-        ...data.models.map((m) => cell(m.costs[op], VENDOR_COLOR[m.vendor]))));
-      for (const r of altsOf(op))
-        rows.push(el("tr", { class: "alt" },
-          el("td", { class: "op", title: r.rhs + (r.where ? `  (where ${r.where})` : ""), text: "↳ " + short(r.rhs) + (r.where ? " *" : "") }),
-          ...data.models.map((m) => {
-            const q = r.costs[m.name] && r.costs[m.name][1];
-            const better = q != null && q < m.costs[op];
-            return cell(q, better ? "var(--cyan)" : "var(--text-faint)", better ? "better" : null);
-          })));
-    }
-    document.getElementById("cmp").replaceChildren(
-      el("thead", {}, el("tr", {}, el("th", { text: "operation" }),
-        ...data.models.map((m) => el("th", { class: "m", style: `--c:${VENDOR_COLOR[m.vendor]}`, title: `${m.vendor} ${m.title}`,
-          text: m.title })))),
-      el("tbody", {}, ...rows));
+    const tip = (c) => (c.alt ? `${c.op} ${c.label}: ${c.alt.rhs}${c.alt.where ? `  (where ${c.alt.where})` : ""}` : c.label);
+    const head = el("tr", {}, el("th", { class: "arch", text: "architecture" }),
+      ...cols.map((c) => el("th", { class: `o ${c.line}` + (c.alt ? " alt" : ""), title: tip(c) },
+        el("span", { text: c.label }))));
+    const body = data.models.map((m) => el("tr", {},
+      el("th", { class: "arch", style: `--c:${VENDOR_COLOR[m.vendor]}`, title: `${m.vendor} ${m.title}`, text: m.title }),
+      ...cols.map((c) => {
+        const q = c.cost(m);
+        const better = c.alt && q != null && q < m.costs[c.op];
+        const td = cell(q, c.alt ? (better ? "var(--cyan)" : "var(--text-faint)") : VENDOR_COLOR[m.vendor], better);
+        td.title = tip(c);
+        if (c.alt) td.classList.add("alt");
+        return td;
+      })));
+    document.getElementById("cmp").replaceChildren(el("thead", {}, head), el("tbody", {}, ...body));
+    // The alternatives in full.
+    const alts = cols.filter((c) => c.alt);
+    document.getElementById("alts").replaceChildren(...(alts.length ? [
+      el("h4", { text: "Faster ways to write them (rewrite library)" }),
+      ...alts.map((c) => el("div", {}, el("b", { text: `${LABEL[c.op] || c.op} ${c.label}` }), el("code", { text: c.alt.rhs }),
+        c.alt.where ? el("small", { text: `where ${c.alt.where}` }) : null))] : []));
   };
   grpSel.value = "3";  // rounding and sign: the library's biggest wins
   grpSel.addEventListener("change", renderGroup);
