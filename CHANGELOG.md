@@ -8,6 +8,8 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 ### SweetOpt
 - **Safer output folder:** `-o` pointing at a folder your shaders (or include headers) are in is refused, so the originals can never be overwritten.
 - **Cache:** a rerun with another `--library-file` (or the file changed), `--max-bank`, `--no-overflow`, `--quant-oe`, `--cut-time`, `--subtree-time`, `--subtree-max-cost` or `--no-shared-leaves` searches again instead of only re-checking the old results.
+- **Table rewrite fix:** a local array is only made a static table when its non-constant entries are uniforms or values that cannot change before the array is read (before, an entry like a local variable changed later, or a texture read, could give a different result).
+- **Vertex shader rewrite:** skipped when the vertex shader writes an output with another size than the pixel shader reads.
 
 ## 0.7.0
 

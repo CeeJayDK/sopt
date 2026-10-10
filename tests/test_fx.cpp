@@ -1045,9 +1045,9 @@ TEST(fx_table_rewrite) {
   CHECK(e != nullptr);
   if (!e) return;
   const std::vector<fx::SourceRewrite> rw = fx::tableRewrites(*e);
-  CHECK(rw.size() == 1);  // Weights is written after its initializer
+  CHECK(rw.size() == 1);  // Weights is written after its initializer, Gains / Tints entries are not stable
   if (rw.size() != 1) return;
-  CHECK(rw[0].line == 18 && rw[0].function == "TablePS");
+  CHECK(rw[0].line == 19 && rw[0].function == "TablePS");
   CHECK(rw[0].edits.size() == 3);  // the table before the function, the declaration, the use
   bool use = false;
   for (const auto& ed : rw[0].edits)
