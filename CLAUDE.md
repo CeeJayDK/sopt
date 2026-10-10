@@ -140,3 +140,8 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 6. Planned / parked: `--poly` approximation mode; test package from the full corpus run; M5 rest (probe effect, facts
    database, `__DEVICE__` paths); M4 harness results merged into reports; Layer.fx 2.0 (questions asked); noise mode;
    GCN 4 model; driver-statistics (ShaderInfo) as a measured source (wait for reports); pruning sopt options (later).
+7. sign() fast forms (owner, 2026-10-10): one (mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0), 2.25 on every model so far)
+   beats the others everywhere; once OpBench reports cover the families, drop the slower ones from library/rewrites.txt.
+   Not before.
+8. Intrinsics sopt still skips (75 effects, 2026-10-10): all() 46 statements, mul() (matrices) 18, fwidth 8 (needs
+   neighbours: never), float % 7 (fmod: now possible with trunc), asin / acos 4 (fxc writes them out).
