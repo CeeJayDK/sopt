@@ -5,7 +5,7 @@ const GROUPS = [
   ["Modifiers", ["neg", "abs", "saturate"]],
   ["Basic math", ["add", "sub", "mul", "mad"]],
   ["Min, max and compares", ["min", "max", "clamp", "compare", "select", "step", "lerp"]],
-  ["Rounding and sign", ["floor", "ceil", "round", "frac", "sign"]],
+  ["Rounding and sign", ["floor", "ceil", "round", "trunc", "frac", "sign"]],
   ["Special functions", ["rcp", "div", "sqrt", "rsqrt", "exp2", "log2", "exp", "log", "sin", "cos", "pow"]],
   ["Helpers (vectors: float3)", ["smoothstep", "dot3", "length3", "normalize3", "distance3"]],
 ];

@@ -352,12 +352,12 @@ class Evaluator {
     r.e = up(a.e + kU * mag(widen(r.x, a.e)) + kFtz);
     return r;
   }
-  // ceil / round: exact where the widened argument stays within one step.
+  // ceil / round / trunc: exact where the widened argument stays within one step.
   Val stepOp(Op op, const Val& a) const {
     if (a.fail) return failed();
     const I w = widen(a.x, a.e);
-    const double lo = op == Op::Ceil ? std::ceil(w.lo) : std::nearbyint(w.lo);
-    const double hi = op == Op::Ceil ? std::ceil(w.hi) : std::nearbyint(w.hi);
+    auto step = [&](double v) { return op == Op::Ceil ? std::ceil(v) : op == Op::Trunc ? std::trunc(v) : std::nearbyint(v); };
+    const double lo = step(w.lo), hi = step(w.hi);
     if (lo != hi) return failed();
     return constVal(lo);
   }
@@ -445,7 +445,7 @@ class BoxEval {
           for (unsigned c = 0; c < w; ++c) {
             switch (n.op) {
               case Op::Floor: o[c] = ev.floorOp(arg(0, c), false); break;
-              case Op::Ceil: case Op::Round: o[c] = ev.stepOp(n.op, arg(0, c)); break;
+              case Op::Ceil: case Op::Round: case Op::Trunc: o[c] = ev.stepOp(n.op, arg(0, c)); break;
               case Op::Smoothstep: {  // DXC's expansion over the ops V3 knows
                 const Val s = ev.unary(Op::Saturate, ev.binary(Op::Div, ev.binary(Op::Sub, arg(2, c), arg(0, c)),
                                                                ev.binary(Op::Sub, arg(1, c), arg(0, c))));

@@ -210,6 +210,7 @@ std::string emitPtx(const Expr& e, const std::vector<InputDecl>& inputs, int sm)
         case Op::Log2: body << "  lg2.approx.ftz.f32 " << o << ", " << a << ";\n"; break;
         case Op::Round: body << "  cvt.rni.f32.f32 " << o << ", " << a << ";\n"; break;
         case Op::Ceil: body << "  cvt.rpi.f32.f32 " << o << ", " << a << ";\n"; break;
+        case Op::Trunc: body << "  cvt.rzi.f32.f32 " << o << ", " << a << ";\n"; break;
         case Op::Smoothstep: {  // s = sat((t - a) * rcp(b - a)); s * (s * (3 - 2 s))
           x = f(), y = f();
           const std::string r = f(), q = f(), u = f();

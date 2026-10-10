@@ -14,6 +14,10 @@ docs/notes/history.md.
 - **Fixed:** a rare case where moving work to the vertex shader could produce an effect that does not compile.
 - **Fixed:** math on whole numbers (for example a pixel position used to read a texture) could, in rare cases, be sped up in a way that picks a neighboring pixel. Such math is now only changed when the result is exactly the same.
 - **Changed settings are noticed:** when you run again with different search settings, SweetOpt searches again instead of reusing the old results.
+- **trunc understood:** shaders that use `trunc` (round toward zero) can now be sped up too.
+
+### GPU Blueprint
+- **New OpBench tests:** they show how many math operations your graphics card can run at the same time, and which kinds run side by side. Older AMD cards (Radeon HD 5000 / 6000) can run several at once, and these tests let SweetOpt learn how many. Please run GPU Blueprint again and send the reports, thank you!
 
 ## 0.7.0
 

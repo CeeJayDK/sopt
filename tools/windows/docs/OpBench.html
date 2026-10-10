@@ -185,6 +185,12 @@
 <table>
   <tr><td><code>fma+int</code>, <code>fma+minmax</code>, <code>fma+cvt</code>, <code>fma+rcp</code>, <code>fma+half</code></td><td>half of the chains run mad, the other half run X (integer xor + add, min + max, uint &rarr; float, rcp, an fp16 fma); <code>int1</code> ... <code>half1</code> measure X alone. Cost = one fma and one X together; the comment gives it as a percentage of the two one after the other (4 + X alone). Below ~85% they run at the same time: separate units or slots (old AMD VLIW cards, NVIDIA's integer pipe beside the float pipe, a second FP32 pipe, AMD dual issue).</td></tr>
   <tr><td><code>fma+fma</code></td><td>control: the same fma on both halves (should be ~100%).</td></tr>
+  <tr><td><code>fma4+rcp</code></td><td>4 chains of mad beside 1 chain of rcp: one full bundle on a VLIW5 card (4 math slots and the transcendental slot). Cost = the 4 fmas and the rcp together, compared with them one after the other.</td></tr>
+</table>
+
+<h3>Parallel issue: how many fmas at once</h3>
+<table>
+  <tr><td><code>ilp1</code> ... <code>ilp6</code></td><td>the same fma with 1 to 6 independent chains per thread (the normal tests use 8). Cost per fma. On most GPUs it stays the same (one instruction at a time per thread, the GPU fills up with other threads). On a VLIW card (AMD TeraScale) it is higher with few chains, until there are enough chains to fill all slots: the chain count where it stops dropping is how many ops the card runs at once.</td></tr>
 </table>
 
 <h2>Reading the CSV</h2>

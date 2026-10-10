@@ -253,7 +253,7 @@ bool takesOmod(Op op) {
     case Op::Add: case Op::Sub: case Op::Mul: case Op::Mad: case Op::Div: case Op::Lerp: case Op::Dot:
     case Op::Rcp: case Op::Rsqrt: case Op::Sqrt: case Op::Length:
     case Op::Exp: case Op::Log: case Op::Exp2: case Op::Log2: case Op::Sin: case Op::Cos: case Op::Pow:
-    case Op::Floor: case Op::Frac: case Op::Round: case Op::Ceil:
+    case Op::Floor: case Op::Frac: case Op::Round: case Op::Ceil: case Op::Trunc:
       return true;
     default: return false;
   }

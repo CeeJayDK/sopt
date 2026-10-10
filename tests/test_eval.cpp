@@ -82,6 +82,13 @@ TEST(eval_new_ops) {
   CHECK(ev(Op::Round, 0.49f) == 0.0f);
   CHECK(ev(Op::Ceil, 1.25f) == 2.0f);
   CHECK(ev(Op::Ceil, -0.5f) == 0.0f);
+  CHECK(ev(Op::Trunc, 1.75f) == 1.0f);  // toward zero (HLSL round_z)
+  CHECK(ev(Op::Trunc, -1.75f) == -1.0f);
+  CHECK(costModelByName("nvidia-ampere")->opCost(Op::Trunc, 1) == costModelByName("nvidia-ampere")->opCost(Op::Floor, 1));
+  {
+    const Program p = parseProgram("input x : float in [-4, 4]\noutput r = trunc(x) * 2.0\nbudget r : exact\n");
+    CHECK(toString(p.target, p.inputs) == "trunc(x) * 2.0");
+  }
   // smoothstep(a, b, x): s = saturate((x - a) / (b - a)), s * s * (3 - 2s).
   CHECK(ev(Op::Smoothstep, 0.0f, 1.0f, 0.5f) == 0.5f);
   CHECK(ev(Op::Smoothstep, 0.0f, 1.0f, -1.0f) == 0.0f);

@@ -1442,6 +1442,13 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   trunc: OpBench measures it (Rounding and sign) at floor's cost on every card (RDNA 3 11.9 vs floor 11.8 with the mad,
   GTX 1660 16.07 = 16.07, RTX 4090 27.6 = 27.6, UHD 630 7.96 vs 7.98), but sopt's IR has no Trunc op: not in the cost
   models, the site or the search.
+  trunc (owner's go, 2026-10-10): Op::Trunc after Ceil (exact, Call, not enumerated unless in the target), cost = floor's
+  in every model (OpBench: equal on every card), eval / exact (piecewise constant) / V3 stepOp / omod / PTX cvt.rzi /
+  --cost-models-json / site group "Rounding and sign". OpBench parallel issue (owner's go, 2026-10-10): Test::chains
+  (throughput run's chains per thread; ilp1..ilp6 = mad with 1..6 chains, Cost per fma: flat on scalar GPUs, higher with
+  few chains on VLIW) and Test::pairCount (the last N chains run pairStep: fma4+rcp = 4 fma + 1 rcp, one VLIW5 bundle);
+  the summary compares n fma + m X with them one after the other ((n + m) / m chain steps vs 4 n / m + X alone; the
+  1:1 pairs read as before). GTX 1660 (Turing, scalar): ilp1..6 4.0 (ilp2 4.7, once), fma4+rcp 21.3 = 67% of 31.5.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

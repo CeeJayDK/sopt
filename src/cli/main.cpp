@@ -195,7 +195,7 @@ void printCostModelsJson() {
       {Op::Mad, 1, "mad"},          {Op::Min, 1, "min"},         {Op::Max, 1, "max"},
       {Op::Clamp, 1, "clamp"},      {Op::Lt, 1, "compare"},      {Op::Select, 1, "select"},
       {Op::Step, 1, "step"},        {Op::Lerp, 1, "lerp"},       {Op::Floor, 1, "floor"},
-      {Op::Ceil, 1, "ceil"},        {Op::Round, 1, "round"},     {Op::Frac, 1, "frac"},
+      {Op::Ceil, 1, "ceil"},        {Op::Trunc, 1, "trunc"},     {Op::Round, 1, "round"},     {Op::Frac, 1, "frac"},
       {Op::Sign, 1, "sign"},        {Op::Rcp, 1, "rcp"},         {Op::Div, 1, "div"},
       {Op::Sqrt, 1, "sqrt"},        {Op::Rsqrt, 1, "rsqrt"},     {Op::Exp2, 1, "exp2"},
       {Op::Log2, 1, "log2"},        {Op::Exp, 1, "exp"},         {Op::Log, 1, "log"},

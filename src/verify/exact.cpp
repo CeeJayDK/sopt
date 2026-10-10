@@ -59,6 +59,7 @@ double exactOp(Op op, double x, double y, double z) {
     case Op::Log2: return std::log2(x);
     case Op::Round: return std::nearbyint(x);
     case Op::Ceil: return std::ceil(x);
+    case Op::Trunc: return std::trunc(x);
     case Op::Add: return x + y;
     case Op::Sub: return x - y;
     case Op::Mul: return x * y;
@@ -101,7 +102,7 @@ double scaleOp(Op op, double x, double y, double z, double sx, double sy, double
     case Op::AsUint: case Op::AsFloat: case Op::FToU: case Op::FToI: case Op::UAnd: case Op::UOr: case Op::UXor:
     case Op::UShl: case Op::UShr: case Op::IShr: case Op::UAdd: case Op::USub: case Op::UMul:
       return 0.0;  // bit-level: no error scale (the operands are taken as float32 values)
-    case Op::Floor: case Op::Sign: case Op::Step: case Op::Round: case Op::Ceil:
+    case Op::Floor: case Op::Sign: case Op::Step: case Op::Round: case Op::Ceil: case Op::Trunc:
     case Op::Lt: case Op::Le: case Op::Gt: case Op::Ge: case Op::Eq: case Op::Ne:
     case Op::LAnd: case Op::LOr: case Op::LNot:
       return 0.0;  // piecewise constant: errors move the steps, they do not scale
