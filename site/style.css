@@ -110,6 +110,8 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numer
 .cmp th.o.alt { color: var(--text-faint); font-weight: 400; }
 /* a brighter line between operations (each with its alternatives), none inside a group */
 .cmp .gs { border-left: 2px solid #fff; }
+.cmp th.arch { border-right: 2px solid #fff; }
+.cmp thead th { border-bottom: 2px solid #fff; }
 .cmp td.c { text-align: right; font: 13px var(--mono); font-variant-numeric: tabular-nums; min-width: 56px; }
 .cmp td.alt { font-size: 12.5px; color: var(--text-faint); }
 .cmp td.better { color: var(--cyan); font-weight: 500; }

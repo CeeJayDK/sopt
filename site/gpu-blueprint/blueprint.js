@@ -139,7 +139,7 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
         el("div", { class: "mini" }, el("div", { class: "bar", style: `width:${Math.min(100, (fma(q) / max) * 100)}%;--c:${color}` })));
     };
     const tip = (c) => (c.alt ? `${c.op} ${c.label}: ${c.alt.rhs}${c.alt.where ? `  (where ${c.alt.where})` : ""}` : c.label);
-    const head = el("tr", {}, el("th", { class: "arch", text: "architecture" }),
+    const head = el("tr", {}, el("th", { class: "arch", text: "Architecture" }),
       ...cols.map((c, k) => el("th", { class: "o" + (c.alt ? " alt" : "") + (!c.alt && k ? " gs" : ""), title: tip(c), text: c.label })));
     const body = data.models.map((m) => el("tr", {},
       el("th", { class: "arch", style: `--c:${VENDOR_COLOR[m.vendor]}`, title: `${m.vendor} ${m.title}`, text: m.title }),
