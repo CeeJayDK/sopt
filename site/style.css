@@ -19,9 +19,15 @@ a:hover { text-decoration: underline; }
 .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
 code, pre, kbd { font-family: var(--mono); font-size: 13.5px; }
 code { background: var(--bg); border: 1px solid var(--line); padding: 1px 6px; }
-/* shader code colors (common.js hl): numbers, functions, operators */
-.tk-n { color: var(--amber); }
-.tk-f { color: var(--cyan); }
+/* shader code in VS Code's dark colors (common.js hl); .tk-o: a separator such as the rule arrow */
+.tk-t { color: #ff6b6b; }
+.tk-k { color: #c586c0; }
+.tk-f { color: #dcdcaa; }
+.tk-n { color: #b5cea8; }
+.tk-s { color: #4fc1ff; }
+.tk-b0 { color: #ffd700; }
+.tk-b1 { color: #da70d6; }
+.tk-b2 { color: #179fff; }
 .tk-o { color: var(--text-faint); }
 
 /* header / nav */

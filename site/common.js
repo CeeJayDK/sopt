@@ -38,12 +38,29 @@ function barRow(name, value, scale, color, opts = {}) {
     el("span", { class: "val" + (free ? " free" : ""), text: opts.label ?? (free ? "free" : num(value)) }));
 }
 
-// Shader code with colors (owner, 2026-10-10): numbers amber, functions cyan, operators dim, names as text.
-const CODE_TOKEN = /(0x[0-9a-fA-F]+u?|\d+\.?\d*(?:e[+-]?\d+)?[uf]?|\.\d+(?:e[+-]?\d+)?)|([A-Za-z_]\w*)(?=\s*\()|([A-Za-z_]\w*)|(->|→|[-+*\/%<>=!&|^?:~]+)|([\s\S])/g;
+// Shader code in VS Code's dark colors (owner, 2026-10-10): types coral, keywords violet, functions yellow, numbers
+// green, semantics blue, brackets by depth (gold, orchid, blue); names and operators as text.
+const CODE_TOKEN = /(0x[0-9a-fA-F]+u?|\d+\.?\d*(?:e[+-]?\d+)?[uf]?|\.\d+(?:e[+-]?\d+)?)|([A-Za-z_]\w*)|([()[\]{}])|([\s\S])/g;
+const CODE_TYPE = /^(?:void|bool|int|uint|half|float|double|min16float|min16int|min16uint)[1-4]?(?:x[1-4])?$|^(?:texture|sampler|storage)\w*$/;
+const CODE_KEYWORD = new Set(["return", "if", "else", "for", "while", "do", "break", "continue", "switch", "case", "default",
+  "discard", "const", "static", "uniform", "precise", "in", "out", "inout", "namespace", "struct", "technique", "pass",
+  "true", "false"]);
 function hl(text) {
   const out = document.createDocumentFragment();
+  const open = "([{", close = ")]}";
+  let depth = 0;
   for (const m of text.matchAll(CODE_TOKEN)) {
-    const cls = m[1] ? "tk-n" : m[2] ? "tk-f" : m[4] ? "tk-o" : null;
+    let cls = null;
+    if (m[1]) cls = "tk-n";
+    else if (m[2]) {
+      const after = text.slice(m.index + m[0].length).trimStart();
+      cls = CODE_TYPE.test(m[2]) ? "tk-t" : CODE_KEYWORD.has(m[2]) ? "tk-k" : after.startsWith("(") ? "tk-f"
+          : /^(SV_\w+|[A-Z][A-Z0-9_]*\d*)$/.test(m[2]) && /:\s*$/.test(text.slice(0, m.index)) ? "tk-s" : null;
+    } else if (m[3]) {
+      if (close.includes(m[3])) depth = Math.max(0, depth - 1);
+      cls = "tk-b" + (depth % 3);
+      if (open.includes(m[3])) depth++;
+    }
     out.append(cls ? el("span", { class: cls, text: m[0] }) : m[0]);
   }
   return out;
