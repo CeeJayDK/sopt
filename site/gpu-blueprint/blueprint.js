@@ -106,12 +106,20 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
   const short = (s) => (s.length > 30 ? s.slice(0, 29) + "…" : s);
   const grpSel = document.getElementById("grp");
   GROUPS.forEach(([title], k) => grpSel.append(el("option", { value: String(k), text: title })));
+  const viewSel = document.getElementById("view");
   const renderGroup = () => {
     const ops = GROUPS[Number(grpSel.value)][1].filter((op) => data.models.some((m) => op in m.costs));
-    const max = Math.max(...ops.flatMap((op) => data.models.map((m) => fma(m.costs[op] ?? 0))));
+    const costs = ops.flatMap((op) => data.models.map((m) => m.costs[op])).filter((q) => q != null && !isFree(q));
+    const max = Math.max(...costs.map(fma)), lo = Math.log(Math.min(...costs)), hi = Math.log(Math.max(...costs));
+    // Heatmap: cheap = cool teal, expensive = warm red, on a log scale within the group.
+    const heat = (q) => {
+      const t = hi > lo ? (Math.log(q) - lo) / (hi - lo) : 0;
+      return `hsl(${170 - 170 * t}, ${45 + 15 * t}%, ${16 + 16 * t}%)`;
+    };
     const cell = (q, color, cls) => {
       if (q == null) return el("td", { class: "c free", text: "–" });
       if (isFree(q)) return el("td", { class: "c free" + (cls ? " " + cls : ""), text: "free" });
+      if (viewSel.value === "heat") return el("td", { class: "c hot" + (cls ? " " + cls : ""), style: `background:${heat(q)}`, text: num(fma(q)) });
       return el("td", { class: "c" + (cls ? " " + cls : "") }, num(fma(q)),
         el("div", { class: "mini" }, el("div", { class: "bar", style: `width:${Math.min(100, (fma(q) / max) * 100)}%;--c:${color}` })));
     };
@@ -136,6 +144,7 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
   };
   grpSel.value = "3";  // rounding and sign: the library's biggest wins
   grpSel.addEventListener("change", renderGroup);
+  viewSel.addEventListener("change", renderGroup);
   renderGroup();
 
   // Coverage grid.

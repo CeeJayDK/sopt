@@ -15,8 +15,6 @@ UHD 630 in every shader test, so the Intel numbers below hold for both); for oth
 their reports come in. The direct tests already corrected two estimates: several reads in a row do not cost
 the sum of single reads, so only the side-by-side tests decide.
 
-## Recommendations
-
 ### Averaging 2 × 2 texels (downsampling, box blurs): one bilinear read
 
 One bilinear read at the shared corner of four texels returns their average. Measured directly:
