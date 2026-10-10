@@ -110,9 +110,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSOPT_BUILD_TESTS=OFF \
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
-          cmake --build build --parallel --target sopt sopt-fx
+          cmake --build build --parallel
+      - name: Test
+        # bot pushes to main (report intake, Steam shares) start no CI run: a release must not ship untested
+        run: ctest --test-dir build --output-on-failure
       - name: Package
         run: |
           v=$(sed -n 's/^project(sopt VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
