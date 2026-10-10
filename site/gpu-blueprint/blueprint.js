@@ -99,11 +99,18 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
   // One group across the models: architectures as rows, operations as columns (bars line up down a column), each
   // operation followed by the library's alternatives: rules whose pattern is the operation alone (frac(x) -> ...),
   // whose replacement is not just a value (saturate(x) -> x only holds in a range) and that win somewhere.
-  const altsOf = (op) => lib.rules.filter((r) => {
-    const m = /^(\w+)\(\s*\w+(\s*,\s*\w+)*\s*\)$/.exec(r.lhs);
-    return m && m[1] === op && !/^[\w.+-]+$/.test(r.rhs.trim()) &&
-      data.models.some((md) => r.costs[md.name] && r.costs[md.name][1] < md.costs[op]);
-  });
+  // Its arguments may be constants (pow(x, 2.0) -> x * x, smoothstep(0.0, 1.0, x) -> ...): such a rule holds for those
+  // values only, so the page shows the whole rule. The same rule twice (other conditions) is shown once.
+  const altsOf = (op) => {
+    const seen = new Set();
+    return lib.rules.filter((r) => {
+      const m = /^(\w+)\(\s*[\w.+-]+(\s*,\s*[\w.+-]+)*\s*\)$/.exec(r.lhs);
+      const key = r.lhs + " -> " + r.rhs;
+      if (!m || m[1] !== op || /^[\w.+-]+$/.test(r.rhs.trim()) || seen.has(key)) return false;
+      seen.add(key);
+      return data.models.some((md) => r.costs[md.name] && r.costs[md.name][1] < md.costs[op]);
+    });
+  };
   const grpSel = document.getElementById("grp");
   const viewSel = document.getElementById("view");
   GROUPS.forEach(([title], k) => grpSel.append(el("option", { value: String(k), text: title })));
@@ -130,7 +137,7 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
       return el("td", { class: cls }, num(fma(q)),
         el("div", { class: "mini" }, el("div", { class: "bar", style: `width:${Math.min(100, (fma(q) / max) * 100)}%;--c:${color}` })));
     };
-    const tip = (c) => (c.alt ? `${c.op} ${c.label}: ${c.alt.rhs}${c.alt.where ? `  (where ${c.alt.where})` : ""}` : c.label);
+    const tip = (c) => (c.alt ? `${c.alt.lhs} → ${c.alt.rhs}${c.alt.where ? `  (where ${c.alt.where})` : ""}` : c.label);
     const head = el("tr", {}, el("th", { class: "arch", text: "Architecture" }),
       ...cols.map((c, k) => el("th", { class: "o" + (c.alt ? " alt" : "") + (!c.alt && k ? " gs" : ""), title: tip(c), text: c.label })));
     const body = data.models.map((m) => el("tr", {},
@@ -151,7 +158,7 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
     const alts = cols.filter((c) => c.alt);
     document.getElementById("alts").replaceChildren(...(alts.length ? [
       el("h4", { text: "Faster ways to write them (rewrite library)" }),
-      ...alts.map((c) => el("div", {}, el("b", { text: `${LABEL[c.op] || c.op} ${c.label}` }), el("code", { text: c.alt.rhs }),
+      ...alts.map((c) => el("div", {}, el("b", { text: `${LABEL[c.op] || c.op} ${c.label}` }), el("code", { text: `${c.alt.lhs} → ${c.alt.rhs}` }),
         c.alt.where ? el("small", { text: `where ${c.alt.where}` }) : null))] : []));
   };
   grpSel.value = "3";  // rounding and sign: the library's biggest wins
