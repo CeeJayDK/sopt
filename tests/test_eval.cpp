@@ -125,13 +125,24 @@ TEST(eval_sugar_intrinsics) {
     const PointSet ps = makeRandomPoints(p, 4096, 7, true);
     const std::vector<float> v = evalAll(p.target, ps, kProfileRef);
     int bad = 0;
-    for (size_t i = 0; i < ps.size(); ++i) bad += !check(ps.point(i), v[i]);
+    for (size_t i = 0; i < ps.size(); ++i)
+      if (!check(ps.point(i), v[i]) && bad++ == 0)
+        std::printf("  %s: at %g%s%g -> %g\n", src, ps.point(i)[0], ps.point(i).size() > 1 ? ", " : "",
+                    ps.point(i).size() > 1 ? ps.point(i)[1] : 0.0f, v[i]);
     CHECK(bad == 0);
   };
   run("input x : float in [-1, 1]\noutput r = acos(x)\nbudget r : abs 1e-4\n",
       [](const std::vector<float>& x, float r) { return std::fabs(r - std::acos(x[0])) <= 1e-4f; });
   run("input x : float in [-1, 1]\noutput r = asin(x)\nbudget r : abs 1e-4\n",
       [](const std::vector<float>& x, float r) { return std::fabs(r - std::asin(x[0])) <= 1e-4f; });
+  // atan: the polynomial's error is ~1e-5; atan2 over all four quadrants (0 / 0 is undefined, and so are two
+  // denormals: GPUs flush them to 0, the float32 reference does not).
+  run("input x : float in [-20, 20]\noutput r = atan(x)\nbudget r : abs 1e-4\n",
+      [](const std::vector<float>& x, float r) { return std::fabs(r - std::atan(x[0])) <= 1e-4f; });
+  run("input y : float in [-3, 3]\ninput x : float in [-3, 3]\noutput r = atan2(y, x)\nbudget r : abs 1e-4\n",
+      [](const std::vector<float>& x, float r) {
+        return std::max(std::fabs(x[0]), std::fabs(x[1])) < 1.17549435e-38f || std::fabs(r - std::atan2(x[0], x[1])) <= 1e-4f;
+      });
   run("input x : float in [-50, 50]\ninput y : float in [0.5, 3]\noutput r = fmod(x, y)\nbudget r : abs 1e-4\n",
       [](const std::vector<float>& x, float r) { return std::fabs(r - std::fmod(x[0], x[1])) <= 1e-4f; });
   run("input v : float2 in [-1, 1]\noutput r = all(v) ? 1.0 : 0.0\nbudget r : exact\n",

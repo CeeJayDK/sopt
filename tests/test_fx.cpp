@@ -1092,7 +1092,7 @@ TEST(fx_int_conversions) {
 }
 
 TEST(fx_sugar_intrinsics) {
-  // float %, %=, all (a float vector the parser casts to bool2), any (a vector comparison), asin, acos.
+  // float %, %=, all (a float vector the parser casts to bool2), any (a vector comparison), asin, acos, atan2 + atan.
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_intrinsics.fx";
   fx::LoadOptions lo;
   std::string err;
@@ -1101,11 +1101,17 @@ TEST(fx_sugar_intrinsics) {
   if (!e) return;
   fx::SkipCount sk;
   const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
-  for (uint32_t line : {16u, 18u, 19u, 20u, 21u, 22u}) {
+  for (uint32_t line : {16u, 18u, 19u, 20u, 21u, 22u, 23u}) {
     const fx::Region* r = regionOn(regions, line);
     CHECK(r != nullptr);
     if (!r) std::printf("  no region on line %u\n", line);
   }
+  // atan2 written out is ~30 operations: a region only above the default limit of 24.
+  CHECK(regionOn(regions, 24) == nullptr);
+  fx::RegionOptions big;
+  big.maxOps = 40;
+  fx::SkipCount sk2;
+  CHECK(regionOn(fx::extractRegions(*e, nullptr, big, sk2), 24) != nullptr);
 }
 
 TEST(fx_hoist_rewrite) {

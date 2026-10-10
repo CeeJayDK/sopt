@@ -38,6 +38,17 @@ function barRow(name, value, scale, color, opts = {}) {
     el("span", { class: "val" + (free ? " free" : ""), text: opts.label ?? (free ? "free" : num(value)) }));
 }
 
+// Shader code with colors (owner, 2026-10-10): numbers amber, functions cyan, operators dim, names as text.
+const CODE_TOKEN = /(0x[0-9a-fA-F]+u?|\d+\.?\d*(?:e[+-]?\d+)?[uf]?|\.\d+(?:e[+-]?\d+)?)|([A-Za-z_]\w*)(?=\s*\()|([A-Za-z_]\w*)|(->|→|[-+*\/%<>=!&|^?:~]+)|([\s\S])/g;
+function hl(text) {
+  const out = document.createDocumentFragment();
+  for (const m of text.matchAll(CODE_TOKEN)) {
+    const cls = m[1] ? "tk-n" : m[2] ? "tk-f" : m[4] ? "tk-o" : null;
+    out.append(cls ? el("span", { class: cls, text: m[0] }) : m[0]);
+  }
+  return out;
+}
+
 // Heat colors: the warming stripes' 16 shades (Ed Hawkins; ColorBrewer Blues / Reds), dark blue = cheapest, dark
 // red = most expensive, in steps on a log scale between lo and hi (owner, 2026-10-10).
 const STRIPES = ["#08306b", "#08519c", "#2171b5", "#4292c6", "#6baed6", "#9ecae1", "#c6dbef", "#deebf7",

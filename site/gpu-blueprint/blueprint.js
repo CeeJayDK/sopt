@@ -2,8 +2,7 @@
 "use strict";
 
 const GROUPS = [
-  ["Modifiers", ["neg", "abs", "saturate"]],
-  ["Basic math", ["add", "sub", "mul", "mad"]],
+  ["Modifiers and basic math", ["neg", "abs", "saturate", "add", "sub", "mul", "mad"]],
   ["Min, max and compares", ["min", "max", "clamp", "compare", "select", "step", "lerp"]],
   ["Rounding and sign", ["floor", "ceil", "round", "trunc", "frac", "sign"]],
   ["Special functions", ["rcp", "div", "sqrt", "rsqrt", "exp2", "log2", "exp", "log", "sin", "cos", "pow"]],
@@ -126,10 +125,10 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
     const all = cols.flatMap((c) => data.models.map((m) => c.cost(m))).filter((q) => q != null && !isFree(q));
     const lo = Math.min(...all), hi = Math.max(...all), max = fma(hi);
     const heatmap = viewSel.value === "heat";
-    const cell = (q, color, better) => {
+    const cell = (q, color, mark) => {  // mark: "better" / "worse" (an alternative faster / slower than its operation)
       if (q == null) return el("td", { class: "c free", text: "–" });
       if (isFree(q)) return el("td", { class: "c free", text: "free" });
-      const cls = "c" + (better ? " better" : "");
+      const cls = "c" + (mark ? " " + mark : "");
       if (heatmap) {
         const h = heatColor(q, lo, hi);
         return el("td", { class: cls + " hot", style: `background:${h.bg};color:${h.fg}`, text: num(fma(q)) });
@@ -144,8 +143,9 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
       el("th", { class: "arch", style: `--c:${VENDOR_COLOR[m.vendor]}`, title: `${m.vendor} ${m.title}`, text: m.title }),
       ...cols.map((c, k) => {
         const q = c.cost(m);
-        const better = c.alt && q != null && q < m.costs[c.op];
-        const td = cell(q, c.alt ? (better ? "var(--cyan)" : "var(--text-faint)") : VENDOR_COLOR[m.vendor], better);
+        const mark = !c.alt || q == null ? null : q < m.costs[c.op] ? "better" : q > m.costs[c.op] ? "worse" : null;
+        const color = !c.alt ? VENDOR_COLOR[m.vendor] : mark === "better" ? "var(--cyan)" : mark === "worse" ? "var(--amber)" : "var(--text-faint)";
+        const td = cell(q, color, mark);
         td.title = tip(c);
         if (c.alt) td.classList.add("alt");
         else if (k) td.classList.add("gs");  // a new operation starts
@@ -158,10 +158,10 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
     const alts = cols.filter((c) => c.alt);
     document.getElementById("alts").replaceChildren(...(alts.length ? [
       el("h4", { text: "Faster ways to write them (rewrite library)" }),
-      ...alts.map((c) => el("div", {}, el("b", { text: `${LABEL[c.op] || c.op} ${c.label}` }), el("code", { text: `${c.alt.lhs} → ${c.alt.rhs}` }),
+      ...alts.map((c) => el("div", {}, el("b", { text: `${LABEL[c.op] || c.op} ${c.label}` }), el("code", {}, hl(c.alt.lhs), el("span", { class: "tk-o", text: " → " }), hl(c.alt.rhs)),
         c.alt.where ? el("small", { text: `where ${c.alt.where}` }) : null))] : []));
   };
-  grpSel.value = "3";  // rounding and sign: the library's biggest wins
+  grpSel.value = "2";  // rounding and sign: the library's biggest wins
   grpSel.addEventListener("change", renderGroup);
   viewSel.addEventListener("change", renderGroup);
   renderGroup();

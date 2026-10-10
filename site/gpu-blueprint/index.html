@@ -34,9 +34,9 @@
 
   <section>
     <h2>One group on every architecture</h2>
-    <p class="note">Each row is an architecture, each column an operation, in fma units (lower is better), so the bars of one operation line up and compare directly. Columns marked &rarr;1, &rarr;2 ... are faster ways to write the operation before them, from the <a href="../library/">rewrite library</a> (listed below the table; hover for the formula), highlighted where they beat it. Some only hold for certain values: a fixed argument such as <code>pow(x, 2.0)</code>, or a range (marked *).</p>
+    <p class="note">Each row is an architecture, each column an operation, in fma units (lower is better), so the bars of one operation line up and compare directly. Columns marked &rarr;1, &rarr;2 ... are faster ways to write the operation before them, from the <a href="../library/">rewrite library</a> (listed below the table; hover for the formula), marked where they differ: a solid cyan frame where faster, a dashed amber frame where slower (in the bars view: cyan and amber numbers). Some only hold for certain values: a fixed argument such as <code>pow(x, 2.0)</code>, or a range (marked *).</p>
     <label class="select">group <select id="grp"></select></label>
-    <label class="select">view <select id="view"><option value="bars">bars</option><option value="heat">heatmap</option></select></label>
+    <label class="select">view <select id="view"><option value="heat" selected>heatmap</option><option value="bars">bars</option></select></label>
     <div class="tablewrap"><table id="cmp" class="cmp"></table></div>
     <div id="scale" class="scale"></div>
     <div id="alts" class="alts"></div>

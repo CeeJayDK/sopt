@@ -1,4 +1,4 @@
-// Test effect for test_fx: float %, all / any and asin / acos are regions (written out as fxc writes them).
+// Test effect for test_fx: float %, all / any, asin / acos and atan / atan2 are regions (written out as fxc writes them).
 uniform float Size < ui_type = "slider"; ui_min = 0.1; ui_max = 1.0; > = 0.5;
 
 texture IntrTex { Width = 256; Height = 256; Format = RGBA8; };
@@ -20,7 +20,9 @@ float4 IntrPS(float4 vpos : SV_Position, float2 uv : TEXCOORD0) : SV_Target
 	float a = asin(c.b * 2.0 - 1.0) * 0.6366 + 0.5;
 	float b = acos(c.r * 2.0 - 1.0) * 0.3183;
 	m %= 0.25 + c.b;
-	return float4(m + box, hit, a, b);
+	float t = atan(c.r * 4.0 - 2.0) * 0.1 + 0.5;
+	float u = atan2(d.y, d.x) * 0.159 + 0.5;
+	return float4(m + box, hit + t, a + u, b);
 }
 
 technique TestIntrinsics { pass { VertexShader = IntrVS; PixelShader = IntrPS; } }

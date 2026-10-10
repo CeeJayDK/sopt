@@ -553,9 +553,9 @@ struct Measured {
 // The summary's fixed order: sections ("#" entries), within each cheapest to most expensive as
 // most GPUs measure it, the same on every GPU so results can be compared line by line.
 const char* const kDisplayOrder[] = {
-    "#Modifiers and folds", "neg", "abs", "negabs", "saturate", "satmad", "mul", "omod2", "omodhalf", "omod4",
-    "omod8", "omod0.25", "omod0.125", "omod3",
-    "#Basic arithmetic", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
+    // One section for the few, fast basics (owner, 2026-10-10: like the web page's group).
+    "#Modifiers and basic arithmetic", "neg", "abs", "negabs", "saturate", "satmad", "mul", "omod2", "omodhalf", "omod4",
+    "omod8", "omod0.25", "omod0.125", "omod3", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
     "lerp",
     "#Rounding and sign", "floor", "ceil", "round", "trunc", "frac", "roundadd", "flooradd", "fracadd", "signsel2", "signbits",
     "signsat", "signmad", "signclamp", "signsel", "sign",

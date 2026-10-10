@@ -45,8 +45,8 @@
 
 <h2>The tests</h2>
 
-<h3>Modifiers and folds</h3>
-<p>Often free: the GPU applies them inside another instruction.</p>
+<h3>Modifiers and basic arithmetic</h3>
+<p>Modifiers are often free: the GPU applies them inside another instruction.</p>
 <table>
   <tr><td><code>neg</code>, <code>abs</code>, <code>negabs</code></td><td><code>-x</code>, <code>abs(x)</code>, <code>-abs(x)</code> feeding the mad: source modifiers, usually free.</td></tr>
   <tr><td><code>saturate</code></td><td>clamp to [0, 1] on the previous mad's result: an output modifier.</td></tr>
@@ -56,10 +56,6 @@
   <tr><td><code>omod4</code></td><td><code>rcp(x) * 4</code>: AMD's third output modifier scale.</td></tr>
   <tr><td><code>omod8</code>, <code>omod0.25</code>, <code>omod0.125</code></td><td><code>rcp(x) * 8</code>, <code>* 0.25</code>, <code>* 0.125</code>: scales that DX9-era GPUs applied for free (_x8, _d4, _d8). Expected to cost a multiply on current GPUs: measured to know.</td></tr>
   <tr><td><code>omod3</code></td><td><code>rcp(x) * 3</code>: the control (3 is no output modifier scale).</td></tr>
-</table>
-
-<h3>Basic arithmetic</h3>
-<table>
   <tr><td><code>min</code>, <code>max</code>, <code>step</code></td><td>min / max / compare; NVIDIA Turing runs one of them beside an fma.</td></tr>
   <tr><td><code>add</code>, <code>sub</code></td><td>one add.</td></tr>
   <tr><td><code>fma1</code></td><td><code>mad(x, x, c)</code>: one fma with a single constant. On AMD GCN the reference's two constants cost a second instruction, so this is the true fp32 rate there (the score uses whichever is faster).</td></tr>

@@ -426,8 +426,8 @@ bool containsInexact(const Expr& e) {
 bool isSugarCall(std::string_view name, size_t arity) {
   if (arity == 1)
     return name == "radians" || name == "degrees" || name == "log10" || name == "tan" || name == "asin" || name == "acos" ||
-           name == "all" || name == "any";
-  return arity == 2 && (name == "cross" || name == "fmod");
+           name == "atan" || name == "all" || name == "any";
+  return arity == 2 && (name == "cross" || name == "fmod" || name == "atan2");
 }
 
 uint32_t buildSugarCall(ExprBuilder& b, std::string_view name, const uint32_t* args, size_t arity) {
@@ -457,6 +457,36 @@ uint32_t buildSugarCall(ExprBuilder& b, std::string_view name, const uint32_t* a
     const uint32_t c = b.op(Op::Select, neg, b.op(Op::Mad, t, b.constant(-2.0f), b.constant(3.14159265f)), b.constant(0.0f));
     return b.op(Op::Mad, p, s, c);
   };
+  // atan / atan2 as fxc writes them: r = min(|a|, |b|) / max(|a|, |b|), p = odd polynomial in r (5 constants), v = r p +
+  // (|a| < |b| ? pi/2 - 2 r p : 0); atan: |a| = 1, b = x, negated where x < 0; atan2(y, x): b = y, a = x, v - pi where
+  // x < 0, negated where min(x, y) < 0 <= max(x, y).
+  auto atanCore = [&](uint32_t num, uint32_t den, uint32_t swap) {  // r = num / den in [0, 1]
+    const uint32_t r = b.op(Op::Mul, b.op(Op::Rcp, den), num);
+    const uint32_t s = b.op(Op::Mul, r, r);
+    uint32_t p = b.op(Op::Mad, s, b.constant(0.0208351f), b.constant(-0.085133f));
+    p = b.op(Op::Mad, s, p, b.constant(0.180141f));
+    p = b.op(Op::Mad, s, p, b.constant(-0.3302995f));
+    p = b.op(Op::Mad, s, p, b.constant(0.999866f));
+    const uint32_t t = b.op(Op::Mul, p, r);
+    const uint32_t c = b.op(Op::Select, swap, b.op(Op::Mad, t, b.constant(-2.0f), b.constant(1.57079637f)), b.constant(0.0f));
+    return b.op(Op::Mad, r, p, c);
+  };
+  if (name == "atan")
+    return perComponent([&](uint32_t x, uint32_t) {
+      const uint32_t a = b.op(Op::Abs, x), one = b.constant(1.0f);
+      const uint32_t v = atanCore(b.op(Op::Min, a, one), b.op(Op::Max, a, one), b.op(Op::Lt, one, a));
+      const uint32_t m = b.op(Op::Min, x, one);
+      return b.op(Op::Select, b.op(Op::Lt, m, b.op(Op::Neg, m)), b.op(Op::Neg, v), v);
+    });
+  if (name == "atan2")
+    return perComponent([&](uint32_t y, uint32_t x) {
+      const uint32_t ax = b.op(Op::Abs, x), ay = b.op(Op::Abs, y);
+      uint32_t v = atanCore(b.op(Op::Min, ax, ay), b.op(Op::Max, ax, ay), b.op(Op::Lt, ax, ay));
+      v = b.op(Op::Add, b.op(Op::Select, b.op(Op::Lt, x, b.op(Op::Neg, x)), b.constant(-3.14159265f), b.constant(0.0f)), v);
+      const uint32_t lo = b.op(Op::Min, x, y), hi = b.op(Op::Max, x, y);
+      const uint32_t flip = b.op(Op::LAnd, b.op(Op::Ge, hi, b.op(Op::Neg, hi)), b.op(Op::Lt, lo, b.op(Op::Neg, lo)));
+      return b.op(Op::Select, flip, b.op(Op::Neg, v), v);
+    });
   if (name == "acos") return perComponent([&](uint32_t x, uint32_t) { return acos1(x); });
   if (name == "asin")
     return perComponent([&](uint32_t x, uint32_t) { return b.op(Op::Sub, b.constant(1.57079637f), acos1(x)); });
