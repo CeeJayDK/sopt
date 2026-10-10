@@ -107,26 +107,23 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
   const grpSel = document.getElementById("grp");
   const viewSel = document.getElementById("view");
   GROUPS.forEach(([title], k) => grpSel.append(el("option", { value: String(k), text: title })));
-  // Heatmap: blue (cheap) - yellow - red (expensive), on a log scale within the group.
-  const STOPS = [[47, 95, 168], [224, 182, 50], [194, 59, 46]];
+  // Heatmap: the warming stripes' 16 shades (Ed Hawkins; ColorBrewer Blues / Reds), dark blue = cheapest, dark red =
+  // most expensive, in steps on a log scale within the group.
+  const STRIPES = ["#08306b", "#08519c", "#2171b5", "#4292c6", "#6baed6", "#9ecae1", "#c6dbef", "#deebf7",
+    "#fee0d2", "#fcbba1", "#fc9272", "#fb6a4a", "#ef3b2c", "#cb181d", "#a50f15", "#67000d"];
   const heat = (t) => {
-    const [a, b, u] = t < 0.5 ? [STOPS[0], STOPS[1], t * 2] : [STOPS[1], STOPS[2], t * 2 - 1];
-    const c = a.map((x, k) => Math.round(x + (b[k] - x) * u));
-    const light = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2] > 140;
-    return { bg: `rgb(${c.join(",")})`, fg: light ? "#10161a" : "#fff" };
+    const k = Math.min(STRIPES.length - 1, Math.floor(t * STRIPES.length));
+    return { bg: STRIPES[k], fg: k >= 4 && k <= 11 ? "#10161a" : "#fff" };
   };
   const renderGroup = () => {
     const ops = GROUPS[Number(grpSel.value)][1].filter((op) => data.models.some((m) => op in m.costs));
     // Columns: each operation, then its alternatives (↳1, ↳2, ...).
     const cols = [];
-    // Header lines: operation names alternate (hi, lo), their alternatives' labels take the other line, so a long
-    // name can spill over the empty line of the columns after it.
-    ops.forEach((op, i) => {
-      const line = i % 2 ? "lo" : "hi";
-      cols.push({ op, line, label: LABEL[op] || op, cost: (m) => m.costs[op] });
-      altsOf(op).forEach((r, k) => cols.push({ op, alt: r, line: line === "hi" ? "lo" : "hi", label: `↳${k + 1}`,
+    for (const op of ops) {
+      cols.push({ op, label: LABEL[op] || op, cost: (m) => m.costs[op] });
+      altsOf(op).forEach((r, k) => cols.push({ op, alt: r, label: `→${k + 1}`,
         cost: (m) => r.costs[m.name] && r.costs[m.name][1] }));
-    });
+    }
     const all = cols.flatMap((c) => data.models.map((m) => c.cost(m))).filter((q) => q != null && !isFree(q));
     const max = Math.max(...all.map(fma)), lo = Math.log(Math.min(...all)), hi = Math.log(Math.max(...all));
     const heatmap = viewSel.value === "heat";
@@ -143,8 +140,7 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
     };
     const tip = (c) => (c.alt ? `${c.op} ${c.label}: ${c.alt.rhs}${c.alt.where ? `  (where ${c.alt.where})` : ""}` : c.label);
     const head = el("tr", {}, el("th", { class: "arch", text: "architecture" }),
-      ...cols.map((c) => el("th", { class: `o ${c.line}` + (c.alt ? " alt" : ""), title: tip(c) },
-        el("span", { text: c.label }))));
+      ...cols.map((c) => el("th", { class: "o" + (c.alt ? " alt" : ""), title: tip(c), text: c.label })));
     const body = data.models.map((m) => el("tr", {},
       el("th", { class: "arch", style: `--c:${VENDOR_COLOR[m.vendor]}`, title: `${m.vendor} ${m.title}`, text: m.title }),
       ...cols.map((c) => {
@@ -156,6 +152,13 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
         return td;
       })));
     document.getElementById("cmp").replaceChildren(el("thead", {}, head), el("tbody", {}, ...body));
+    // The heatmap's scale: each shade with the cost where it starts.
+    document.getElementById("scale").replaceChildren(...(heatmap && hi > lo ? [
+      el("span", { class: "lab", text: "cheaper" }),
+      ...STRIPES.map((c, k) => el("span", { class: "sw", style: `background:${c}`,
+        title: `from ${num(fma(Math.exp(lo + (hi - lo) * k / STRIPES.length)))}` })),
+      el("span", { class: "lab", text: "more expensive" }),
+      el("span", { class: "range", text: `${num(fma(Math.exp(lo)))} to ${num(fma(Math.exp(hi)))} fma units, log scale` })] : []));
     // The alternatives in full.
     const alts = cols.filter((c) => c.alt);
     document.getElementById("alts").replaceChildren(...(alts.length ? [

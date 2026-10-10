@@ -34,10 +34,11 @@
 
   <section>
     <h2>One group on every architecture</h2>
-    <p class="note">Each row is an architecture, each column an operation, in fma units (lower is better), so the bars of one operation line up and compare directly. Columns marked &#8627;1, &#8627;2 ... are faster ways to write the operation before them, from the <a href="../library/">rewrite library</a> (listed below the table; hover for the formula), highlighted where they beat it.</p>
+    <p class="note">Each row is an architecture, each column an operation, in fma units (lower is better), so the bars of one operation line up and compare directly. Columns marked &rarr;1, &rarr;2 ... are faster ways to write the operation before them, from the <a href="../library/">rewrite library</a> (listed below the table; hover for the formula), highlighted where they beat it.</p>
     <label class="select">group <select id="grp"></select></label>
     <label class="select">view <select id="view"><option value="bars">bars</option><option value="heat">heatmap</option></select></label>
     <div class="tablewrap"><table id="cmp" class="cmp"></table></div>
+    <div id="scale" class="scale"></div>
     <div id="alts" class="alts"></div>
   </section>
 
