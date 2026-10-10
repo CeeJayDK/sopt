@@ -20,21 +20,13 @@ function vendorOf(name) {
 function shortCard(name) { return name.replace(/^(NVIDIA GeForce|AMD Radeon|Intel) /, "").replace(/ (Graphics|GPU)$/, ""); }
 function shortTitle(title) { return title.replace(/\s*\(.*\)\s*$/, "").replace(/:.*$/, ""); }
 function rest(title) { const i = title.indexOf(":"); return i < 0 ? "" : title.slice(i + 1).trim().replace("aAdd = atomicAdd ...; ", ""); }
-// The reports' short atomic names in full (owner, 2026-10-10: only Compare shortened): aCmpXchg -> atomicCmpExchange.
+// The reports' short atomic names in full (the terminal is narrow, the page is not): aCmpXchg -> atomicCompareExchange.
 function testLabel(test) {
-  return test.replace(/^a(Add|And|Or|Xor|Min|Max|Xchg|CmpXchg)\b/, (_, op) => "atomic" + op.replace("Xchg", "Exchange"));
+  return test.replace(/^a(Add|And|Or|Xor|Min|Max|Xchg|CmpXchg)\b/, (_, op) => "atomic" + op.replace("Cmp", "Compare").replace("Xchg", "Exchange"));
 }
 function findRow(card, test) {
   for (const s of card.sections) for (const r of s.rows) if (r.test === test) return r;
   return null;
-}
-// Heat colour for a cost in fma units: cheap = cyan, expensive = red, on a log scale.
-function heat(v, lo, hi) {
-  const t = Math.max(0, Math.min(1, Math.log(v / lo) / Math.log(hi / lo)));
-  const stops = [[94, 234, 212], [245, 166, 35], [255, 97, 102]];
-  const i = t < 0.5 ? 0 : 1, f = t < 0.5 ? t * 2 : (t - 0.5) * 2;
-  const c = stops[i].map((a, k) => Math.round(a + (stops[i + 1][k] - a) * f));
-  return `rgb(${c.join(",")})`;
 }
 function orderSummary(card) {
   let best = null;
@@ -62,7 +54,8 @@ function matrix(sec) {
     el("tbody", {}, ...formats.map((fmt) => el("tr", {}, el("td", { text: fmt }), ...FILTERS.map((f) => {
       const r = cells[fmt + "|" + f];
       if (!r) return el("td", { class: "num empty", text: "-" });
-      return el("td", { class: "num", style: `background:${heat(Math.max(r.tput, lo), lo, hi)}`, text: num(r.tput),
+      const h = heatColor(Math.max(r.tput, lo), lo, hi);
+      return el("td", { class: "num", style: `background:${h.bg};color:${h.fg}`, text: num(r.tput),
         title: `${r.test}: ${num(r.tput)} fma` + (r.lat != null ? `, latency ${num(r.lat)}` : "") });
     }))))));
 }
