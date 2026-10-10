@@ -107,17 +107,9 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
   const grpSel = document.getElementById("grp");
   const viewSel = document.getElementById("view");
   GROUPS.forEach(([title], k) => grpSel.append(el("option", { value: String(k), text: title })));
-  // Heatmap: the warming stripes' 16 shades (Ed Hawkins; ColorBrewer Blues / Reds), dark blue = cheapest, dark red =
-  // most expensive, in steps on a log scale within the group.
-  const STRIPES = ["#08306b", "#08519c", "#2171b5", "#4292c6", "#6baed6", "#9ecae1", "#c6dbef", "#deebf7",
-    "#fee0d2", "#fcbba1", "#fc9272", "#fb6a4a", "#ef3b2c", "#cb181d", "#a50f15", "#67000d"];
-  const heat = (t) => {
-    const k = Math.min(STRIPES.length - 1, Math.floor(t * STRIPES.length));
-    return { bg: STRIPES[k], fg: k >= 4 && k <= 11 ? "#10161a" : "#fff" };
-  };
   const renderGroup = () => {
     const ops = GROUPS[Number(grpSel.value)][1].filter((op) => data.models.some((m) => op in m.costs));
-    // Columns: each operation, then its alternatives (↳1, ↳2, ...).
+    // Columns: each operation, then its alternatives (→1, →2, ...).
     const cols = [];
     for (const op of ops) {
       cols.push({ op, label: LABEL[op] || op, cost: (m) => m.costs[op] });
@@ -125,14 +117,14 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
         cost: (m) => r.costs[m.name] && r.costs[m.name][1] }));
     }
     const all = cols.flatMap((c) => data.models.map((m) => c.cost(m))).filter((q) => q != null && !isFree(q));
-    const max = Math.max(...all.map(fma)), lo = Math.log(Math.min(...all)), hi = Math.log(Math.max(...all));
+    const lo = Math.min(...all), hi = Math.max(...all), max = fma(hi);
     const heatmap = viewSel.value === "heat";
     const cell = (q, color, better) => {
       if (q == null) return el("td", { class: "c free", text: "–" });
       if (isFree(q)) return el("td", { class: "c free", text: "free" });
       const cls = "c" + (better ? " better" : "");
       if (heatmap) {
-        const h = heat(hi > lo ? (Math.log(q) - lo) / (hi - lo) : 0);
+        const h = heatColor(q, lo, hi);
         return el("td", { class: cls + " hot", style: `background:${h.bg};color:${h.fg}`, text: num(fma(q)) });
       }
       return el("td", { class: cls }, num(fma(q)),
@@ -153,13 +145,8 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
         return td;
       })));
     document.getElementById("cmp").replaceChildren(el("thead", {}, head), el("tbody", {}, ...body));
-    // The heatmap's scale: each shade with the cost where it starts.
-    document.getElementById("scale").replaceChildren(...(heatmap && hi > lo ? [
-      el("span", { class: "lab", text: "cheaper" }),
-      ...STRIPES.map((c, k) => el("span", { class: "sw", style: `background:${c}`,
-        title: `from ${num(fma(Math.exp(lo + (hi - lo) * k / STRIPES.length)))}` })),
-      el("span", { class: "lab", text: "more expensive" }),
-      el("span", { class: "range", text: `${num(fma(Math.exp(lo)))} to ${num(fma(Math.exp(hi)))} fma units, log scale` })] : []));
+    // The heatmap's scale.
+    document.getElementById("scale").replaceChildren(...(heatmap && hi > lo ? [...heatScale(fma(lo), fma(hi), "fma units").children] : []));
     // The alternatives in full.
     const alts = cols.filter((c) => c.alt);
     document.getElementById("alts").replaceChildren(...(alts.length ? [

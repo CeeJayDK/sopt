@@ -30,10 +30,11 @@ Promise.all([loadJSON("library"), loadJSON("models")]).then(([lib, models]) => {
     for (const r of lib.rules) {
       const s = saving(r, model);
       if (fasterOnly.checked && s.gain <= 0) continue;
-      if (text && !(r.text + " " + r.comment + " " + r.section).toLowerCase().includes(text)) continue;
+      if (text && !(r.text + " " + r.comment + " " + r.section + " " + (r.about || "")).toLowerCase().includes(text)) continue;
       if (r.section !== section) {
         section = r.section;
-        panel = el("div", { class: "panel" }, el("h3", { text: section || "Other" }));
+        panel = el("div", { class: "panel" }, el("h3", { text: section || "Other" }),
+          r.about ? el("p", { class: "about", text: r.about }) : null);
         box.append(panel);
       }
       const m = byName[s.model];
