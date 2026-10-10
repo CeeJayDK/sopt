@@ -132,10 +132,10 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numer
 .cmp .mini .bar { height: 100%; }
 .cmp td.free { color: var(--text-faint); }
 .cmp td.hot { border-bottom-color: var(--bg); }
-/* alternatives: faster = solid cyan frame, slower = dashed amber frame, the same = none (and faded) */
-.cmp td.hot.alt:not(.better):not(.worse) { opacity: .7; }
-.cmp td.hot.better { box-shadow: inset 0 0 0 2px var(--cyan); }
-.cmp td.hot.worse { outline: 2px dashed var(--amber); outline-offset: -3px; }
+/* alternatives: faster = cyan frame and a glowing number, slower or the same = faded */
+.cmp td.hot.alt:not(.better) { opacity: .7; }
+.cmp td.hot.better { box-shadow: inset 0 0 0 2px var(--cyan); font-weight: 700;
+  text-shadow: 0 0 2px var(--cyan), 0 0 8px var(--cyan); }
 .scale { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin-top: 10px; font: 12px var(--mono); color: var(--text-faint); }
 .scale .sw { width: 22px; height: 14px; }
 .scale .lab { padding: 0 8px; }

@@ -238,6 +238,19 @@ a == 0.0 && b == 0.0 -> a == -b   where a >= 0, b >= 0
 a == 0.0 && b == 0.0 -> a == b   where a >= 0, b <= 0
 a != 0.0 || b != 0.0 -> a != -b   where a >= 0, b >= 0
 a != 0.0 || b != 0.0 -> a != b   where a >= 0, b <= 0
+# More than two values (owner, 2026-10-10: the trick as the basis of a faster any()): a sum of absolute values, or
+# their maximum, is 0 only when every value is 0 (no cancellation; inf and NaN stay != 0). abs is a free modifier
+# on most cards, and AMD does max(max(|a|, |b|), |c|) in one v_max3; where the values are >= 0 no abs is needed.
+a != 0.0 || b != 0.0 || c != 0.0 -> abs(a) + abs(b) + abs(c) != 0.0
+a != 0.0 || b != 0.0 || c != 0.0 -> max(max(abs(a), abs(b)), abs(c)) != 0.0
+a != 0.0 || b != 0.0 || c != 0.0 -> a + b + c != 0.0   where a >= 0, b >= 0, c >= 0
+a != 0.0 || b != 0.0 || c != 0.0 || d != 0.0 -> abs(a) + abs(b) + (abs(c) + abs(d)) != 0.0
+a != 0.0 || b != 0.0 || c != 0.0 || d != 0.0 -> max(max(abs(a), abs(b)), max(abs(c), abs(d))) != 0.0
+a != 0.0 || b != 0.0 || c != 0.0 || d != 0.0 -> a + b + (c + d) != 0.0   where a >= 0, b >= 0, c >= 0, d >= 0
+a == 0.0 && b == 0.0 && c == 0.0 -> abs(a) + abs(b) + abs(c) == 0.0
+a == 0.0 && b == 0.0 && c == 0.0 -> max(max(abs(a), abs(b)), abs(c)) == 0.0
+a == 0.0 && b == 0.0 && c == 0.0 && d == 0.0 -> abs(a) + abs(b) + (abs(c) + abs(d)) == 0.0
+a == 0.0 && b == 0.0 && c == 0.0 && d == 0.0 -> max(max(abs(a), abs(b)), max(abs(c), abs(d))) == 0.0
 x >= 0.0 && x <= 1.0 -> mad(x, x, -x) <= 0.0
 x < 0.0 || x > 1.0 -> mad(x, x, -x) > 0.0
 x >= 0.0 && x <= 1.0 && y >= 0.0 && y <= 1.0 -> saturate(mad(x, x, -x)) == -saturate(mad(y, y, -y))
