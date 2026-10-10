@@ -213,6 +213,21 @@ const Test kTests[] = {
     {"modf", "mad(modfS(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "fraction + integer part * 0.5"},
     {"isnan", "mad(isnan(x) ? c.z : x, c.x, c.y)", 0.5f, 0.5f, 1.0f, 0.0f, "mad", "ne + movc (a compiler may drop it)"},
     {"isinf", "mad(isinf(x) ? c.z : x, c.x, c.y)", 0.5f, 0.5f, 1.0f, 0.0f, "mad", "abs, eq + movc"},
+    // Not in ReShade FX, in HLSL or GLSL (owner, 2026-10-10: tools/reshade/INTRINSICS.md; sopt reads HLSL and GLSL too).
+    {"isfinite", "mad(isfinite(x) ? x : c.z, c.x, c.y)", 0.5f, 0.5f, 1.0f, 0.0f, "mad", "HLSL isfinite + select"},
+    {"mod", "mad(x - c.z * floor(x / c.z), c.x, c.y)", 0.5f, 1.0f, 0.7f, 0.0f, "mad", "GLSL mod (floor-based): div, floor, fma"},
+    {"asinh", "mad(log(x + sqrt(mad(x, x, 1.0))), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "GLSL asinh: log(x + sqrt(x x + 1))"},
+    {"acosh", "mad(log(x + sqrt(mad(x, x, -1.0))), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "GLSL acosh: log(x + sqrt(x x - 1))"},
+    {"atanh", "mad(0.5 * log((1.0 + x * c.z) / (1.0 - x * c.z)), c.x, c.y)", 0.5f, 1.0f, 0.25f, 0.0f, "mad",
+     "GLSL atanh: 0.5 log((1 + x) / (1 - x))"},
+    // any() of three values: compares joined by ||, or the zero-comparison trick's sum / max of absolute values
+    // (library/rewrites.txt; max3 with abs is one instruction on AMD).
+    {"any3or", "mad((x - c.z != 0.0 || x - c.w != 0.0 || x * c.z - c.w != 0.0) ? x : c.z, c.x, c.y)", 0.5f, 0.5f, 1.1f,
+     0.9f, "mad", "3 subs, 3 compares, 2 ors, select"},
+    {"any3abs", "mad(abs(x - c.z) + abs(x - c.w) + abs(x * c.z - c.w) != 0.0 ? x : c.z, c.x, c.y)", 0.5f, 0.5f, 1.1f,
+     0.9f, "mad", "3 subs, 2 adds of abs, 1 compare, select"},
+    {"any3max", "mad(max(max(abs(x - c.z), abs(x - c.w)), abs(x * c.z - c.w)) != 0.0 ? x : c.z, c.x, c.y)", 0.5f, 0.5f,
+     1.1f, 0.9f, "mad", "3 subs, max3 of abs, 1 compare, select"},
     {"f16round", "mad(f16tof32(f32tof16(x)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "f32tof16 + f16tof32"},
     {"bitcast", "mad(asfloat(asint(x)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "asint / asfloat: free"},
     // Integer and bit operations (uint chains: x = (x ^ c.y) * c.x mixes, nothing reassociates)
@@ -566,8 +581,8 @@ const char* const kDisplayOrder[] = {
     "#Vector (float2 / float3 / float4)", "mad2v", "mad3v", "mad4v", "dot2", "dot3", "dot4", "cross", "length",
     "distance", "normalize", "reflect", "refract", "faceforward", "det3", "matmul4", "transpose",
     "#Written out by fxc", "smoothstep", "fmod", "sincos", "tan", "atan", "atan2", "asin", "acos",
-    "#More intrinsics", "bitcast", "radians", "log10", "isnan", "isinf", "modf", "frexp", "ldexp", "f16round", "tanh",
-    "sinh", "cosh",
+    "#More intrinsics", "bitcast", "radians", "log10", "isnan", "isinf", "isfinite", "modf", "frexp", "ldexp", "f16round",
+    "tanh", "sinh", "cosh", "mod", "asinh", "acosh", "atanh", "any3or", "any3abs", "any3max",
     "#Integer and conversions", "bitor", "ixmul", "iadd", "iand", "imin", "ishr", "irot", "imul", "popc", "fbh",
     "bitrev", "fbl", "icmpsel", "unitf", "utof", "itof", "ftou", "ftoitof", "udiv", "umod", "idiv", "imod",
     "#Half precision (min16float)", "mad16", "add16", "mul16", "max16", "rcp16", "sqrt16", "exp2_16", "log2_16",

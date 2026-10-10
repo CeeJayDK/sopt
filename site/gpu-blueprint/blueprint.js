@@ -125,15 +125,20 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
     const all = cols.flatMap((c) => data.models.map((m) => c.cost(m))).filter((q) => q != null && !isFree(q));
     const lo = Math.min(...all), hi = Math.max(...all), max = fma(hi);
     const heatmap = viewSel.value === "heat";
+    // Numbers line up on the decimal point: padded to 2 decimals, the padding hidden (it keeps its width, draws nothing).
+    const aligned = (v) => {
+      const [i, f = ""] = num(v).split(".");
+      return el("span", {}, i + (f ? "." + f : ""), f.length < 2 ? el("span", { class: "pad", text: (f ? "" : ".") + "0".repeat(2 - f.length) }) : null);
+    };
     const cell = (q, color, mark) => {  // mark: "better" / "worse" (an alternative faster / slower than its operation)
       if (q == null) return el("td", { class: "c free", text: "–" });
       if (isFree(q)) return el("td", { class: "c free", text: "free" });
       const cls = "c" + (mark ? " " + mark : "");
       if (heatmap) {
         const h = heatColor(q, lo, hi);
-        return el("td", { class: cls + " hot", style: `background:${h.bg};color:${h.fg}`, text: num(fma(q)) });
+        return el("td", { class: cls + " hot", style: `background:${h.bg};color:${h.fg}` }, aligned(fma(q)));
       }
-      return el("td", { class: cls }, num(fma(q)),
+      return el("td", { class: cls }, aligned(fma(q)),
         el("div", { class: "mini" }, el("div", { class: "bar", style: `width:${Math.min(100, (fma(q) / max) * 100)}%;--c:${color}` })));
     };
     const tip = (c) => (c.alt ? `${c.alt.lhs} → ${c.alt.rhs}${c.alt.where ? `  (where ${c.alt.where})` : ""}` : c.label);

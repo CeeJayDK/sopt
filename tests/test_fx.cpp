@@ -1114,6 +1114,25 @@ TEST(fx_sugar_intrinsics) {
   CHECK(regionOn(fx::extractRegions(*e, nullptr, big, sk2), 24) != nullptr);
 }
 
+TEST(fx_hlsl_glsl_extras) {
+  // Intrinsics HLSL / GLSL have and ReShade FX lacks: the file loads and the statements are regions.
+  auto regionsOf = [](const char* name, bool glsl) {
+    fx::LoadOptions lo;
+    lo.glsl = glsl;
+    lo.hlsl = !glsl;
+    std::string err;
+    auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / name, lo, err);
+    CHECK(e != nullptr);
+    if (!e) std::printf("  %s\n", err.c_str());
+    fx::SkipCount sk;
+    return e ? fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk) : std::vector<fx::Region>{};
+  };
+  const auto h = regionsOf("sopt_extras.hlsl", false);
+  CHECK(regionOn(h, 13) != nullptr);  // fmod
+  const auto g = regionsOf("sopt_extras.frag", true);
+  for (uint32_t line : {12u, 13u, 14u}) CHECK(regionOn(g, line) != nullptr);  // asinh, acosh, atanh
+}
+
 TEST(fx_hoist_rewrite) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_hoist.fx";
   fx::LoadOptions lo;

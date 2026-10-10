@@ -43,8 +43,10 @@ one instruction on current hardware (RDNA `v_rndne_f32`). D3D9 can stay as it is
 HLSL defines clamp as `min(max(x, min), max)` (fxc writes `max` + `min`), so min > max gives max. GLSL `clamp` and
 SPIR-V `FClamp` are undefined for min > max, and AMD compiles them to one `v_med3_f32` (RGA, gfx1100: `clamp(x, u.x,
 u.y)` -> `v_med3_f32 v1, v1, s0, s1`), which returns the median: x = 0.5, min = 1, max = 0 gives 0 under D3D and 0.5
-under Vulkan. It happens when a user sets two uniforms the wrong way round. Options: emit `min(max(x, a), b)` in GLSL /
-SPIR-V when the bounds are not constants (AMD then spends 2 instructions instead of 1), or document it.
+under Vulkan. When both bounds are constants, which is the common case, ReShade knows their order while it translates and can keep
+`clamp` / `FClamp` where min <= max and emit `min(max(x, a), b)` (the HLSL result) where min > max, at no cost. Only
+bounds that are not known until run time (two uniforms a user can set the wrong way round) stay ambiguous: there the
+choice is `min(max(x, a), b)` in GLSL / SPIR-V (AMD then spends 2 instructions instead of 1) or documenting it.
 
 **3.3 `smoothstep(a, b, x)` with a >= b is undefined in GLSL / SPIR-V (no cost to fix).**
 HLSL defines it for any edges, and reversed edges (`smoothstep(1.0, 0.0, x)`) are common in ReShade effects. GLSL and

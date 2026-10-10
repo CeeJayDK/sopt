@@ -3327,10 +3327,17 @@ static const std::pair<const char *, const char *> sopt_barriers[] = {
 	{ "AllMemoryBarrierWithGroupSync", "barrier()" }, { "GroupMemoryBarrier", "groupMemoryBarrier()" },
 	{ "DeviceMemoryBarrier", "memoryBarrier()" }, { "AllMemoryBarrier", "memoryBarrier()" } };
 
+// sopt: HLSL intrinsics ReShade FX lacks (owner, 2026-10-10; tools/reshade/INTRINSICS.md): fmod is FX's float %,
+// isfinite a compare against the largest float (false for inf and NaN).
+static const char *const sopt_hlsl_extras[] = { "fmod", "isfinite" };
+
 bool reshadefx::parser::sopt_hlsl_intrinsic_name(const std::string &name)
 {
 	for (const auto &b : sopt_barriers)
 		if (name == b.first)
+			return true;
+	for (const char *const e : sopt_hlsl_extras)
+		if (name == e)
 			return true;
 	return name.rfind("Interlocked", 0) == 0;
 }
@@ -3344,6 +3351,10 @@ bool reshadefx::parser::sopt_hlsl_intrinsic(const std::string &name, const locat
 	for (const auto &b : sopt_barriers)
 		if (name == b.first)
 			return sopt_parse_text(b.second, loc, &exp);
+	if (name == "fmod" && args.size() == 2)
+		return sopt_parse_text("((" + args[0] + ") % (" + args[1] + "))", loc, &exp);
+	if (name == "isfinite" && args.size() == 1)
+		return sopt_parse_text("(abs(" + args[0] + ") <= 3.402823466e+38)", loc, &exp);
 	return sopt_hlsl_interlocked(name, args, loc, exp);
 }
 
@@ -3571,7 +3582,7 @@ static const char *const sopt_glsl_renames[][2] = {
 	{ "fwidthCoarse", "fwidth" }, { "roundEven", "round" }, { "floatBitsToUint", "asuint" }, { "floatBitsToInt", "asint" },
 	{ "uintBitsToFloat", "asfloat" }, { "intBitsToFloat", "asfloat" }, { "fma", "mad" }, { "mix", "lerp" } };
 static const char *const sopt_glsl_specials[] = {
-	"atan", "mod", "not", "lessThan", "lessThanEqual", "greaterThan", "greaterThanEqual", "equal", "notEqual",
+	"atan", "mod", "asinh", "acosh", "atanh", "not", "lessThan", "lessThanEqual", "greaterThan", "greaterThanEqual", "equal", "notEqual",
 	"texture", "texture2D", "texture3D", "textureLod", "textureGrad", "texelFetch", "textureSize", "textureOffset",
 	"texelFetchOffset", "textureLodOffset", "textureGradOffset", "textureGather", "textureGatherOffset" };
 
@@ -3620,6 +3631,13 @@ bool reshadefx::parser::sopt_glsl_intrinsic(const std::string &name, const locat
 			text = args.size() == 2 ? "atan2(" + list(0) + ')' : "atan(" + list(0) + ')';
 		else if (name == "mod")
 			text = '(' + arg(0) + " - " + arg(1) + " * floor(" + arg(0) + " / " + arg(1) + "))";
+		// The inverse hyperbolic functions as GLSL defines them (ReShade FX and HLSL have none).
+		else if (name == "asinh")
+			text = "log(" + arg(0) + " + sqrt(" + arg(0) + " * " + arg(0) + " + 1.0))";
+		else if (name == "acosh")
+			text = "log(" + arg(0) + " + sqrt(" + arg(0) + " * " + arg(0) + " - 1.0))";
+		else if (name == "atanh")
+			text = "(0.5 * log((1.0 + " + arg(0) + ") / (1.0 - " + arg(0) + ")))";
 		else if (name == "not")
 			text = "(!" + arg(0) + ')';
 		else if (name == "lessThan" || name == "lessThanEqual" || name == "greaterThan" || name == "greaterThanEqual" ||

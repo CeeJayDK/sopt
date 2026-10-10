@@ -307,6 +307,51 @@ PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed) {
   return ps;
 }
 
+namespace {
+
+// Coincidence points (owner, 2026-10-10): every input on a coarse grid (its range in eighths, and 0), where sums and
+// differences of inputs meet exactly (x + y == z). Random samples never hit those, so a candidate with == / != that is
+// wrong only there passed as bit-exact (any(x, y, z) for x, y, z >= 0 as `-y != x - z ? 1.0 : z`, wrong at 0.25, 0.25,
+// 0.5). All combinations when there are at most `limit`, else `limit` random ones.
+std::vector<std::vector<float>> coincidencePoints(const std::vector<InputDecl>& slots, Rng& rng, size_t limit) {
+  std::vector<std::vector<float>> vals(slots.size());
+  size_t combos = 1;
+  for (size_t i = 0; i < slots.size(); ++i) {
+    const InputDecl& d = slots[i];
+    if (!(d.hi > d.lo) || !std::isfinite(d.lo) || !std::isfinite(d.hi)) {
+      vals[i] = {static_cast<float>(d.lo)};
+      continue;
+    }
+    for (int k = 0; k <= 8; ++k) {
+      double v = d.lo + (d.hi - d.lo) * k / 8.0;
+      if (d.type == Type::Uint) v = std::round(v);
+      vals[i].push_back(snap(d, v));
+    }
+    if (d.lo < 0.0 && d.hi > 0.0) vals[i].push_back(snap(d, 0.0));
+    std::sort(vals[i].begin(), vals[i].end());
+    vals[i].erase(std::unique(vals[i].begin(), vals[i].end()), vals[i].end());
+    combos = std::min(combos * vals[i].size(), limit + 1);
+  }
+  std::vector<std::vector<float>> out;
+  std::vector<float> p(slots.size());
+  if (combos <= limit) {
+    std::vector<size_t> k(slots.size(), 0);
+    for (size_t n = 0; n < combos; ++n) {
+      for (size_t i = 0; i < slots.size(); ++i) p[i] = vals[i][k[i]];
+      out.push_back(p);
+      for (size_t i = 0; i < slots.size() && ++k[i] == vals[i].size(); ++i) k[i] = 0;
+    }
+  } else {
+    for (size_t n = 0; n < limit; ++n) {
+      for (size_t i = 0; i < slots.size(); ++i) p[i] = vals[i][rng.next() % vals[i].size()];
+      out.push_back(p);
+    }
+  }
+  return out;
+}
+
+}  // namespace
+
 PointSet makeRandomPoints(const Program& prog, size_t count, uint64_t seed, bool withSpecials) {
   Rng rng(seed);
   const std::vector<InputDecl> slots = slotDecls(prog.inputs);
@@ -320,6 +365,10 @@ PointSet makeRandomPoints(const Program& prog, size_t count, uint64_t seed, bool
       ps.add(p);
     }
     for (const auto& p : thresholdPoints(prog, rng)) {
+      if (ps.size() >= count) break;
+      ps.add(p);
+    }
+    for (const auto& p : coincidencePoints(slots, rng, std::min<size_t>(4096, count / 8))) {
       if (ps.size() >= count) break;
       ps.add(p);
     }
