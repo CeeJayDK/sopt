@@ -29,3 +29,10 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: shaderinfo, NVIDIA GeForce RTX 3050 Laptop GPU (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-rtx-3050-laptop-gpu.txt`
 - upload 1: texbench, Intel(R) Iris(R) Xe Graphics (driver 32.0.101.7084): `docs/texbench/intel-iris-xe-2.csv`, `docs/texbench/intel-iris-xe-2-order.png`, `docs/texbench/intel-iris-xe-2-order-zoom.png` (TexBench 0.7.0)
 - upload 1: texbench, NVIDIA GeForce RTX 3050 Laptop GPU (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-3050-laptop-gpu.csv`, `docs/texbench/nvidia-rtx-3050-laptop-gpu-order.png`, `docs/texbench/nvidia-rtx-3050-laptop-gpu-order-zoom.png` (TexBench 0.7.0)
+
+## 2026-10-10 12:43 UTC
+- upload 1: opbench, NVIDIA GeForce RTX 3060 (driver 32.0.15.9174): `docs/opbench/nvidia-rtx-3060.csv` (OpBench 0.7.0)
+- upload 1: shaderinfo, NVIDIA GeForce RTX 3060 (driver NVIDIA 591.74 (591.74)): `docs/shaderinfo/nvidia-rtx-3060.txt`
+- upload 1: texbench, NVIDIA GeForce RTX 3060 (driver 32.0.15.9174): `docs/texbench/nvidia-rtx-3060.csv`, `docs/texbench/nvidia-rtx-3060-order.png`, `docs/texbench/nvidia-rtx-3060-order-zoom.png` (TexBench 0.7.0)
+- upload 2: opbench, Intel(R) HD Graphics 520 (driver 21.20.16.4550): `docs/opbench/intel-hd-graphics-520.csv` (OpBench 0.7.0)
+- upload 2: texbench, Intel(R) HD Graphics 520 (driver 21.20.16.4550): `docs/texbench/intel-hd-graphics-520.csv`, `docs/texbench/intel-hd-graphics-520-order.png`, `docs/texbench/intel-hd-graphics-520-order-zoom.png` (TexBench 0.7.0)
