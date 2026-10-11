@@ -1459,6 +1459,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   ReShade 6.8.0 intrinsics (104, effect_symbol_table_intrinsics.inl) = REFERENCE.md's list except ddx_coarse / ddx_fine /
   ddy_coarse / ddy_fine (in the source, not documented). Not in ReShade but in HLSL: fmod (the % operator does it),
   isfinite, clip; in GLSL: mod (floor-based), fma, asinh / acosh / atanh, packUnorm4x8 / unpackUnorm4x8, inverse.
+  any() from the zero-comparison trick (owner, 2026-10-10 / 11): library rules for 3 and 4 values (sum / max of abs,
+  the trick on two pairs joined by ||, the trick on a max3 of the others; 213 of 213 rules pass). OpBench any3* /
+  any4* tests, GTX 1660 (Turing; cost incl. the subs, mad and select around them): any3 || 16.3, abs sum 20.3, max
+  18.8; any4 pairs 19.2 (fastest; the model said max3: NVIDIA folds the || into the compare), || 20.2, max3 21.1, abs
+  sum 29.5. Verification hole found on the way (any3 for values >= 0 as `-y != x - z ? 1 : z`, wrong where x + y ==
+  z): coincidence points in makeRandomPoints; bench identical before / after.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

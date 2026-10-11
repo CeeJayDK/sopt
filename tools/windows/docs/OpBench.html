@@ -125,6 +125,7 @@
   <tr><td><code>isnan</code>, <code>isinf</code></td><td>a compare and a select (a driver may drop isnan if it assumes no NaNs).</td></tr>
   <tr><td><code>isfinite</code>, <code>mod</code>, <code>asinh</code>, <code>acosh</code>, <code>atanh</code></td><td>functions HLSL or GLSL have and ReShade FX does not: <code>isfinite</code> (HLSL), GLSL's floor-based <code>mod</code>, and the inverse hyperbolic functions written out as GLSL defines them (log and sqrt).</td></tr>
   <tr><td><code>any3or</code>, <code>any3abs</code>, <code>any3max</code></td><td>"is any of three values not 0?" three ways: three compares joined by <code>||</code>; one compare of the sum of the absolute values; one compare of their maximum (one instruction on AMD). Shows which is fastest on your card.</td></tr>
+  <tr><td><code>any4or</code>, <code>any4pairs</code>, <code>any4max3</code>, <code>any4abs</code></td><td>the same for four values: four compares; the zero-comparison trick on two pairs joined by <code>||</code>; the trick on the maximum of three and the fourth; one compare of the sum of the absolute values.</td></tr>
   <tr><td><code>modf</code>, <code>frexp</code></td><td>fraction and integer part; mantissa and exponent.</td></tr>
   <tr><td><code>ldexp</code></td><td><code>x * exp2(e)</code>.</td></tr>
   <tr><td><code>f16round</code></td><td><code>f32tof16</code> + <code>f16tof32</code>: rounding a value through half precision.</td></tr>

@@ -251,6 +251,14 @@ a == 0.0 && b == 0.0 && c == 0.0 -> abs(a) + abs(b) + abs(c) == 0.0
 a == 0.0 && b == 0.0 && c == 0.0 -> max(max(abs(a), abs(b)), abs(c)) == 0.0
 a == 0.0 && b == 0.0 && c == 0.0 && d == 0.0 -> abs(a) + abs(b) + (abs(c) + abs(d)) == 0.0
 a == 0.0 && b == 0.0 && c == 0.0 && d == 0.0 -> max(max(abs(a), abs(b)), max(abs(c), abs(d))) == 0.0
+# The trick on pairs (owner, 2026-10-11): two pair compares joined by || (NVIDIA folds the || into the second compare),
+# or the trick applied to a max of the others (max3 + one compare on AMD).
+a != 0.0 || b != 0.0 || c != 0.0 || d != 0.0 -> abs(a) != -abs(b) || abs(c) != -abs(d)
+a != 0.0 || b != 0.0 || c != 0.0 || d != 0.0 -> max(max(abs(a), abs(b)), abs(c)) != -abs(d)
+a != 0.0 || b != 0.0 || c != 0.0 -> max(abs(a), abs(b)) != -abs(c)
+a == 0.0 && b == 0.0 && c == 0.0 && d == 0.0 -> abs(a) == -abs(b) && abs(c) == -abs(d)
+a == 0.0 && b == 0.0 && c == 0.0 && d == 0.0 -> max(max(abs(a), abs(b)), abs(c)) == -abs(d)
+a == 0.0 && b == 0.0 && c == 0.0 -> max(abs(a), abs(b)) == -abs(c)
 x >= 0.0 && x <= 1.0 -> mad(x, x, -x) <= 0.0
 x < 0.0 || x > 1.0 -> mad(x, x, -x) > 0.0
 x >= 0.0 && x <= 1.0 && y >= 0.0 && y <= 1.0 -> saturate(mad(x, x, -x)) == -saturate(mad(y, y, -y))
