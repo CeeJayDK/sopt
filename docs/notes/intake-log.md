@@ -36,3 +36,12 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: texbench, NVIDIA GeForce RTX 3060 (driver 32.0.15.9174): `docs/texbench/nvidia-rtx-3060.csv`, `docs/texbench/nvidia-rtx-3060-order.png`, `docs/texbench/nvidia-rtx-3060-order-zoom.png` (TexBench 0.7.0)
 - upload 2: opbench, Intel(R) HD Graphics 520 (driver 21.20.16.4550): `docs/opbench/intel-hd-graphics-520.csv` (OpBench 0.7.0)
 - upload 2: texbench, Intel(R) HD Graphics 520 (driver 21.20.16.4550): `docs/texbench/intel-hd-graphics-520.csv`, `docs/texbench/intel-hd-graphics-520-order.png`, `docs/texbench/intel-hd-graphics-520-order-zoom.png` (TexBench 0.7.0)
+
+## 2026-10-11 13:05 UTC
+- upload 1: opbench, NVIDIA GeForce GTX 1080 (driver 32.0.15.8228): `docs/opbench/nvidia-gtx-1080.csv` (OpBench 0.7.0)
+- upload 1: shaderinfo, NVIDIA GeForce GTX 1080 (driver NVIDIA 582.28 (582.28)): `docs/shaderinfo/nvidia-gtx-1080.txt`
+- upload 1: texbench, NVIDIA GeForce GTX 1080 (driver 32.0.15.8228): `docs/texbench/nvidia-gtx-1080.csv`, `docs/texbench/nvidia-gtx-1080-order.png`, `docs/texbench/nvidia-gtx-1080-order-zoom.png` (TexBench 0.7.0)
+- upload 2: opbench, NVIDIA GeForce RTX 3090 (driver 32.0.16.1088): `docs/opbench/nvidia-rtx-3090.csv` (OpBench 0.7.0)
+- upload 2: shaderinfo, AMD Radeon(TM) Graphics (driver AMD proprietary driver 26.3.1 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-0x13c0.txt`
+- upload 2: shaderinfo, NVIDIA GeForce RTX 3090 (driver NVIDIA 610.88 (610.88)): `docs/shaderinfo/nvidia-rtx-3090.txt`
+- upload 2: texbench, NVIDIA GeForce RTX 3090 (driver 32.0.16.1088): `docs/texbench/nvidia-rtx-3090.csv`, `docs/texbench/nvidia-rtx-3090-order.png`, `docs/texbench/nvidia-rtx-3090-order-zoom.png` (TexBench 0.7.0)
