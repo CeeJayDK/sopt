@@ -1,0 +1,413 @@
+GPU: Intel(R) Arc(TM) B580 Graphics
+vendor 32902, device 57867
+driver: Intel Corporation 101.8991 (101.8991)
+
+VK_KHR_pipeline_executable_properties: yes
+VK_AMD_shader_info: no
+VK_KHR_performance_query: yes
+VK_AMD_gpa_interface: no
+VK_INTEL_performance_query: yes
+
+All device extensions (165):
+  VK_EXT_device_address_binding_report 1
+  VK_EXT_full_screen_exclusive 4
+  VK_KHR_swapchain 70
+  VK_KHR_external_memory 1
+  VK_KHR_external_memory_win32 1
+  VK_EXT_external_memory_host 1
+  VK_KHR_external_semaphore 1
+  VK_KHR_external_semaphore_win32 1
+  VK_KHR_external_fence 1
+  VK_KHR_external_fence_win32 1
+  VK_KHR_timeline_semaphore 2
+  VK_KHR_win32_keyed_mutex 1
+  VK_KHR_get_memory_requirements2 1
+  VK_KHR_bind_memory2 1
+  VK_KHR_dedicated_allocation 3
+  VK_KHR_sampler_mirror_clamp_to_edge 3
+  VK_KHR_maintenance1 2
+  VK_KHR_maintenance2 1
+  VK_KHR_maintenance3 1
+  VK_KHR_maintenance4 2
+  VK_KHR_maintenance5 1
+  VK_KHR_maintenance6 1
+  VK_KHR_maintenance7 1
+  VK_KHR_synchronization2 1
+  VK_KHR_shader_draw_parameters 1
+  VK_KHR_push_descriptor 2
+  VK_KHR_descriptor_update_template 1
+  VK_KHR_multiview 1
+  VK_KHR_shader_float16_int8 1
+  VK_KHR_shader_float_controls 4
+  VK_KHR_16bit_storage 1
+  VK_KHR_8bit_storage 1
+  VK_EXT_shader_subgroup_ballot 1
+  VK_EXT_shader_subgroup_vote 1
+  VK_KHR_storage_buffer_storage_class 1
+  VK_KHR_variable_pointers 1
+  VK_KHR_relaxed_block_layout 1
+  VK_EXT_sampler_filter_minmax 2
+  VK_KHR_device_group 4
+  VK_KHR_sampler_ycbcr_conversion 14
+  VK_EXT_ycbcr_2plane_444_formats 1
+  VK_EXT_4444_formats 1
+  VK_EXT_post_depth_coverage 1
+  VK_EXT_shader_viewport_index_layer 1
+  VK_EXT_shader_stencil_export 1
+  VK_EXT_conservative_rasterization 1
+  VK_AMD_texture_gather_bias_lod 1
+  VK_EXT_sample_locations 1
+  VK_KHR_draw_indirect_count 1
+  VK_EXT_multi_draw 1
+  VK_KHR_image_format_list 1
+  VK_EXT_image_view_min_lod 1
+  VK_KHR_vertex_attribute_divisor 1
+  VK_EXT_vertex_attribute_divisor 3
+  VK_EXT_descriptor_buffer 1
+  VK_EXT_descriptor_indexing 2
+  VK_EXT_mutable_descriptor_type 1
+  VK_EXT_inline_uniform_block 1
+  VK_KHR_create_renderpass2 1
+  VK_KHR_dynamic_rendering 1
+  VK_KHR_dynamic_rendering_local_read 1
+  VK_EXT_dynamic_rendering_unused_attachments 1
+  VK_KHR_load_store_op_none 1
+  VK_EXT_load_store_op_none 1
+  VK_KHR_swapchain_mutable_format 1
+  VK_KHR_depth_stencil_resolve 1
+  VK_KHR_driver_properties 1
+  VK_KHR_vulkan_memory_model 3
+  VK_EXT_conditional_rendering 2
+  VK_EXT_hdr_metadata 3
+  VK_EXT_mesh_shader 1
+  VK_KHR_fragment_shading_rate 2
+  VK_EXT_depth_range_unrestricted 1
+  VK_EXT_depth_clip_enable 1
+  VK_EXT_depth_clip_control 1
+  VK_EXT_scalar_block_layout 1
+  VK_KHR_imageless_framebuffer 1
+  VK_KHR_buffer_device_address 1
+  VK_EXT_buffer_device_address 2
+  VK_KHR_ray_tracing_pipeline 1
+  VK_KHR_acceleration_structure 13
+  VK_KHR_ray_query 1
+  VK_KHR_pipeline_library 1
+  VK_KHR_deferred_host_operations 4
+  VK_KHR_ray_tracing_maintenance1 1
+  VK_EXT_host_query_reset 1
+  VK_KHR_performance_query 1
+  VK_NV_device_diagnostic_checkpoints 2
+  VK_KHR_separate_depth_stencil_layouts 1
+  VK_KHR_shader_clock 1
+  VK_KHR_spirv_1_4 1
+  VK_KHR_uniform_buffer_standard_layout 1
+  VK_EXT_separate_stencil_usage 1
+  VK_EXT_fragment_shader_interlock 1
+  VK_EXT_index_type_uint8 1
+  VK_KHR_index_type_uint8 1
+  VK_EXT_primitive_topology_list_restart 1
+  VK_KHR_shader_subgroup_extended_types 1
+  VK_KHR_line_rasterization 1
+  VK_EXT_line_rasterization 1
+  VK_EXT_memory_budget 1
+  VK_EXT_memory_priority 1
+  VK_EXT_pageable_device_local_memory 1
+  VK_EXT_texel_buffer_alignment 1
+  VK_INTEL_performance_query 2
+  VK_EXT_subgroup_size_control 2
+  VK_EXT_shader_demote_to_helper_invocation 1
+  VK_KHR_shader_atomic_int64 1
+  VK_EXT_pipeline_creation_feedback 1
+  VK_EXT_pipeline_creation_cache_control 3
+  VK_KHR_pipeline_executable_properties 1
+  VK_EXT_graphics_pipeline_library 1
+  VK_EXT_transform_feedback 1
+  VK_EXT_provoking_vertex 1
+  VK_EXT_extended_dynamic_state 1
+  VK_EXT_extended_dynamic_state2 1
+  VK_EXT_extended_dynamic_state3 2
+  VK_EXT_vertex_input_dynamic_state 2
+  VK_EXT_custom_border_color 12
+  VK_EXT_robustness2 1
+  VK_EXT_image_robustness 1
+  VK_EXT_pipeline_robustness 1
+  VK_KHR_calibrated_timestamps 1
+  VK_EXT_calibrated_timestamps 2
+  VK_KHR_shader_integer_dot_product 1
+  VK_KHR_shader_subgroup_uniform_control_flow 1
+  VK_KHR_shader_terminate_invocation 1
+  VK_KHR_workgroup_memory_explicit_layout 1
+  VK_EXT_shader_atomic_float 1
+  VK_KHR_copy_commands2 1
+  VK_KHR_shader_non_semantic_info 1
+  VK_KHR_zero_initialize_workgroup_memory 1
+  VK_EXT_shader_atomic_float2 1
+  VK_EXT_global_priority 2
+  VK_EXT_global_priority_query 1
+  VK_KHR_global_priority 1
+  VK_KHR_fragment_shader_barycentric 1
+  VK_KHR_format_feature_flags2 2
+  VK_KHR_video_queue 8
+  VK_KHR_video_decode_queue 7
+  VK_KHR_video_decode_h264 8
+  VK_KHR_video_decode_h265 7
+  VK_KHR_video_decode_av1 1
+  VK_EXT_color_write_enable 1
+  VK_NV_compute_shader_derivatives 1
+  VK_KHR_compute_shader_derivatives 1
+  VK_EXT_private_data 1
+  VK_KHR_cooperative_matrix 2
+  VK_EXT_image_2d_view_of_3d 1
+  VK_EXT_primitives_generated_query 1
+  VK_EXT_shader_module_identifier 1
+  VK_EXT_non_seamless_cube_map 1
+  VK_EXT_attachment_feedback_loop_layout 2
+  VK_EXT_shader_image_atomic_int64 1
+  VK_KHR_map_memory2 1
+  VK_KHR_shader_maximal_reconvergence 1
+  VK_KHR_shader_quad_control 1
+  VK_EXT_host_image_copy 1
+  VK_KHR_shader_subgroup_rotate 2
+  VK_KHR_shader_expect_assume 1
+  VK_KHR_shader_float_controls2 1
+  VK_KHR_ray_tracing_position_fetch 1
+  VK_EXT_shader_replicated_composites 1
+  VK_EXT_ray_tracing_invocation_reorder 1
+  VK_EXT_tooling_info 1
+
+Hardware counters (219):
+  GPU / GpuTime: Time elapsed on the GPU during the measurement.
+  GPU / GpuCoreClocks: The total number of GPU core clocks elapsed during the measurement.
+  GPU / AvgGpuCoreFrequencyMHz: Average GPU Core Frequency in the measurement.
+  GPU / ResultUncertainty: Result uncertainty indicator
+  Geometry / IA_VERTEX: Number of vertices in a draw
+  Thread Dispatcher / GPGPU_THREADGROUP_COUNT: Number of GPGPU threadgroups dispatched
+  Rasterizer / RASTERIZER_SAMPLE_OUTPUT: Number of lit samples emitted by Rasterizer
+  Color Pipe / PIXEL_BLEND: Number of blended pixels written to all render targets
+  Color Pipe / PIXEL_WRITE: Number of pixels written to all render targets
+  Color Pipe / POSTPS_ALPHA_TEST_FAIL: Number of 2x2 that were lit from Rasterizer but failed the Alpha Test or Alpha-to-Coverage
+  Color Pipe / SHADER_PIX_KILL: Number of pixels that were lit from Rasterizer but killed by the Pixel Shader or OOB Check
+  Front End / COMMAND_PARSER_RENDER_ENGINE_BUSY: Percentage of time in which there is a context loaded and active on the 3D queue
+  Geometry / CLIPPER_INPUT_VERTEX: Number of Clipper input vertices
+  Geometry / CLIPPER_PRIMITIVE_CULL: Number of Clipper early cull primitives
+  Geometry / CLIPPER_PRIMITIVE_FAR_NEAR_CLIP: Number of primitives clipped by Clipper due to near/far planes
+  Geometry / CLIPPER_PRIMITIVE_OUTPUT: Number of primitives going out of Clipper, must clip plus the trivial accept. Must clip primitives are counted one time only.
+  Geometry / IA_PRIMITIVE: Number of primitives in a draw
+  Geometry / STREAMOUT_OUTPUT_VERTEX_COUNT: Number of vertices written by SOL
+  Geometry / STRIPSFAN_OBJECT_COUNT: Number of objects exiting Stripsfan stage
+  Geometry / STRIPSFAN_OBJECT_CULL: Number of simple and complex culled objects in Stripsfan stage
+  Geometry / STREAMOUT_PRIMITIVE_WRITE_COUNT: Number of objects data written to memory, read from pipe 0 only
+  L1 Cache / SLM_BANK_CONFLICT_COUNT: Number of SLM accesses resulting in a bank conflict
+  Sampler / SAMPLER_2X2_READ: Number of 2x2 texel block requested from Sampler
+  Sampler / SAMPLER_TEXTURE_CACHE_ACCESS: Number of Sampler L1 requests
+  Sampler / SAMPLER_TEXTURE_CACHE_MISS: Number of Sampler L1 misses
+  URB / URB_READ: Number of URB reads
+  URB / URB_WRITE: Number of URB writes
+  Vector Engine / ICACHE_HIT: Number of Instruction Cache hits
+  Vector Engine / ICACHE_MISS: Number of Instruction Cache misses
+  Vector Engine / XVE_ACTIVE: Percentage of time in which at least one pipe is active in XVE
+  Vector Engine / XVE_INST_EXECUTED_ALU0_ALL: Number of execution slots taken by instructions executed by ALL threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU1_ALL: Number of execution slots taken by instructions executed by ALL threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_SEND_ALL: Number of instruction (GRF or SRF) dispatches executed by ALL threads on SEND Pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_CS: Number of execution slots taken by instructions executed by CS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_PS: Number of execution slots taken by instructions executed by PS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_VS: Number of execution slots taken by instructions executed by VS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU1_CS: Number of execution slots taken by instructions executed by CS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU1_PS: Number of execution slots taken by instructions executed by PS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU1_VS: Number of execution slots taken by instructions executed by VS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_SHARED_FUNCTION_ACCESS_HOLD: Percentage of time in which XVE requests stalled by Shared Function units
+  Ray Tracing / RT_BVH_CACHE_MISS: Number of BVH cache misses
+  Ray Tracing / RT_INPUT_MESSAGE_RAY_COUNT: Number of valid SIMD lanes in the TraceRay message
+  L1 Cache / LOAD_STORE_CACHE_HIT: Number of Load Store Cache hits
+  L1 Cache / LOAD_STORE_CACHE_ACCESS: Number of Load Store Cache accesses
+  Vector Engine / XVE_THREADS_OCCUPANCY_ALL: Percentage of thread slots occupied by ALL threads
+  Vector Engine / XVE_INST_ISSUED_ALL: Number of instructions issued (decoded) to any pipe
+  L1 Cache / LOAD_STORE_CACHE_BYTE_READ: Number of bytes read out of the Load Store Cache, excluding SLM accesses
+  L1 Cache / LOAD_STORE_CACHE_BYTE_WRITE: Number of bytes written to the Load Store Cache, excluding SLM accesses
+  L1 Cache / SLM_BYTE_READ: Number of bytes read from SLM
+  L1 Cache / SLM_BYTE_WRITE: Number of bytes written to SLM
+  Vector Engine / XVE_STALL: Percentage of time in which any thread loaded but not even a single pipe is active in XVE
+  Vector Engine / XVE_INST_EXECUTED_ALU0_ALL_UTILIZATION: Percentage of time taken by instructions executed by ALL threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU1_ALL_UTILIZATION: Percentage of time taken by instructions executed by ALL threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU2_ALL: Number of execution slots taken by instructions executed in ALU2 pipe
+  Vector Engine / XVE_MULTIPLE_PIPE_ACTIVE: Percentage of time in which at least two pipes are actively executing a Gen ISA instruction among ALU0, ALU1 and ALU2 pipes
+  L1 Cache / LOAD_STORE_CACHE_PARTIAL_WRITE_COUNT: Number of writes to the Load Store Cache that don't fill a subsector
+  Thread Dispatcher / GPGPU_DISPATCH: Percentage of time in which spent dispatching GPGPU threads to XVEs
+  Front End / COMMAND_PARSER_FLUSH_COUNT: Number of Stalling flushes at the top of the pipe
+  Front End / COMMAND_PARSER_RENDER_ENGINE_DISPATCH_KERNEL_COUNT: Number of compute walker commands parsed on the 3D engine
+  Vector Engine / XVE_PIPE_ALU0_AND_ALU1_ACTIVE: Percentage of time in which ALU0 and ALU1 pipes are both actively executing a Gen ISA instruction
+  Vector Engine / XVE_PIPE_ALU0_AND_ALU2_ACTIVE: Percentage of time in which ALU0 and ALU2 pipes are both actively executing a Gen ISA instruction
+  Vector Engine / XVE_INST_EXECUTED_ALU2_ALL_UTILIZATION: Percentage of time taken by instructions executed in ALU2 pipe
+  Depth Pipe / EARLY_DEPTH_STENCIL_TEST_FAIL_NP: Number of non-promoted 2x2 that failed Depth / Stencil before the Pixel Shader that were previously ambiguous at HiZ
+  Depth Pipe / EARLY_DEPTH_STENCIL_TEST_FAIL_P: Number of promoted 2x2 that failed Depth / Stencil that were previously ambiguous at HiZ
+  Depth Pipe / HIZ_DEPTH_TEST_AMBIG_NP: Number of non-promoted 2x2 that are ambiguous by hierarchical depth test
+  Depth Pipe / HIZ_DEPTH_TEST_AMBIG_P: Number of promoted 2x2 that are ambiguous by hierarchical depth test
+  Depth Pipe / HIZ_DEPTH_TEST_FAIL_NP: Number of non-promoted 2x2 that failed the hierarchical depth test
+  Depth Pipe / HIZ_DEPTH_TEST_FAIL_P: Number of promoted 2x2 that failed the hierarchical depth test
+  Depth Pipe / HIZ_DEPTH_TEST_PASS_P: Number of promoted 2x2 passed by hierarchical depth test
+  Depth Pipe / HIZ_SUBSPAN_LATENCY_FIFOFULL: Percentage of time in which for which HiZ latency hiding structure full
+  Depth Pipe / IZ_OUTPUT_READY: Percentage of time in which IZ has requests to different clients
+  Depth Pipe / IZ_SUBSPAN_LATENCY_FIFOFULL: Percentage of time in which for which IZ latency hiding structure full
+  Depth Pipe / POSTPS_DEPTH_STENCIL_TEST_FAIL: Number of 2x2 that were lit from Rasterizer but failed the depth or stencil test post shader
+  Color Pipe / RENDER_CACHE_ALLOC: Number of Render Cache allocations
+  Color Pipe / RENDER_CACHE_HIT: Number of Render Cache hits
+  Color Pipe / RENDER_CACHE_READ: Number of Render Cache reads
+  Color Pipe / RENDER_CACHE_WRITE: Number of Render Cache writes
+  URB / URB_CROSS_SLICE_READ: Number of URB reads occurred from cross slices
+  Rasterizer / PIXEL_2X2_LIT_POST_RASTERIZER_EARLY_DEPTH: Number of promoted 2x2 that are lit from Rasterizer
+  Rasterizer / PIXEL_2X2_LIT_POST_RASTERIZER_LATE_DEPTH: Number of non-promoted 2x2 that are lit from Rasterizer
+  L1 Cache / LOAD_STORE_CACHE_INPUT_AVAILABLE: Percentage of time in which the Load Store Cache has input available
+  L1 Cache / LOAD_STORE_CACHE_NUMBER_OF_BANK_ACCESS_COUNT: Number of Load Store Cache banks accessed in a clock.
+  L1 Cache / LOAD_STORE_CACHE_OUTPUT_READY: Percentage of time in which the Load Store Cache has output ready
+  L1 Cache / SLM_ACCESS_COUNT: Number of SLM accesses
+  L1 Cache / XVE_LOAD_STORE_CACHE_ATOMIC_MESSAGE_COUNT: Number of atomic operations sent by XVEs to the Load Store Cache
+  L1 Cache / XVE_LOAD_STORE_CACHE_FENCE_MESSAGE_COUNT: Number of fence messages sent by XVEs to the Load Store Cache
+  L1 Cache / XVE_LOAD_STORE_CACHE_READ_MESSAGE_COUNT: Number of read messages sent by XVEs to the Load Store Cache
+  L1 Cache / XVE_LOAD_STORE_CACHE_REGISTER_REQUEST_COUNT: Number of message payload transactions sent by XVEs to the Load Store Cache
+  L1 Cache / XVE_LOAD_STORE_CACHE_REGISTER_RESPONSE_COUNT: Number of message payload transactions sent from the Load Store Cache back to XVEs
+  L1 Cache / XVE_LOAD_STORE_CACHE_WRITE_MESSAGE_COUNT: Number of write messages sent by XVEs to the Load Store Cache
+  L1 Cache / XVE_SLM_ATOMIC_MESSAGE_COUNT: Number of SLM atomic operations sent by XVEs
+  L1 Cache / XVE_SLM_FENCE_MESSAGE_COUNT: Number of SLM fence operations sent by XVEs
+  L1 Cache / XVE_SLM_READ_MESSAGE_COUNT: Number of SLM read messages sent by XVEs
+  L1 Cache / XVE_SLM_WRITE_MESSAGE_COUNT: Number of SLM write messages sent by XVEs
+  Geometry / CLIPPER_INPUT_AVAILABLE: Percentage of time in which Clipper has input available (from Vertex Shader or SOL)
+  Geometry / CLIPPER_OUTPUT_READY: Percentage of time in which Clipper output ready
+  Geometry / CLIPPER_TRANSACTION_OUTPUT: Number of elements pushed by Clipper into Stripsfan stage
+  Geometry / STREAMOUT_PRIMITIVE_STORAGE_NEED: Number of objects data that needed beyond the current allocated space, read from pipe 0 only
+  Geometry / STRIPSFAN_OUTPUT_READY: Percentage of time in which in which geometry pipeline output is ready
+  Geometry / VERTEX_FETCH_INPUT_AVAILABLE: Percentage of time in which Vertex Fetch input is available
+  Geometry / VERTEX_FETCH_OUTPUT_READY: Percentage of time in which Vertex Fetch output is ready
+  Geometry / VS_OUTPUT_READY: Percentage of time in which Vertex Shader output is ready
+  Color Pipe / COLOR_PIPE_CACHE_LATENCY1_STALL: Percentage of time in which Color Pipeline stalled due to MultiSampling Cache latency hiding structure full
+  Color Pipe / COLOR_PIPE_CACHE_LATENCY2_STALL: Percentage of time in which Color Pipeline stalled due to Render Cache latency hiding structure full
+  Color Pipe / PIXEL_POST_PROCESS_INPUT_AVAILABLE: Percentage of time in which Color Pipeline input ready
+  Color Pipe / PIXEL_POST_PROCESS_OUTPUT_READY: Percentage of time in which Color Pipeline pixel output ready
+  Color Pipe / PS_OUTPUT_AVAILABLE: Percentage of time in which Pixel Shader data is available
+  Color Pipe / RENDER_CACHE_INPUT_AVAILABLE: Percentage of time in which Render Cache input available
+  Color Pipe / RENDER_CACHE_OUTPUT_READY: Percentage of time in which Render Cache output ready
+  Sampler / SAMPLER_ACTIVE: Percentage of time in which Sampler pipeline active
+  Sampler / SAMPLER_INPUT_AVAILABLE: Percentage of time in which Sampler input is available
+  Sampler / SAMPLER_MEMORY_LATENCY_STALL: Percentage of time in which Sampler stalled due to latency hiding structure full
+  Sampler / SAMPLER_OUTPUT_READY: Percentage of time in which Sampler output is ready
+  Rasterizer / RASTERIZER_INPUT_AVAILABLE: Percentage of time in which Rasterizer input is available
+  Rasterizer / RASTERIZER_OUTPUT_READY: Percentage of time in which where rasterizer output is ready
+  Rasterizer / RASTERIZER_TRANSACTION_OUTPUT: Number of transactions pushed from Rasterizer to the Z pipe
+  Thread Dispatcher / TASK_THREAD_EXIT_COUNT: Number of Task Shader EOT messages received
+  Thread Dispatcher / TASK_THREADGROUP_COUNT: Number of Task Shader threadgroups dispatched
+  Thread Dispatcher / THREAD_DISPATCH_INPUT_AVAILABLE: Percentage of time in which Thread Dispatch input is available
+  Thread Dispatcher / THREAD_DISPATCH_PS_ACTIVE: Percentage of time in which Pixel Shader threads are ready for dispatch
+  Thread Dispatcher / THREAD_DISPATCH_QUEUE0_ACTIVE: Percentage of time in which non-Pixel Shader threads are ready for dispatch in a particular Xe core
+  Thread Dispatcher / THREAD_DISPATCH_QUEUE0_STALL: Percentage of time in which queue 0 is stalled waiting for threads to be available
+  Thread Dispatcher / THREADGROUP_DISPATCH_QUEUE0_RESOURCE_STALL: Percentage of time in which Thread Spawner queue 0 is stalled waiting for any resource to be available (for example, SLM, Barrier, BTD stack, etc.)
+  Front End / COMMAND_PARSER_RENDER_ENGINE_DRAW_COUNT: Number of DRAW and MESH commands parsed on the 3D engine
+  Ray Tracing / RT_ANY_HIT_THREAD_RAY_DISPATCH: Number of any hit threads dispatched
+  Ray Tracing / RT_CALLABLE_THREAD_RAY_DISPATCH: Number of BTD shader spawn requests dispatched
+  Ray Tracing / RT_CLOSEST_HIT_THREAD_RAY_DISPATCH: Number of closest hit threads dispatched
+  Ray Tracing / RT_INPUT_MESSAGE_SPAWN_COUNT: Number of valid SIMD lanes in the Spawn message
+  Ray Tracing / RT_INSTANCE_NODE_RAY_COUNT: Number of instance BVH nodes processed by the traversal function
+  Ray Tracing / RT_INTERNAL_NODE_RAY_COUNT: Number of internal BVH nodes processed by the traversal function
+  Ray Tracing / RT_INTERSECTION_THREAD_RAY_DISPATCH: Number of intersection threads dispatched
+  Ray Tracing / RT_MESSAGE_STALL: Percentage of time in which Ray Tracing message input is stalled while accepting input
+  Ray Tracing / RT_MISS_THREAD_RAY_DISPATCH: Number of miss threads dispatched
+  Ray Tracing / RT_PROCEDURAL_NODE_RAY_COUNT: Number of procedural BVH nodes processed by the traversal function
+  Ray Tracing / RT_QUAD_LEAF_RAY_COUNT: Number of triangle BVH nodes processed by the traversal function
+  Ray Tracing / RT_QUAD_TEST_RAY_COUNT: Number of nodes processed that use ray-quad intersection pipeline
+  Ray Tracing / RT_REQUEST_COLLISION: Percentage of time in which Ray Tracing Leaf has two Traversal inputs valid
+  Ray Tracing / RT_TRANSFORM_RAY_COUNT: Number of only HW transform accesses
+  Ray Tracing / RT_TRAVERSAL_INPUT_RAY_COUNT: Number of Ray Tracing Traversal input rays
+  Ray Tracing / RT_TRAVERSAL_OUTPUT_RAY_COUNT: Number of Ray Tracing Traversal output rays
+  Ray Tracing / RT_TRAVERSAL_STALL: Percentage of time in which Ray Tracing Frontend is stalled by Traversal
+  Ray Tracing / RT_TRAVERSAL_STEP_RAY_COUNT: Number of BVH nodes processed
+  Vector Engine / XVE_INST_EXECUTED_ALU0_RT_AHS: Number of execution slots taken by instructions executed by RT_AHS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_RT_CHS: Number of execution slots taken by instructions executed by RT_CHS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_RT_MS: Number of execution slots taken by instructions executed by RT_MS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU1_RT_AHS: Number of execution slots taken by instructions executed by RT_AHS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU1_RT_CHS: Number of execution slots taken by instructions executed by RT_CHS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU1_RT_MS: Number of execution slots taken by instructions executed by RT_MS threads on ALU1 pipe. Does not include extended math instructions.
+  L1 Cache / RT_LOAD_STORE_CACHE_READ_MESSAGE_COUNT: Number of read messages sent from Ray Tracing unit to the Load Store Cache
+  L1 Cache / RT_LOAD_STORE_CACHE_WRITE_FROM_MESSAGE_COUNT: Number of write messages sent from Ray Tracing unit to the Load Store Cache
+  Vector Engine / XVE_INST_EXECUTED_BARRIER: Number of sync.bar and sync.host instructions executed
+  Vector Engine / XVE_INST_EXECUTED_BITCONV: Number of execution slots taken by bit manipulation instructions
+  Vector Engine / XVE_INST_EXECUTED_CONTROL_ALL: Number of instructions executed on JEU Pipe
+  Vector Engine / XVE_INST_EXECUTED_FP16: Number of execution slots taken by FP16 ALU instructions. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_FP32: Number of execution slots taken by FP32 ALU instructions. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_FP64: Number of execution slots taken by FP64 ALU instructions
+  Vector Engine / XVE_INST_EXECUTED_FP64_2ND: Number of execution slots taken by FP64 ALU instructions executed in the second pipe
+  Vector Engine / XVE_INST_EXECUTED_INT16: Number of execution slots taken by INT16 ALU instructions
+  Vector Engine / XVE_INST_EXECUTED_INT32: Number of execution slots taken by INT32 ALU instructions
+  Vector Engine / XVE_INST_EXECUTED_INT64: Number of execution slots taken by INT64 instructions
+  Vector Engine / XVE_INST_EXECUTED_MATH: Number of execution slots taken by extended math instructions
+  Vector Engine / XVE_INST_EXECUTED_NONDIVERGENT: Number of non-divergent instructions (not execution slots) issued
+  Vector Engine / XVE_INST_EXECUTED_PREDICATION: Number of instructions (not execution slots) issued with predication mask enabled
+  Vector Engine / XVE_INST_EXECUTED_XMX_BF16: Number of execution slots taken by BF16 XMX instructions
+  Vector Engine / XVE_INST_EXECUTED_XMX_FP16: Number of execution slots taken by FP16 XMX instructions
+  Vector Engine / XVE_INST_EXECUTED_XMX_INT2: Number of execution slots taken by INT2 XMX instructions
+  Vector Engine / XVE_INST_EXECUTED_XMX_INT4: Number of execution slots taken by INT4 XMX instructions
+  Vector Engine / XVE_INST_EXECUTED_XMX_INT8: Number of execution slots taken by INT8 XMX instructions
+  Vector Engine / XVE_STALL_ALUWR: Percentage of time in which XVE stalled, with at least one thread waiting for ALU to write GRF/ACC register. Multiple stall reasons can qualify during the same cycle
+  Vector Engine / XVE_STALL_BARRIER: Percentage of time in which XVE stalled, with at least one thread waiting for Gateway to write Notify register. Multiple stall reasons can qualify during the same cycle
+  Vector Engine / XVE_STALL_CONTROL: Percentage of time in which XVE stalled, with at least one thread waiting for JEU to complete branch instruction. Multiple stall reasons can qualify during the same cycle
+  Vector Engine / XVE_STALL_INSTFETCH: Percentage of time in which XVE stalled, with at least one thread waiting for Instruction Fetch. Multiple stall reasons can qualify during the same cycle
+  Vector Engine / XVE_STALL_OTHER: Percentage of time in which XVE stalled, with at least one thread waiting on any other dependency (Flag/EoT etc). Multiple stall reasons can qualify during the same cycle
+  Vector Engine / XVE_STALL_PIPESTALL: Percentage of time in which XVE stalled, with at least one thread ready to be scheduled (Grf conf/send holds etc). Multiple stall reasons can qualify during the same cycle
+  Vector Engine / XVE_STALL_PS_DEPENDENCY: Percentage of time in which XVE stalled, with at least one thread waiting on Pixel Shader dependency
+  Vector Engine / XVE_STALL_SBID: Percentage of time in which XVE stalled, with at least one thread waiting for Scoreboard token to be available. Multiple stall reasons can qualify during the same cycle
+  Vector Engine / XVE_STALL_SENDWR: Percentage of time in which XVE stalled, with at least one thread waiting for SEND message to be dispatched from XVE. Multiple stall reasons can qualify during the same cycle
+  Thread Dispatcher / THREADGROUP_DISPATCH_QUEUE0_INPUT_AVAILABLE: Percentage of time in which Thread Spawner has input available on queue 0
+  Vector Engine / XVE_INST_EXECUTED_ALU0_VS_UTILIZATION: Percentage of time taken by instructions executed by VS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_MS_UTILIZATION: Percentage of time taken by instructions executed by MS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_TS_UTILIZATION: Percentage of time taken by instructions executed by TS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_PS_UTILIZATION: Percentage of time taken by instructions executed by PS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_ASYNC_CS_UTILIZATION: Percentage of time taken by instructions executed by ASYNC_CS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_CS_UTILIZATION: Percentage of time taken by instructions executed by CS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU1_VS_UTILIZATION: Percentage of time taken by instructions executed by VS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU1_MS_UTILIZATION: Percentage of time taken by instructions executed by MS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU1_TS_UTILIZATION: Percentage of time taken by instructions executed by TS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU1_PS_UTILIZATION: Percentage of time taken by instructions executed by PS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU1_ASYNC_CS_UTILIZATION: Percentage of time taken by instructions executed by ASYNC_CS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU1_CS_UTILIZATION: Percentage of time taken by instructions executed by CS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU0_RT_AHS_UTILIZATION: Percentage of time taken by instructions executed by RT_AHS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_RT_CHS_UTILIZATION: Percentage of time taken by instructions executed by RT_CHS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU0_RT_MS_UTILIZATION: Percentage of time taken by instructions executed by RT_MS threads on ALU0 pipe
+  Vector Engine / XVE_INST_EXECUTED_ALU1_RT_AHS_UTILIZATION: Percentage of time taken by instructions executed by RT_AHS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU1_RT_CHS_UTILIZATION: Percentage of time taken by instructions executed by RT_CHS threads on ALU1 pipe. Does not include extended math instructions.
+  Vector Engine / XVE_INST_EXECUTED_ALU1_RT_MS_UTILIZATION: Percentage of time taken by instructions executed by RT_MS threads on ALU1 pipe. Does not include extended math instructions.
+  Test / TEST_EVENT1: Number of GPU (gt) clock cycles at every clock period
+  Test / TEST_EVENT1_CYCLES: Number of GPU (gt) clock cycles at every clock period
+  Test / TEST_EVENT1_CYCLES_XECORE0: Number of GPU (gt) clock cycles at every clock period (XECORE0)
+  Test / TEST_EVENT1_CYCLES_XECORE1: Number of GPU (gt) clock cycles at every clock period (XECORE1)
+  Test / TEST_EVENT1_CYCLES_XECORE2: Number of GPU (gt) clock cycles at every clock period (XECORE2)
+  Test / TEST_EVENT1_CYCLES_XECORE3: Number of GPU (gt) clock cycles at every clock period (XECORE3)
+  Test / TEST_EVENT1_CYCLES_XECORE4: Number of GPU (gt) clock cycles at every clock period (XECORE4)
+  Test / TEST_EVENT1_CYCLES_XECORE5: Number of GPU (gt) clock cycles at every clock period (XECORE5)
+  Test / TEST_EVENT1_CYCLES_XECORE6: Number of GPU (gt) clock cycles at every clock period (XECORE6)
+  Test / TEST_EVENT1_CYCLES_XECORE7: Number of GPU (gt) clock cycles at every clock period (XECORE7)
+  Test / TEST_EVENT1_CYCLES_XECORE8: Number of GPU (gt) clock cycles at every clock period (XECORE8)
+  Test / TEST_EVENT1_CYCLES_XECORE9: Number of GPU (gt) clock cycles at every clock period (XECORE9)
+  Test / TEST_EVENT1_CYCLES_XECORE10: Number of GPU (gt) clock cycles at every clock period (XECORE10)
+  Test / TEST_EVENT1_CYCLES_XECORE11: Number of GPU (gt) clock cycles at every clock period (XECORE11)
+  Test / TEST_EVENT1_CYCLES_XECORE12: Number of GPU (gt) clock cycles at every clock period (XECORE12)
+  Test / TEST_EVENT1_CYCLES_XECORE13: Number of GPU (gt) clock cycles at every clock period (XECORE13)
+  Test / TEST_EVENT1_CYCLES_XECORE14: Number of GPU (gt) clock cycles at every clock period (XECORE14)
+  Test / TEST_EVENT1_CYCLES_XECORE15: Number of GPU (gt) clock cycles at every clock period (XECORE15)
+  Test / TEST_EVENT1_CYCLES_XECORE16: Number of GPU (gt) clock cycles at every clock period (XECORE16)
+  Test / TEST_EVENT1_CYCLES_XECORE17: Number of GPU (gt) clock cycles at every clock period (XECORE17)
+  Test / TEST_EVENT1_CYCLES_XECORE18: Number of GPU (gt) clock cycles at every clock period (XECORE18)
+  Test / TEST_EVENT1_CYCLES_XECORE19: Number of GPU (gt) clock cycles at every clock period (XECORE19)
+  Test / TEST_EVENT1_CYCLES_AVERAGE: Average number of GPU (gt) clock cycles at every clock period (per instance)
+
+==== int (and / xor / add / mul chain) ====
+-- executable 0: compute (compute shader), subgroup size 32
+  Instruction Count = 32   (Number of GEN instructions in the final generated shader executable.)
+  Basic Block Count = 5   (Number of basic blocks in the final generated shader executable. The number correspond the number of control flow instructions.)
+  Scratch Memory Size = 0   (Number of bytes of scratch memory required by the generated shader executable. If this is non-zero, you may want to adjust your shader to reduce register pressure.)
+  Loop Count = 1   (Number of active loops (not unrolled) in the final generated shader executable.)
+  Workgroup Memory Size = 0   (Number of bytes of workgroup shared memory including any padding.)
+
+==== float (fma, rcp, sqrt, floor, max, clamp, sign, exp2) ====
+-- executable 0: compute (compute shader), subgroup size 32
+  Instruction Count = 42   (Number of GEN instructions in the final generated shader executable.)
+  Basic Block Count = 5   (Number of basic blocks in the final generated shader executable. The number correspond the number of control flow instructions.)
+  Scratch Memory Size = 0   (Number of bytes of scratch memory required by the generated shader executable. If this is non-zero, you may want to adjust your shader to reduce register pressure.)
+  Loop Count = 1   (Number of active loops (not unrolled) in the final generated shader executable.)
+  Workgroup Memory Size = 0   (Number of bytes of workgroup shared memory including any padding.)

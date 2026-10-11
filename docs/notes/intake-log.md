@@ -45,3 +45,32 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 2: shaderinfo, AMD Radeon(TM) Graphics (driver AMD proprietary driver 26.3.1 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-0x13c0.txt`
 - upload 2: shaderinfo, NVIDIA GeForce RTX 3090 (driver NVIDIA 610.88 (610.88)): `docs/shaderinfo/nvidia-rtx-3090.txt`
 - upload 2: texbench, NVIDIA GeForce RTX 3090 (driver 32.0.16.1088): `docs/texbench/nvidia-rtx-3090.csv`, `docs/texbench/nvidia-rtx-3090-order.png`, `docs/texbench/nvidia-rtx-3090-order-zoom.png` (TexBench 0.7.0)
+
+## 2026-10-11 22:07 UTC
+- upload 1: opbench, AMD Radeon(TM) Graphics (driver 32.0.21043.10005): `docs/opbench/amd-radeon-0x164e.csv` (OpBench 0.7.0)
+- upload 1: opbench, NVIDIA GeForce RTX 4090 Laptop GPU (driver 32.0.16.1742): `docs/opbench/nvidia-rtx-4090-laptop-gpu.csv` (OpBench 0.7.0)
+- upload 1: shaderinfo, AMD Radeon(TM) Graphics (driver AMD proprietary driver 26.5.2 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-0x164e.txt`
+- upload 1: shaderinfo, NVIDIA GeForce RTX 4090 Laptop GPU (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-rtx-4090-laptop-gpu.txt`
+- upload 1: texbench, AMD Radeon(TM) Graphics (driver 32.0.21043.10005): `docs/texbench/amd-radeon-0x164e.csv`, `docs/texbench/amd-radeon-0x164e-order.png`, `docs/texbench/amd-radeon-0x164e-order-zoom.png` (TexBench 0.7.0)
+- upload 1: texbench, NVIDIA GeForce RTX 4090 Laptop GPU (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-4090-laptop-gpu.csv`, `docs/texbench/nvidia-rtx-4090-laptop-gpu-order.png`, `docs/texbench/nvidia-rtx-4090-laptop-gpu-order-zoom.png` (TexBench 0.7.0)
+- upload 2: opbench, AMD Radeon(TM) Graphics (driver 31.0.21925.1001): `docs/opbench/amd-radeon-0x1636.csv` (OpBench 0.7.0)
+- upload 2: opbench, NVIDIA GeForce RTX 2060 (driver 32.0.16.2002): `docs/opbench/nvidia-rtx-2060.csv` (OpBench 0.7.0)
+- upload 2: shaderinfo, AMD Radeon(TM) Graphics (driver AMD proprietary driver 26.5.2 (AMD proprietary shader compiler) (2.0.279)): `docs/shaderinfo/amd-radeon-0x1636.txt`
+- upload 2: shaderinfo, NVIDIA GeForce RTX 2060 (driver NVIDIA 620.02 (620.2)): `docs/shaderinfo/nvidia-rtx-2060-2.txt`
+- upload 2: texbench, AMD Radeon(TM) Graphics (driver 31.0.21925.1001): `docs/texbench/amd-radeon-0x1636.csv`, `docs/texbench/amd-radeon-0x1636-order.png`, `docs/texbench/amd-radeon-0x1636-order-zoom.png` (TexBench 0.7.0)
+- upload 2: texbench, NVIDIA GeForce RTX 2060 (driver 32.0.16.2002): `docs/texbench/nvidia-rtx-2060-3.csv`, `docs/texbench/nvidia-rtx-2060-3-order.png`, `docs/texbench/nvidia-rtx-2060-3-order-zoom.png` (TexBench 0.7.0)
+- upload 3: opbench, Intel(R) HD Graphics 4600 (driver 20.19.15.5171): `docs/opbench/intel-hd-graphics-4600-2.csv` (OpBench 0.7.0)
+- upload 3: opbench, NVIDIA GeForce GTX 860M (driver 32.0.15.8278): `docs/opbench/nvidia-gtx-860m-2.csv` (OpBench 0.7.0)
+- upload 3: shaderinfo, NVIDIA GeForce GTX 860M (driver NVIDIA 582.78 (582.78)): `docs/shaderinfo/nvidia-gtx-860m-2.txt`
+- upload 3: texbench, Intel(R) HD Graphics 4600 (driver 20.19.15.5171): `docs/texbench/intel-hd-graphics-4600-3.csv`, `docs/texbench/intel-hd-graphics-4600-3-order.png`, `docs/texbench/intel-hd-graphics-4600-3-order-zoom.png` (TexBench 0.7.0)
+- upload 3: texbench, NVIDIA GeForce GTX 860M (driver 32.0.15.8278): `docs/texbench/nvidia-gtx-860m-3.csv`, `docs/texbench/nvidia-gtx-860m-3-order.png`, `docs/texbench/nvidia-gtx-860m-3-order-zoom.png` (TexBench 0.7.0)
+- upload 4: opbench, NVIDIA Quadro M5000M (driver 32.0.15.8194): `docs/opbench/nvidia-quadro-m5000m-2.csv` (OpBench 0.7.0)
+- upload 4: shaderinfo, Quadro M5000M (driver NVIDIA 581.94 (581.94)): `docs/shaderinfo/nvidia-quadro-m5000m-2.txt`
+- upload 4: texbench, NVIDIA Quadro M5000M (driver 32.0.15.8194): `docs/texbench/nvidia-quadro-m5000m-3.csv`, `docs/texbench/nvidia-quadro-m5000m-3-order.png`, `docs/texbench/nvidia-quadro-m5000m-3-order-zoom.png` (TexBench 0.7.0)
+- upload 5: opbench, NVIDIA GeForce RTX 4090 (driver 32.0.16.1664): `docs/opbench/nvidia-rtx-4090-2.csv` (OpBench 0.7.0)
+- upload 5: shaderinfo, Intel(R) UHD Graphics 770 (driver Intel Corporation 101.6129 (101.6129)): `docs/shaderinfo/intel-uhd-770-2.txt`
+- upload 5: shaderinfo, NVIDIA GeForce RTX 4090 (driver NVIDIA 616.64 (616.64)): `docs/shaderinfo/nvidia-rtx-4090-2.txt`
+- upload 5: texbench, NVIDIA GeForce RTX 4090 (driver 32.0.16.1664): `docs/texbench/nvidia-rtx-4090-2.csv`, `docs/texbench/nvidia-rtx-4090-2-order.png`, `docs/texbench/nvidia-rtx-4090-2-order-zoom.png` (TexBench 0.7.0)
+- upload 6: opbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/opbench/intel-arc-b580.csv` (OpBench 0.7.0)
+- upload 6: shaderinfo, Intel(R) Arc(TM) B580 Graphics (driver Intel Corporation 101.8991 (101.8991)): `docs/shaderinfo/intel-arc-b580.txt`
+- upload 6: texbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/texbench/intel-arc-b580.csv`, `docs/texbench/intel-arc-b580-order.png`, `docs/texbench/intel-arc-b580-order-zoom.png` (TexBench 0.7.0)
