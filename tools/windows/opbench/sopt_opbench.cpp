@@ -1088,7 +1088,7 @@ int main(int argc, char** argv) {
 
   bool warned = false;
   for (const Config& c : kConfigs)
-    if (madDrift[c.name] > 5.0) {
+    if (madDrift[c.name] > 50.0) {  // ~20% is normal even at maximum performance (owner's GTX 1660, 2026-10-11)
       if (!warned) std::printf("\n");
       warned = true;
       std::printf("  %sWarning:%s the reference changed by %.0f%% during the %s tests: the GPU clock moved.\n",
