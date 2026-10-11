@@ -1465,6 +1465,16 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   18.8; any4 pairs 19.2 (fastest; the model said max3: NVIDIA folds the || into the compare), || 20.2, max3 21.1, abs
   sum 29.5. Verification hole found on the way (any3 for values >= 0 as `-y != x - z ? 1 : z`, wrong where x + y ==
   z): coincidence points in makeRandomPoints; bench identical before / after.
+  Library pos(x) (owner, 2026-10-11: one side >= 0 and the other <= 0, abs only where the sign is unknown): pos(x) in
+  a replacement is x, -x or abs(x) by the sign of the bound value on the samples (the form is verified afterwards like
+  any candidate; -(-x) folds); --check-library tries every sign combination (3^n). The zero-comparison section rewritten
+  with it (45 -> 33 rules, covering all sign mixes), plus all() via min (min3 on AMD); 211 rules pass. Rule names:
+  `# [name]` at the start of a comment (site column / list; else a short replacement, else op→k).
+  Flags (owner's go to try): --library-regroup (chains of || / && / min / max regrouped into pairs before matching:
+  the two-value rule then meets both pairs of any(v) of 4) and --fp-coincidence (fingerprint points with every input
+  and every pair of inputs at 0). Bench (examples + planted, --time 30): identical best costs and times for both (no
+  bench problem has such chains); off by default. The free search reaches cost 8 of 68 for any() of 4 (bank limit):
+  depth, not the fingerprints, is what stops it there.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

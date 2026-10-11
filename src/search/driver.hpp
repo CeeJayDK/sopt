@@ -73,6 +73,13 @@ struct Options {
   const Library* libraryRules = nullptr;
   uint32_t librarySteps = 4;
   uint32_t libraryForms = 256;
+  // Experiments (owner, 2026-10-11; behind flags until the bench decides):
+  // --library-regroup: the library also matches chains of || / && / min / max regrouped into pairs (exact: these
+  //   are associative and commutative), so a rule for two values applies to any two of the chain.
+  // --fp-coincidence: the fingerprint points also hold every input at 0 and every pair of inputs at 0 together:
+  //   Bool expressions that differ only there (z != 0 || w != 0 vs z != 0) stay apart in the bank.
+  bool libraryRegroup = false;
+  bool fpCoincidence = false;
   // The previous run's results (owner, 2026-10-09: "the next run could start with the variants found in the previous
   // run"; sopt-fx keeps them in sopt-cache.txt): candidates over this program's inputs, verified again like the
   // library's forms; the cheapest that passes stage 2 starts the best-so-far bound. previousOnly: nothing about the

@@ -34,10 +34,10 @@
 
   <section>
     <h2>One group on every architecture</h2>
-    <p class="note">Each row is an architecture, each column an operation, in fma units (lower is better), so the bars of one operation line up and compare directly. Columns marked &rarr;1, &rarr;2 ... are faster ways to write the operation before them, from the <a href="../library/">rewrite library</a> (listed below the table; hover for the formula), framed and glowing where they are faster (in the bars view: cyan numbers where faster, amber where slower). Some only hold for certain values: a fixed argument such as <code>pow(x, 2.0)</code>, or a range (marked *).</p>
+    <p class="note">Each row is an architecture, each column an operation, in fma units (lower is better), so the bars of one operation line up and compare directly. The columns after an operation are other ways to write it (named, or numbered like sign&rarr;1), from the <a href="../library/">rewrite library</a> (listed below the table; hover for the formula). Bold: the fastest way to write the operation on that architecture, the operation itself included. Some only hold for certain values: a fixed argument such as <code>pow(x, 2.0)</code>, or a range (marked *).</p>
     <label class="select">group <select id="grp"></select></label>
     <label class="select">view <select id="view"><option value="heat" selected>heatmap</option><option value="bars">bars</option></select></label>
-    <div class="tablewrap"><table id="cmp" class="cmp"></table></div>
+    <div class="tablewrap cmpwrap"><table id="cmp" class="cmp"></table></div>
     <div id="scale" class="scale"></div>
     <div id="alts" class="alts"></div>
   </section>

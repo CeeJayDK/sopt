@@ -171,7 +171,7 @@ void printLibraryJson() {
     const RewriteRule& r = lib.rules[i];
     std::printf("    {\"source\": %s, \"text\": %s, \"lhs\": %s, \"rhs\": %s, \"costs\": {", jsonString(r.source).c_str(),
                 jsonString(r.text).c_str(), jsonString(toString(r.lhs, r.vars)).c_str(),
-                jsonString(toString(r.rhs, r.vars)).c_str());
+                jsonString(r.rhsText.empty() ? toString(r.rhs, r.vars) : r.rhsText).c_str());
     for (size_t k = 0; k < models.size(); ++k) {
       const CostModel& m = *models[k].m;
       std::printf("%s\"%.*s\": [%u, %u]", k ? ", " : "", int(m.name.size()), m.name.data(), dagCost(r.lhs, m, r.vars),

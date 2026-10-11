@@ -290,7 +290,7 @@ float domainValue(const InputDecl& d, uint64_t k) {
   return fromOrdered(orderedBits(static_cast<float>(d.lo)) + static_cast<uint32_t>(k));
 }
 
-PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed) {
+PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed, bool coincidences) {
   Rng rng(seed);
   const std::vector<InputDecl> slots = slotDecls(prog.inputs);
   PointSet ps;
@@ -299,6 +299,23 @@ PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed) {
   auto specials = specialPoints(prog, rng);
   const size_t maxSpecial = std::max<size_t>(1, (count * 2) / 3);
   for (size_t i = 0; i < specials.size() && i < maxSpecial; ++i) ps.add(specials[i]);
+  if (coincidences) {
+    // 0 where the domain holds it (else its nearest end); the others random. At most half the points.
+    const size_t limit = ps.size() + count / 2;
+    std::vector<float> p(slots.size());
+    auto random = [&]() {
+      for (size_t i = 0; i < p.size(); ++i) p[i] = sampleInput(slots[i], rng);
+    };
+    for (size_t i = 0; i < p.size(); ++i) p[i] = snap(slots[i], 0.0);
+    if (ps.size() < limit) ps.add(p);
+    for (size_t i = 0; i < slots.size() && ps.size() < limit; ++i)
+      for (size_t j = i + 1; j < slots.size() && ps.size() < limit; ++j) {
+        random();
+        p[i] = snap(slots[i], 0.0);
+        p[j] = snap(slots[j], 0.0);
+        ps.add(p);
+      }
+  }
   while (ps.size() < count) {
     std::vector<float> p(slots.size());
     for (size_t i = 0; i < p.size(); ++i) p[i] = sampleInput(slots[i], rng);

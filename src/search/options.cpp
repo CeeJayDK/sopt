@@ -79,6 +79,8 @@ int parseSearchOption(const std::string& a, const std::function<const char*()>& 
   else if (a == "--subtree-max-cost") opt.subtreeMaxCost = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
   else if (a == "--no-exact-rule") opt.exactRule = false;
   else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
+  else if (a == "--library-regroup") opt.libraryRegroup = true;
+  else if (a == "--fp-coincidence") opt.fpCoincidence = true;
   else return 0;
   return 1;
 }
