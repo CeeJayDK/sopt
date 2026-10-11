@@ -299,6 +299,28 @@ std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& use
   return folded;
 }
 
+// A comparison used only to pick 1.0 or 0.0 is what step compiles to (fxc: compare + and; AMD v_cmp + v_cndmask;
+// NVIDIA one FSET): the comparison and the select together cost what step costs (owner, 2026-10-11: comparisons on
+// the web page and sopt's choices must be fair), each at least 1. Per node, 0 = no override.
+std::vector<uint32_t> stepSelectCosts(const Expr& e, const std::vector<uint32_t>& uses, const CostModel& m) {
+  std::vector<uint32_t> cost(e.nodes.size(), 0);
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op != Op::Select || n.type != Type::Float) continue;
+    const Node& c = e.nodes[n.args[0]];
+    const Node& a = e.nodes[n.args[1]];
+    const Node& b = e.nodes[n.args[2]];
+    const bool cmp = c.op == Op::Lt || c.op == Op::Le || c.op == Op::Gt || c.op == Op::Ge || c.op == Op::Eq || c.op == Op::Ne;
+    const bool oneZero = a.op == Op::Const && b.op == Op::Const &&
+                         ((a.value[0] == 1.0f && b.value[0] == 0.0f) || (a.value[0] == 0.0f && b.value[0] == 1.0f));
+    if (!cmp || !oneZero || uses[n.args[0]] != 1) continue;
+    const uint32_t step = std::max(m.opCost(Op::Step, 1), 2u), compare = m.opCost(c.op, 1);
+    cost[n.args[0]] = std::min(compare, step - 1);
+    cost[i] = step - cost[n.args[0]];
+  }
+  return cost;
+}
+
 std::vector<uint32_t> divCosts(const Expr& e, const CostModel& m, const std::vector<bool>& ct) {
   std::vector<uint32_t> cost(e.nodes.size(), 0);
   std::vector<bool> paid(e.nodes.size(), false);  // the divisor's reciprocal is counted already
@@ -316,15 +338,17 @@ std::vector<uint32_t> divCosts(const Expr& e, const CostModel& m, const std::vec
 }
 
 uint32_t dagCost(const Expr& e, const CostModel& m) {
-  const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
+  const auto uses = useCounts(e);
   const auto folded = amdFoldedNodes(e, uses, m);
   const auto div = divCosts(e, m, compileTimeNodes(e, {}));
+  const auto stepSel = stepSelectCosts(e, uses, m);
   uint32_t cost = 0;
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     const Node& n = e.nodes[i];
     const bool reduce = info(n.op).shape == Shape::Reduce;
     const unsigned w = width(reduce ? e.nodes[n.args[0]].type : n.type);
-    cost += folded[i] ? w
+    cost += stepSel[i] ? stepSel[i]
+            : folded[i] ? w
             : (m.fusedAdd && fusedArg(e, i, uses, m.divIsMul) >= 0) ? w * m.fusedAdd
             : n.op == Op::Div ? div[i]
                               : m.opCost(n.op, w);
@@ -351,9 +375,10 @@ std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& 
 
 std::vector<uint32_t> nodeCosts(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
   const auto ct = compileTimeNodes(e, inputs);
-  const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
+  const auto uses = useCounts(e);
   const auto folded = amdFoldedNodes(e, uses, m);
   const auto div = divCosts(e, m, ct);
+  const auto stepSel = stepSelectCosts(e, uses, m);
   std::vector<uint32_t> cost(e.nodes.size(), 0);
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     if (ct[i]) continue;
@@ -363,7 +388,8 @@ std::vector<uint32_t> nodeCosts(const Expr& e, const CostModel& m, const std::ve
     const int f = m.fusedAdd ? fusedArg(e, i, uses, m.divIsMul) : -1;
     bool fold = folded[i];
     for (unsigned k = 0; fold && k < operandCount(n); ++k) fold = !ct[n.args[k]] || e.nodes[n.args[k]].op == Op::Const;
-    cost[i] = fold                         ? w
+    cost[i] = stepSel[i]                   ? stepSel[i]
+              : fold                       ? w
               : (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd
               : n.op == Op::Div            ? div[i]
                                            : m.opCost(n.op, w);

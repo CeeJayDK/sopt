@@ -1475,6 +1475,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   and every pair of inputs at 0). Bench (examples + planted, --time 30): identical best costs and times for both (no
   bench problem has such chains); off by default. The free search reaches cost 8 of 68 for any() of 4 (bank limit):
   depth, not the fingerprints, is what stops it there.
+  Fair step costs (owner, 2026-10-11: the site's comparisons and sopt's choices must be fair): `x >= e ? 1.0 : 0.0`
+  compiles to what step does (fxc ge + and, AMD v_cmp + v_cndmask, NVIDIA one FSET), so a scalar comparison used only
+  by a 1.0 / 0.0 select costs, with the select, exactly step's cost (stepSelectCosts in expr.cpp: comparison
+  min(compare, step - 1), select the rest, each >= 1). Before, Ampere charged 2.5 vs step 1.25. Only the step / 1 - step
+  rules change; 211 rules pass; bench: all recovered before / after (examples + planted, --time 30). Vector selects keep
+  the old cost.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
