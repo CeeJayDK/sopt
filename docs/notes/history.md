@@ -1481,6 +1481,17 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   min(compare, step - 1), select the rest, each >= 1). Before, Ampere charged 2.5 vs step 1.25. Only the step / 1 - step
   rules change; 211 rules pass; bench: all recovered before / after (examples + planted, --time 30). Vector selects keep
   the old cost.
+  Reports by the intake action, 2026-10-09 .. 10-11 (OpBench 0.7.0, its own "differs from the family" line):
+  RTX 3060 (591.74): Ampere on all math (atomics ~3.9 vs 0.5 and arraywrite differ: memory, not math), backs the
+  default model. GTX 1080 (582.28): Pascal exactly (4 cards now). RX 9070 XT, second report (26.9.2, drift 10%): RDNA 4
+  exactly. Iris Xe, second report (101.7084, drift 8%): Gen12 exactly (the model had one card). RTX 3090 (610.88, drift
+  178%) and RTX 3050 Laptop (617.42, drift 157%): unusable, the 3090 ~30% low across the board (clock, not chip).
+  HD Graphics 520 (Gen9, driver 21.20.16.4550 from 2016, drift 3%, real): output modifiers (*2, *4, *0.5 ...) cost 3.2
+  instead of ~0.5 (the old driver does not fold them), step 7.6 (4.2), fmod 37 (15.5), atomics ~4x; few players run
+  drivers that old, the gen9 model stays. ShaderInfo only: AMD 0x13C0 (Granite Ridge, RDNA 2 iGPU, 26.3.1).
+  Drift on the send screen (owner, 2026-10-11): GPU-Blueprint.bat shows each OpBench report's largest reference drift
+  (bin\drift-check.ps1) before asking to send; above 50% it asks for a rerun (close programs, plug in, maximum
+  performance). The owner's GTX 1660 drifts ~20% even at "Prefer maximum performance", more without it.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
