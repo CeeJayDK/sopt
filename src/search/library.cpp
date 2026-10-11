@@ -189,6 +189,9 @@ bool condsHold(const RewriteRule& r, const Expr& e, const std::vector<uint32_t>&
 
 // e with node i replaced by the rule's replacement (variables bound by `bind`), constants
 // folded and identities removed; nullopt if the types do not fit.
+uint32_t comparisonOf(ExprBuilder& b, Op op, uint32_t x, uint32_t y);
+bool isComparisonOp(Op op);
+
 std::optional<Expr> apply(const Expr& e, uint32_t i, const RewriteRule& r, const std::vector<uint32_t>& bind,
                           const std::vector<int8_t>& sign) {
   try {
@@ -223,6 +226,10 @@ std::optional<Expr> apply(const Expr& e, uint32_t i, const RewriteRule& r, const
               rm[j] = b.nodes()[rm[n.args[0]]].args[0];
               break;
             }
+            if (isComparisonOp(n.op)) {
+              rm[j] = comparisonOf(b, n.op, rm[n.args[0]], rm[n.args[1]]);
+              break;
+            }
             const unsigned c = operandCount(n);
             rm[j] = b.op(n.op, rm[n.args[0]], c > 1 ? rm[n.args[1]] : 0, c > 2 ? rm[n.args[2]] : 0);
           }
@@ -236,6 +243,20 @@ std::optional<Expr> apply(const Expr& e, uint32_t i, const RewriteRule& r, const
   } catch (const std::exception&) {
     return std::nullopt;
   }
+}
+
+// pos(x) step 2 (owner, 2026-10-11: negate only where both sides have the same sign): a comparison of two negations is
+// the comparison of the values themselves (-a != -b is a != b; -a < -b is a > b), exact.
+uint32_t comparisonOf(ExprBuilder& b, Op op, uint32_t x, uint32_t y) {
+  const auto& n = b.nodes();
+  if (n[x].op == Op::Neg && n[y].op == Op::Neg) {
+    const Op flip = op == Op::Lt ? Op::Gt : op == Op::Gt ? Op::Lt : op == Op::Le ? Op::Ge : op == Op::Ge ? Op::Le : op;
+    return b.op(flip, n[x].args[0], n[y].args[0]);
+  }
+  return b.op(op, x, y);
+}
+bool isComparisonOp(Op op) {
+  return op == Op::Lt || op == Op::Le || op == Op::Gt || op == Op::Ge || op == Op::Eq || op == Op::Ne;
 }
 
 // The sign of node `node` of e over the samples: 1 if >= 0 everywhere, -1 if <= 0, 0 otherwise.
@@ -482,6 +503,10 @@ Expr resolvePos(const RewriteRule& r, const std::vector<int8_t>& sign) {
     }
     if (n.op == Op::Neg && b.nodes()[map[n.args[0]]].op == Op::Neg) {  // -(-x) from pos(x) of x <= 0: exact
       map[j] = b.nodes()[map[n.args[0]]].args[0];
+      continue;
+    }
+    if (isComparisonOp(n.op)) {
+      map[j] = comparisonOf(b, n.op, map[n.args[0]], map[n.args[1]]);
       continue;
     }
     map[j] = copyNode(r.rhs, j, map, b);

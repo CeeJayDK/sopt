@@ -95,6 +95,7 @@ TEST(library_pos_and_regroup) {
   CHECK(checkRule(r).pass);
   CHECK(toString(resolvePos(r, {1, -1}), r.vars) == "a != b");
   CHECK(toString(resolvePos(r, {0, 1}), r.vars) == "abs(a) != -b");
+  CHECK(toString(resolvePos(r, {-1, 1}), r.vars) == "a != b");  // signs already opposite: no negation
   // A wrong pos rule fails for some sign combination (here: both <= 0).
   CHECK(!checkRule(parseLibrary("a != 0.0 || b != 0.0 -> pos(a) != -b\n", "test").rules[0]).pass);
   // Regrouping (--library-regroup): the two-value rule meets both pairs of a four-value chain.
