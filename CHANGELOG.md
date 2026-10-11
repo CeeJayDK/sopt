@@ -19,6 +19,7 @@ docs/notes/history.md.
 - **Fairer comparisons:** writing `x >= e ? 1.0 : 0.0` instead of `step(e, x)` now counts as exactly as fast, as it is on real graphics cards, both on the web page and in SweetOpt's choices.
 
 ### GPU Blueprint
+- **Know before you send:** before you send your reports, GPU Blueprint tells you how steady your graphics card's speed was during OpBench, and asks you to run it again if the numbers would not be reliable.
 - **New OpBench tests:** they show how many math operations your graphics card can run at the same time, and which kinds run side by side. Older AMD cards (Radeon HD 5000 / 6000) can run several at once, and these tests let SweetOpt learn how many. Please run GPU Blueprint again and send the reports, thank you!
 
 ## 0.7.0
