@@ -164,7 +164,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   res.targetText = toString(prog.target, prog.inputs);
   if (res.targetCost == 0) return res;
 
-  PointSet tests = makeTestPoints(prog, opt.numTests, opt.seed);
+  PointSet tests = makeTestPoints(prog, opt.numTests, opt.seed, opt.fpCoincidence);
   const PointSet stage2 = makeRandomPoints(prog, opt.stage2Points, opt.seed + 1, true);
   const PointSet v1 = makeRandomPoints(prog, opt.v1Points, opt.seed + 2, true);
   const std::vector<float> stage2Target = evalAll(prog.target, stage2, kProfileRef);
@@ -200,7 +200,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   if (opt.library) {
     const Library& lib = opt.libraryRules ? *opt.libraryRules : defaultLibrary();
     std::vector<LibraryForm> forms =
-        libraryRewrites(prog, lib, stage2, *opt.search.model, opt.librarySteps, opt.libraryForms);
+        libraryRewrites(prog, lib, stage2, *opt.search.model, opt.librarySteps, opt.libraryForms, opt.libraryRegroup);
     res.libraryForms = static_cast<uint32_t>(forms.size());
     for (auto& f : forms) {
       if (f.cost > res.targetCost) break;

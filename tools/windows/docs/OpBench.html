@@ -45,8 +45,8 @@
 
 <h2>The tests</h2>
 
-<h3>Modifiers and folds</h3>
-<p>Often free: the GPU applies them inside another instruction.</p>
+<h3>Modifiers and basic arithmetic</h3>
+<p>Modifiers are often free: the GPU applies them inside another instruction.</p>
 <table>
   <tr><td><code>neg</code>, <code>abs</code>, <code>negabs</code></td><td><code>-x</code>, <code>abs(x)</code>, <code>-abs(x)</code> feeding the mad: source modifiers, usually free.</td></tr>
   <tr><td><code>saturate</code></td><td>clamp to [0, 1] on the previous mad's result: an output modifier.</td></tr>
@@ -56,10 +56,6 @@
   <tr><td><code>omod4</code></td><td><code>rcp(x) * 4</code>: AMD's third output modifier scale.</td></tr>
   <tr><td><code>omod8</code>, <code>omod0.25</code>, <code>omod0.125</code></td><td><code>rcp(x) * 8</code>, <code>* 0.25</code>, <code>* 0.125</code>: scales that DX9-era GPUs applied for free (_x8, _d4, _d8). Expected to cost a multiply on current GPUs: measured to know.</td></tr>
   <tr><td><code>omod3</code></td><td><code>rcp(x) * 3</code>: the control (3 is no output modifier scale).</td></tr>
-</table>
-
-<h3>Basic arithmetic</h3>
-<table>
   <tr><td><code>min</code>, <code>max</code>, <code>step</code></td><td>min / max / compare; NVIDIA Turing runs one of them beside an fma.</td></tr>
   <tr><td><code>add</code>, <code>sub</code></td><td>one add.</td></tr>
   <tr><td><code>fma1</code></td><td><code>mad(x, x, c)</code>: one fma with a single constant. On AMD GCN the reference's two constants cost a second instruction, so this is the true fp32 rate there (the score uses whichever is faster).</td></tr>
@@ -127,6 +123,9 @@
   <tr><td><code>radians</code></td><td>a multiply (degrees too).</td></tr>
   <tr><td><code>log10</code></td><td>log2 and a multiply.</td></tr>
   <tr><td><code>isnan</code>, <code>isinf</code></td><td>a compare and a select (a driver may drop isnan if it assumes no NaNs).</td></tr>
+  <tr><td><code>isfinite</code>, <code>mod</code>, <code>asinh</code>, <code>acosh</code>, <code>atanh</code></td><td>functions HLSL or GLSL have and ReShade FX does not: <code>isfinite</code> (HLSL), GLSL's floor-based <code>mod</code>, and the inverse hyperbolic functions written out as GLSL defines them (log and sqrt).</td></tr>
+  <tr><td><code>any3or</code>, <code>any3abs</code>, <code>any3max</code></td><td>"is any of three values not 0?" three ways: three compares joined by <code>||</code>; one compare of the sum of the absolute values; one compare of their maximum (one instruction on AMD). Shows which is fastest on your card.</td></tr>
+  <tr><td><code>any4or</code>, <code>any4pairs</code>, <code>any4max3</code>, <code>any4abs</code></td><td>the same for four values: four compares; the zero-comparison trick on two pairs joined by <code>||</code>; the trick on the maximum of three and the fourth; one compare of the sum of the absolute values.</td></tr>
   <tr><td><code>modf</code>, <code>frexp</code></td><td>fraction and integer part; mantissa and exponent.</td></tr>
   <tr><td><code>ldexp</code></td><td><code>x * exp2(e)</code>.</td></tr>
   <tr><td><code>f16round</code></td><td><code>f32tof16</code> + <code>f16tof32</code>: rounding a value through half precision.</td></tr>
@@ -185,6 +184,12 @@
 <table>
   <tr><td><code>fma+int</code>, <code>fma+minmax</code>, <code>fma+cvt</code>, <code>fma+rcp</code>, <code>fma+half</code></td><td>half of the chains run mad, the other half run X (integer xor + add, min + max, uint &rarr; float, rcp, an fp16 fma); <code>int1</code> ... <code>half1</code> measure X alone. Cost = one fma and one X together; the comment gives it as a percentage of the two one after the other (4 + X alone). Below ~85% they run at the same time: separate units or slots (old AMD VLIW cards, NVIDIA's integer pipe beside the float pipe, a second FP32 pipe, AMD dual issue).</td></tr>
   <tr><td><code>fma+fma</code></td><td>control: the same fma on both halves (should be ~100%).</td></tr>
+  <tr><td><code>fma4+rcp</code></td><td>4 chains of mad beside 1 chain of rcp: one full bundle on a VLIW5 card (4 math slots and the transcendental slot). Cost = the 4 fmas and the rcp together, compared with them one after the other.</td></tr>
+</table>
+
+<h3>Parallel issue: how many fmas at once</h3>
+<table>
+  <tr><td><code>ilp1</code> ... <code>ilp6</code></td><td>the same fma with 1 to 6 independent chains per thread (the normal tests use 8). Cost per fma. On most GPUs it stays the same (one instruction at a time per thread, the GPU fills up with other threads). On a VLIW card (AMD TeraScale) it is higher with few chains, until there are enough chains to fill all slots: the chain count where it stops dropping is how many ops the card runs at once.</td></tr>
 </table>
 
 <h2>Reading the CSV</h2>

@@ -1091,6 +1091,48 @@ TEST(fx_int_conversions) {
   }
 }
 
+TEST(fx_sugar_intrinsics) {
+  // float %, %=, all (a float vector the parser casts to bool2), any (a vector comparison), asin, acos, atan2 + atan.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_intrinsics.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  for (uint32_t line : {16u, 18u, 19u, 20u, 21u, 22u, 23u}) {
+    const fx::Region* r = regionOn(regions, line);
+    CHECK(r != nullptr);
+    if (!r) std::printf("  no region on line %u\n", line);
+  }
+  // atan2 written out is ~30 operations: a region only above the default limit of 24.
+  CHECK(regionOn(regions, 24) == nullptr);
+  fx::RegionOptions big;
+  big.maxOps = 40;
+  fx::SkipCount sk2;
+  CHECK(regionOn(fx::extractRegions(*e, nullptr, big, sk2), 24) != nullptr);
+}
+
+TEST(fx_hlsl_glsl_extras) {
+  // Intrinsics HLSL / GLSL have and ReShade FX lacks: the file loads and the statements are regions.
+  auto regionsOf = [](const char* name, bool glsl) {
+    fx::LoadOptions lo;
+    lo.glsl = glsl;
+    lo.hlsl = !glsl;
+    std::string err;
+    auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / name, lo, err);
+    CHECK(e != nullptr);
+    if (!e) std::printf("  %s\n", err.c_str());
+    fx::SkipCount sk;
+    return e ? fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk) : std::vector<fx::Region>{};
+  };
+  const auto h = regionsOf("sopt_extras.hlsl", false);
+  CHECK(regionOn(h, 13) != nullptr);  // fmod
+  const auto g = regionsOf("sopt_extras.frag", true);
+  for (uint32_t line : {12u, 13u, 14u}) CHECK(regionOn(g, line) != nullptr);  // asinh, acosh, atanh
+}
+
 TEST(fx_hoist_rewrite) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_hoist.fx";
   fx::LoadOptions lo;

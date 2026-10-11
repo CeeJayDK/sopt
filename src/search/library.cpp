@@ -189,7 +189,11 @@ bool condsHold(const RewriteRule& r, const Expr& e, const std::vector<uint32_t>&
 
 // e with node i replaced by the rule's replacement (variables bound by `bind`), constants
 // folded and identities removed; nullopt if the types do not fit.
-std::optional<Expr> apply(const Expr& e, uint32_t i, const RewriteRule& r, const std::vector<uint32_t>& bind) {
+uint32_t comparisonOf(ExprBuilder& b, Op op, uint32_t x, uint32_t y);
+bool isComparisonOp(Op op);
+
+std::optional<Expr> apply(const Expr& e, uint32_t i, const RewriteRule& r, const std::vector<uint32_t>& bind,
+                          const std::vector<int8_t>& sign) {
   try {
     ExprBuilder b;
     std::vector<uint32_t> map(e.nodes.size());
@@ -213,6 +217,19 @@ std::optional<Expr> apply(const Expr& e, uint32_t i, const RewriteRule& r, const
             break;
           }
           default: {
+            const Node& a0 = rhs.nodes[n.args[0]];
+            if (n.op == Op::Abs && a0.op == Op::Input && r.pos[a0.input] && a0.input < sign.size() && sign[a0.input]) {
+              rm[j] = sign[a0.input] > 0 ? rm[n.args[0]] : b.op(Op::Neg, rm[n.args[0]]);  // pos(x) of a known sign
+              break;
+            }
+            if (n.op == Op::Neg && b.nodes()[rm[n.args[0]]].op == Op::Neg) {  // -(-x) from pos(x) of x <= 0: exact
+              rm[j] = b.nodes()[rm[n.args[0]]].args[0];
+              break;
+            }
+            if (isComparisonOp(n.op)) {
+              rm[j] = comparisonOf(b, n.op, rm[n.args[0]], rm[n.args[1]]);
+              break;
+            }
             const unsigned c = operandCount(n);
             rm[j] = b.op(n.op, rm[n.args[0]], c > 1 ? rm[n.args[1]] : 0, c > 2 ? rm[n.args[2]] : 0);
           }
@@ -226,6 +243,36 @@ std::optional<Expr> apply(const Expr& e, uint32_t i, const RewriteRule& r, const
   } catch (const std::exception&) {
     return std::nullopt;
   }
+}
+
+// pos(x) step 2 (owner, 2026-10-11: negate only where both sides have the same sign): a comparison of two negations is
+// the comparison of the values themselves (-a != -b is a != b; -a < -b is a > b), exact.
+uint32_t comparisonOf(ExprBuilder& b, Op op, uint32_t x, uint32_t y) {
+  const auto& n = b.nodes();
+  if (n[x].op == Op::Neg && n[y].op == Op::Neg) {
+    const Op flip = op == Op::Lt ? Op::Gt : op == Op::Gt ? Op::Lt : op == Op::Le ? Op::Ge : op == Op::Ge ? Op::Le : op;
+    return b.op(flip, n[x].args[0], n[y].args[0]);
+  }
+  return b.op(op, x, y);
+}
+bool isComparisonOp(Op op) {
+  return op == Op::Lt || op == Op::Le || op == Op::Gt || op == Op::Ge || op == Op::Eq || op == Op::Ne;
+}
+
+// The sign of node `node` of e over the samples: 1 if >= 0 everywhere, -1 if <= 0, 0 otherwise.
+int8_t signOf(const Expr& e, uint32_t node, const PointSet& samples) {
+  const Node& n = e.nodes[node];
+  std::vector<float> vals;
+  if (n.op == Op::Const) vals.assign(n.value, n.value + width(n.type));
+  else if (samples.size() == 0) return 0;
+  else vals = evalAll(subexpr(e, node), samples, kProfileRef);
+  bool pos = true, neg = true;
+  for (float v : vals) {
+    if (std::isnan(v)) continue;
+    pos = pos && v >= 0.0f;
+    neg = neg && v <= 0.0f;
+  }
+  return pos ? 1 : neg ? -1 : 0;
 }
 
 std::string exeDir() {
@@ -379,9 +426,34 @@ Library parseLibrary(std::string_view text, const std::string& name) {
       if (hiSet[k] && !loSet[k] && d.lo > d.hi) d.lo = d.hi - 200.0;
       if (!(d.lo <= d.hi)) throw ParseError(where + ": empty range for " + d.name);
     }
+    // pos(x): parsed as abs(x), resolved per match (RewriteRule::pos); x may not also be written abs(x).
+    r.pos.assign(r.vars.size(), false);
+    std::string parsedRhs = rhsText;
+    if (rhsText.find("pos(") != std::string::npos) {
+      std::string t;
+      for (size_t at = 0; at < rhsText.size();) {
+        const bool word = at == 0 || !identChar(rhsText[at - 1]);
+        if (word && rhsText.compare(at, 4, "pos(") == 0) {
+          const size_t close = rhsText.find(')', at + 4);
+          const std::string v = close == std::string::npos ? std::string() : trim(rhsText.substr(at + 4, close - at - 4));
+          uint32_t k = 0;
+          while (k < r.vars.size() && r.vars[k].name != v) ++k;
+          if (k == r.vars.size()) throw ParseError(where + ": pos() takes a variable of the pattern");
+          if (rhsText.find("abs(" + v + ")") != std::string::npos)
+            throw ParseError(where + ": " + v + " is written both pos(" + v + ") and abs(" + v + ")");
+          r.pos[k] = true;
+          t += "abs(" + v + ")";
+          at = close + 1;
+        } else {
+          t += rhsText[at++];
+        }
+      }
+      r.rhsText = rhsText;
+      parsedRhs = t;
+    }
     try {
       r.lhs = folded(parseExpr(lhsText, r.vars));
-      r.rhs = folded(parseExpr(rhsText, r.vars));
+      r.rhs = folded(parseExpr(parsedRhs, r.vars));
     } catch (const std::exception& ex) {
       throw ParseError(where + ": " + ex.what());
     }
@@ -417,10 +489,69 @@ const Library& defaultLibrary() {
   return lib;
 }
 
+Expr resolvePos(const RewriteRule& r, const std::vector<int8_t>& sign) {
+  ExprBuilder b;
+  std::vector<uint32_t> map(r.rhs.nodes.size());
+  for (uint32_t j = 0; j < r.rhs.nodes.size(); ++j) {
+    const Node& n = r.rhs.nodes[j];
+    if (n.op == Op::Abs && r.rhs.nodes[n.args[0]].op == Op::Input) {
+      const uint32_t v = r.rhs.nodes[n.args[0]].input;
+      if (r.pos[v] && v < sign.size() && sign[v]) {
+        map[j] = sign[v] > 0 ? map[n.args[0]] : b.op(Op::Neg, map[n.args[0]]);
+        continue;
+      }
+    }
+    if (n.op == Op::Neg && b.nodes()[map[n.args[0]]].op == Op::Neg) {  // -(-x) from pos(x) of x <= 0: exact
+      map[j] = b.nodes()[map[n.args[0]]].args[0];
+      continue;
+    }
+    if (isComparisonOp(n.op)) {
+      map[j] = comparisonOf(b, n.op, map[n.args[0]], map[n.args[1]]);
+      continue;
+    }
+    map[j] = copyNode(r.rhs, j, map, b);
+  }
+  return simplifyIdentities(folded(b.finish(map[r.rhs.root])));
+}
+
+namespace {
+RuleCheck checkOne(const RewriteRule& r, const std::vector<InputDecl>& vars, const Expr& rhs, size_t points,
+                   uint64_t seed);
+}
+
+// A rule with pos(x) is checked for every combination of x >= 0, x <= 0 and x of either sign.
 RuleCheck checkRule(const RewriteRule& r, size_t points, uint64_t seed) {
+  std::vector<uint32_t> pv;
+  for (uint32_t k = 0; k < r.pos.size(); ++k)
+    if (r.pos[k]) pv.push_back(k);
+  size_t combos = 1;
+  for (size_t k = 0; k < pv.size(); ++k) combos *= 3;
+  RuleCheck worst{true, 0.0, {}};
+  for (size_t c = 0; c < combos; ++c) {
+    std::vector<int8_t> sign(r.vars.size(), 0);
+    std::vector<InputDecl> vars = r.vars;
+    std::string which;
+    size_t cc = c;
+    for (size_t k = 0; k < pv.size(); ++k, cc /= 3) {
+      sign[pv[k]] = static_cast<int8_t>(static_cast<int>(cc % 3) - 1);
+      InputDecl& d = vars[pv[k]];
+      if (sign[pv[k]] > 0) d.lo = std::max(d.lo, 0.0), d.hi = std::max(d.hi, 0.0);
+      if (sign[pv[k]] < 0) d.lo = std::min(d.lo, 0.0), d.hi = std::min(d.hi, 0.0);
+      which += " " + d.name + (sign[pv[k]] > 0 ? " >= 0" : sign[pv[k]] < 0 ? " <= 0" : " of either sign");
+    }
+    const RuleCheck one = checkOne(r, vars, pv.empty() ? r.rhs : resolvePos(r, sign), points, seed);
+    worst.maxRel = std::max(worst.maxRel, one.maxRel);
+    if (!one.pass) return {false, worst.maxRel, one.note + (pv.empty() ? "" : " (with" + which + ")")};
+  }
+  return worst;
+}
+
+namespace {
+RuleCheck checkOne(const RewriteRule& r, const std::vector<InputDecl>& vars, const Expr& rhs, size_t points,
+                   uint64_t seed) {
   RuleCheck out;
   Program prog;
-  prog.inputs = r.vars;
+  prog.inputs = vars;
   // Constants are not sampled at tiny magnitudes (specialValues): a * b of two 1e-20 constants
   // underflows, but shader constants are not that small.
   for (const RuleCond& c : r.conds)
@@ -428,14 +559,14 @@ RuleCheck checkRule(const RewriteRule& r, size_t points, uint64_t seed) {
   prog.target = r.lhs;
   prog.budget.kind = Budget::Kind::Rel;
   prog.budget.eps = 1e-6;
-  if (r.lhs.nodes[r.lhs.root].type != r.rhs.nodes[r.rhs.root].type) {
+  if (r.lhs.nodes[r.lhs.root].type != rhs.nodes[rhs.root].type) {
     out.note = "pattern and replacement have different types";
     return out;
   }
   const PointSet ps = makeRandomPoints(prog, points, seed, true);
   Metrics worst;
   for (const auto& prof : kAllProfiles) {
-    const Metrics m = compare(prog, r.rhs, ps, prof, 1);
+    const Metrics m = compare(prog, rhs, ps, prof, 1);
     worst.merge(m);
     if (!m.pass) {
       std::ostringstream os;
@@ -454,13 +585,104 @@ RuleCheck checkRule(const RewriteRule& r, size_t points, uint64_t seed) {
   out.maxRel = worst.maxRel;
   return out;
 }
+}  // namespace
+
+namespace {
+
+// Chains of || / && / min / max (exactly associative and commutative) regrouped into pairs: every way to pair up the
+// chain's operands (an odd one left alone), for chains of 3 to 6, so a rule for two values meets any two of them.
+std::vector<Expr> regroupings(const Expr& e, size_t limit) {
+  std::vector<Expr> out;
+  auto groupable = [](Op op) { return op == Op::LOr || op == Op::LAnd || op == Op::Min || op == Op::Max; };
+  std::vector<uint32_t> parentOp(e.nodes.size(), UINT32_MAX);  // a parent of the same op (chain inside)
+  for (uint32_t k = 0; k < e.nodes.size(); ++k)
+    for (unsigned a = 0; a < operandCount(e.nodes[k]); ++a)
+      if (e.nodes[e.nodes[k].args[a]].op == e.nodes[k].op) parentOp[e.nodes[k].args[a]] = k;
+  for (uint32_t i = 0; i < e.nodes.size() && out.size() < limit; ++i) {
+    const Node& root = e.nodes[i];
+    if (!groupable(root.op) || parentOp[i] != UINT32_MAX) continue;
+    std::vector<uint32_t> leaves, todo{i};
+    while (!todo.empty()) {
+      const uint32_t k = todo.back();
+      todo.pop_back();
+      if (e.nodes[k].op == root.op && e.nodes[k].type == root.type) {
+        for (unsigned a = operandCount(e.nodes[k]); a-- > 0;) todo.push_back(e.nodes[k].args[a]);
+      } else {
+        leaves.push_back(k);
+      }
+    }
+    if (leaves.size() < 3 || leaves.size() > 6) continue;
+    // Every pairing: the first open leaf with each later one, recursively.
+    std::vector<std::vector<std::pair<int, int>>> pairings;
+    std::vector<std::pair<int, int>> cur;
+    std::vector<bool> used(leaves.size(), false);
+    auto rec = [&](auto&& self) -> void {
+      int first = -1;
+      for (int k = 0; k < static_cast<int>(leaves.size()); ++k)
+        if (!used[k]) {
+          first = k;
+          break;
+        }
+      if (first < 0) {
+        pairings.push_back(cur);
+        return;
+      }
+      used[first] = true;
+      bool paired = false;
+      for (int k = first + 1; k < static_cast<int>(leaves.size()); ++k)
+        if (!used[k]) {
+          used[k] = true;
+          cur.push_back({first, k});
+          self(self);
+          cur.pop_back();
+          used[k] = false;
+          paired = true;
+        }
+      // An odd leaf stays single (only one per pairing).
+      bool single = false;
+      for (const auto& c : cur) single = single || c.second < 0;
+      if (!single && leaves.size() % 2 == 1) {
+        cur.push_back({first, -1});
+        self(self);
+        cur.pop_back();
+      }
+      (void)paired;
+      used[first] = false;
+    };
+    rec(rec);
+    for (const auto& pr : pairings) {
+      if (out.size() >= limit) break;
+      ExprBuilder b;
+      std::vector<uint32_t> map(e.nodes.size());
+      for (uint32_t k = 0; k < e.nodes.size(); ++k) {
+        if (k != i) {
+          map[k] = copyNode(e, k, map, b);
+          continue;
+        }
+        uint32_t acc = UINT32_MAX;
+        for (const auto& [x, y] : pr) {
+          const uint32_t part = y < 0 ? map[leaves[x]] : b.op(root.op, map[leaves[x]], map[leaves[y]]);
+          acc = acc == UINT32_MAX ? part : b.op(root.op, acc, part);
+        }
+        map[k] = acc;
+      }
+      out.push_back(b.finish(map[e.root]));
+    }
+  }
+  return out;
+}
+
+}  // namespace
 
 std::vector<LibraryForm> libraryRewrites(const Program& prog, const Library& lib, const PointSet& samples,
-                                         const CostModel& model, unsigned maxSteps, size_t maxForms) {
+                                         const CostModel& model, unsigned maxSteps, size_t maxForms, bool regroup) {
   std::vector<LibraryForm> out;
   if (lib.rules.empty()) return out;
   std::unordered_set<std::string> seen{toString(prog.target, prog.inputs)};
   std::vector<LibraryForm> frontier{{prog.target, 0, {}}};
+  if (regroup)
+    for (Expr& g : regroupings(prog.target, 32))
+      if (seen.insert(toString(g, prog.inputs)).second) frontier.push_back({std::move(g), 0, {}});
   for (unsigned step = 0; step < maxSteps && !frontier.empty() && out.size() < maxForms; ++step) {
     std::vector<LibraryForm> next;
     for (const LibraryForm& f : frontier) {
@@ -473,7 +695,10 @@ std::vector<LibraryForm> libraryRewrites(const Program& prog, const Library& lib
           Matcher m{r.lhs, e, std::vector<uint32_t>(r.vars.size(), UINT32_MAX)};
           if (!m.match(r.lhs.root, i)) continue;
           if (!condsHold(r, e, m.bind, prog.inputs, samples)) continue;
-          std::optional<Expr> g = apply(e, i, r, m.bind);
+          std::vector<int8_t> sign(r.vars.size(), 0);
+          for (uint32_t v = 0; v < r.vars.size(); ++v)
+            if (r.pos[v] && m.bind[v] != UINT32_MAX) sign[v] = signOf(e, m.bind[v], samples);
+          std::optional<Expr> g = apply(e, i, r, m.bind, sign);
           if (!g || !seen.insert(toString(*g, prog.inputs)).second) continue;
           LibraryForm nf{std::move(*g), 0, f.rules};
           nf.rules.push_back(ri);

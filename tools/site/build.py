@@ -131,6 +131,9 @@ def library_data(library_path):
         raw = lines[n - 1]
         r["line"] = n
         r["comment"] = raw.split("#", 1)[1].strip() if "#" in raw else ""
+        m = re.match(r"\[([^\]]+)\]\s*", r["comment"])  # [name]: the rule's short name on the page
+        r["name"] = m.group(1) if m else ""
+        r["comment"] = r["comment"][m.end():] if m else r["comment"]
         r["where"] = r["text"].split(" where ", 1)[1].strip() if " where " in r["text"] else ""
         r["section"], r["about"] = section_title(heading_at[n]) if heading_at.get(n) else ("", "")
         del r["source"]

@@ -87,6 +87,26 @@ TEST(library_check_rejects_wrong_rule) {
   CHECK(!checkRule(lib.rules[0]).pass);
 }
 
+TEST(library_pos_and_regroup) {
+  // pos(x): x, -x or abs(x) by x's sign; the check tries every sign combination.
+  const Library lib = parseLibrary("a != 0.0 || b != 0.0 -> pos(a) != -pos(b)\n", "test");
+  const RewriteRule& r = lib.rules[0];
+  CHECK(r.pos[0] && r.pos[1] && r.rhsText == "pos(a) != -pos(b)");
+  CHECK(checkRule(r).pass);
+  CHECK(toString(resolvePos(r, {1, -1}), r.vars) == "a != b");
+  CHECK(toString(resolvePos(r, {0, 1}), r.vars) == "abs(a) != -b");
+  CHECK(toString(resolvePos(r, {-1, 1}), r.vars) == "a != b");  // signs already opposite: no negation
+  // A wrong pos rule fails for some sign combination (here: both <= 0).
+  CHECK(!checkRule(parseLibrary("a != 0.0 || b != 0.0 -> pos(a) != -b\n", "test").rules[0]).pass);
+  // Regrouping (--library-regroup): the two-value rule meets both pairs of a four-value chain.
+  const Program p = parseProgram("input v : float4 in [-1, 1]\noutput r = any(v) ? 1.0 : 0.0\nbudget r : exact\n");
+  const PointSet s = makeRandomPoints(p, 4096, 1, true);
+  bool pairs = false;
+  for (const auto& f : libraryRewrites(p, lib, s, *costModelByName("rdna3"), 4, 256, true))
+    pairs = pairs || toString(f.expr, p.inputs).find("abs(v.z) != -abs(v.w)") != std::string::npos;
+  CHECK(pairs);
+}
+
 TEST(library_rewrites_fold_and_match) {
   const Program p = parseProgram("input x : float in [0, 2]\noutput r = lerp(1.0, 2.5, saturate(x))\nbudget r : rel 1e-6\n");
   const auto forms = rewrite(p, "lerp(a, b, t) -> mad(t, b - a, a)\n");

@@ -39,11 +39,13 @@ Promise.all([loadJSON("library"), loadJSON("models")]).then(([lib, models]) => {
       }
       const m = byName[s.model];
       panel.append(el("div", { class: "rule" },
-        el("div", { class: "code" }, r.lhs, el("span", { class: "arrow", text: "→" }), r.rhs),
+        el("div", { class: "code" }, hl(r.lhs), el("span", { class: "arrow", text: "→" }), hl(r.rhs)),
         el("div", { class: "save" }, s.gain > 0 ? `-${num(fma(s.gain))}` : s.gain < 0 ? `+${num(fma(-s.gain))}` : "same",
           el("small", { text: `${num(fma(s.old))} → ${num(fma(s.now))}${model ? "" : " · " + (m ? archName(m) : s.model)}` })),
-        (r.where || r.comment) ? el("div", { class: "meta" },
-          r.where ? el("span", {}, "where ", el("code", { text: r.where })) : null,
+        (r.where || r.comment || r.name) ? el("div", { class: "meta" },
+          r.name ? el("b", { class: "rname", text: r.name }) : null,
+          r.name && (r.where || r.comment) ? " · " : null,
+          r.where ? el("span", {}, "where ", el("code", {}, hl(r.where))) : null,
           r.where && r.comment ? " · " : null,
           r.comment || null) : null));
       shown++;

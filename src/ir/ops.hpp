@@ -23,7 +23,7 @@ enum class Op : uint8_t {
   Input, Const,
   // unary
   Neg, Abs, Saturate, Floor, Frac, Sign, Sqrt, Rsqrt, Rcp, Exp, Log, Sin, Cos,
-  Exp2, Log2, Round, Ceil,
+  Exp2, Log2, Round, Ceil, Trunc,
   // binary
   Add, Sub, Mul, Div, Min, Max, Step, Pow,
   Lt, Le, Gt, Ge, Eq, Ne,

@@ -171,7 +171,7 @@ void printLibraryJson() {
     const RewriteRule& r = lib.rules[i];
     std::printf("    {\"source\": %s, \"text\": %s, \"lhs\": %s, \"rhs\": %s, \"costs\": {", jsonString(r.source).c_str(),
                 jsonString(r.text).c_str(), jsonString(toString(r.lhs, r.vars)).c_str(),
-                jsonString(toString(r.rhs, r.vars)).c_str());
+                jsonString(r.rhsText.empty() ? toString(r.rhs, r.vars) : r.rhsText).c_str());
     for (size_t k = 0; k < models.size(); ++k) {
       const CostModel& m = *models[k].m;
       std::printf("%s\"%.*s\": [%u, %u]", k ? ", " : "", int(m.name.size()), m.name.data(), dagCost(r.lhs, m, r.vars),
@@ -195,7 +195,7 @@ void printCostModelsJson() {
       {Op::Mad, 1, "mad"},          {Op::Min, 1, "min"},         {Op::Max, 1, "max"},
       {Op::Clamp, 1, "clamp"},      {Op::Lt, 1, "compare"},      {Op::Select, 1, "select"},
       {Op::Step, 1, "step"},        {Op::Lerp, 1, "lerp"},       {Op::Floor, 1, "floor"},
-      {Op::Ceil, 1, "ceil"},        {Op::Round, 1, "round"},     {Op::Frac, 1, "frac"},
+      {Op::Ceil, 1, "ceil"},        {Op::Trunc, 1, "trunc"},     {Op::Round, 1, "round"},     {Op::Frac, 1, "frac"},
       {Op::Sign, 1, "sign"},        {Op::Rcp, 1, "rcp"},         {Op::Div, 1, "div"},
       {Op::Sqrt, 1, "sqrt"},        {Op::Rsqrt, 1, "rsqrt"},     {Op::Exp2, 1, "exp2"},
       {Op::Log2, 1, "log2"},        {Op::Exp, 1, "exp"},         {Op::Log, 1, "log"},

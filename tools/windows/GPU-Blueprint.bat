@@ -86,12 +86,27 @@ echo.
 echo   The zip holds the reports in the Reports folder: your graphics card's name, driver version and the
 echo   measurements. Nothing else from your PC is sent, and nothing is sent unless you upload it.
 echo.
+for /f "usebackq tokens=1* delims=|" %%a in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%BIN%drift-check.ps1" "%~dp0."`) do call :drift %%a "%%b"
 choice /c YN /n /m "  Send the reports now, open the upload page? (Y/N) "
 if errorlevel 2 exit /b
 start "" "%UPLOAD%"
 start "" explorer /select,"%~dp0%ZIP%"
 if not exist "Reports\.sent" type nul > "Reports\.sent"
 attrib +h "Reports\.sent" >nul 2>&1
+exit /b
+
+rem :drift <percent> "<GPU>": how much the GPU clock moved during OpBench (owner, 2026-10-11: say it before sending).
+rem 20%% is normal even at maximum performance (owner's GTX 1660); runs with 150%% and more were unusable.
+:drift
+if %~1 GTR 50 goto driftHigh
+echo   OpBench on %~2: the GPU clock moved %~1%% during the run %E%[92m(fine)%E%[0m.
+echo.
+exit /b
+:driftHigh
+echo   %E%[1;93mOpBench on %~2: the GPU clock moved %~1%% during the run.%E%[0m Above 50%% the numbers are not reliable.
+echo   Please run OpBench again before sending: close other programs, plug in a laptop, and set
+echo   "Prefer maximum performance" (NVIDIA Control Panel) or the "High performance" power plan in Windows.
+echo.
 exit /b
 
 rem :run "<adapter number or empty>" all|opbench|texbench|shaderinfo

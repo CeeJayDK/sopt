@@ -113,6 +113,7 @@ void evalArray(Op op, const float* a, const float* b, const float* c, float* out
     case Op::Log2: SOPT_LOOP1(std::log2(x))
     case Op::Round: SOPT_LOOP1(std::nearbyint(x))  // round half to even (default rounding mode)
     case Op::Ceil: SOPT_LOOP1(std::ceil(x))
+    case Op::Trunc: SOPT_LOOP1(std::trunc(x))
     case Op::Add: SOPT_LOOP2(x + y)
     case Op::Sub: SOPT_LOOP2(x - y)
     case Op::Mul: SOPT_LOOP2(x * y)

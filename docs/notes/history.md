@@ -1442,6 +1442,56 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   trunc: OpBench measures it (Rounding and sign) at floor's cost on every card (RDNA 3 11.9 vs floor 11.8 with the mad,
   GTX 1660 16.07 = 16.07, RTX 4090 27.6 = 27.6, UHD 630 7.96 vs 7.98), but sopt's IR has no Trunc op: not in the cost
   models, the site or the search.
+  trunc (owner's go, 2026-10-10): Op::Trunc after Ceil (exact, Call, not enumerated unless in the target), cost = floor's
+  in every model (OpBench: equal on every card), eval / exact (piecewise constant) / V3 stepOp / omod / PTX cvt.rzi /
+  --cost-models-json / site group "Rounding and sign". OpBench parallel issue (owner's go, 2026-10-10): Test::chains
+  (throughput run's chains per thread; ilp1..ilp6 = mad with 1..6 chains, Cost per fma: flat on scalar GPUs, higher with
+  few chains on VLIW) and Test::pairCount (the last N chains run pairStep: fma4+rcp = 4 fma + 1 rcp, one VLIW5 bundle);
+  the summary compares n fma + m X with them one after the other ((n + m) / m chain steps vs 4 n / m + X alone; the
+  1:1 pairs read as before). GTX 1660 (Turing, scalar): ilp1..6 4.0 (ilp2 4.7, once), fma4+rcp 21.3 = 67% of 31.5.
+  More intrinsics (owner's go, 2026-10-10; 75 effects in "Reshade test": all() blocked 46 statements, mul 18, fwidth 8,
+  float % 7, asin / acos 4): sugar expansions in expr.cpp buildSugarCall as fxc (cs/ps_5_0) writes them, constants read
+  as hex from D3DDisassemble: acos = A&S 4.4.45 (|x| -0.0187293, 0.0742610, -0.2121144, 1.5707288; p * sqrt(1 - |x|) +
+  (x < -x ? pi - 2 p s : 0)), asin = pi/2 - acos; x % y = s = (x y >= -(x y)) ? y : -y, frac(rcp(s) x) s; all / any =
+  component != 0 joined by && / ||; per component where a compare / select is involved (compares are scalar).
+  Frontend: % and %= (assignmentOp), all / any of a float vector (through the parser's cast to boolN) or of a vector
+  comparison (per component), a bool cast to float = select(b, 1, 0). Regions 1055 -> 1097; left: mul, fwidth.
+  ReShade 6.8.0 intrinsics (104, effect_symbol_table_intrinsics.inl) = REFERENCE.md's list except ddx_coarse / ddx_fine /
+  ddy_coarse / ddy_fine (in the source, not documented). Not in ReShade but in HLSL: fmod (the % operator does it),
+  isfinite, clip; in GLSL: mod (floor-based), fma, asinh / acosh / atanh, packUnorm4x8 / unpackUnorm4x8, inverse.
+  any() from the zero-comparison trick (owner, 2026-10-10 / 11): library rules for 3 and 4 values (sum / max of abs,
+  the trick on two pairs joined by ||, the trick on a max3 of the others; 213 of 213 rules pass). OpBench any3* /
+  any4* tests, GTX 1660 (Turing; cost incl. the subs, mad and select around them): any3 || 16.3, abs sum 20.3, max
+  18.8; any4 pairs 19.2 (fastest; the model said max3: NVIDIA folds the || into the compare), || 20.2, max3 21.1, abs
+  sum 29.5. Verification hole found on the way (any3 for values >= 0 as `-y != x - z ? 1 : z`, wrong where x + y ==
+  z): coincidence points in makeRandomPoints; bench identical before / after.
+  Library pos(x) (owner, 2026-10-11: one side >= 0 and the other <= 0, abs only where the sign is unknown): pos(x) in
+  a replacement is x, -x or abs(x) by the sign of the bound value on the samples (the form is verified afterwards like
+  any candidate; -(-x) folds); --check-library tries every sign combination (3^n). The zero-comparison section rewritten
+  with it (45 -> 33 rules, covering all sign mixes), plus all() via min (min3 on AMD); 211 rules pass. Rule names:
+  `# [name]` at the start of a comment (site column / list; else a short replacement, else op→k).
+  Flags (owner's go to try): --library-regroup (chains of || / && / min / max regrouped into pairs before matching:
+  the two-value rule then meets both pairs of any(v) of 4) and --fp-coincidence (fingerprint points with every input
+  and every pair of inputs at 0). Bench (examples + planted, --time 30): identical best costs and times for both (no
+  bench problem has such chains); off by default. The free search reaches cost 8 of 68 for any() of 4 (bank limit):
+  depth, not the fingerprints, is what stops it there.
+  Fair step costs (owner, 2026-10-11: the site's comparisons and sopt's choices must be fair): `x >= e ? 1.0 : 0.0`
+  compiles to what step does (fxc ge + and, AMD v_cmp + v_cndmask, NVIDIA one FSET), so a scalar comparison used only
+  by a 1.0 / 0.0 select costs, with the select, exactly step's cost (stepSelectCosts in expr.cpp: comparison
+  min(compare, step - 1), select the rest, each >= 1). Before, Ampere charged 2.5 vs step 1.25. Only the step / 1 - step
+  rules change; 211 rules pass; bench: all recovered before / after (examples + planted, --time 30). Vector selects keep
+  the old cost.
+  Reports by the intake action, 2026-10-09 .. 10-11 (OpBench 0.7.0, its own "differs from the family" line):
+  RTX 3060 (591.74): Ampere on all math (atomics ~3.9 vs 0.5 and arraywrite differ: memory, not math), backs the
+  default model. GTX 1080 (582.28): Pascal exactly (4 cards now). RX 9070 XT, second report (26.9.2, drift 10%): RDNA 4
+  exactly. Iris Xe, second report (101.7084, drift 8%): Gen12 exactly (the model had one card). RTX 3090 (610.88, drift
+  178%) and RTX 3050 Laptop (617.42, drift 157%): unusable, the 3090 ~30% low across the board (clock, not chip).
+  HD Graphics 520 (Gen9, driver 21.20.16.4550 from 2016, drift 3%, real): output modifiers (*2, *4, *0.5 ...) cost 3.2
+  instead of ~0.5 (the old driver does not fold them), step 7.6 (4.2), fmod 37 (15.5), atomics ~4x; few players run
+  drivers that old, the gen9 model stays. ShaderInfo only: AMD 0x13C0 (Granite Ridge, RDNA 2 iGPU, 26.3.1).
+  Drift on the send screen (owner, 2026-10-11): GPU-Blueprint.bat shows each OpBench report's largest reference drift
+  (bin\drift-check.ps1) before asking to send; above 50% it asks for a rerun (close programs, plug in, maximum
+  performance). The owner's GTX 1660 drifts ~20% even at "Prefer maximum performance", more without it.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

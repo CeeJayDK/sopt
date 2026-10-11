@@ -30,7 +30,8 @@ struct PointSet {
 
 // Small, deliberately chosen set for fingerprints: interval edges, 0, 1, midpoints,
 // near-cancellation pairs and random values from the declared domain.
-PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed);
+// coincidences (--fp-coincidence): also every input at 0, and every pair of inputs at 0 together.
+PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed, bool coincidences = false);
 
 // Large random sample from the domain (optionally starting with the special points).
 PointSet makeRandomPoints(const Program& prog, size_t count, uint64_t seed, bool withSpecials);

@@ -72,6 +72,11 @@ struct Test {
   const char* pairStep = nullptr;
   const char* pairType = "float";
   const char* solo = nullptr;
+  // How many ops run at once (owner, 2026-10-10): chains overrides the throughput run's 8 independent chains per
+  // thread (1..6 show a VLIW GPU's width: a scalar GPU costs the same with 1 chain, a VLIW5 one up to 5x more);
+  // pairCount > 0 lets the last pairCount chains run pairStep instead of the odd ones (4 fma + 1 rcp: VLIW's t slot).
+  int chains = 0;
+  int pairCount = 0;
 };
 enum { kGroupshared = 1, kLocalArray = 2 };
 
@@ -208,6 +213,31 @@ const Test kTests[] = {
     {"modf", "mad(modfS(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "fraction + integer part * 0.5"},
     {"isnan", "mad(isnan(x) ? c.z : x, c.x, c.y)", 0.5f, 0.5f, 1.0f, 0.0f, "mad", "ne + movc (a compiler may drop it)"},
     {"isinf", "mad(isinf(x) ? c.z : x, c.x, c.y)", 0.5f, 0.5f, 1.0f, 0.0f, "mad", "abs, eq + movc"},
+    // Not in ReShade FX, in HLSL or GLSL (owner, 2026-10-10: tools/reshade/INTRINSICS.md; sopt reads HLSL and GLSL too).
+    {"isfinite", "mad(isfinite(x) ? x : c.z, c.x, c.y)", 0.5f, 0.5f, 1.0f, 0.0f, "mad", "HLSL isfinite + select"},
+    {"mod", "mad(x - c.z * floor(x / c.z), c.x, c.y)", 0.5f, 1.0f, 0.7f, 0.0f, "mad", "GLSL mod (floor-based): div, floor, fma"},
+    {"asinh", "mad(log(x + sqrt(mad(x, x, 1.0))), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "GLSL asinh: log(x + sqrt(x x + 1))"},
+    {"acosh", "mad(log(x + sqrt(mad(x, x, -1.0))), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "GLSL acosh: log(x + sqrt(x x - 1))"},
+    {"atanh", "mad(0.5 * log((1.0 + x * c.z) / (1.0 - x * c.z)), c.x, c.y)", 0.5f, 1.0f, 0.25f, 0.0f, "mad",
+     "GLSL atanh: 0.5 log((1 + x) / (1 - x))"},
+    // any() of three values: compares joined by ||, or the zero-comparison trick's sum / max of absolute values
+    // (library/rewrites.txt; max3 with abs is one instruction on AMD).
+    {"any3or", "mad((x - c.z != 0.0 || x - c.w != 0.0 || x * c.z - c.w != 0.0) ? x : c.z, c.x, c.y)", 0.5f, 0.5f, 1.1f,
+     0.9f, "mad", "3 subs, 3 compares, 2 ors, select"},
+    {"any3abs", "mad(abs(x - c.z) + abs(x - c.w) + abs(x * c.z - c.w) != 0.0 ? x : c.z, c.x, c.y)", 0.5f, 0.5f, 1.1f,
+     0.9f, "mad", "3 subs, 2 adds of abs, 1 compare, select"},
+    {"any3max", "mad(max(max(abs(x - c.z), abs(x - c.w)), abs(x * c.z - c.w)) != 0.0 ? x : c.z, c.x, c.y)", 0.5f, 0.5f,
+     1.1f, 0.9f, "mad", "3 subs, max3 of abs, 1 compare, select"},
+    // any() of four (owner, 2026-10-11): the trick on two pairs joined by || (NVIDIA can fold the || into a compare),
+    // or the trick on a max3 of the others.
+    {"any4or", "mad((x - c.z != 0.0 || x - c.w != 0.0 || x * c.z - c.w != 0.0 || x * c.w - c.z != 0.0) ? x : c.z, c.x, c.y)",
+     0.5f, 0.5f, 1.1f, 0.9f, "mad", "4 subs, 4 compares, 3 ors, select"},
+    {"any4pairs", "mad((abs(x - c.z) != -abs(x - c.w) || abs(x * c.z - c.w) != -abs(x * c.w - c.z)) ? x : c.z, c.x, c.y)",
+     0.5f, 0.5f, 1.1f, 0.9f, "mad", "4 subs, 2 pair compares, 1 or, select"},
+    {"any4max3", "mad(max(max(abs(x - c.z), abs(x - c.w)), abs(x * c.z - c.w)) != -abs(x * c.w - c.z) ? x : c.z, c.x, c.y)",
+     0.5f, 0.5f, 1.1f, 0.9f, "mad", "4 subs, max3 of abs, 1 compare, select"},
+    {"any4abs", "mad(abs(x - c.z) + abs(x - c.w) + (abs(x * c.z - c.w) + abs(x * c.w - c.z)) != 0.0 ? x : c.z, c.x, c.y)",
+     0.5f, 0.5f, 1.1f, 0.9f, "mad", "4 subs, 3 adds of abs, 1 compare, select"},
     {"f16round", "mad(f16tof32(f32tof16(x)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "f32tof16 + f16tof32"},
     {"bitcast", "mad(asfloat(asint(x)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "asint / asfloat: free"},
     // Integer and bit operations (uint chains: x = (x ^ c.y) * c.x mixes, nothing reassociates)
@@ -341,6 +371,16 @@ const Test kTests[] = {
      "asuint(float(x) * 0.7)", "uint", "cvt1"},
     {"fma+half", "mad(x, c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.8f, "half1", "fp32 fma beside fp16 fma", "float", 0,
      "mad(x, (min16float)c.x, (min16float)c.y)", "min16float", "half1"},
+    // VLIW slots: 4 fma chains beside 1 rcp chain fill a VLIW5 bundle (x, y, z, w + the t unit).
+    {"fma4+rcp", "mad(x, c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.8f, "rcp1", "4 fmas beside 1 rcp (VLIW5: one bundle)", "float", 0,
+     "rcp(x + c.x)", "float", "rcp1", 5, 1},
+    // How many fmas at once: the same fma with fewer independent chains per thread (mad itself has 8).
+    {"ilp1", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "1 chain per thread", "float", 0, nullptr, "float", nullptr, 1},
+    {"ilp2", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "2 chains per thread", "float", 0, nullptr, "float", nullptr, 2},
+    {"ilp3", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "3 chains per thread", "float", 0, nullptr, "float", nullptr, 3},
+    {"ilp4", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "4 chains per thread", "float", 0, nullptr, "float", nullptr, 4},
+    {"ilp5", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "5 chains per thread", "float", 0, nullptr, "float", nullptr, 5},
+    {"ilp6", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "6 chains per thread", "float", 0, nullptr, "float", nullptr, 6},
 };
 
 constexpr int kUnroll = 16;          // steps per loop iteration, each with its own constants
@@ -391,9 +431,10 @@ std::string shaderSource(const Test& t, int chains) {
     s += "  for (uint k = l; k < 2048u; k += 64u) GS[k] = 0.5 + float(k) * 1e-4 + seed;\n"
          "  GSI[l] = l;\n  GroupMemoryBarrierWithGroupSync();\n";
   if (t.setup & kLocalArray) s += "  float A[16];\n  [unroll] for (uint k = 0; k < 16u; ++k) A[k] = 0.5 + float(k) * 0.01 + seed;\n";
-  // The type and step of chain k (pair tests: the odd chains run the pair step).
-  auto typeOf = [&](int k) { return std::string(t.pairStep && (k & 1) ? t.pairType : t.type); };
-  auto stepOf = [&](int k) { return std::string(t.pairStep && (k & 1) ? t.pairStep : t.step); };
+  // The type and step of chain k (pair tests: the odd chains run the pair step, or the last pairCount of them).
+  auto paired = [&](int k) { return t.pairStep && (t.pairCount && chains > t.pairCount ? k >= chains - t.pairCount : (k & 1)); };
+  auto typeOf = [&](int k) { return std::string(paired(k) ? t.pairType : t.type); };
+  auto stepOf = [&](int k) { return std::string(paired(k) ? t.pairStep : t.step); };
   for (int k = 0; k < chains; ++k) {
     const std::string type = typeOf(k);
     const std::string ks = std::to_string(k);
@@ -493,6 +534,9 @@ struct Result {
   double nsPerStep = 0.0;  // per step of one chain in one thread (tput: of all chains together / chains)
 };
 
+// Chains per thread of a test in a configuration (a test's own count applies to the throughput run).
+int chainsOf(const Test& t, const Config& c) { return t.chains && std::strcmp(c.name, "tput") == 0 ? t.chains : c.chains; }
+
 // Doubles the iteration count until a dispatch takes >= 2 ms.
 UINT calibrate(Gpu& g, ID3D11ComputeShader* cs, const Test& t, const Config& c) {
   g.ctx->CSSetShader(cs, nullptr, 0);
@@ -515,7 +559,7 @@ Result measureAt(Gpu& g, ID3D11ComputeShader* cs, const Test& t, const Config& c
   Result r;
   r.iters = iters;
   r.ms = median(runs);
-  const double steps = double(iters) * kUnroll * double(c.groups) * kGroupSize * c.chains;
+  const double steps = double(iters) * kUnroll * double(c.groups) * kGroupSize * chainsOf(t, c);
   r.nsPerStep = r.ms * 1e6 / steps;
   return r;
 }
@@ -534,9 +578,9 @@ struct Measured {
 // The summary's fixed order: sections ("#" entries), within each cheapest to most expensive as
 // most GPUs measure it, the same on every GPU so results can be compared line by line.
 const char* const kDisplayOrder[] = {
-    "#Modifiers and folds", "neg", "abs", "negabs", "saturate", "satmad", "mul", "omod2", "omodhalf", "omod4",
-    "omod8", "omod0.25", "omod0.125", "omod3",
-    "#Basic arithmetic", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
+    // One section for the few, fast basics (owner, 2026-10-10: like the web page's group).
+    "#Modifiers and basic arithmetic", "neg", "abs", "negabs", "saturate", "satmad", "mul", "omod2", "omodhalf", "omod4",
+    "omod8", "omod0.25", "omod0.125", "omod3", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
     "lerp",
     "#Rounding and sign", "floor", "ceil", "round", "trunc", "frac", "roundadd", "flooradd", "fracadd", "signsel2", "signbits",
     "signsat", "signmad", "signclamp", "signsel", "sign",
@@ -547,8 +591,9 @@ const char* const kDisplayOrder[] = {
     "#Vector (float2 / float3 / float4)", "mad2v", "mad3v", "mad4v", "dot2", "dot3", "dot4", "cross", "length",
     "distance", "normalize", "reflect", "refract", "faceforward", "det3", "matmul4", "transpose",
     "#Written out by fxc", "smoothstep", "fmod", "sincos", "tan", "atan", "atan2", "asin", "acos",
-    "#More intrinsics", "bitcast", "radians", "log10", "isnan", "isinf", "modf", "frexp", "ldexp", "f16round", "tanh",
-    "sinh", "cosh",
+    "#More intrinsics", "bitcast", "radians", "log10", "isnan", "isinf", "isfinite", "modf", "frexp", "ldexp", "f16round",
+    "tanh", "sinh", "cosh", "mod", "asinh", "acosh", "atanh", "any3or", "any3abs", "any3max", "any4or",
+    "any4pairs", "any4max3", "any4abs",
     "#Integer and conversions", "bitor", "ixmul", "iadd", "iand", "imin", "ishr", "irot", "imul", "popc", "fbh",
     "bitrev", "fbl", "icmpsel", "unitf", "utof", "itof", "ftou", "ftoitof", "udiv", "umod", "idiv", "imod",
     "#Half precision (min16float)", "mad16", "add16", "mul16", "max16", "rcp16", "sqrt16", "exp2_16", "log2_16",
@@ -560,7 +605,9 @@ const char* const kDisplayOrder[] = {
     "aXchg1", "aCmpXchg1",
     "#Compute: local arrays and branches", "arrayread", "arraywrite", "constarray", "selectboth", "branchuni", "branchdiv",
     "#Parallel issue: an fma and X together (Cost = both; % = of the two one after the other)", "fma+fma", "fma+int",
-    "fma+minmax", "fma+cvt", "fma+rcp", "fma+half"};
+    "fma+minmax", "fma+cvt", "fma+rcp", "fma+half", "fma4+rcp",
+    "#Parallel issue: how many fmas at once (Cost per fma with 1 to 6 independent chains per thread; the same as 8 = scalar)",
+    "ilp1", "ilp2", "ilp3", "ilp4", "ilp5", "ilp6"};
 
 // What other cards of this card's family measure (expected.hpp, from the reports in docs/opbench; owner,
 // 2026-10-06: a card that differs from its family makes an interesting report).
@@ -705,13 +752,13 @@ int main(int argc, char** argv) {
     for (const Test* t : tests) shaders[c.name][t->name] = nullptr;
   auto compileTest = [&](const Test* t) {
     for (const Config& c : kConfigs) {
-      const std::string src = shaderSource(*t, c.chains);
+      const std::string src = shaderSource(*t, chainsOf(*t, c));
       ID3DBlob* code = nullptr;
       ID3DBlob* err = nullptr;
       if (FAILED(D3DCompile(src.data(), src.size(), t->name, nullptr, nullptr, "main", "cs_5_0",
                             D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err)))
         fail(std::string("cannot compile test ") + t->name + ":\n" + (err ? (const char*)err->GetBufferPointer() : ""));
-      if (c.chains == 8) {  // disassembly of the throughput version
+      if (std::strcmp(c.name, "tput") == 0) {  // disassembly of the throughput version
         ID3DBlob* dis = nullptr;
         if (SUCCEEDED(D3DDisassemble(code->GetBufferPointer(), code->GetBufferSize(), 0, nullptr, &dis))) {
           if (FILE* f = std::fopen((dxbcDir / (std::string(t->name) + ".txt")).string().c_str(), "wb")) {
@@ -822,12 +869,14 @@ int main(int argc, char** argv) {
     for (const char* name : gr.shown) {
       const Measured& x = results["tput"][name];
       const Test* self = find(name);
-      // Parallel issue: Cost = one fma and one X together (two chain steps of the pair test); the comment
-      // compares it with the two one after the other (4 for the fma + X measured alone).
+      // Parallel issue: Cost = the fmas and one X together (n fma chains beside m X chains: (n + m) / m chain
+      // steps of the pair test); the comment compares it with them one after the other (4 per fma + X alone).
+      // A chain count test (ilpN) shows its cost per fma.
       const bool pair = self->pairStep && results["tput"].count(self->solo);
-      const double together = pair ? 2.0 * x.units.value : 0.0;
-      const double apart = pair ? 4.0 + results["tput"][self->solo].units.value : 0.0;
-      const double v = pair ? together : x.vsBase;
+      const int all = self->chains ? self->chains : 8, xs = self->pairCount ? self->pairCount : all / 2;
+      const double together = pair ? double(all) / xs * x.units.value : 0.0;
+      const double apart = pair ? 4.0 * (all - xs) / xs + results["tput"][self->solo].units.value : 0.0;
+      const double v = pair ? together : self->chains ? x.units.value : x.vsBase;
       Shade shade;
       const char* comment = costComment(v, &shade);
       char pairComment[64];
@@ -1039,7 +1088,7 @@ int main(int argc, char** argv) {
 
   bool warned = false;
   for (const Config& c : kConfigs)
-    if (madDrift[c.name] > 5.0) {
+    if (madDrift[c.name] > 50.0) {  // ~20% is normal even at maximum performance (owner's GTX 1660, 2026-10-11)
       if (!warned) std::printf("\n");
       warned = true;
       std::printf("  %sWarning:%s the reference changed by %.0f%% during the %s tests: the GPU clock moved.\n",

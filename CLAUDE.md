@@ -22,7 +22,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Fewer instructions at equal measured speed are still better (less power; faster once the bottleneck moves).
 - When asking the owner to test or download something, repeat the links in that message (CI run / artifact links).
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
-  testers (now 0.7.0, released); the next test build is 0.7.1.
+  testers (now 0.7.1, test build; 0.7.0 released); the next test build is 0.7.2.
 - CHANGELOG.md: one `## <version>` section per release, add to the top section as things land (release.yml copies it).
   Changelog, release notes and README.md are for laymen (owner, 2026-10-10): plain English, short, what changes for the
   user, no option names or internals (those go in docs/notes/history.md, docs/technical.md).
@@ -102,6 +102,8 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
   value (double, metrics only); not for Exact budgets. Less accurate candidates are listed as such (`--loose`).
   Rel budgets are relative to max(|t|, error scale). Noise guard: if the original itself is far from exact math (hashes),
   exact-based rules are off.
+- Verification points include coincidence points (every input on its range in eighths, and 0): == / != candidates
+  that are wrong only where inputs meet (x + y == z) were passed by random samples (2026-10-10).
 - Six verification profiles incl. gpu+ / gpu- (inexact ops one float step off). Inexact ops (rcp, rsqrt, div, exp, log,
   sin, cos, pow, exp2, log2) are never bit-exact.
 - Contraction rule: `fusedArg` in expr.cpp (an add/sub over a single-use mul or div is one fma).
@@ -136,7 +138,16 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 3. Uniform zero guard (owner: on the list): `if (Strength != 0)` around work a uniform scales, for performance mode off;
    a classical rewrite measured per effect.
 4. STOKE-style stochastic search (owner's go to try later, behind a flag, bench decides).
-5. Waiting on others: IEEE 754 test results for crosire (tools/reshade/IEEE754.md); ReShade patches (UPSTREAM.md).
+5. Waiting on others: IEEE 754 test results for crosire (tools/reshade/IEEE754.md); ReShade patches (UPSTREAM.md);
+   intrinsics report (tools/reshade/INTRINSICS.md: missing intrinsics, round / clamp / smoothstep / saturate across APIs).
 6. Planned / parked: `--poly` approximation mode; test package from the full corpus run; M5 rest (probe effect, facts
    database, `__DEVICE__` paths); M4 harness results merged into reports; Layer.fx 2.0 (questions asked); noise mode;
    GCN 4 model; driver-statistics (ShaderInfo) as a measured source (wait for reports); pruning sopt options (later).
+9. Flags --library-regroup / --fp-coincidence (2026-10-11): off; the bench shows no difference (no || chains in it).
+   Add bench problems with any() / all() if they should earn the default.
+7. sign() fast forms (owner, 2026-10-10): one (mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0), 2.25 on every model so far)
+   beats the others everywhere; once OpBench reports cover the families, drop the slower ones from library/rewrites.txt.
+   Not before.
+8. Intrinsics sopt still skips (75 effects, 2026-10-10): mul() (matrices) 18, fwidth 8 (needs neighbours: never). Done
+   2026-10-10 (+42 regions): float % / %= (fxc's fmod), all / any (also of a vector comparison), asin / acos (fxc's
+   A&S polynomial), a bool read as float (cond ? 1 : 0). Next candidates: atan / atan2 (fxc writes them out too).

@@ -2,6 +2,8 @@
    amber accents). Text colors keep a contrast of at least 7:1 (body), 4.5:1 (faint) on the panels (owner, 2026-10-10:
    easier to read, no grid background). */
 :root {
+  /* the page width (owner, 2026-10-11): wide enough for the widest group table on the GPU Blueprint page (1058 px) */
+  --page: 1180px;
   --bg: #0e1416; --panel: #161e21; --panel-2: #1c2629; --line: #2b383d; --line-bright: #42545a;
   --cyan: #5eead4; --cyan-dim: #2d5a54; --amber: #f5a623;
   --text: #e8eef0; --text-dim: #b3c0c4; --text-faint: #8a989d; --track: #243034;
@@ -9,6 +11,8 @@
   --mono: "JetBrains Mono", ui-monospace, Consolas, monospace; --sans: Inter, system-ui, "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
+/* no ligatures: shader languages write >=, <=, != and -> as separate characters, and so does the page (owner) */
+body, code, pre, select, input { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 html { background: var(--bg); }
 body {
   margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 var(--sans);
@@ -16,12 +20,22 @@ body {
 ::selection { background: var(--cyan-dim); color: #fff; }
 a { color: var(--cyan); text-decoration: none; }
 a:hover { text-decoration: underline; }
-.wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+.wrap { max-width: var(--page); margin: 0 auto; padding: 0 24px; }
 code, pre, kbd { font-family: var(--mono); font-size: 13.5px; }
 code { background: var(--bg); border: 1px solid var(--line); padding: 1px 6px; }
+/* shader code in VS Code's dark colors (common.js hl); .tk-o: a separator such as the rule arrow */
+.tk-t { color: #ff6b6b; }
+.tk-k { color: #c586c0; }
+.tk-f { color: #dcdcaa; }
+.tk-n { color: #b5cea8; }
+.tk-s { color: #4fc1ff; }
+.tk-b0 { color: #ffd700; }
+.tk-b1 { color: #da70d6; }
+.tk-b2 { color: #179fff; }
+.tk-o { color: var(--text-faint); }
 
 /* header / nav */
-header.top { max-width: 1040px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; padding: 22px 24px; }
+header.top { max-width: var(--page); margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; padding: 22px 24px; }
 .logo { font-family: var(--mono); font-weight: 700; font-size: 18px; color: var(--text); display: flex; align-items: center; gap: 10px; }
 .logo .dot { width: 8px; height: 8px; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
 .logo:hover { text-decoration: none; }
@@ -100,39 +114,47 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numer
 .heat td.empty { background: transparent; color: var(--text-faint); }
 
 /* one group of operations on every architecture: architectures as rows, operations as columns (bars line up down a
-   column), heatmap or compact bars, alternatives from the rewrite library as columns marked →1, →2 */
+   column), heatmap or compact bars; an operation's alternatives from the rewrite library follow it. White numbers
+   with a black drop shadow read on every background (owner, 2026-10-11: like TV subtitles); the fastest way to
+   write an operation on each architecture (the operation itself included) is bold. */
+/* separate borders: collapsed ones belong to the table and do not stay with the sticky first column */
+.cmp { border-collapse: separate; border-spacing: 0; }
 .cmp th { text-transform: none; letter-spacing: 0; }
-.cmp td, .cmp th { padding: 6px 8px; }
-.cmp th.arch { position: sticky; left: 0; z-index: 1; background: var(--panel); text-align: left; white-space: nowrap;
-  font: 13px var(--mono); color: var(--text); border-left: 3px solid var(--c, transparent); }
-.cmp thead th.arch { color: var(--text-faint); font-size: 11.5px; vertical-align: bottom; }
-.cmp th.o { white-space: nowrap; font: 500 12.5px var(--mono); color: var(--text); text-align: right; vertical-align: bottom; }
-.cmp th.o.alt { color: var(--text-faint); font-weight: 400; }
-/* a brighter line between operations (each with its alternatives), none inside a group */
+.cmp td, .cmp th { padding: 5px 6px; }
+.cmp th, .cmp td.hot { color: #fff; text-shadow: 0 1px 2px #000, 0 0 2px #000; }
+/* the first column only as wide as the longest name (width 1% shrinks it to its content) */
+.cmp th.arch { position: sticky; left: 0; z-index: 1; background: var(--panel); color: var(--c, #fff); text-align: left;
+  white-space: nowrap; font: 500 13px var(--mono); width: 1%; }
+.cmp thead th.arch { font-size: 11.5px; vertical-align: bottom; }
+.cmp th.o { white-space: nowrap; font: 500 12.5px var(--mono); text-align: center; vertical-align: bottom; }
+.cmp th.o.alt { font-weight: 400; color: #c3ccd0; }
+/* a white line between operations (each with its alternatives), none inside a group */
 .cmp .gs { border-left: 2px solid #fff; }
 .cmp th.arch { border-right: 2px solid #fff; }
 .cmp thead th { border-bottom: 2px solid #fff; }
-.cmp td.c { text-align: right; font: 13px var(--mono); font-variant-numeric: tabular-nums; min-width: 56px; }
-.cmp td.alt { font-size: 12.5px; color: var(--text-faint); }
-.cmp td.better { color: var(--cyan); font-weight: 500; }
+.cmp td.c { text-align: right; font: 13px var(--mono); font-variant-numeric: tabular-nums; min-width: 48px; }
+.cmp td.best { font-weight: 700; }
 /* the bar sits in the cell's bottom padding: rows are as high as in the heatmap */
 .cmp td.c:not(.hot) { position: relative; }
-.cmp .mini { position: absolute; left: 8px; right: 8px; bottom: 3px; height: 3px; background: var(--track); }
+.cmp .mini { position: absolute; left: 6px; right: 6px; bottom: 3px; height: 3px; background: var(--track); }
 .cmp .mini .bar { height: 100%; }
-.cmp td.free { color: var(--text-faint); }
+.cmp td.free { color: #fff; }
 .cmp td.hot { border-bottom-color: var(--bg); }
-.cmp td.hot.alt:not(.better) { opacity: .7; }
-.cmp td.hot.better { box-shadow: inset 0 0 0 2px var(--cyan); }
+/* numbers line up on the decimal point (blueprint.js aligned) */
+.cmp .pad { visibility: hidden; }
 .scale { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin-top: 10px; font: 12px var(--mono); color: var(--text-faint); }
 .scale .sw { width: 22px; height: 14px; }
 .scale .lab { padding: 0 8px; }
 .scale .range { flex-basis: 100%; margin-top: 4px; }
 .alts { margin-top: 10px; font-size: 13.5px; }
 .alts h4 { margin: 14px 0 6px; font: 11.5px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); }
-.alts div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 3px 0; }
-.alts b { font: 500 13px var(--mono); color: var(--text); min-width: 80px; }
+/* the alternatives in columns: name, original, arrow, faster form, condition */
+.alts table { width: auto; font-size: 13.5px; }
+.alts td { border: 0; padding: 3px 10px 3px 0; vertical-align: baseline; }
+.alts td.name { font: 500 13px var(--mono); color: var(--text); white-space: nowrap; }
+.alts td.to { color: var(--text-faint); padding-right: 10px; }
+.alts td.cond { color: var(--text-faint); font-size: 12.5px; white-space: nowrap; }
 .alts code { overflow-wrap: anywhere; }
-.alts small { color: var(--text-faint); }
 
 /* cards on the start page */
 .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-top: 8px; }
@@ -149,6 +171,7 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numer
 .rule .code { font: 14px var(--mono); color: var(--text); overflow-wrap: anywhere; }
 .rule .code .arrow { color: var(--amber); padding: 0 8px; }
 .rule .meta { color: var(--text-dim); font-size: 13.5px; grid-column: 1; }
+.rule .meta .rname { font: 500 12.5px var(--mono); color: var(--amber); }
 .rule .save { font: 13px var(--mono); text-align: right; white-space: nowrap; color: var(--cyan); grid-row: 1 / span 2; grid-column: 2; }
 .rule .save small { display: block; color: var(--text-faint); }
 .example { font: 14px/1.7 var(--mono); background: var(--bg); border: 1px solid var(--line); padding: 14px 16px; overflow-x: auto; }
@@ -168,7 +191,7 @@ figcaption small { display: block; color: var(--text-dim); font-family: var(--sa
 .scores b { display: block; font: 500 24px var(--mono); color: #fff; }
 .scores span { color: var(--text-dim); font-size: 13px; }
 
-footer.site { border-top: 1px solid var(--line); margin-top: 48px; padding: 20px max(24px, calc((100% - 1040px) / 2 + 24px)) 40px; color: var(--text-faint); font: 13px var(--mono); }
+footer.site { border-top: 1px solid var(--line); margin-top: 48px; padding: 20px max(24px, calc((100% - var(--page)) / 2 + 24px)) 40px; color: var(--text-faint); font: 13px var(--mono); }
 footer.site p { margin: 4px 0; max-width: 90ch; }
 @media (max-width: 640px) {
   .wrap { padding: 0 16px; }

@@ -253,7 +253,7 @@ bool takesOmod(Op op) {
     case Op::Add: case Op::Sub: case Op::Mul: case Op::Mad: case Op::Div: case Op::Lerp: case Op::Dot:
     case Op::Rcp: case Op::Rsqrt: case Op::Sqrt: case Op::Length:
     case Op::Exp: case Op::Log: case Op::Exp2: case Op::Log2: case Op::Sin: case Op::Cos: case Op::Pow:
-    case Op::Floor: case Op::Frac: case Op::Round: case Op::Ceil:
+    case Op::Floor: case Op::Frac: case Op::Round: case Op::Ceil: case Op::Trunc:
       return true;
     default: return false;
   }
@@ -299,6 +299,28 @@ std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& use
   return folded;
 }
 
+// A comparison used only to pick 1.0 or 0.0 is what step compiles to (fxc: compare + and; AMD v_cmp + v_cndmask;
+// NVIDIA one FSET): the comparison and the select together cost what step costs (owner, 2026-10-11: comparisons on
+// the web page and sopt's choices must be fair), each at least 1. Per node, 0 = no override.
+std::vector<uint32_t> stepSelectCosts(const Expr& e, const std::vector<uint32_t>& uses, const CostModel& m) {
+  std::vector<uint32_t> cost(e.nodes.size(), 0);
+  for (uint32_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op != Op::Select || n.type != Type::Float) continue;
+    const Node& c = e.nodes[n.args[0]];
+    const Node& a = e.nodes[n.args[1]];
+    const Node& b = e.nodes[n.args[2]];
+    const bool cmp = c.op == Op::Lt || c.op == Op::Le || c.op == Op::Gt || c.op == Op::Ge || c.op == Op::Eq || c.op == Op::Ne;
+    const bool oneZero = a.op == Op::Const && b.op == Op::Const &&
+                         ((a.value[0] == 1.0f && b.value[0] == 0.0f) || (a.value[0] == 0.0f && b.value[0] == 1.0f));
+    if (!cmp || !oneZero || uses[n.args[0]] != 1) continue;
+    const uint32_t step = std::max(m.opCost(Op::Step, 1), 2u), compare = m.opCost(c.op, 1);
+    cost[n.args[0]] = std::min(compare, step - 1);
+    cost[i] = step - cost[n.args[0]];
+  }
+  return cost;
+}
+
 std::vector<uint32_t> divCosts(const Expr& e, const CostModel& m, const std::vector<bool>& ct) {
   std::vector<uint32_t> cost(e.nodes.size(), 0);
   std::vector<bool> paid(e.nodes.size(), false);  // the divisor's reciprocal is counted already
@@ -316,15 +338,17 @@ std::vector<uint32_t> divCosts(const Expr& e, const CostModel& m, const std::vec
 }
 
 uint32_t dagCost(const Expr& e, const CostModel& m) {
-  const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
+  const auto uses = useCounts(e);
   const auto folded = amdFoldedNodes(e, uses, m);
   const auto div = divCosts(e, m, compileTimeNodes(e, {}));
+  const auto stepSel = stepSelectCosts(e, uses, m);
   uint32_t cost = 0;
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     const Node& n = e.nodes[i];
     const bool reduce = info(n.op).shape == Shape::Reduce;
     const unsigned w = width(reduce ? e.nodes[n.args[0]].type : n.type);
-    cost += folded[i] ? w
+    cost += stepSel[i] ? stepSel[i]
+            : folded[i] ? w
             : (m.fusedAdd && fusedArg(e, i, uses, m.divIsMul) >= 0) ? w * m.fusedAdd
             : n.op == Op::Div ? div[i]
                               : m.opCost(n.op, w);
@@ -351,9 +375,10 @@ std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& 
 
 std::vector<uint32_t> nodeCosts(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
   const auto ct = compileTimeNodes(e, inputs);
-  const auto uses = (m.fusedAdd || m.amdFolds) ? useCounts(e) : std::vector<uint32_t>();
+  const auto uses = useCounts(e);
   const auto folded = amdFoldedNodes(e, uses, m);
   const auto div = divCosts(e, m, ct);
+  const auto stepSel = stepSelectCosts(e, uses, m);
   std::vector<uint32_t> cost(e.nodes.size(), 0);
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     if (ct[i]) continue;
@@ -363,7 +388,8 @@ std::vector<uint32_t> nodeCosts(const Expr& e, const CostModel& m, const std::ve
     const int f = m.fusedAdd ? fusedArg(e, i, uses, m.divIsMul) : -1;
     bool fold = folded[i];
     for (unsigned k = 0; fold && k < operandCount(n); ++k) fold = !ct[n.args[k]] || e.nodes[n.args[k]].op == Op::Const;
-    cost[i] = fold                         ? w
+    cost[i] = stepSel[i]                   ? stepSel[i]
+              : fold                       ? w
               : (f >= 0 && !ct[n.args[f]]) ? w * m.fusedAdd
               : n.op == Op::Div            ? div[i]
                                            : m.opCost(n.op, w);
@@ -424,13 +450,89 @@ bool containsInexact(const Expr& e) {
 }
 
 bool isSugarCall(std::string_view name, size_t arity) {
-  if (arity == 1) return name == "radians" || name == "degrees" || name == "log10" || name == "tan";
-  return arity == 2 && name == "cross";
+  if (arity == 1)
+    return name == "radians" || name == "degrees" || name == "log10" || name == "tan" || name == "asin" || name == "acos" ||
+           name == "atan" || name == "all" || name == "any";
+  return arity == 2 && (name == "cross" || name == "fmod" || name == "atan2");
 }
 
 uint32_t buildSugarCall(ExprBuilder& b, std::string_view name, const uint32_t* args, size_t arity) {
   if (!isSugarCall(name, arity)) throw std::invalid_argument("unknown intrinsic " + std::string(name));
   const auto& ns = b.nodes();
+  // Expansions with a compare and a select run per component (sopt's compares are scalar), joined again.
+  const unsigned w = std::max<unsigned>(width(ns[args[0]].type), arity > 1 ? width(ns[args[1]].type) : 1u);
+  auto comp = [&](uint32_t v, unsigned k) {
+    const uint8_t sw[1] = {static_cast<uint8_t>(k)};
+    return width(b.nodes()[v].type) == 1 ? v : b.swizzle(v, sw, 1);
+  };
+  auto perComponent = [&](auto&& one) {
+    uint32_t parts[4];
+    for (unsigned k = 0; k < w; ++k) parts[k] = one(comp(args[0], k), arity > 1 ? comp(args[1], k) : 0);
+    return w == 1 ? parts[0] : b.construct(parts, w);
+  };
+  // acos / asin as fxc writes them (Abramowitz & Stegun 4.4.45, its constants as float32):
+  // p = ((|x| c0 + c1) |x| + c2) |x| + c3, s = sqrt(1 - |x|), acos = p s + (x < -x ? pi - 2 p s : 0), asin = pi/2 - acos.
+  auto acos1 = [&](uint32_t x) {
+    const uint32_t a = b.op(Op::Abs, x);
+    uint32_t p = b.op(Op::Mad, a, b.constant(-0.0187293f), b.constant(0.0742610f));
+    p = b.op(Op::Mad, p, a, b.constant(-0.2121144f));
+    p = b.op(Op::Mad, p, a, b.constant(1.5707288f));
+    const uint32_t s = b.op(Op::Sqrt, b.op(Op::Sub, b.constant(1.0f), a));
+    const uint32_t t = b.op(Op::Mul, s, p);
+    const uint32_t neg = b.op(Op::Lt, x, b.op(Op::Neg, x));
+    const uint32_t c = b.op(Op::Select, neg, b.op(Op::Mad, t, b.constant(-2.0f), b.constant(3.14159265f)), b.constant(0.0f));
+    return b.op(Op::Mad, p, s, c);
+  };
+  // atan / atan2 as fxc writes them: r = min(|a|, |b|) / max(|a|, |b|), p = odd polynomial in r (5 constants), v = r p +
+  // (|a| < |b| ? pi/2 - 2 r p : 0); atan: |a| = 1, b = x, negated where x < 0; atan2(y, x): b = y, a = x, v - pi where
+  // x < 0, negated where min(x, y) < 0 <= max(x, y).
+  auto atanCore = [&](uint32_t num, uint32_t den, uint32_t swap) {  // r = num / den in [0, 1]
+    const uint32_t r = b.op(Op::Mul, b.op(Op::Rcp, den), num);
+    const uint32_t s = b.op(Op::Mul, r, r);
+    uint32_t p = b.op(Op::Mad, s, b.constant(0.0208351f), b.constant(-0.085133f));
+    p = b.op(Op::Mad, s, p, b.constant(0.180141f));
+    p = b.op(Op::Mad, s, p, b.constant(-0.3302995f));
+    p = b.op(Op::Mad, s, p, b.constant(0.999866f));
+    const uint32_t t = b.op(Op::Mul, p, r);
+    const uint32_t c = b.op(Op::Select, swap, b.op(Op::Mad, t, b.constant(-2.0f), b.constant(1.57079637f)), b.constant(0.0f));
+    return b.op(Op::Mad, r, p, c);
+  };
+  if (name == "atan")
+    return perComponent([&](uint32_t x, uint32_t) {
+      const uint32_t a = b.op(Op::Abs, x), one = b.constant(1.0f);
+      const uint32_t v = atanCore(b.op(Op::Min, a, one), b.op(Op::Max, a, one), b.op(Op::Lt, one, a));
+      const uint32_t m = b.op(Op::Min, x, one);
+      return b.op(Op::Select, b.op(Op::Lt, m, b.op(Op::Neg, m)), b.op(Op::Neg, v), v);
+    });
+  if (name == "atan2")
+    return perComponent([&](uint32_t y, uint32_t x) {
+      const uint32_t ax = b.op(Op::Abs, x), ay = b.op(Op::Abs, y);
+      uint32_t v = atanCore(b.op(Op::Min, ax, ay), b.op(Op::Max, ax, ay), b.op(Op::Lt, ax, ay));
+      v = b.op(Op::Add, b.op(Op::Select, b.op(Op::Lt, x, b.op(Op::Neg, x)), b.constant(-3.14159265f), b.constant(0.0f)), v);
+      const uint32_t lo = b.op(Op::Min, x, y), hi = b.op(Op::Max, x, y);
+      const uint32_t flip = b.op(Op::LAnd, b.op(Op::Ge, hi, b.op(Op::Neg, hi)), b.op(Op::Lt, lo, b.op(Op::Neg, lo)));
+      return b.op(Op::Select, flip, b.op(Op::Neg, v), v);
+    });
+  if (name == "acos") return perComponent([&](uint32_t x, uint32_t) { return acos1(x); });
+  if (name == "asin")
+    return perComponent([&](uint32_t x, uint32_t) { return b.op(Op::Sub, b.constant(1.57079637f), acos1(x)); });
+  // x % y (HLSL fmod: the result takes x's sign) as fxc writes it: s = (x y >= -(x y)) ? y : -y, frac(rcp(s) x) s.
+  if (name == "fmod")
+    return perComponent([&](uint32_t x, uint32_t y) {
+      const uint32_t m = b.op(Op::Mul, y, x);
+      const uint32_t s = b.op(Op::Select, b.op(Op::Ge, m, b.op(Op::Neg, m)), y, b.op(Op::Neg, y));
+      return b.op(Op::Mul, b.op(Op::Frac, b.op(Op::Mul, b.op(Op::Rcp, s), x)), s);
+    });
+  // all / any of a float vector: every / some component != 0 (a bool is itself).
+  if (name == "all" || name == "any") {
+    if (ns[args[0]].type == Type::Bool) return args[0];
+    uint32_t r = 0;
+    for (unsigned k = 0; k < w; ++k) {
+      const uint32_t t = b.op(Op::Ne, comp(args[0], k), b.constant(0.0f));
+      r = k ? b.op(name == "all" ? Op::LAnd : Op::LOr, r, t) : t;
+    }
+    return r;
+  }
   // Operands are built one statement at a time: argument evaluation order is unspecified,
   // and node order decides how the DAG prints.
   if (name == "radians" || name == "degrees") {

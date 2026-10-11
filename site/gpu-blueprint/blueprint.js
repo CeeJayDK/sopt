@@ -2,11 +2,12 @@
 "use strict";
 
 const GROUPS = [
-  ["Modifiers", ["neg", "abs", "saturate"]],
-  ["Basic math", ["add", "sub", "mul", "mad"]],
+  ["Modifiers and basic math", ["neg", "abs", "saturate", "add", "sub", "mul", "mad"]],
   ["Min, max and compares", ["min", "max", "clamp", "compare", "select", "step", "lerp"]],
-  ["Rounding and sign", ["floor", "ceil", "round", "frac", "sign"]],
-  ["Special functions", ["rcp", "div", "sqrt", "rsqrt", "exp2", "log2", "exp", "log", "sin", "cos", "pow"]],
+  ["Rounding", ["floor", "ceil", "round", "trunc", "frac"]],
+  ["Sign", ["sign"]],
+  ["Special functions", ["rcp", "div", "sqrt", "rsqrt", "exp2", "log2", "exp", "log", "sin", "cos"]],
+  ["Powers", ["pow"]],  // its own group: pow has many alternatives
   ["Helpers (vectors: float3)", ["smoothstep", "dot3", "length3", "normalize3", "distance3"]],
 ];
 const LABEL = { compare: "a < b", select: "c ? a : b", dot3: "dot", length3: "length", normalize3: "normalize", distance3: "distance" };
@@ -99,11 +100,18 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
   // One group across the models: architectures as rows, operations as columns (bars line up down a column), each
   // operation followed by the library's alternatives: rules whose pattern is the operation alone (frac(x) -> ...),
   // whose replacement is not just a value (saturate(x) -> x only holds in a range) and that win somewhere.
-  const altsOf = (op) => lib.rules.filter((r) => {
-    const m = /^(\w+)\(\s*\w+(\s*,\s*\w+)*\s*\)$/.exec(r.lhs);
-    return m && m[1] === op && !/^[\w.+-]+$/.test(r.rhs.trim()) &&
-      data.models.some((md) => r.costs[md.name] && r.costs[md.name][1] < md.costs[op]);
-  });
+  // Its arguments may be constants (pow(x, 2.0) -> x * x, smoothstep(0.0, 1.0, x) -> ...): such a rule holds for those
+  // values only, so the page shows the whole rule. The same rule twice (other conditions) is shown once.
+  const altsOf = (op) => {
+    const seen = new Set();
+    return lib.rules.filter((r) => {
+      const m = /^(\w+)\(\s*[\w.+-]+(\s*,\s*[\w.+-]+)*\s*\)$/.exec(r.lhs);
+      const key = r.lhs + " -> " + r.rhs;
+      if (!m || m[1] !== op || /^[\w.+-]+$/.test(r.rhs.trim()) || seen.has(key)) return false;
+      seen.add(key);
+      return data.models.some((md) => r.costs[md.name] && r.costs[md.name][1] < md.costs[op]);
+    });
+  };
   const grpSel = document.getElementById("grp");
   const viewSel = document.getElementById("view");
   GROUPS.forEach(([title], k) => grpSel.append(el("option", { value: String(k), text: title })));
@@ -113,33 +121,45 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
     const cols = [];
     for (const op of ops) {
       cols.push({ op, label: LABEL[op] || op, cost: (m) => m.costs[op] });
-      altsOf(op).forEach((r, k) => cols.push({ op, alt: r, label: `→${k + 1}`,
+      // A rule's name ([name] in the library), else a short replacement as it is, else the operation and a number.
+      altsOf(op).forEach((r, k) => cols.push({ op, alt: r, label: r.name || (r.rhs.length <= 10 ? r.rhs : `${LABEL[op] || op}→${k + 1}`),
         cost: (m) => r.costs[m.name] && r.costs[m.name][1] }));
     }
     const all = cols.flatMap((c) => data.models.map((m) => c.cost(m))).filter((q) => q != null && !isFree(q));
     const lo = Math.min(...all), hi = Math.max(...all), max = fma(hi);
     const heatmap = viewSel.value === "heat";
-    const cell = (q, color, better) => {
+    // Numbers line up on the decimal point: padded to 2 decimals, the padding hidden (it keeps its width, draws nothing).
+    const aligned = (v) => {
+      const [i, f = ""] = num(v).split(".");
+      return el("span", {}, i + (f ? "." + f : ""), f.length < 2 ? el("span", { class: "pad", text: (f ? "" : ".") + "0".repeat(2 - f.length) }) : null);
+    };
+    const cell = (q, color, mark) => {  // mark: "better" / "worse" (an alternative faster / slower than its operation)
       if (q == null) return el("td", { class: "c free", text: "–" });
-      if (isFree(q)) return el("td", { class: "c free", text: "free" });
-      const cls = "c" + (better ? " better" : "");
+      if (isFree(q)) return el("td", { class: "c free" }, aligned(0));  // a free modifier: 0, easier to read than "free"
+      const cls = "c" + (mark ? " " + mark : "");
       if (heatmap) {
         const h = heatColor(q, lo, hi);
-        return el("td", { class: cls + " hot", style: `background:${h.bg};color:${h.fg}`, text: num(fma(q)) });
+        return el("td", { class: cls + " hot", style: `background:${h.bg}` }, aligned(fma(q)));
       }
-      return el("td", { class: cls }, num(fma(q)),
+      return el("td", { class: cls }, aligned(fma(q)),
         el("div", { class: "mini" }, el("div", { class: "bar", style: `width:${Math.min(100, (fma(q) / max) * 100)}%;--c:${color}` })));
     };
-    const tip = (c) => (c.alt ? `${c.op} ${c.label}: ${c.alt.rhs}${c.alt.where ? `  (where ${c.alt.where})` : ""}` : c.label);
+    const tip = (c) => (c.alt ? `${c.alt.lhs} → ${c.alt.rhs}${c.alt.where ? `  (where ${c.alt.where})` : ""}` : c.label);
     const head = el("tr", {}, el("th", { class: "arch", text: "Architecture" }),
       ...cols.map((c, k) => el("th", { class: "o" + (c.alt ? " alt" : "") + (!c.alt && k ? " gs" : ""), title: tip(c), text: c.label })));
+    // Bold: the fastest way to write each operation on an architecture (the operation or one of its alternatives).
+    const groupOf = [];
+    cols.forEach((c, k) => groupOf.push(c.alt ? groupOf[k - 1] : k));
     const body = data.models.map((m) => el("tr", {},
       el("th", { class: "arch", style: `--c:${VENDOR_COLOR[m.vendor]}`, title: `${m.vendor} ${m.title}`, text: m.title }),
       ...cols.map((c, k) => {
         const q = c.cost(m);
-        const better = c.alt && q != null && q < m.costs[c.op];
-        const td = cell(q, c.alt ? (better ? "var(--cyan)" : "var(--text-faint)") : VENDOR_COLOR[m.vendor], better);
+        const best = q != null && cols.every((o, j) => groupOf[j] !== groupOf[k] || o.cost(m) == null || o.cost(m) >= q);
+        const mark = !c.alt || q == null ? null : q < m.costs[c.op] ? "better" : q > m.costs[c.op] ? "worse" : null;
+        const color = !c.alt ? VENDOR_COLOR[m.vendor] : mark === "better" ? "var(--cyan)" : mark === "worse" ? "var(--amber)" : "var(--text-faint)";
+        const td = cell(q, color, mark);
         td.title = tip(c);
+        if (best) td.classList.add("best");
         if (c.alt) td.classList.add("alt");
         else if (k) td.classList.add("gs");  // a new operation starts
         return td;
@@ -151,10 +171,14 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
     const alts = cols.filter((c) => c.alt);
     document.getElementById("alts").replaceChildren(...(alts.length ? [
       el("h4", { text: "Faster ways to write them (rewrite library)" }),
-      ...alts.map((c) => el("div", {}, el("b", { text: `${LABEL[c.op] || c.op} ${c.label}` }), el("code", { text: c.alt.rhs }),
-        c.alt.where ? el("small", { text: `where ${c.alt.where}` }) : null))] : []));
+      el("table", {}, el("tbody", {}, ...alts.map((c) => el("tr", {},
+        el("td", { class: "name", text: `${LABEL[c.op] || c.op} ${c.label}` }),
+        el("td", {}, el("code", {}, hl(c.alt.lhs))),
+        el("td", { class: "to", text: "→" }),
+        el("td", {}, el("code", {}, hl(c.alt.rhs))),
+        el("td", { class: "cond", text: c.alt.where ? `where ${c.alt.where}` : "" })))))] : []));
   };
-  grpSel.value = "3";  // rounding and sign: the library's biggest wins
+  grpSel.value = "2";  // rounding: the library's add-round forms
   grpSel.addEventListener("change", renderGroup);
   viewSel.addEventListener("change", renderGroup);
   renderGroup();

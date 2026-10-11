@@ -688,7 +688,7 @@ int main(int argc, char** argv) {
     char buf[512];
     std::snprintf(buf, sizeof(buf),
                   "%s %s t%g b%d l%g x%d a%d L%d s%d c%d td%d tp%d bb%d sl%d sc%d pf%d n%u seed%u ap%d "
-                  "lf%zx mb%llu of%d q%u ct%g st%g sm%u sh%d",
+                  "lf%zx mb%llu of%d q%u ct%g st%g sm%u sh%d rg%d fc%d",
                   SOPT_VERSION, opt.search.model ? std::string(opt.search.model->name).c_str() : "?",
                   opt.search.timeLimitSec, opt.search.bits ? 1 : 0, opt.loose, opt.exactRule ? 1 : 0,
                   opt.accuracyVariants ? 1 : 0, opt.library ? 1 : 0, opt.subtrees ? 1 : 0, opt.cuts ? 1 : 0,
@@ -696,7 +696,8 @@ int main(int argc, char** argv) {
                   opt.schedule ? 1 : 0, opt.perfFirst ? 1 : 0, opt.numTests, static_cast<unsigned>(opt.seed),
                   allPlatforms ? 1 : 0, args.libraryHash, static_cast<unsigned long long>(opt.search.maxBank),
                   opt.search.overflow ? 1 : 0, static_cast<unsigned>(opt.search.quantBits), opt.cutTime, opt.subtreeTime,
-                  static_cast<unsigned>(opt.subtreeMaxCost), opt.search.sharedLeaves ? 1 : 0);
+                  static_cast<unsigned>(opt.subtreeMaxCost), opt.search.sharedLeaves ? 1 : 0, opt.libraryRegroup ? 1 : 0,
+                  opt.fpCoincidence ? 1 : 0);
     optionsKey = buf;
   }
   struct CacheEntry {
