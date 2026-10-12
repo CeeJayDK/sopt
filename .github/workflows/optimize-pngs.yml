@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0  # earlier optimized files are restored from history
@@ -45,7 +45,7 @@ jobs:
       - name: ECT from cache
         if: steps.todo.outputs.count != '0'
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ect-bin
           key: ect-${{ env.ECT_VERSION }}-ubuntu-24.04

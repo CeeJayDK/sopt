@@ -13,8 +13,8 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: microsoft/setup-msbuild@v2
+      - uses: actions/checkout@v7
+      - uses: microsoft/setup-msbuild@v3
       - name: Clone ReShade
         shell: bash
         run: |
@@ -58,7 +58,7 @@ jobs:
           grep -aq "Failed to create bilinear mipmap generation pipeline" dist/ReShade64-6.8.0-sopt-d3d12.dll
           ! grep -aq "Failed to create bilinear mipmap generation pipeline" dist/ReShade64-6.8.0-sopt.dll
           ls -l dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: reshade-6.8.0-sopt
           path: |

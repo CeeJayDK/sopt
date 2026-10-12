@@ -19,7 +19,7 @@ jobs:
     env:
       SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Version
         id: version
         shell: bash
@@ -36,13 +36,13 @@ jobs:
       - name: Cache ReShade build
         # the same unchanged ReShade 6.8.0 build as ci.yml (shared cache key)
         id: reshade-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: reshade-bin
           key: reshade-6.8.0-release-x64-v1
       - name: MSBuild for ReShade
         if: steps.reshade-cache.outputs.cache-hit != 'true'
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
       - name: Build ReShade
         if: steps.reshade-cache.outputs.cache-hit != 'true'
         shell: bash
@@ -74,14 +74,14 @@ jobs:
           Compress-Archive -Path stage/Test-Host/* -DestinationPath "unsigned/Test-Host-$v.zip"
       - name: Upload unsigned
         id: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unsigned
           path: unsigned/
       - name: Sign (SignPath)
         # our binaries only (artifact configuration in docs/signing.md); ReShade64.dll is crosire's
         if: env.SIGNPATH_API_TOKEN != ''
-        uses: signpath/github-action-submit-signing-request@v1
+        uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -98,7 +98,7 @@ jobs:
           mkdir -p release
           cp "$src"/*.zip release/
       - name: Upload release files
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-windows
           path: release/
@@ -107,7 +107,7 @@ jobs:
     # too, libstdc++ / libgcc linked statically.
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
@@ -129,7 +129,7 @@ jobs:
           ./$d/bin/sopt --version && ./$d/bin/sopt-fx --version
           tar czf release/$d.tar.gz $d
       - name: Upload release files
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-linux
           path: release/
@@ -137,14 +137,14 @@ jobs:
     needs: [windows, linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-*
           merge-multiple: true
           path: release
       - name: Checksums
         run: cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: src
           sparse-checkout: CHANGELOG.md
@@ -178,7 +178,7 @@ jobs:
           } > notes.md
           cat notes.md
       - name: GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: ${{ github.event_name == 'workflow_dispatch' }}
           prerelease: ${{ contains(github.ref_name, '-') }}
