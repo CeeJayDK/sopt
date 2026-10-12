@@ -74,3 +74,11 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 6: opbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/opbench/intel-arc-b580.csv` (OpBench 0.7.0)
 - upload 6: shaderinfo, Intel(R) Arc(TM) B580 Graphics (driver Intel Corporation 101.8991 (101.8991)): `docs/shaderinfo/intel-arc-b580.txt`
 - upload 6: texbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/texbench/intel-arc-b580.csv`, `docs/texbench/intel-arc-b580-order.png`, `docs/texbench/intel-arc-b580-order-zoom.png` (TexBench 0.7.0)
+
+## 2026-10-12 06:10 UTC
+- upload 1: opbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/opbench/intel-uhd-630-4.csv` (OpBench 0.7.0)
+- upload 1: opbench, NVIDIA GeForce RTX 2070 (driver 32.0.16.1656): `docs/opbench/nvidia-rtx-2070-2.csv` (OpBench 0.7.0)
+- upload 1: shaderinfo, Intel(R) UHD Graphics 630 (driver Intel Corporation Intel driver (101.2145)): `docs/shaderinfo/intel-uhd-630-6.txt`
+- upload 1: shaderinfo, NVIDIA GeForce RTX 2070 (driver NVIDIA 616.56 (616.56)): `docs/shaderinfo/nvidia-rtx-2070.txt`
+- upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-4.csv`, `docs/texbench/intel-uhd-630-4-order.png`, `docs/texbench/intel-uhd-630-4-order-zoom.png` (TexBench 0.7.0)
+- upload 1: texbench, NVIDIA GeForce RTX 2070 (driver 32.0.16.1656): `docs/texbench/nvidia-rtx-2070.csv`, `docs/texbench/nvidia-rtx-2070-order.png`, `docs/texbench/nvidia-rtx-2070-order-zoom.png` (TexBench 0.7.0)
