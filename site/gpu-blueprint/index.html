@@ -55,6 +55,24 @@
   </section>
 
   <section>
+    <h2>Driver improvements</h2>
+    <p class="note">Cards of one architecture that measure differently, where the driver version tells them apart: what a
+      newer driver made faster (or slower). Keeping your driver up to date pays. Each new report narrows down which driver
+      brought the change. A difference can also come from two different chips of one architecture; more reports will tell.
+      Hover a driver to see the cards.</p>
+    <div class="tablewrap"><table id="drivertable"></table></div>
+  </section>
+
+  <section>
+    <h2>fp16 (min16float)</h2>
+    <p class="note">How much faster half precision (<code>min16float</code>) runs than the same work in full precision, per
+      architecture (the middle value of its cards; OpBench, Direct3D 11). 2.0× means twice as fast. Some cards accept
+      min16float but run it at full precision, and some do not offer it at all. In ReShade, min16float only takes effect
+      on Direct3D 10 to 12.</p>
+    <div class="tablewrap"><table id="fp16table"></table></div>
+  </section>
+
+  <section>
     <h2>Measure your card</h2>
     <p class="note">Download <strong>GPU Blueprint</strong> from <a href="https://github.com/CeeJayDK/sopt/releases">the releases page</a>, unzip it and double-click <code>GPU-Blueprint.bat</code>. When it is done it offers to send the reports. Only the card, its driver version and the measurements are published.</p>
   </section>

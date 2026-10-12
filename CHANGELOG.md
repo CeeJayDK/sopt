@@ -19,6 +19,7 @@ docs/notes/history.md.
 - **Intel Arc B-series:** SweetOpt now has its own settings for Intel Arc B-series graphics cards (Battlemage), measured with GPU Blueprint.
 
 ### GPU Blueprint
+- **On the website:** which driver updates made graphics cards faster (a reason to keep your driver up to date), and on which graphics cards half precision (fp16) is faster. Both grow with every report.
 - **Your own copy of the results:** OpBench and TexBench now save what they show on screen as a text file in Reports\Results, for you to keep. It is not part of the reports you send.
 - **Easier to read:** the clock drift is shown in color at the very end of each run, the progress bar goes away when the tests are done, and TexBench's formats and filtering table is colored from fast (green) to slow (red).
 - **Your privacy:** the upload page asks for a name and an email, but they do not have to be real.

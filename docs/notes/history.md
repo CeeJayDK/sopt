@@ -1535,6 +1535,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   maps the old names (build.py TB_RENAMES). Formats and filtering table colored against its median (green <= 0.6x,
   cyan <= 0.9x, white <= 1.3x, yellow <= 2x, red). GPU-Blueprint.bat: option 1 highlighted ("recommended"), the upload
   page's name and email may be made up (light yellow).
+  Site (owner, 2026-10-12): GPU Blueprint page sections "Driver improvements" and "fp16 (min16float)", built from the
+  reports by build.py opbench_extras (the same split rule as above; one row per family and older driver; NVIDIA
+  drivers shown as 616.56; fp16 = fp32 units / fp16 units for fma, float3 fma, add, rcp, family median of the newest
+  report per card; verdict yes / sometimes / a little / no gain / runs as fp32). UNRELIABLE moved to build.py
+  (gen_expected.py uses it). Ampere's radians split (RTX 3060 on 591.74 against Ada cards on newer drivers) may be
+  the chip, like Maxwell's sqrt.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

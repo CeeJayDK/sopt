@@ -207,4 +207,63 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
         el("td", { class: "num", text: String(c.reports) }),
         el("td", { text: c.drivers.join(", ") }));
     })));
+
+  // Architecture cell as in the card table.
+  const archCell = (model) => {
+    const m = byName[model];
+    return el("td", {}, m ? el("span", { class: "dot", style: `--c:${VENDOR_COLOR[m.vendor]}` }) : null,
+      m ? `${m.vendor} ${archsOf(m.name).map((a) => a.name).join(" / ")}` : model);
+  };
+  const ops = (v) => v.toFixed(2);
+
+  // Driver improvements (owner, 2026-10-12): one family's reports split by driver version. OpBench test names in plain
+  // words; tests with the same name (the multiplies by 2, 4, 0.5 ...) are averaged into one entry. Costs below 0 are
+  // free (0), except the fp16 tests, which are measured against the same work in fp32.
+  const TEST_NAME = {
+    mul: "x * y", mul16: "x * y (fp16)", radians: "radians", step: "step", divxy: "x / y", fmod: "fmod", modf: "modf",
+    imin: "integer min", iand: "bitwise and", ftoitof: "float → int → float", normalize: "normalize", sqrt: "sqrt",
+    sqrt16: "sqrt (fp16)", mad16v3: "float3 fma in fp16, against fp32",
+  };
+  const testName = (t) => (/^omod/.test(t) ? "x * 2, 4, 8, 0.5 …" : TEST_NAME[t] || t);
+  const changes = (tests) => {
+    const by = new Map();
+    for (const t of tests) {
+      const n = testName(t.test), relative = t.test === "mad16v3";
+      const e = by.get(n) || { n, older: 0, newer: 0, k: 0 };
+      e.older += relative ? t.older : Math.max(0, t.older);
+      e.newer += relative ? t.newer : Math.max(0, t.newer);
+      e.k++;
+      by.set(n, e);
+    }
+    return [...by.values()].map((e) => ({ n: e.n, older: e.older / e.k, newer: e.newer / e.k }));
+  };
+  document.getElementById("drivertable").replaceChildren(
+    el("thead", {}, el("tr", {}, el("th", { text: "Architecture" }), el("th", { text: "Older driver" }), el("th", { text: "Newer driver" }),
+      el("th", { text: "What changed (cost in multiply-adds, older → newer)" }))),
+    el("tbody", {}, ...data.drivers.map((r) => el("tr", {},
+      archCell(r.model),
+      el("td", { text: r.older.drivers.join(", "), title: r.older.cards.join(", ") }),
+      el("td", { text: r.newer.drivers.join(", "), title: r.newer.cards.join(", ") }),
+      el("td", {}, ...changes(r.tests).map((t, i) => el("span", {},
+        `${i ? "; " : ""}${t.n} ${ops(t.older)} → ${ops(t.newer)}`, t.newer > t.older ? el("b", { text: " (slower)" }) : null)))))));
+
+  // fp16 (owner, 2026-10-12: tells developers whether supporting it pays): min16float against the same work in fp32.
+  const VERDICT = (f) => {
+    if (!f.native) return "runs as fp32";
+    const v = ["fma", "vec3", "add"].map((k) => f.speedup[k]).filter((x) => x).sort((a, b) => a - b);
+    if (!v.length) return "";
+    if (v[Math.floor(v.length / 2)] >= 1.5) return "yes";
+    if (v[v.length - 1] >= 1.5) return "sometimes";
+    return v[v.length - 1] >= 1.15 ? "a little" : "no gain";
+  };
+  const times = (x) => (x ? `${x.toFixed(1)}×` : "–");
+  document.getElementById("fp16table").replaceChildren(
+    el("thead", {}, el("tr", {}, el("th", { text: "Architecture" }), el("th", { class: "num", text: "Cards" }),
+      el("th", { class: "num", text: "fma" }), el("th", { class: "num", text: "float3 fma" }), el("th", { class: "num", text: "add" }),
+      el("th", { class: "num", text: "rcp" }), el("th", { text: "Worth it?" }))),
+    el("tbody", {}, ...data.fp16.map((f) => el("tr", {},
+      archCell(f.model),
+      el("td", { class: "num", text: String(f.cards.length), title: f.cards.join(", ") }),
+      ...["fma", "vec3", "add", "rcp"].map((k) => el("td", { class: "num", text: f.native ? times(f.speedup[k]) : "1.0×" })),
+      el("td", { text: VERDICT(f) })))));
 });
