@@ -94,3 +94,14 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 2: texbench, Intel(R) HD4600 (driver 20.19.15.5171): `docs/texbench/intel-hd4600.csv` (TexBench 0.7.0)
 - upload 2: texbench, Intel(R) HD4600 (driver 20.19.15.5171): `docs/texbench/intel-hd4600-2.csv` (TexBench 0.7.0)
 - upload 2: texbench, NVIDIA T600 (driver 32.0.16.1692): `docs/texbench/nvidia-t600.csv` (TexBench 0.7.0)
+
+## 2026-10-12 23:53 UTC
+- upload 1: opbench, AMD Radeon RX 6900 XT (driver 32.0.21045.5002): `docs/opbench/amd-radeon-rx-6900-xt.csv` (OpBench 0.7.0)
+- upload 1: shaderinfo, AMD Radeon RX 6900 XT (driver AMD proprietary driver 26.8.1 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-rx-6900-xt.txt`
+- upload 1: texbench, AMD Radeon RX 6900 XT (driver 32.0.21045.5002): `docs/texbench/amd-radeon-rx-6900-xt.csv`, `docs/texbench/amd-radeon-rx-6900-xt-order.png`, `docs/texbench/amd-radeon-rx-6900-xt-order-zoom.png` (TexBench 0.7.0)
+- upload 2: opbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2141): `docs/opbench/intel-uhd-630-5.csv` (OpBench 0.7.2)
+- upload 2: opbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1714): `docs/opbench/nvidia-gtx-1660-4.csv` (OpBench 0.7.2)
+- upload 2: shaderinfo, Intel(R) UHD Graphics 630 (driver Intel Corporation Intel driver (101.2141)): `docs/shaderinfo/intel-uhd-630-7.txt`
+- upload 2: shaderinfo, NVIDIA GeForce GTX 1660 (driver NVIDIA 617.14 (617.14)): `docs/shaderinfo/nvidia-gtx-1660-6.txt`
+- upload 2: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2141): `docs/texbench/intel-uhd-630-5.csv`, `docs/texbench/intel-uhd-630-5-order.png`, `docs/texbench/intel-uhd-630-5-order-zoom.png` (TexBench 0.7.2)
+- upload 2: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1714): `docs/texbench/nvidia-gtx-1660-5.csv`, `docs/texbench/nvidia-gtx-1660-5-order.png`, `docs/texbench/nvidia-gtx-1660-5-order-zoom.png` (TexBench 0.7.2)
