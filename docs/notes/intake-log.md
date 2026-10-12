@@ -82,3 +82,15 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: shaderinfo, NVIDIA GeForce RTX 2070 (driver NVIDIA 616.56 (616.56)): `docs/shaderinfo/nvidia-rtx-2070.txt`
 - upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-4.csv`, `docs/texbench/intel-uhd-630-4-order.png`, `docs/texbench/intel-uhd-630-4-order-zoom.png` (TexBench 0.7.0)
 - upload 1: texbench, NVIDIA GeForce RTX 2070 (driver 32.0.16.1656): `docs/texbench/nvidia-rtx-2070.csv`, `docs/texbench/nvidia-rtx-2070-order.png`, `docs/texbench/nvidia-rtx-2070-order-zoom.png` (TexBench 0.7.0)
+
+## 2026-10-12 15:44 UTC
+- upload 1: opbench, AMD Radeon RX 9070 XT (driver 32.0.32015.2008): `docs/opbench/amd-radeon-rx-9070-xt-3.csv` (OpBench 0.7.0)
+- upload 1: shaderinfo, AMD Radeon RX 9070 XT (driver AMD proprietary driver 26.9.2 (LLPC) (2.0.406)): `docs/shaderinfo/amd-radeon-rx-9070-xt-3.txt`
+- upload 1: texbench, AMD Radeon RX 9070 XT (driver 32.0.32015.2008): `docs/texbench/amd-radeon-rx-9070-xt-3.csv`, `docs/texbench/amd-radeon-rx-9070-xt-3-order.png`, `docs/texbench/amd-radeon-rx-9070-xt-3-order-zoom.png` (TexBench 0.7.0)
+- upload 2: opbench, Intel(R) HD4600 (driver 20.19.15.5171): `docs/opbench/intel-hd4600.csv` (OpBench 0.7.0)
+- upload 2: opbench, Intel(R) HD4600 (driver 20.19.15.5171): `docs/opbench/intel-hd4600-2.csv` (OpBench 0.7.0)
+- upload 2: opbench, NVIDIA T600 (driver 32.0.16.1692): `docs/opbench/nvidia-t600.csv` (OpBench 0.7.0)
+- upload 2: shaderinfo, NVIDIA T600 (driver NVIDIA 616.92 (616.92)): `docs/shaderinfo/nvidia-t600.txt`
+- upload 2: texbench, Intel(R) HD4600 (driver 20.19.15.5171): `docs/texbench/intel-hd4600.csv` (TexBench 0.7.0)
+- upload 2: texbench, Intel(R) HD4600 (driver 20.19.15.5171): `docs/texbench/intel-hd4600-2.csv` (TexBench 0.7.0)
+- upload 2: texbench, NVIDIA T600 (driver 32.0.16.1692): `docs/texbench/nvidia-t600.csv` (TexBench 0.7.0)
