@@ -155,29 +155,52 @@ inline const Family kFamilies[] = {
      "signbits 7.2 signclamp 10.9 signmad 7.3 signsat 10.8 signsel 10.9 signsel2 3.6 sin 12.1 sincos 22.6 "
      "sinh 29.6 smoothstep 18.8 sqrt 12.0 sqrt16 12.6 sqrtnr0 7.6 step 4.2 sub 4.0 tan 41.5 tanh 46.8 "
      "trunc 4.0 udiv 139.1 umod 137.7 unitf 10.9 utof 3.6 "},
-    {"nvidia-ampere", "Ampere / Ada Lovelace", 7,
-     "aAdd 0.5 aAdd1 249.6 aAnd 0.5 aAnd1 412.4 aCmpXchg 4.0 aCmpXchg1 852.0 aMax 0.5 aMax1 413.1 aMin 0.6 "
-     "aMin1 413.2 aOr 0.5 aOr1 412.5 aXchg 0.5 aXchg1 413.1 aXor 0.5 aXor1 413.1 abs 0.0 acos 41.5 "
-     "acos1 26.3 acos4 40.0 add 3.4 add16 3.9 arraybase 25.0 arrayread 26.2 arraywrite 1532.3 asin 45.2 "
-     "atan 63.6 atan2 77.5 atan2q 31.5 atan4 20.2 atan5a 37.7 atombase 23.8 barrier 12.9 bitcast -0.0 "
-     "bitor 4.5 bitrev 20.9 branchdiv 226.7 branchuni 111.1 ceil 23.7 clamp 9.9 constarray 409.1 "
-     "contract 3.9 cos 23.9 cosh 51.6 cross 21.0 cvt1 3.1 det3 30.8 distance 37.0 div 23.7 divxy 20.3 "
-     "dot2 7.5 dot3 11.2 dot4 15.1 exp 23.9 exp2 23.7 exp2_16 23.9 exp2ceil 78.8 exp2floor 78.9 "
-     "f16round 5.3 faceforward 24.1 fbh 21.2 fbl 47.4 floor 23.7 flooradd 17.4 fma+cvt -0.9 fma+fma 0.0 "
-     "fma+half 0.5 fma+int -6.9 fma+minmax -6.9 fma+rcp -13.6 fma1 3.5 fmod 27.9 frac 24.2 fracadd 17.3 "
-     "frexp 52.0 ftoitof 24.0 ftou 14.4 groupbarrier 49.2 gsbase 24.6 gsbase32 24.9 gsread 4.0 "
-     "gsread32 346.9 gswrite 7.4 gswrite32 411.5 gswriteread 26.8 half1 -0.3 iadd 1.0 iand 2.1 "
-     "icmpsel 13.8 idiv 78.5 imin 6.9 imod 80.7 imul 1.4 int 9.9 irot 13.8 ishr 6.9 isinf 17.2 isnan 11.4 "
-     "itof 6.9 ixmul 3.0 ldexp 20.6 length 28.0 lerp 7.3 log 24.4 log10 24.3 log2 23.7 log2_16 23.9 "
-     "mad 4.0 mad16 -0.3 mad16v3 -0.4 mad2 3.9 mad2v 3.5 mad3v 6.9 mad4v 10.3 matmul4 58.0 max 4.5 "
+    {"intel-xe2", "Xe2 (Battlemage)", 1,
+     "aAdd 29.6 aAdd1 89.5 aAnd 29.6 aAnd1 1790.4 aCmpXchg 128.3 aCmpXchg1 1816.0 aMax 29.7 aMax1 1793.0 "
+     "aMin 29.6 aMin1 1793.9 aOr 29.7 aOr1 1785.6 aXchg 29.6 aXchg1 1797.8 aXor 29.6 aXor1 1790.9 abs -0.0 "
+     "acos 33.5 acos1 22.8 acos4 40.1 add 3.9 add16 3.9 arraybase 13.7 arrayread 132.5 arraywrite 305.6 "
+     "asin 37.4 atan 59.4 atan2 68.9 atan2q 29.9 atan4 19.6 atan5a 36.1 atombase 8.0 barrier 26.1 "
+     "bitcast 0.0 bitor 1.0 bitrev 4.4 branchdiv 253.4 branchuni 163.7 ceil 3.9 clamp 7.9 constarray 231.4 "
+     "contract 3.9 cos 24.4 cosh 28.6 cross 24.3 cvt1 3.8 det3 32.0 distance 40.5 div 11.9 divxy 9.2 "
+     "dot2 8.3 dot3 14.7 dot4 19.5 exp 12.5 exp2 11.9 exp2_16 11.9 exp2ceil 27.6 exp2floor 27.6 "
+     "f16round 24.7 faceforward 28.2 fbh 31.2 fbl 3.8 floor 3.9 flooradd 21.1 fma+cvt -1.9 fma+fma 0.0 "
+     "fma+half -0.1 fma+int -3.1 fma+minmax -1.9 fma+rcp -8.0 fma1 4.0 fmod 19.7 frac 3.9 fracadd 19.4 "
+     "frexp 30.2 ftoitof 4.0 ftou 3.9 groupbarrier 4.6 gsbase 14.2 gsbase32 14.3 gsread 3.8 gsread32 45.8 "
+     "gswrite 14.7 gswrite32 115.3 gswriteread 18.1 half1 0.0 iadd 4.6 iand 0.5 icmpsel 4.8 idiv 74.9 "
+     "imin 4.5 imod 75.2 imul 8.9 int 3.9 irot 12.8 ishr 4.6 isinf 6.1 isnan 8.0 itof 1.7 ixmul 7.8 "
+     "ldexp 9.2 length 26.9 lerp 7.9 log 12.2 log10 12.2 log2 11.9 log2_16 11.9 mad 4.0 mad16 -0.0 "
+     "mad16v3 0.0 mad2 3.9 mad2v 3.9 mad3v 7.8 mad4v 11.9 matmul4 68.4 max 3.8 max16 3.9 max3 4.1 "
+     "membarrier 10.3 min 3.9 minmax 4.1 minmax1 3.9 mix16 3.9 modf 11.7 mul 3.9 mul16 3.9 neg -0.0 "
+     "negabs -0.0 normalize 26.0 omod0.125 0.6 omod0.25 0.6 omod2 0.5 omod3 0.6 omod4 1.0 omod8 0.6 "
+     "omodhalf 0.6 popc 3.8 pow 27.7 pow2ceil 4.9 pow2floor 1.0 radians 3.9 rcp 11.9 rcp1 12.3 rcp16 11.9 "
+     "rcpmax 12.3 rcpnr0 1.0 rcpnr1 8.0 reflect 28.1 refract 51.3 round 3.9 roundadd 7.7 rsqrt 11.9 "
+     "rsqrtnr0 4.9 rsqrtnr1 16.8 satmad -0.0 saturate 0.2 select 7.9 selectboth 564.5 sign 11.8 "
+     "signbits 0.0 signclamp 11.8 signmad 8.0 signsat 11.7 signsel 11.8 signsel2 3.8 sin 24.4 sincos 254.9 "
+     "sinh 28.6 smoothstep 19.9 sqrt 11.9 sqrt16 11.9 sqrtnr0 4.9 step 3.9 sub 3.9 tan 248.9 tanh 44.1 "
+     "trunc 3.9 udiv 61.1 umod 62.7 unitf 9.6 utof 1.7 "},
+    {"nvidia-ampere", "Ampere / Ada Lovelace", 6,
+     "aAdd 0.5 aAdd1 249.5 aAnd 0.5 aAnd1 412.9 aCmpXchg 4.0 aCmpXchg1 852.0 aMax 0.5 aMax1 412.9 aMin 0.5 "
+     "aMin1 412.8 aOr 0.5 aOr1 412.7 aXchg 0.5 aXchg1 412.8 aXor 0.5 aXor1 412.8 abs 0.0 acos 41.6 "
+     "acos1 26.3 acos4 39.9 add 3.4 add16 3.9 arraybase 25.0 arrayread 26.2 arraywrite 1617.3 asin 45.3 "
+     "atan 63.6 atan2 77.5 atan2q 31.5 atan4 20.4 atan5a 37.7 atombase 23.8 barrier 13.0 bitcast -0.0 "
+     "bitor 4.5 bitrev 20.9 branchdiv 226.5 branchuni 111.1 ceil 23.7 clamp 9.9 constarray 409.1 "
+     "contract 3.9 cos 23.9 cosh 51.6 cross 21.0 cvt1 3.1 det3 30.8 distance 37.0 div 23.7 divxy 20.4 "
+     "dot2 7.5 dot3 11.3 dot4 15.1 exp 23.9 exp2 23.7 exp2_16 23.9 exp2ceil 78.8 exp2floor 78.9 "
+     "f16round 5.3 faceforward 24.1 fbh 21.2 fbl 47.3 floor 23.7 flooradd 17.4 fma+cvt -0.9 fma+fma 0.0 "
+     "fma+half 0.5 fma+int -6.9 fma+minmax -6.9 fma+rcp -13.6 fma1 3.5 fmod 27.9 frac 24.2 fracadd 17.4 "
+     "frexp 52.1 ftoitof 24.0 ftou 14.4 groupbarrier 49.4 gsbase 24.6 gsbase32 24.8 gsread 4.0 "
+     "gsread32 352.8 gswrite 7.4 gswrite32 412.0 gswriteread 26.8 half1 -0.3 iadd 0.9 iand 2.1 "
+     "icmpsel 13.7 idiv 78.4 imin 6.9 imod 81.0 imul 1.4 int 9.9 irot 13.8 ishr 6.9 isinf 17.2 isnan 11.4 "
+     "itof 6.9 ixmul 3.1 ldexp 20.6 length 28.0 lerp 7.3 log 24.4 log10 24.4 log2 23.7 log2_16 23.9 "
+     "mad 4.0 mad16 -0.3 mad16v3 -0.4 mad2 3.9 mad2v 3.5 mad3v 6.9 mad4v 10.4 matmul4 58.0 max 4.5 "
      "max16 2.2 max3 5.4 membarrier 83.1 min 4.5 minmax 5.4 minmax1 9.9 mix16 8.9 modf 24.2 mul 0.5 "
-     "mul16 3.8 neg 0.0 negabs 0.0 normalize 28.7 omod0.125 0.4 omod0.25 0.4 omod2 0.4 omod3 0.4 omod4 0.2 "
-     "omod8 0.4 omodhalf 0.4 popc 19.7 pow 51.8 pow2ceil 9.9 pow2floor 4.5 radians 3.0 rcp 23.7 rcp1 23.7 "
-     "rcp16 23.9 rcpmax 23.8 rcpnr0 4.5 rcpnr1 11.0 reflect 26.2 refract 63.6 round 23.7 roundadd 6.9 "
-     "rsqrt 23.7 rsqrtnr0 9.9 rsqrtnr1 17.7 satmad -0.0 saturate 0.2 select 11.0 selectboth 219.0 "
-     "sign 27.6 signbits 11.5 signclamp 14.7 signmad 7.0 signsat 10.5 signsel 27.2 signsel2 6.5 sin 23.9 "
-     "sincos 47.7 sinh 51.6 smoothstep 17.5 sqrt 23.7 sqrt16 23.9 sqrtnr0 4.5 step 4.5 sub 3.4 tan 78.7 "
-     "tanh 79.5 trunc 23.7 udiv 64.4 umod 66.7 unitf 6.9 utof 6.9 "},
+     "mul16 3.8 neg 0.0 negabs 0.0 normalize 28.7 omod0.125 0.3 omod0.25 0.2 omod2 0.4 omod3 0.3 omod4 0.3 "
+     "omod8 0.4 omodhalf 0.3 popc 19.7 pow 51.9 pow2ceil 9.9 pow2floor 4.5 radians 3.0 rcp 23.7 rcp1 23.7 "
+     "rcp16 23.9 rcpmax 23.8 rcpnr0 4.5 rcpnr1 10.8 reflect 26.2 refract 63.6 round 23.7 roundadd 6.9 "
+     "rsqrt 23.7 rsqrtnr0 9.9 rsqrtnr1 17.8 satmad 0.0 saturate 0.2 select 11.0 selectboth 218.6 sign 27.6 "
+     "signbits 11.4 signclamp 14.7 signmad 7.0 signsat 10.5 signsel 27.2 signsel2 6.5 sin 23.9 sincos 47.7 "
+     "sinh 51.7 smoothstep 17.5 sqrt 23.7 sqrt16 23.9 sqrtnr0 4.5 step 4.5 sub 3.4 tan 78.7 tanh 79.5 "
+     "trunc 23.7 udiv 64.1 umod 67.0 unitf 6.9 utof 6.8 "},
     {"nvidia-blackwell", "Blackwell", 2,
      "aAdd -0.2 aAdd1 244.7 aAnd 0.9 aAnd1 399.6 aCmpXchg 7.5 aCmpXchg1 852.0 aMax 0.1 aMax1 399.4 "
      "aMin 0.9 aMin1 410.8 aOr 0.9 aOr1 414.2 aXchg 0.9 aXchg1 411.6 aXor 1.0 aXor1 427.9 abs -0.1 "
@@ -307,6 +330,7 @@ inline const Rule kRules[] = {
     {R"(RX 6\d\d\d|Radeon 6[68]0M|Raphael|Granite Ridge)", "amd-rdna2"},
     {R"(Vega)", "amd-gcn5"},
     {R"(HD [67]\d\d\dM?\b)", "amd-terascale2"},
+    {R"(Arc\S* B\d\d\d|Arc\S* 1[34]0V)", "intel-xe2"},
     {R"(Iris\S* Xe|UHD Graphics 7\d\d)", "intel-gen12"},
     {R"(Iris\S* (Graphics )?5\d\d|U?HD Graphics 6\d\d|HD Graphics 5\d\d)", "intel-gen9"},
     {R"(HD Graphics 4[2-6]\d\d|Iris\S* (Pro )?(Graphics )?5[12]00)", "intel-gen7.5"},

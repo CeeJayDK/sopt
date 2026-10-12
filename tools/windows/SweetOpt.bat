@@ -153,11 +153,12 @@ echo   %E%[1;93m6%E%[0m  NVIDIA Ampere   %E%[90mRTX 30, RTX 40%E%[0m
 echo   %E%[1;93m7%E%[0m  NVIDIA Blackwell %E%[90mRTX 50%E%[0m
 echo   %E%[1;93m8%E%[0m  NVIDIA Pascal   %E%[90mGTX 10%E%[0m
 echo   %E%[1;93m9%E%[0m  NVIDIA Maxwell  %E%[90mGTX 900, GTX 800M%E%[0m
+echo   %E%[1;93mL%E%[0m  Intel Xe2       %E%[90mArc B-series, Arc 130V / 140V%E%[0m
 echo   %E%[1;93mK%E%[0m  Intel Gen12     %E%[90mIris Xe, UHD Graphics 700%E%[0m
 echo   %E%[1;93mI%E%[0m  Intel Gen9      %E%[90mHD / UHD Graphics 500 and 600%E%[0m
 echo   %E%[1;93mJ%E%[0m  Intel Gen7.5    %E%[90mHD Graphics 4200 - 5200 (Haswell)%E%[0m
 echo.
-choice /c 123456789IJK /n /m "  Press a number (or I, J, K): "
+choice /c 123456789IJKL /n /m "  Press a number (or I, J, K, L): "
 set "k=%errorlevel%"
 if "%k%"=="1" set "MODEL=rdna3" & set "MODELNAME=AMD RDNA 3 (Radeon RX 7000)"
 if "%k%"=="2" set "MODEL=amd-rdna2" & set "MODELNAME=AMD RDNA 2 (Radeon RX 6000, Steam Deck)"
@@ -171,6 +172,7 @@ if "%k%"=="9" set "MODEL=nvidia-maxwell" & set "MODELNAME=NVIDIA Maxwell (GTX 90
 if "%k%"=="10" set "MODEL=intel-gen9" & set "MODELNAME=Intel Gen9 (HD / UHD Graphics)"
 if "%k%"=="11" set "MODEL=intel-gen7.5" & set "MODELNAME=Intel Gen7.5 (HD Graphics 4600)"
 if "%k%"=="12" set "MODEL=intel-gen12" & set "MODELNAME=Intel Gen12 (Iris Xe)"
+if "%k%"=="13" set "MODEL=intel-xe2" & set "MODELNAME=Intel Xe2 (Arc B-series)"
 echo.
 echo   Every variant is checked for all graphics card families: it is never slower on yours, and changes that
 echo   also help other cards are kept. Search with the other families' costs too? %E%[90m(finds more of those; about 4x the time)%E%[0m

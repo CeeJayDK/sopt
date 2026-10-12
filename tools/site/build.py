@@ -48,6 +48,7 @@ MODEL_RULES = [
     (r"RX 6\d\d\d|Radeon 6[68]0M|Raphael|Granite Ridge", "amd-rdna2"),
     (r"Vega", "amd-gcn5"),
     (r"HD [67]\d\d\dM?\b", "amd-terascale2"),
+    (r"Arc\S* B\d\d\d|Arc\S* 1[34]0V", "intel-xe2"),
     (r"Iris\S* Xe|UHD Graphics 7\d\d", "intel-gen12"),
     (r"Iris\S* (Graphics )?5\d\d|U?HD Graphics 6\d\d|HD Graphics 5\d\d", "intel-gen9"),
     (r"HD Graphics 4[2-6]\d\d|Iris\S* (Pro )?(Graphics )?5[12]00", "intel-gen7.5"),
@@ -143,6 +144,10 @@ def library_data(library_path):
 TB_SKIP_CONFIGS = {"dep"}
 
 
+# Tests renamed in TexBench 0.7.1 (owner, 2026-10-12: 1D is linear, 3D trilinear): old reports join the new rows.
+TB_RENAMES = {"tex1D bilinear": "tex1D linear", "tex3D linear": "tex3D trilinear"}
+
+
 def texbench_data(out):
     """The latest TexBench report per card (0.5.0 with the fixed pixel order test), grouped by section."""
     best = {}
@@ -169,7 +174,7 @@ def texbench_data(out):
         for r in rows[1:]:
             if len(r) < len(rows[0]) - 1:
                 continue
-            cfg, test, sec = r[0], r[1], r[2]
+            cfg, test, sec = r[0], TB_RENAMES.get(r[1], r[1]), r[2]
             if cfg in TB_SKIP_CONFIGS or not sec:
                 continue
             note = r[col["note"]] if "note" in col else ""

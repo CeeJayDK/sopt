@@ -126,7 +126,7 @@ Everything rests on `src/ir`: what an operation is, what it costs on each GPU, a
 | `host/sopt_host.cpp` | **Test Host**: shows a fixed image on any graphics API so ReShade can run without a game. |
 | `timer/sopt_timer.cpp` | ReShade add-on that times effects on the GPU. |
 | `run-test.ps1`, `run-bench.ps1`, `common.ps1` | Scripts behind Test-Host.bat. |
-| `stage.ps1`, `zip-reports.ps1` | Put the release folders together; zip the GPU Blueprint reports. |
+| `stage.ps1`, `zip-reports.ps1`, `drift-check.ps1` | Put the release folders together; zip the GPU Blueprint reports; read their clock drift for the send screen. |
 | `gen_expected.py` → `expected.hpp` | Expected results per GPU family, so OpBench can flag odd measurements. |
 | `docs/*.html` | The guides shipped with GPU Blueprint and Test Host. |
 

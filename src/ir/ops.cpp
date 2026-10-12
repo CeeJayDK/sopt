@@ -171,6 +171,19 @@ const CostModel kIntelGen12{"intel-gen12",
    4, 4, 1},
   1, true};
 
+// Intel Xe2 / Battlemage (Arc B580, 0xE20B; docs/opbench/intel-arc-b580.csv, OpBench 0.7.0, clean: drift 4%; one card),
+// quarter units (4 = one fma, throughput). Simple ops as Gen12 (one op; neg / abs / saturate free; clamp / lerp /
+// compare + select two ops), step one op (Gen12 7), sign 12 (18); the math unit ~11.9 (12; exp 12.5, log 12.2), but sin /
+// cos 24.4 (twice Gen12), pow 28; integer and / or / xor nearly free (0.5-1), shifts / iadd ~4.6, imul 9, itof / utof 1.7.
+const CostModel kIntelXe2{"intel-xe2",
+  {0, 0, 1, 1, 1, 4, 4, 12, 12,
+   12, 12, 13, 12, 24, 24, 12, 12, 4, 4, 4, 4, 4, 4, 12, 4, 4, 4, 28,
+   4, 4, 4, 4, 4, 4, 4, 8, 8, 4, 1,
+   4, 16, 20, 20, 1, 1,
+   1, 1, 4, 4, 2, 2, 1, 1, 1, 5, 5, 5, 5, 5, 9,
+   4, 4, 1},
+  1, true};
+
 // Intel Gen7.5 (HD Graphics 4600, Haswell; docs/opbench/intel-hd-graphics-4600.csv, OpBench 0.5.0, clean: drift 0.6%;
 // one card), quarter units (4 = one fma, throughput). Unlike Gen9 the math unit is cheap: rcp / rsqrt / sqrt / exp2 /
 // log2 / sin / cos / log / div ~3.4-3.6 in tput, dep and lat alike (one op), exp 7 (mul + exp2), pow 11.5 (12); add / sub /
@@ -367,6 +380,7 @@ const CostModel kAmdTerascale2{"amd-terascale2",
 //   AMD GCN 5: mad16 -2.9 (an fp16 fma ~1.1 against 4), add16 1.5 vs add 2.1, rcp16 8.7 vs 8.5: packed, ~2x.
 //   AMD RDNA 2: mad16 -2.5, add16 1.5 vs 3.0, rcp16 10.2 vs 7.8: packed, transcendentals ~1.3x slower.
 //   AMD RDNA 3 / 4: mad16 +0.2 / -0.4, rcp16 = rcp: no gain (the fp32 chains already dual-issue).
+//   Intel Xe2 (Arc B580): mad16 0, mad16v3 0, add16 = add, rcp16 = rcp: no gain.
 //   Intel Gen9: mad16 -1.8, add16 2.8 vs 3.9 (~60%), rcp16 = rcp. Gen12: mad16 -1.8, add16 1.9 vs 3.8, rcp16 12.5 vs 10.7.
 //   NVIDIA Turing: mad16 0 (adds 2.0 vs 4.0, but fma not faster), rcp16 16 vs 12; Ampere / Ada / Blackwell: no gain.
 //   Maxwell, Pascal, Intel Gen7.5, AMD GCN 4 (RX 590): the driver reports no 16-bit min precision (runs it at 32 bits).
@@ -381,6 +395,7 @@ const HalfCosts& halfCosts(const CostModel& m) {
       {"amd-rdna4", {true, false, 100, 100, 1}},
       {"intel-gen9", {true, false, 60, 100, 1}},
       {"intel-gen12", {true, false, 55, 115, 1}},
+      {"intel-xe2", {true, false, 100, 100, 1}},
       {"nvidia-turing", {true, false, 100, 133, 1}},
       {"nvidia-ampere", {true, false, 100, 100, 1}},
       {"nvidia-blackwell", {true, false, 100, 100, 1}},
@@ -428,6 +443,7 @@ const CostModel& costNvidiaBlackwell() { return kNvidiaBlackwell; }
 const CostModel& costIntelGen9() { return kIntelGen9; }
 const CostModel& costIntelGen75() { return kIntelGen75; }
 const CostModel& costIntelGen12() { return kIntelGen12; }
+const CostModel& costIntelXe2() { return kIntelXe2; }
 const CostModel& costAmdRdna2() { return kAmdRdna2; }
 const CostModel& costAmdRdna4() { return kAmdRdna4; }
 const CostModel& costAmdGcn5() { return kAmdGcn5; }
@@ -444,7 +460,7 @@ const CostModel kRdna3NoFolds = [] {
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kRdna3Rga || &objective == &kNvidia ||
                  &objective == &kNvidiaMaxwell || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
-                 &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kIntelGen12 || &objective == &kAmdRdna2 ||
+                 &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kIntelGen12 || &objective == &kIntelXe2 || &objective == &kAmdRdna2 ||
                  &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
              ? kSearch
              : objective;
@@ -466,6 +482,7 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kIntelGen9.name) return &kIntelGen9;
   if (name == kIntelGen75.name) return &kIntelGen75;
   if (name == kIntelGen12.name) return &kIntelGen12;
+  if (name == kIntelXe2.name) return &kIntelXe2;
   if (name == kAmdRdna2.name) return &kAmdRdna2;
   if (name == kAmdRdna4.name) return &kAmdRdna4;
   if (name == kAmdGcn5.name) return &kAmdGcn5;

@@ -25,6 +25,7 @@ const Data& data() {
         {"nvidia-turing", "Turing", "NVIDIA"}, {"nvidia-ampere", "Ampere/Ada", "NVIDIA"},
         {"nvidia-blackwell", "Blackwell", "NVIDIA"}, {"intel-gen7.5", "Gen7.5", "Intel"},
         {"intel-gen9", "Gen9", "Intel"},      {"intel-gen12", "Gen12", "Intel"},
+        {"intel-xe2", "Xe2", "Intel"},
     };
     for (auto& p : r.list) p.m = costModelByName(p.model);
     std::istringstream in(kSteamGpuShare);

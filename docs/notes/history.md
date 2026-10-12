@@ -1492,6 +1492,49 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   Drift on the send screen (owner, 2026-10-11): GPU-Blueprint.bat shows each OpBench report's largest reference drift
   (bin\drift-check.ps1) before asking to send; above 50% it asks for a rerun (close programs, plug in, maximum
   performance). The owner's GTX 1660 drifts ~20% even at "Prefer maximum performance", more without it.
+  Reports by the intake action, 2026-10-11 .. 10-12 (OpBench 0.7.0): Ryzen 7000 iGPU 0x164E (RDNA 2, 26.5.2, drift
+  0.6%) and Ryzen 4000 iGPU 0x1636 (Renoir, GCN 5, 0.1%) match exactly; RTX 4090 Laptop (617.42) and a second RTX 4090
+  (616.64) = Ampere/Ada; RTX 2060 (620.02, drift 65%) and RTX 2070 (616.56, drift 176% tput / 359% lat) = Turing in
+  every test: high drift does not always spoil a report (the 3090 at 178% was off), so the warning says "may".
+  HD 4600 second report (20.19.15.5171) = Gen7.5; GTX 860M / Quadro M5000M second reports = Maxwell with the sqrt split
+  (24 / 10) unchanged; UHD 630 (101.2145) = Gen9 on math. ShaderInfo only: UHD 770 (101.6129).
+  Intel Arc B580 (Xe2 / Battlemage, 101.8991, drift 4%): new family, 72 of 182 tests > 25% off Gen12. Cost model
+  `intel-xe2` (owner, 2026-10-12: one model per family): step 4 (Gen12 7), sign 12 (18), math unit 12 (11), sin / cos
+  24.4 (twice Gen12; tan 249, sincos 255: a slow software path), pow 28, a plain mul one op (Gen12: folded, 0), radians
+  4 (0.1); integer and / or / xor ~free, shifts / iadd 4.6, imul 9, idiv / udiv half Gen12's, itof 1.7; fp16 no gain
+  at all (mad16 / mad16v3 0, add16 = add). site MODEL_RULES "Arc B" / "Arc 130V / 140V", SweetOpt.bat key L,
+  HalfCosts no gain. UNRELIABLE in gen_expected.py: nvidia-rtx-3090.csv, nvidia-rtx-3050-laptop-gpu.csv.
+  Driver splits (owner, 2026-10-12: what newer drivers improved, narrowed down as reports come in; one family's tests
+  split by driver version, memory tests left out, unreliable reports left out):
+  - NVIDIA Turing iand: 4.0 on 32.0.15.6614 (566.14, GTX 1660), 1.0-1.1 from 32.0.16.1656 (616.56; RTX 2070, GTX 1660
+    / 1660 Ti on 617.14, RTX 2060 on 620.02). First fast driver: between 566.14 and 616.56.
+  - Intel Gen9 (HD 520 on 21.20.16.4550, 2016, against Iris 540 / UHD 630 on 31.0.101.2121-2145): output modifiers
+    (*2, *4, *0.5 ...) 3.2 -> 0.7, mul 4 -> 0.1 and radians 4 -> 0.1 (folded into the next fma), step 7.6 -> 4.2,
+    divxy 25 -> 11, fmod 37 -> 15, modf 11 -> 7.6, imin 7.2 -> 3.6, and fp16 began to pay (mad16v3 0.6 -> -5.2,
+    mul16 3.0 -> 0.7). First good driver: between 21.20.16.4550 and 31.0.101.2121.
+  - AMD GCN 5: Vega 8 (Raven, 27.20.22002.57) against Vega 11 / Renoir (31.0.21925.1001): mul 1.8 vs -1.5, normalize
+    21 vs 11.4, ftoitof 6.1 vs 10. Older Windows driver branch (27.20) slower on mul / normalize; Raven vs Picasso is
+    the same GPU, so the driver it is.
+  - NVIDIA Maxwell sqrt 24 (GTX 860M, GM107, 32.0.15.8278) vs 10 (Quadro M5000M, GM204, 32.0.15.8194): the newer driver
+    is the slow one, so it is the chip (GM107 = first Maxwell), not the driver, unless a GM20x on 8278 says otherwise.
+  The compiled code behind a split: only AMD drivers give the ISA (ShaderInfo, VK_AMD_shader_info / pipeline executable
+  representations); NVIDIA and Intel on Windows give counts (instructions, basic blocks) only.
+  Gen9 vs Gen9.5 on the same driver generation (Iris 540 on 101.2121, UHD 630 on 101.2145): 1 of 182 tests differs
+  (transpose, noise). The earlier differences were the driver: intel-gen9 rightly covers both.
+  fp16 per family (median, extra cost over the fp32 test; negative = faster): AMD GCN 5 mad16 -2.9 / mad16v3 -8.1, RDNA 2
+  -2.5 / -9.9 (packed, 2x), RDNA 4 -0.4 / -1.0 (barely), Intel Gen9 -1.9 / -5.2, Gen12 -1.9 / -6.1, NVIDIA Turing 0 /
+  -6.1 (vec3 only; mix16 16 and max16 18 slower), Ampere / Ada -0.3 / -0.4, Blackwell -0.4; no gain: Intel Xe2, Gen7.5,
+  NVIDIA Pascal, Maxwell (32-bit min precision on the last three). Transcendentals in fp16 cost the fp32 price
+  everywhere (Maxwell sqrt16 = its sqrt).
+  GPU Blueprint (owner, 2026-10-12): the clock drift comes last in OpBench and TexBench (printDrift / finishRun in
+  benchkit.hpp; green up to 50%, yellow above with "may be less reliable" and what helps), and on the send screen for
+  both programs (drift-check.ps1); the progress bar is taken off when the tests are done; every line printed (not the
+  bar) is saved as Reports\Results\<report>.txt for the user (print() / saveScreen in benchkit.hpp; the zip takes only
+  files directly in Reports\, so it is not sent). TexBench: "tex1D linear" (was bilinear) and "tex3D trilinear" (was
+  linear): the same MIN_MAG_LINEAR_MIP_POINT sampler, the GPU blends in as many dimensions as the texture has; the site
+  maps the old names (build.py TB_RENAMES). Formats and filtering table colored against its median (green <= 0.6x,
+  cyan <= 0.9x, white <= 1.3x, yellow <= 2x, red). GPU-Blueprint.bat: option 1 highlighted ("recommended"), the upload
+  page's name and email may be made up (light yellow).
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

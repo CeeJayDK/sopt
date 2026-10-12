@@ -333,12 +333,12 @@ std::vector<Test> makeTests() {
   texTest("grad 1:1", fns, "addr.coherent", kCoherent,
           "float4 t = T.SampleGrad(S, uv, float2(texel.x, 0.0), float2(0.0, texel.y));", rgba8, Tex::Mipped, 1024,
           Filter::Linear, false, "tex2Dgrad, gradients of one texel (mip 0)");
-  texTest("tex1D bilinear", fns, "addr.coherent", kCoherent, "float4 t = T1.SampleLevel(S, uv.x, 0.0);", rgba8, Tex::Tex1D,
+  texTest("tex1D linear", fns, "addr.coherent", kCoherent, "float4 t = T1.SampleLevel(S, uv.x, 0.0);", rgba8, Tex::Tex1D,
           1024, Filter::Linear, false, "a 1D texture of 1024 texels");
   texTest("tex1Dfetch", fns, "addr.coherent", kCoherent, "float4 t = T1.Load(int2(uv.x * size.x, 0));", rgba8, Tex::Tex1D,
           1024, Filter::Point, false, "a 1D texture of 1024 texels");
-  texTest("tex3D linear", fns, "addr.coherent", kCoherent, "float4 t = T3.SampleLevel(S, float3(uv, 0.5), 0.0);", rgba8,
-          Tex::Vol, 1024, Filter::Linear, false, "1024 x 1024 x 2, halfway between the slices: 8 texels");
+  texTest("tex3D trilinear", fns, "addr.coherent", kCoherent, "float4 t = T3.SampleLevel(S, float3(uv, 0.5), 0.0);", rgba8,
+          Tex::Vol, 1024, Filter::Linear, false, "1024 x 1024 x 2, halfway between the slices: 8 texels (the same sampler as bilinear; a 3D texture blends in 3D)");
   v.back().depth = 2;
   texTest("tex3Dfetch", fns, "addr.coherent", kCoherent, "float4 t = T3.Load(int4(uv * size, 0, 0));", rgba8, Tex::Vol,
           1024, Filter::Point, false, "1024 x 1024 x 2");
@@ -1524,14 +1524,14 @@ int main(int argc, char** argv) {
       const UINT n = UINT(std::max(1, std::min(int(kGroupsFull), std::atoi(next()))));
       kConfigs[0].groups = kConfigs[1].groups = n;
     } else {
-      std::printf("TexBench %s\nusage: TexBench [--adapter N] [--list] [--adapters] [--filter text] [--reps N] [--out file.csv] [--groups N]\n",
+      print("TexBench %s\nusage: TexBench [--adapter N] [--list] [--adapters] [--filter text] [--reps N] [--out file.csv] [--groups N]\n",
                   SOPT_VERSION);
       return a == "-h" || a == "--help" ? 0 : 1;
     }
   }
   if (!list) {
     printBox(st, std::string("TexBench ") + SOPT_VERSION + "  -  by CeeJay.dk");
-    std::printf("\n");
+    print("\n");
   }
   const Adapter ad = selectAdapter(st, list, adapterIndex);
   if (list) return 0;
@@ -1628,7 +1628,7 @@ int main(int argc, char** argv) {
     if ((filter.empty() || t.name.find(filter) != std::string::npos || t.name == "mad" || t.name == "ps.mad") &&
         storageOk(t))
       tests.push_back(&t);
-  if (!unsupported.empty()) std::printf("Not supported by this GPU, left out: %s\n", unsupported.c_str());
+  if (!unsupported.empty()) print("Not supported by this GPU, left out: %s\n", unsupported.c_str());
   for (bool added = true; added;) {
     added = false;
     for (const Test* t : std::vector<const Test*>(tests))
@@ -1651,7 +1651,7 @@ int main(int argc, char** argv) {
     }
     for (const Config& c : kConfigs) planned += runsIn(*t, c) ? 2 : 0;
   }
-  std::printf("\n%zu tests, each read at least twice (more often when the readings disagree), each against the\n"
+  print("\n%zu tests, each read at least twice (more often when the readings disagree), each against the\n"
               "reference mad measured right before it.\n",
               tests.size());
   std::mt19937 rng(12345);
@@ -1692,7 +1692,7 @@ int main(int argc, char** argv) {
   BackgroundJobs compiling(std::move(jobList));
   auto jobOf = [&](const Test* t) { return size_t(std::find(tests.begin(), tests.end(), t) - tests.begin()); };
   if (!tests.empty()) {
-    std::printf("Warming up the GPU for 2 seconds ...");
+    print("Warming up the GPU for 2 seconds ...");
     // Warm up with the compute reference.
     compiling.wait(jobOf(byName("mad")));
     Bound none = bindResources(g, *byName("mad"), rng);
@@ -1702,7 +1702,7 @@ int main(int argc, char** argv) {
     const ULONGLONG start = GetTickCount64();
     while (GetTickCount64() - start < 2000) run(g, k, kConfigs[0].groups);
     none.free();
-    std::printf(" done\n");
+    print(" done\n");
   }
   Progress progress{&st, int(planned)};
 
@@ -1735,9 +1735,22 @@ int main(int argc, char** argv) {
   auto printMatrix = [&](const std::string& sec) {
     static const char* const kHead[] = {"Load", "point", "bilin", "gather", "trilin", "aniso2", "aniso4", "aniso8", "aniso16"};
     const bool gbs = cols >= 2 + 10 + 9 * 7 + 8 + 1;
-    std::printf("\n  %s%s%s\n  %s%-10s", st.c("\x1b[1;96m"), sec.c_str(), st.reset(), st.c("\x1b[90m"), "Format");
-    for (const char* h : kHead) std::printf(" %6s", h);
-    std::printf("%s%s\n", gbs ? "    GB/s" : "", st.reset());
+    print("\n  %s%s%s\n  %s%-10s", st.c("\x1b[1;96m"), sec.c_str(), st.reset(), st.c("\x1b[90m"), "Format");
+    for (const char* h : kHead) print(" %6s", h);
+    print("%s%s\n", gbs ? "    GB/s" : "", st.reset());
+    // Colors against the table's median cost (owner, 2026-10-12: fast or slow at a glance; texture reads cost far more
+    // than math, so costComment's scale would color everything red): green <= 0.6x, cyan <= 0.9x, white <= 1.3x,
+    // yellow <= 2x, red above.
+    std::vector<double> all;
+    for (const Format& f : kFormats)
+      for (int col = 0; col < 9; ++col)
+        if (const std::string n = std::string(f.name) + " " + kMatrixCols[col]; results["tput"].count(n))
+          all.push_back(std::max(0.0, results["tput"][n].vsBase));
+    const double mid = all.empty() ? 0.0 : median(all);
+    auto shadeOf = [&](double v) {
+      const double r = mid > 0.0 ? v / mid : 1.0;
+      return r <= 0.6 ? kGreen : r <= 0.9 ? kCyan : r <= 1.3 ? kWhite : r <= 2.0 ? kYellow : kRed;
+    };
     for (const Format& f : kFormats) {
       std::string line;
       bool any = false;
@@ -1757,7 +1770,7 @@ int main(int argc, char** argv) {
           buf[0] = '!';  // no consensus
           unstable.push_back(name);
         }
-        line += buf;
+        line += st.vt ? "\x1b[" + std::to_string(shadeOf(v).bright) + "m" + buf + "\x1b[0m" : std::string(buf);
         const double refNs = x.units.value > 0.0 ? x.r.nsPerStep * 4.0 / x.units.value : 0.0;
         if ((col == 2 || (col == 0 && f.kind == 'i')) && x.vsBase > 0.05 && refNs > 0.0)
           perByte = f.bytes / (x.vsBase / 4.0 * refNs);
@@ -1766,10 +1779,10 @@ int main(int argc, char** argv) {
       char gb[16] = "";
       if (gbs && perByte >= 0.0) std::snprintf(gb, sizeof(gb), perByte < 9999.95 ? "  %6.1f" : "  %6.0f", perByte);
       else if (gbs) std::snprintf(gb, sizeof(gb), "  %6s", "-");
-      std::printf("  %-10s%s%s\n", f.name, line.c_str(), gb);
+      print("  %-10s%s%s\n", f.name, line.c_str(), gb);
     }
-    std::printf("%*s%s(lower is better; GB/s: the bilinear reads' data rate, integer formats: Load)%s\n", 2 + 10 + 1, "",
-                st.c("\x1b[90m"), st.reset());
+    print("%*s%s(lower is better; green = fast, red = slow for this card; GB/s: the bilinear reads' data rate, integer\n"
+          "%*sformats: Load)%s\n", 2 + 10 + 1, "", st.c("\x1b[90m"), 2 + 10 + 1, "", st.reset());
   };
   // Compute and pixel shader sections: cost, graph, Ops, dep, lat (and GB/s).
   auto printTable = [&](const std::string& sec) {
@@ -1777,7 +1790,7 @@ int main(int argc, char** argv) {
     bool bytes = false;
     for (const Test* t : tests)
       if (t->section == sec && results["tput"].count(t->name)) maxV = std::max(maxV, results["tput"][t->name].vsBase), bytes |= t->perByte;
-    std::printf("\n  %s%s%s\n  %s%-*s %7s  %-*s  %6s %6s %6s%s%s\n", st.c("\x1b[1;96m"), sec.c_str(), st.reset(),
+    print("\n  %s%s%s\n  %s%-*s %7s  %-*s  %6s %6s %6s%s%s\n", st.c("\x1b[1;96m"), sec.c_str(), st.reset(),
                 st.c("\x1b[90m"), nameW, "Test", "Cost", kBarWidth, kBarWidth >= 18 ? "(many in parallel)" : "(parallel)", "Ops", "dep", "lat",
                 bytes ? "    GB/s" : "", st.reset());
     for (const Test* t : tests) {
@@ -1807,11 +1820,11 @@ int main(int argc, char** argv) {
       if (t->perByte && t->format && x.vsBase > 0.05 && refNs > 0.0)
         std::snprintf(perByte, sizeof(perByte), "  %s", num(t->format->bytes / (x.vsBase / 4.0 * refNs), 6).c_str());
       else if (t->perByte) std::snprintf(perByte, sizeof(perByte), "  %6s", "-");
-      std::printf("  %-*s %s  %s  %s %s %s%s%s\n", nameW, shortName(t->name).c_str(), num(x.vsBase, 7).c_str(),
+      print("  %-*s %s  %s  %s %s %s%s%s\n", nameW, shortName(t->name).c_str(), num(x.vsBase, 7).c_str(),
                   bar(x.vsBase, maxV, kBarWidth, st, shade).c_str(), num(x.vsBase / 4.0, 6).c_str(), other("dep").c_str(),
                   other("lat").c_str(), perByte, shaky ? (st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus") : "");
     }
-    std::printf("%s%s(shorter is better)%s\n", graphIndent.c_str(), st.c("\x1b[90m"), st.reset());
+    print("%s%s(shorter is better)%s\n", graphIndent.c_str(), st.c("\x1b[90m"), st.reset());
   };
   auto printWrites = [&] {
     double maxW = 0.0;
@@ -1819,7 +1832,7 @@ int main(int argc, char** argv) {
       if (t->stage == Stage::Write) maxW = std::max(maxW, writeUnits[t->name].value);
     // Noise cannot be compressed; Gain = how much faster the smooth gradient / the flat color writes.
     const int w = std::clamp((cols - 1 - (2 + 18 + 1 + 3 * 9 + 2 * 7 + 2)) / 3, 4, 8);
-    std::printf("\n  %sRender target writes: full-screen passes into 3840 x 2160 (GB/s)%s\n"
+    print("\n  %sRender target writes: full-screen passes into 3840 x 2160 (GB/s)%s\n"
                 "  %s%-18s %7s  %-*s  %7s  %-*s  %7s  %-*s  %6s %6s%s\n",
                 st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Format", "Noise", w, "", "Smooth", w, "", "Flat", w, "",
                 "Gain", "Gain", st.reset());
@@ -1841,14 +1854,14 @@ int main(int argc, char** argv) {
         else std::snprintf(buf, sizeof(buf), "%6s", "-");
         return std::string(buf);
       };
-      std::printf("  %-18s %s  %s  %s  %s %s\n", f.name, col(n).c_str(), col(sm).c_str(), col(fl).c_str(),
+      print("  %-18s %s  %s  %s  %s %s\n", f.name, col(n).c_str(), col(sm).c_str(), col(fl).c_str(),
                   gain(sm).c_str(), gain(fl).c_str());
     }
-    std::printf("%*s%s(longer is better)%s\n", 2 + 18 + 1 + 7 + 2, "", st.c("\x1b[90m"), st.reset());
+    print("%*s%s(longer is better)%s\n", 2 + 18 + 1 + 7 + 2, "", st.c("\x1b[90m"), st.reset());
   };
   auto printBlend = [&] {
     // ms per pass; of each blend / shader pair the faster one in green.
-    std::printf("\n  %sBlending: full-screen passes into 3840 x 2160 (ms per pass)%s\n"
+    print("\n  %sBlending: full-screen passes into 3840 x 2160 (ms per pass)%s\n"
                 "  %s%-10s %7s   %-15s   %-15s   %-15s   %-15s%s\n"
                 "  %s%-10s %7s   %7s %7s   %7s %7s   %7s %7s   %7s %7s%s\n",
                 st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Format", "Plain", "Add", "Lerp (alpha)", "Multiply",
@@ -1875,21 +1888,21 @@ int main(int argc, char** argv) {
       char head[64];
       if (plain >= 0.0) std::snprintf(head, sizeof(head), "  %-10s %7.3f", fn, plain);
       else std::snprintf(head, sizeof(head), "  %-10s %7s", fn, "-");
-      std::printf("%s%s\n", head, line.c_str());
+      print("%s%s\n", head, line.c_str());
     }
-    std::printf("%*s%s(lower is better)%s\n", 2 + 10 + 1, "", st.c("\x1b[90m"), st.reset());
+    print("%*s%s(lower is better)%s\n", 2 + 10 + 1, "", st.c("\x1b[90m"), st.reset());
   };
   auto printPass = [&](const std::string& sec) {
     double maxP = 0.0;
     for (const Test* t : tests)
       if (t->stage == Stage::Pass && t->section == sec) maxP = std::max(maxP, passMs[t->name].value);
-    std::printf("\n  %s%s%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"), sec.c_str(),
+    print("\n  %s%s%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"), sec.c_str(),
                 st.reset(), st.c("\x1b[90m"), "Test", "ms/pass", kBarWidth, "", st.reset());
     for (const Test* t : tests)
       if (t->stage == Stage::Pass && t->section == sec)
-        std::printf("  %-26s %8.3f  %s\n", t->name.c_str(), passMs[t->name].value,
+        print("  %-26s %8.3f  %s\n", t->name.c_str(), passMs[t->name].value,
                     bar(passMs[t->name].value, maxP, kBarWidth, st, kCyan).c_str());
-    std::printf("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
+    print("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
   };
   auto printSection = [&](const std::string& sec) {
     const Test* first = nullptr;
@@ -2325,10 +2338,11 @@ int main(int argc, char** argv) {
     }
   }
   lap(nullptr);
+  if (planned) progress.pause();  // the tests are done: the bar is not needed any more (owner, 2026-10-12)
   const double runSeconds = std::chrono::duration<double>(Clock::now() - runStart).count();
   const auto [lo, hi] = std::minmax_element(refs.begin(), refs.end());
   const double drift = refs.empty() ? 0.0 : 100.0 * (*hi - *lo) / median(refs);
-  std::printf("\n   reference drift %.1f%%%s\n", drift, drift > 5.0 ? " (the GPU clock moved)" : "");
+  print("\n   reference drift %.1f%%\n", drift);
   // Pixel shader order (not a timing: one draw, read back).
   if (filter.empty() || std::string("Pixel shader order").find(filter) != std::string::npos) {
     gCurrent = "Pixel shader order";
@@ -2340,38 +2354,38 @@ int main(int argc, char** argv) {
   writeCsv();
 
   // Summary
-  std::printf("\n");
+  print("\n");
   printBox(st, std::string("TexBench ") + SOPT_VERSION + "  -  " + ad.name);
-  std::printf("  driver %s, vendor 0x%04X, device 0x%04X, run time %d min %02d s\n", ad.driver.c_str(), ad.desc.VendorId,
+  print("  driver %s, vendor 0x%04X, device 0x%04X, run time %d min %02d s\n", ad.driver.c_str(), ad.desc.VendorId,
               ad.desc.DeviceId, int(runSeconds) / 60, int(runSeconds) % 60);
   if (order.ran) {
     // Blocks: the share of compact blocks per size; tiles: how contiguous aligned squares were shaded.
-    std::printf("\n  %sPixel shader order: which pixels the GPU shades together (one draw, 1024 x 1024)%s\n"
+    print("\n  %sPixel shader order: which pixels the GPU shades together (one draw, 1024 x 1024)%s\n"
                 "  %s%-10s %8s  %-*s  %-9s%s\n",
                 st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Block", "Compact", kBarWidth, "", "Shape", st.reset());
     for (const auto& b : order.blocks)
-      std::printf("  %-10u %7.0f%%  %s  %s\n", b.w, 100.0 * b.compact, bar(100.0 * b.compact, 100.0, kBarWidth, st, kCyan).c_str(),
+      print("  %-10u %7.0f%%  %s  %s\n", b.w, 100.0 * b.compact, bar(100.0 * b.compact, 100.0, kBarWidth, st, kCyan).c_str(),
                   b.shape.c_str());
-    std::printf("  %s%-10s %8s%s\n", st.c("\x1b[90m"), "Tile", "In one go", st.reset());
+    print("  %s%-10s %8s%s\n", st.c("\x1b[90m"), "Tile", "In one go", st.reset());
     for (const auto& [b, c] : order.tiles) {
       char name[24];
       std::snprintf(name, sizeof(name), "%u x %u", b, b);
-      std::printf("  %-10s %7.0f%%  %s\n", name, 100.0 * c, bar(100.0 * c, 100.0, kBarWidth, st, kCyan).c_str());
+      print("  %-10s %7.0f%%  %s\n", name, 100.0 * c, bar(100.0 * c, 100.0, kBarWidth, st, kCyan).c_str());
     }
     if (order.together)
-      std::printf("  Pixels shaded together: blocks of %u (%s).\n", order.together, order.togetherShape.c_str());
-    std::printf("  Counter: %s.\n", order.counterKind.c_str());
-    std::printf("  Speed (1024 x 1024 draw): plain %.3f ms, with the store %.3f ms, with the counter and the store %.3f ms\n"
+      print("  Pixels shaded together: blocks of %u (%s).\n", order.together, order.togetherShape.c_str());
+    print("  Counter: %s.\n", order.counterKind.c_str());
+    print("  Speed (1024 x 1024 draw): plain %.3f ms, with the store %.3f ms, with the counter and the store %.3f ms\n"
                 "  Cost per pixel over the plain draw: store %.1f, counter + store %.1f (4 = one multiply-add; every\n"
                 "  pixel adds 1 to the same counter, so they have to take turns)\n",
                 order.plainMs, order.storeMs, order.orderMs, order.storeUnits, order.orderUnits);
     if (order.counter != UINT64(kOrderSize) * kOrderSize || order.missing)
-      std::printf("  %sNote:%s counter %llu, %llu pixels without a number.\n", st.c("\x1b[1;93m"), st.reset(),
+      print("  %sNote:%s counter %llu, %llu pixels without a number.\n", st.c("\x1b[1;93m"), st.reset(),
                   (unsigned long long)order.counter, (unsigned long long)order.missing);
-    std::printf("  Images: %s\n          %s\n", order.image.c_str(), order.zoom.c_str());
+    print("  Images: %s\n          %s\n", order.image.c_str(), order.zoom.c_str());
   }
   // How to read the summary, for people who are not programmers (owner's wording review, 2026-10-04).
-  std::printf("\n  %sHow to read this%s\n"
+  print("\n  %sHow to read this%s\n"
               "  Cost     How long the operation takes, compared with the simplest thing a GPU does:\n"
               "           a multiply-add, which counts as 4. The rest of the test is already subtracted.\n"
               "  Ops      Operations: the cost counted in multiply-adds.\n"
@@ -2385,22 +2399,20 @@ int main(int argc, char** argv) {
               "\n"
               "  Docs\\TexBench.html (README.html next to this program) explains every test in plain words.\n",
               st.c("\x1b[1;96m"), st.reset());
-  if (drift > 5.0)
-    std::printf("\n  %sWarning:%s the reference changed by %.0f%% during the run: the GPU clock moved.\n", st.c("\x1b[1;93m"),
-                st.reset(), drift);
   if (!unstable.empty()) {
-    std::printf("\n  %sWarning:%s %zu test(s) without agreeing readings after %d passes:", st.c("\x1b[1;93m"), st.reset(),
+    print("\n  %sWarning:%s %zu test(s) without agreeing readings after %d passes:", st.c("\x1b[1;93m"), st.reset(),
                 unstable.size(), kMaxPasses);
-    for (const std::string& n : unstable) std::printf(" %s", n.c_str());
-    std::printf("\n");
+    for (const std::string& n : unstable) print(" %s", n.c_str());
+    print("\n");
   }
-  std::printf("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
+  print("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
   if (const Score sc = score(); sc.texRate > 0.0) {
     std::vector<std::pair<std::string, std::string>> more;
     if (sc.fill > 0.0) more.push_back({"Pixel fill rate", threeDigits(sc.fill) + " GPixels/s"});
     if (sc.bandwidth > 0.0) more.push_back({"Memory bandwidth (writes)", threeDigits(sc.bandwidth) + " GB/s"});
     printScore(st, "TexBench score", ad.name, ad.desc.VendorId, sc.texRate, "GTexels/s", "texture rate, bilinear RGBA8", more);
   }
+  finishRun(st, drift, outPath);
   gCurrent.clear();
   setTitle("done");
   return 0;

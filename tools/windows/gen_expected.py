@@ -29,6 +29,8 @@ UNRELIABLE = {
     "nvidia-rtx-4090-laptop.csv", "nvidia-rtx-4090-laptop-dgpu.csv", "amd-radeon-680m-rembrandt.csv",
     "nvidia-rtx-4090-b.csv",  # 420% drift, 11 tests without consensus, fp32 43 of 83 TFLOPS: throttled
     "nvidia-rtx-4090-c.csv",  # 158% drift, fp32 40 of 83 TFLOPS: throttled (costs still = the first 4090)
+    "nvidia-rtx-3090.csv",  # 178% drift, ~30% low on most tests (clock, not chip)
+    "nvidia-rtx-3050-laptop-gpu.csv",  # 157% drift, many tests off the family
 }
 
 
