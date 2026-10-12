@@ -34,7 +34,7 @@
       {"name": "Xe-LP", "examples": "Iris Xe, UHD Graphics 700 (Tiger Lake - Raptor Lake)", "model": "intel-gen12"},
       {"name": "Xe-LPG", "examples": "Intel Arc Graphics in Meteor Lake / Arrow Lake", "model": null},
       {"name": "Xe-HPG (Alchemist)", "examples": "Intel Arc A-series", "model": null},
-      {"name": "Xe2 (Battlemage)", "examples": "Intel Arc B-series, Arc 130V / 140V (Lunar Lake)", "model": null},
+      {"name": "Xe2 (Battlemage)", "examples": "Intel Arc B-series, Arc 130V / 140V (Lunar Lake)", "model": "intel-xe2"},
       {"name": "Xe3", "examples": "Intel Arc B370 / B390 in Panther Lake", "model": null}
     ]},
     {"vendor": "Qualcomm", "architectures": [

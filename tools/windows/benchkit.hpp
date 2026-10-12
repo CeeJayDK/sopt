@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -41,6 +42,42 @@ inline const char* gProgram = "bench";
 // (both in the window title).
 inline std::string gCurrent;
 inline std::string gGpu;
+
+// Everything printed with print() (all but the progress bar), saved for the user by saveScreen (owner, 2026-10-12: a
+// copy of what they saw; not part of the reports sent).
+inline std::string gScreen;
+inline int print(const char* fmt, ...) {
+  va_list a, b;
+  va_start(a, fmt);
+  va_copy(b, a);
+  const int n = std::vsnprintf(nullptr, 0, fmt, a);
+  va_end(a);
+  std::string text(n > 0 ? size_t(n) : 0, '\0');
+  if (n > 0) std::vsnprintf(text.data(), text.size() + 1, fmt, b);
+  va_end(b);
+  std::fwrite(text.data(), 1, text.size(), stdout);
+  gScreen += text;
+  return n;
+}
+
+// gScreen without colors and cursor codes, as a UTF-8 text file (Reports\Results\<report>.txt).
+inline void saveScreen(const std::filesystem::path& file) {
+  std::string out;
+  for (size_t i = 0; i < gScreen.size(); ++i) {
+    if (gScreen[i] == '\x1b' && i + 1 < gScreen.size() && gScreen[i + 1] == '[') {
+      i += 2;
+      while (i < gScreen.size() && !(gScreen[i] >= 0x40 && gScreen[i] <= 0x7e)) ++i;
+    } else if (gScreen[i] != '\r') {
+      out += gScreen[i];
+    }
+  }
+  std::error_code ec;
+  std::filesystem::create_directories(file.parent_path(), ec);
+  if (FILE* f = _wfopen(file.c_str(), L"wb")) {
+    std::fwrite(out.data(), 1, out.size(), f);
+    std::fclose(f);
+  }
+}
 
 // The window title: "<program> - <GPU> - <state>" (owner: the GPU in the title; "done" at the end).
 inline void setTitle(const std::string& state) {
@@ -416,10 +453,10 @@ inline void printBox(const Style& st, const std::string& title) {
   const std::string hz = st.vt ? "═" : "=";
   std::string line;
   for (int k = 0; k < columns(title) + 4; ++k) line += hz;
-  std::printf("  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "╔" : "+", line.c_str(), st.vt ? "╗" : "+", st.reset());
-  std::printf("  %s%s%s  %s%s%s  %s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "║" : "|", st.reset(), st.c("\x1b[1;97m"),
+  print("  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "╔" : "+", line.c_str(), st.vt ? "╗" : "+", st.reset());
+  print("  %s%s%s  %s%s%s  %s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "║" : "|", st.reset(), st.c("\x1b[1;97m"),
               title.c_str(), st.reset(), st.c("\x1b[1;96m"), st.vt ? "║" : "|", st.reset());
-  std::printf("  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "╚" : "+", line.c_str(), st.vt ? "╝" : "+", st.reset());
+  print("  %s%s%s%s%s\n", st.c("\x1b[1;96m"), st.vt ? "╚" : "+", line.c_str(), st.vt ? "╝" : "+", st.reset());
 }
 
 // Display width of a line that may hold color codes.
@@ -461,13 +498,35 @@ inline const char* vendorColor(const Style& st, UINT vendor);
 
 // The score box at the end of a run (owner, 2026-10-04: a number users can show others, jazzed up):
 // a title, the headline value in large yellow digits with its unit beside them, then more values.
+// The clock drift at the very end of a run, then where the results file is (owner, 2026-10-12: where people see it
+// before sending). ~20% is normal even at maximum performance; reports with 150%+ were off, but some with 175% were
+// still fine: "may be", not "are".
+inline void printDrift(const Style& st, double drift) {
+  if (drift <= 50.0) {
+    print("\n  %sClock drift %.0f%%: fine.%s\n", st.c("\x1b[92m"), drift, st.reset());
+    return;
+  }
+  print("\n  %sClock drift %.0f%%: the graphics card's clock changed a lot during the run, so the numbers may be%s\n"
+        "  %sless reliable. For steadier numbers: close other programs, plug in a laptop, set \"Prefer maximum%s\n"
+        "  %sperformance\" (NVIDIA Control Panel) or the \"High performance\" power plan, and run it again.%s\n",
+        st.c("\x1b[1;93m"), drift, st.reset(), st.c("\x1b[1;93m"), st.reset(), st.c("\x1b[1;93m"), st.reset());
+}
+
+// The last lines of a run: the drift, and the copy of the screen in Reports\Results (not sent with the reports).
+inline void finishRun(const Style& st, double drift, const std::filesystem::path& csv) {
+  printDrift(st, drift);
+  const std::filesystem::path file = csv.parent_path() / "Results" / (csv.stem().string() + ".txt");
+  print("\n  Your results, as shown here: %s\n", file.string().c_str());
+  saveScreen(file);
+}
+
 inline void printScore(const Style& st, const std::string& title, const std::string& gpu, UINT vendor, double headline,
                        const std::string& unit, const std::string& what,
                        const std::vector<std::pair<std::string, std::string>>& more) {
   const std::string value = threeDigits(headline);
   if (!st.vt) {
-    std::printf("\n  %s - %s\n  %s %s (%s)\n", title.c_str(), gpu.c_str(), value.c_str(), unit.c_str(), what.c_str());
-    for (const auto& [k, v] : more) std::printf("  %-26s %s\n", k.c_str(), v.c_str());
+    print("\n  %s - %s\n  %s %s (%s)\n", title.c_str(), gpu.c_str(), value.c_str(), unit.c_str(), what.c_str());
+    for (const auto& [k, v] : more) print("  %-26s %s\n", k.c_str(), v.c_str());
     return;
   }
   std::vector<std::string> lines;
@@ -487,10 +546,10 @@ inline void printScore(const Style& st, const std::string& title, const std::str
   for (const std::string& l : lines) width = std::max(width, visibleColumns(l));
   std::string hz;
   for (int k = 0; k < width + 6; ++k) hz += "═";
-  std::printf("\n  \x1b[1;96m╔%s╗\x1b[0m\n", hz.c_str());
+  print("\n  \x1b[1;96m╔%s╗\x1b[0m\n", hz.c_str());
   for (const std::string& l : lines)
-    std::printf("  \x1b[1;96m║\x1b[0m   %s%*s   \x1b[1;96m║\x1b[0m\n", l.c_str(), width - visibleColumns(l), "");
-  std::printf("  \x1b[1;96m╚%s╝\x1b[0m\n", hz.c_str());
+    print("  \x1b[1;96m║\x1b[0m   %s%*s   \x1b[1;96m║\x1b[0m\n", l.c_str(), width - visibleColumns(l), "");
+  print("  \x1b[1;96m╚%s╝\x1b[0m\n", hz.c_str());
 }
 
 // ---------------------------------------------------------------------------
@@ -534,7 +593,7 @@ inline void printUniqueAdapters() {
               e.DedicatedVideoMemory == d.DedicatedVideoMemory);
     if (dup) continue;
     seen.push_back(d);
-    std::printf("%u\n", k);
+    print("%u\n", k);
   }
   factory->Release();
 }
@@ -561,7 +620,7 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
     const bool software = (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
     names.push_back(narrow(d.Description) + (software ? " [software]" : ""));
     if (list)
-      std::printf("%zu: %s%s%s (%zu MB)%s\n", k, vendorColor(st, d.VendorId), narrow(d.Description).c_str(), st.reset(),
+      print("%zu: %s%s%s (%zu MB)%s\n", k, vendorColor(st, d.VendorId), narrow(d.Description).c_str(), st.reset(),
                   size_t(d.DedicatedVideoMemory >> 20), software ? " [software]" : "");
     if (!software && (pick < 0 || d.DedicatedVideoMemory > bestMem)) {
       pick = int(k);
@@ -585,17 +644,17 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
   }
   gGpu = a.name;
   setTitle("");
-  std::printf("%sGPU:%s %s%s%s (vendor 0x%04X, device 0x%04X), driver %s\n", st.c("\x1b[1m"), st.reset(),
+  print("%sGPU:%s %s%s%s (vendor 0x%04X, device 0x%04X), driver %s\n", st.c("\x1b[1m"), st.reset(),
               vendorColor(st, a.desc.VendorId), a.name.c_str(), st.reset(), a.desc.VendorId, a.desc.DeviceId,
               a.driver.c_str());
   if (adapters.size() > 1) {
-    std::printf("Also detected in system:\n");
+    print("Also detected in system:\n");
     size_t nameW = 0;
     for (size_t k = 0; k < adapters.size(); ++k)
       if (int(k) != pick) nameW = std::max(nameW, names[k].size());
     for (size_t k = 0; k < adapters.size(); ++k)
       if (int(k) != pick)
-        std::printf("  %zu: %s%-*s%s   %sUse --adapter %zu to test this%s\n", k, vendorColor(st, vendors[k]), int(nameW),
+        print("  %zu: %s%-*s%s   %sUse --adapter %zu to test this%s\n", k, vendorColor(st, vendors[k]), int(nameW),
                     names[k].c_str(), st.reset(), st.c("\x1b[90m"), k, st.reset());
   }
   return a;

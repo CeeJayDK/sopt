@@ -21,7 +21,7 @@ echo   %E%[1;97m  GPU Blueprint  -  by CeeJay.dk%E%[0m
 echo   %E%[90m  measures your graphics card for sopt%E%[0m
 echo   %E%[96m=====================================================%E%[0m
 echo.
-echo   %E%[1;93m1%E%[0m  Every graphics card in this PC: ShaderInfo, OpBench and TexBench %E%[90m(5-15 min per card)%E%[0m
+echo   %E%[1;93m1%E%[0m  %E%[1;92mEvery graphics card in this PC: ShaderInfo, OpBench and TexBench%E%[0m %E%[90m(5-15 min per card)%E%[0m %E%[92m^<- recommended%E%[0m
 echo   %E%[1;93m2%E%[0m  Main graphics card only
 echo   %E%[1;93m3%E%[0m  Another graphics card: you pick the card
 echo.
@@ -80,13 +80,14 @@ exit /b
 rem Also called at the end of a run (no cls: the results stay on screen).
 :sendInfo
 echo   This opens CeeJay's upload page (Dropbox) in your browser and shows %E%[1;97m%ZIP%%E%[0m in a folder.
-echo   Drag the zip onto the page. You do not need a Dropbox account; the page asks for a name and an email
-echo   (any name will do) so CeeJay can tell reports apart.
+echo   Drag the zip onto the page. You do not need a Dropbox account; the page asks for a name and an email.
+echo   %E%[93mThey do not have to be real: any name and any email will do. CeeJay never sees the email.%E%[0m
 echo.
 echo   The zip holds the reports in the Reports folder: your graphics card's name, driver version and the
 echo   measurements. Nothing else from your PC is sent, and nothing is sent unless you upload it.
 echo.
-for /f "usebackq tokens=1* delims=|" %%a in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%BIN%drift-check.ps1" "%~dp0."`) do call :drift %%a "%%b"
+for /f "usebackq tokens=1,2* delims=|" %%a in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%BIN%drift-check.ps1" "%~dp0."`) do call :drift %%a %%b "%%c"
+echo.
 choice /c YN /n /m "  Send the reports now, open the upload page? (Y/N) "
 if errorlevel 2 exit /b
 start "" "%UPLOAD%"
@@ -95,18 +96,17 @@ if not exist "Reports\.sent" type nul > "Reports\.sent"
 attrib +h "Reports\.sent" >nul 2>&1
 exit /b
 
-rem :drift <percent> "<GPU>": how much the GPU clock moved during OpBench (owner, 2026-10-11: say it before sending).
-rem 20%% is normal even at maximum performance (owner's GTX 1660); runs with 150%% and more were unusable.
+rem :drift <percent> <program> "<GPU>": how much the GPU clock moved during a run (owner, 2026-10-11/12: say it
+rem before sending, highlighted). 20%% is normal even at maximum performance (owner's GTX 1660); some runs with 150%%
+rem and more were off, others with 175%% still fine: "may be".
 :drift
 if %~1 GTR 50 goto driftHigh
-echo   OpBench on %~2: the GPU clock moved %~1%% during the run %E%[92m(fine)%E%[0m.
-echo.
+echo   %~2 on %~3: clock drift %~1%% %E%[92m(fine)%E%[0m
 exit /b
 :driftHigh
-echo   %E%[1;93mOpBench on %~2: the GPU clock moved %~1%% during the run.%E%[0m Above 50%% the numbers are not reliable.
-echo   Please run OpBench again before sending: close other programs, plug in a laptop, and set
-echo   "Prefer maximum performance" (NVIDIA Control Panel) or the "High performance" power plan in Windows.
-echo.
+echo   %E%[1;93m%~2 on %~3: clock drift %~1%%: the numbers may be less reliable.%E%[0m
+echo   %E%[93mA rerun can help: close other programs, plug in a laptop, and set "Prefer maximum performance"%E%[0m
+echo   %E%[93m(NVIDIA Control Panel) or the "High performance" power plan in Windows.%E%[0m
 exit /b
 
 rem :run "<adapter number or empty>" all|opbench|texbench|shaderinfo

@@ -14,7 +14,7 @@ const CostModel* modelArg(const char* name) {
   const CostModel* m = costModelByName(name);
   if (!m)
     std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell, "
-                         "nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-gen12, intel-gen9, "
+                         "nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-blackwell, intel-xe2, intel-gen12, intel-gen9, "
                          "intel-gen7.5, generic, search)\n");
   return m;
 }

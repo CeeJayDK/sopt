@@ -670,7 +670,7 @@ int main(int argc, char** argv) {
       const UINT n = UINT(std::max(1, std::min(int(kGroupsFull), std::atoi(next()))));
       kConfigs[0].groups = kConfigs[1].groups = n;
     } else {
-      std::printf("OpBench %s\nusage: OpBench [--adapter N] [--list] [--adapters] [--filter text] [--reps N] [--out file.csv] [--groups N]\n",
+      print("OpBench %s\nusage: OpBench [--adapter N] [--list] [--adapters] [--filter text] [--reps N] [--out file.csv] [--groups N]\n",
                   SOPT_VERSION);
       return a == "-h" || a == "--help" ? 0 : 1;
     }
@@ -678,7 +678,7 @@ int main(int argc, char** argv) {
 
   if (!list) {
     printBox(st, std::string("OpBench ") + SOPT_VERSION + "  -  by CeeJay.dk");
-    std::printf("\n");
+    print("\n");
   }
   const Adapter ad = selectAdapter(st, list, adapterIndex);
   if (list) return 0;
@@ -826,14 +826,14 @@ int main(int argc, char** argv) {
       for (const Test* t : gr.run)
         if (t != madTest) compileTest(t);
     });
-  std::printf("\n");
+  print("\n");
   BackgroundJobs compiling(std::move(jobList));
   compiling.wait(0);  // the reference, for the warm-up
 
-  std::printf("%zu tests, each measured in three ways:\n", tests.size());
+  print("%zu tests, each measured in three ways:\n", tests.size());
   for (const Config& c : kConfigs)
-    std::printf("  %s%-26s%s %s\n", st.c("\x1b[1;96m"), c.title, st.reset(), c.what);
-  std::printf("Each is measured twice (forward, then backward through its section) and more often when its two\n"
+    print("  %s%-26s%s %s\n", st.c("\x1b[1;96m"), c.title, st.reset(), c.what);
+  print("Each is measured twice (forward, then backward through its section) and more often when its two\n"
               "readings disagree. Only the first is shown (lower is better); the CSV has all three. The results appear section\n"
               "by section while the rest is measured.\n"
               "Warming up the GPU for 2 seconds so its clock settles ...");
@@ -843,7 +843,7 @@ int main(int argc, char** argv) {
     const ULONGLONG start = GetTickCount64();
     while (GetTickCount64() - start < 2000) timeDispatch(g, kConfigs[0].groups);
   }
-  std::printf(" done\n");
+  print(" done\n");
 
   // Section tables: throughput costs, graphs on one fixed scale (sections appear before the largest
   // cost is known): 100 = 25 mads, longer costs fill the graph.
@@ -864,7 +864,7 @@ int main(int argc, char** argv) {
   std::vector<Difference> different;  // tests where this card differs from its family
   int compared = 0;                   // tests compared with the family
   auto printSection = [&](const Group& gr) {
-    std::printf("\n  %s%s%s\n  %s%-*s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1;96m"), gr.title, st.reset(), st.c("\x1b[90m"),
+    print("\n  %s%s%s\n  %s%-*s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1;96m"), gr.title, st.reset(), st.c("\x1b[90m"),
                 nameW, "Test", "Cost", kBarWidth, "Graph", "Ops", "Comment", st.reset());
     for (const char* name : gr.shown) {
       const Measured& x = results["tput"][name];
@@ -907,10 +907,10 @@ int main(int argc, char** argv) {
       }
       const double shown = std::fabs(v) < 0.05 ? 0.0 : v;  // no "-0.0"
       const double ops = std::fabs(v / 4.0) < 0.05 ? 0.0 : v / 4.0;
-      std::printf("  %-*s %6.1f  %s  %5.1f  %s%s%s%s\n", nameW, name, shown, b.c_str(), ops, color.c_str(), comment,
+      print("  %-*s %6.1f  %s  %5.1f  %s%s%s%s\n", nameW, name, shown, b.c_str(), ops, color.c_str(), comment,
                   st.reset(), note.c_str());
     }
-    std::printf("%s%s(shorter is better)%s\n", graphIndent.c_str(), st.c("\x1b[90m"), st.reset());
+    print("%s%s(shorter is better)%s\n", graphIndent.c_str(), st.c("\x1b[90m"), st.reset());
   };
 
   std::map<std::string, double> madDrift;                     // config -> spread of the reference
@@ -1052,7 +1052,8 @@ int main(int argc, char** argv) {
       progress.resume();
     }
   }
-  std::printf("\n\n   reference drift:");
+  progress.pause();  // the tests are done: the bar is not needed any more (owner, 2026-10-12)
+  print("\n   reference drift:");
   for (const Config& c : kConfigs) {
     const std::vector<double>& v = mads[c.name];
     const auto [lo, hi] = std::minmax_element(v.begin(), v.end());
@@ -1060,21 +1061,21 @@ int main(int argc, char** argv) {
     double mean = 0.0;
     for (double x : v) mean += x / double(v.size());
     madNs[c.name] = mean;
-    std::printf(" %s %.1f%%", c.name, madDrift[c.name]);
+    print(" %s %.1f%%", c.name, madDrift[c.name]);
   }
-  std::printf("\n");
+  print("\n");
 
   writeCsv();
 
 
   // Summary: banner and the GPU (the sections are shown above).
-  std::printf("\n");
+  print("\n");
   printBox(st, std::string("OpBench ") + SOPT_VERSION + "  -  " + gpuName);
-  std::printf("  driver %s, vendor 0x%04X, device 0x%04X, %.1f TFLOPS fp32 (measured)\n", driver.c_str(), desc.VendorId,
+  print("  driver %s, vendor 0x%04X, device 0x%04X, %.1f TFLOPS fp32 (measured)\n", driver.c_str(), desc.VendorId,
               desc.DeviceId, score().fp32);
-  std::printf("  min16float runs at %s\n", half16 ? "16 bits" : "32 bits on this driver (the half precision tests measure fp32)");
+  print("  min16float runs at %s\n", half16 ? "16 bits" : "32 bits on this driver (the half precision tests measure fp32)");
   // How to read the summary, for people who are not programmers (owner's wording review, 2026-10-04).
-  std::printf("\n  %sHow to read this%s\n"
+  print("\n  %sHow to read this%s\n"
               "  Cost    How long the operation takes, compared with the simplest thing a GPU does:\n"
               "          a multiply-add, which counts as 4. The rest of the test is already subtracted.\n"
               "  Ops     Operations: the cost counted in multiply-adds.\n"
@@ -1086,58 +1087,55 @@ int main(int argc, char** argv) {
               "  Docs\\OpBench.html (README.html next to this program) explains every test in plain words.\n",
               st.c("\x1b[1;96m"), st.reset());
 
-  bool warned = false;
-  for (const Config& c : kConfigs)
-    if (madDrift[c.name] > 50.0) {  // ~20% is normal even at maximum performance (owner's GTX 1660, 2026-10-11)
-      if (!warned) std::printf("\n");
-      warned = true;
-      std::printf("  %sWarning:%s the reference changed by %.0f%% during the %s tests: the GPU clock moved.\n",
-                  st.c("\x1b[1;93m"), st.reset(), madDrift[c.name], c.name);
-    }
+  // The drift itself is printed at the very end (printDrift).
+  double maxDrift = 0.0;
+  for (const Config& c : kConfigs) maxDrift = std::max(maxDrift, madDrift[c.name]);
+  bool warned = maxDrift > 50.0;
   if (!unstable.empty()) {
-    std::printf("%s  %sWarning:%s %zu test(s) without agreeing readings after %d passes:", warned ? "" : "\n",
-                st.c("\x1b[1;93m"), st.reset(), unstable.size(), kMaxPasses);
-    for (const std::string& n : unstable) std::printf(" %s", n.c_str());
-    std::printf("\n");
+    print("\n  %sWarning:%s %zu test(s) without agreeing readings after %d passes:", st.c("\x1b[1;93m"), st.reset(),
+          unstable.size(), kMaxPasses);
+    for (const std::string& n : unstable) print(" %s", n.c_str());
+    print("\n");
     warned = true;
   }
-  if (warned)
-    std::printf("  For steadier numbers: close other programs, plug in a laptop, set \"Prefer maximum performance\"\n"
+  if (!unstable.empty())
+    print("  For steadier numbers: close other programs, plug in a laptop, set \"Prefer maximum performance\"\n"
                 "  (NVIDIA) or lock the clocks, and run it again.\n");
   // Compared with the family (owner, 2026-10-06): differences make the report interesting.
-  std::printf("\n  %sCompared with other cards%s\n", st.c("\x1b[1;96m"), st.reset());
+  print("\n  %sCompared with other cards%s\n", st.c("\x1b[1;96m"), st.reset());
   if (!fam.family)
-    std::printf("  No reports from this GPU's family yet: this report is especially interesting, please send it.\n");
+    print("  No reports from this GPU's family yet: this report is especially interesting, please send it.\n");
   else {
     const int n = fam.family->cards;
-    std::printf("  %s: %d card%s measured so far. ", fam.family->label, n, n == 1 ? "" : "s");
+    print("  %s: %d card%s measured so far. ", fam.family->label, n, n == 1 ? "" : "s");
     if (different.empty())
-      std::printf("This card matches %s in all %d tests compared.\n", n == 1 ? "it" : "them", compared);
+      print("This card matches %s in all %d tests compared.\n", n == 1 ? "it" : "them", compared);
     else {
-      std::printf("This card differs in %s%zu of %d test%s%s (\"usually\" above):\n", st.c("\x1b[95m"),
+      print("This card differs in %s%zu of %d test%s%s (\"usually\" above):\n", st.c("\x1b[95m"),
                   different.size(), compared, compared == 1 ? "" : "s", st.reset());
       std::string line = "   ";
       for (const Difference& d : different) {
         char buf[80];
         std::snprintf(buf, sizeof(buf), " %s %.1f (usually %.1f)", d.test.c_str(), d.measured, d.expected);
         if (line.size() + std::strlen(buf) > size_t(std::max(40, cols - 2))) {
-          std::printf("%s\n", line.c_str());
+          print("%s\n", line.c_str());
           line = "   ";
         }
         line += buf;
       }
-      std::printf("%s\n", line.c_str());
-      if (warned) std::printf("  The warnings above may explain some of them.\n");
-      std::printf("  Such reports are especially interesting: please send this one.\n");
+      print("%s\n", line.c_str());
+      if (warned) print("  The warnings above may explain some of them.\n");
+      print("  Such reports are especially interesting: please send this one.\n");
     }
   }
-  std::printf("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
+  print("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
   if (const Score sc = score(); sc.fp32 > 0.0) {
     std::vector<std::pair<std::string, std::string>> more;
     more.push_back({"fp16 (min16float)", sc.fp16 > 0.0 ? threeDigits(sc.fp16) + " TFLOPS" : std::string("runs at fp32")});
     if (sc.special > 0.0) more.push_back({"Special functions (rcp)", threeDigits(sc.special) + " Gops/s"});
     printScore(st, "OpBench score", gpuName, desc.VendorId, sc.fp32, "TFLOPS", "fp32, measured", more);
   }
+  finishRun(st, maxDrift, outPath);
   gCurrent.clear();
   setTitle("done");
   return 0;

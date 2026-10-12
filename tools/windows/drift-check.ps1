@@ -1,13 +1,14 @@
-# Prints "<largest reference drift, whole %>|<GPU>" for each OpBench report in Reports\, for GPU-Blueprint.bat's send
-# screen (owner, 2026-10-11: tell people their drift before they send; reports with 150%+ drift were unusable).
+# Prints "<largest reference drift, whole %>|<program>|<GPU>" for each OpBench and TexBench report in Reports\, for
+# GPU-Blueprint.bat's send screen (owner, 2026-10-11: tell people their drift before they send).
 param([string]$Root = (Split-Path -Parent $PSScriptRoot))
 $ErrorActionPreference = "SilentlyContinue"
-foreach ($f in Get-ChildItem -LiteralPath (Join-Path $Root "Reports") -Filter "opbench-*.csv" -File) {
-  $gpu = $f.BaseName.Substring(8)
+foreach ($f in Get-ChildItem -LiteralPath (Join-Path $Root "Reports") -File | Where-Object { $_.Name -match '^(opbench|texbench)-.+\.csv$' }) {
+  $program = if ($f.Name -like "opbench-*") { "OpBench" } else { "TexBench" }
+  $gpu = $f.BaseName.Substring(9)
   $drift = -1.0
   foreach ($line in Get-Content -LiteralPath $f.FullName -TotalCount 40) {
     if ($line -match '^# gpu: (.+)$') { $gpu = $Matches[1].Trim() }
-    if ($line -match '^# reference drift \w+: ([\d.]+)%') { $drift = [math]::Max($drift, [double]$Matches[1]) }
+    if ($line -match '^# reference drift[\w ]*: ([\d.]+)%') { $drift = [math]::Max($drift, [double]$Matches[1]) }
   }
-  if ($drift -ge 0) { "{0}|{1}" -f [int][math]::Round($drift), $gpu }
+  if ($drift -ge 0) { "{0}|{1}|{2}" -f [int][math]::Round($drift), $program, $gpu }
 }

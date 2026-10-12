@@ -22,7 +22,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Fewer instructions at equal measured speed are still better (less power; faster once the bottleneck moves).
 - When asking the owner to test or download something, repeat the links in that message (CI run / artifact links).
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
-  testers (now 0.7.1, test build; 0.7.0 released); the next test build is 0.7.2.
+  testers (now 0.7.2, test build; 0.7.0 released); the next test build is 0.7.3.
 - CHANGELOG.md: one `## <version>` section per release, add to the top section as things land (release.yml copies it).
   Changelog, release notes and README.md are for laymen (owner, 2026-10-10): plain English, short, what changes for the
   user, no option names or internals (those go in docs/notes/history.md, docs/technical.md).
@@ -118,12 +118,13 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 
 ## Facts worth keeping in mind
 - Cost models (all from OpBench, docs/opbench): nvidia-ampere (default since 2026-10-10: largest Steam group), rdna3 (RX 7900 GRE), amd-rdna2, amd-rdna4, amd-gcn5,
-  amd-terascale2, nvidia-maxwell / pascal / turing / ampere (RTX 30 + 40) / blackwell, intel-gen7.5 / gen9 / gen12,
+  amd-terascale2, nvidia-maxwell / pascal / turing / ampere (RTX 30 + 40) / blackwell, intel-gen7.5 / gen9 / gen12 / xe2 (Arc B),
   plus rdna3-rga (old instruction counts), nvidia (ptxas), generic, search (enumeration order). New cards that differ
   get their own model, identical ones share. GCN 4 (RX 590) would be its own model (owner's go needed).
 - min16float: ReShade writes it as min16float only on D3D10-12 (D3D9 float, OpenGL mediump = ignored, Vulkan
-  RelaxedPrecision = ignored by AMD's compiler). fp16 is faster only on AMD GCN 5 / RDNA 2 (packed) and Intel Gen9 / Gen12
-  (HalfCosts in ops.cpp; provisional until OpBench mix16 / mad16v3 reports).
+  RelaxedPrecision = ignored by AMD's compiler). fp16 is faster only on AMD GCN 5 / RDNA 2 (packed) and Intel Gen9 / Gen12,
+  NVIDIA Turing for vec3 mad only; not on Xe2, Ampere+, RDNA 3 / 4 (HalfCosts in ops.cpp; per-family table in history,
+  2026-10-12). One cost model per GPU family (owner, 2026-10-12); driver splits are listed in history.md.
 - ReShade FX has no wave intrinsics / SM6 features (owner: ReShade adds features once widely supported).
 - fxc -O3 folds (x + c) - c and assumes no NaN / inf on inputs; drivers turn x / const into a multiply and share
   reciprocals.

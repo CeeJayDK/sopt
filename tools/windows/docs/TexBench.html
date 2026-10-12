@@ -60,8 +60,8 @@
   <tr><td>gather green / blue / alpha</td><td><code>tex2DgatherG</code> / <code>B</code> / <code>A</code>.</td></tr>
   <tr><td>Load mip 1</td><td><code>tex2Dfetch</code> from mip level 1.</td></tr>
   <tr><td>grad 1:1</td><td><code>tex2Dgrad</code> with gradients of one texel (mip 0).</td></tr>
-  <tr><td>tex1D bilinear, tex1Dfetch</td><td>a real 1D texture (1024 texels).</td></tr>
-  <tr><td>tex3D linear, tex3Dfetch</td><td>a 1024 &times; 1024 &times; 2 3D texture; linear halfway between the slices filters 8 texels (like trilinear).</td></tr>
+  <tr><td>tex1D linear, tex1Dfetch</td><td>a real 1D texture (1024 texels); linear blends 2 texels.</td></tr>
+  <tr><td>tex3D trilinear, tex3Dfetch</td><td>a 1024 &times; 1024 &times; 2 3D texture; trilinear halfway between the slices blends 8 texels. It uses the same sampler setting as bilinear: the GPU blends in as many dimensions as the texture has.</td></tr>
   <tr><td>tex1Dsize, tex2Dsize, tex3Dsize</td><td>size queries with a mip level that comes from the chain (the plain query is the same for the whole draw and moves out of loops: free per use).</td></tr>
   <tr><td>address clamp / wrap / mirror / border</td><td>bilinear with coordinates 12% past the edges.</td></tr>
 </table>

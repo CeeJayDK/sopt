@@ -5,7 +5,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.7.1
+## 0.7.2
 
 ### SweetOpt
 - **Tuned for the most common graphics cards:** SweetOpt now aims at NVIDIA RTX 30 and RTX 40 cards by default, the largest group of Steam players, and close to the RTX 50 cards too. You can still pick your own card in the menu (key 4).
@@ -15,10 +15,15 @@ docs/notes/history.md.
 - **Fixed:** math on whole numbers (for example a pixel position used to read a texture) could, in rare cases, be sped up in a way that picks a neighboring pixel. Such math is now only changed when the result is exactly the same.
 - **Changed settings are noticed:** when you run again with different search settings, SweetOpt searches again instead of reusing the old results.
 - **More math understood:** shaders that use `trunc`, `%` (remainder), `all`, `any`, `asin` or `acos` can now be sped up too. In 75 popular effects that is 42 more places SweetOpt can work on.
-
 - **Fairer comparisons:** writing `x >= e ? 1.0 : 0.0` instead of `step(e, x)` now counts as exactly as fast, as it is on real graphics cards, both on the web page and in SweetOpt's choices.
+- **Intel Arc B-series:** SweetOpt now has its own settings for Intel Arc B-series graphics cards (Battlemage), measured with GPU Blueprint.
 
 ### GPU Blueprint
+- **On the website:** which driver updates made graphics cards faster (a reason to keep your driver up to date), and on which graphics cards half precision (fp16) is faster. Both grow with every report.
+- **Your own copy of the results:** OpBench and TexBench now save what they show on screen as a text file in Reports\Results, for you to keep. It is not part of the reports you send.
+- **Easier to read:** the clock drift is shown in color at the very end of each run, the progress bar goes away when the tests are done, and TexBench's formats and filtering table is colored from fast (green) to slow (red).
+- **Your privacy:** the upload page asks for a name and an email, but they do not have to be real.
+- **Fixed names:** TexBench's 1D texture test is now called linear (it was called bilinear) and the 3D one trilinear (it was called linear).
 - **Know before you send:** before you send your reports, GPU Blueprint tells you how steady your graphics card's speed was during OpBench, and asks you to run it again if the numbers would not be reliable.
 - **New OpBench tests:** they show how many math operations your graphics card can run at the same time, and which kinds run side by side. Older AMD cards (Radeon HD 5000 / 6000) can run several at once, and these tests let SweetOpt learn how many. Please run GPU Blueprint again and send the reports, thank you!
 

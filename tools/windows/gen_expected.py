@@ -23,13 +23,7 @@ spec = importlib.util.spec_from_file_location("site_build", os.path.join(ROOT, "
 site = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(site)
 
-# Reports whose clock moved during the run (see CLAUDE.md): left out.
-UNRELIABLE = {
-    "nvidia-rtx-3050-laptop.csv", "nvidia-rtx-4070.csv", "nvidia-gtx-1660-ti.csv", "nvidia-gtx-1660-ti-2.csv",
-    "nvidia-rtx-4090-laptop.csv", "nvidia-rtx-4090-laptop-dgpu.csv", "amd-radeon-680m-rembrandt.csv",
-    "nvidia-rtx-4090-b.csv",  # 420% drift, 11 tests without consensus, fp32 43 of 83 TFLOPS: throttled
-    "nvidia-rtx-4090-c.csv",  # 158% drift, fp32 40 of 83 TFLOPS: throttled (costs still = the first 4090)
-}
+UNRELIABLE = site.UNRELIABLE  # reports whose clock moved during the run: left out (tools/site/build.py)
 
 
 # Free steps whose readings swing by several units on clean runs (noise, not the card).
