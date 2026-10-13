@@ -4,7 +4,8 @@
     {"vendor": "NVIDIA", "architectures": [
       {"name": "Fermi", "examples": "GeForce GTX 400 / 500", "model": null},
       {"name": "Kepler", "examples": "GeForce GTX 600 / 700, GTX Titan", "model": null},
-      {"name": "Maxwell", "examples": "GeForce GTX 750 Ti, 900, 800M / 900M", "model": "nvidia-maxwell"},
+      {"name": "Maxwell 1", "examples": "GeForce GTX 750 / 750 Ti, 800M, 900M laptops up to 960M", "model": "nvidia-maxwell1"},
+      {"name": "Maxwell 2", "examples": "GeForce GTX 950 - 980 Ti, 965M - 980M, Quadro M5000M", "model": "nvidia-maxwell"},
       {"name": "Pascal", "examples": "GeForce GT 1030, GTX 1050 - 1080", "model": "nvidia-pascal"},
       {"name": "Volta", "examples": "Titan V", "model": null},
       {"name": "Turing", "examples": "GeForce GTX 1650 / 1660, RTX 20", "model": "nvidia-turing"},

@@ -227,13 +227,25 @@ const CostModel kNvidiaTuring{"nvidia-turing",
 // nvidia-quadro-m5000m.csv, OpBench 0.4.0, clean: drift <= 0.3%; the two agree within ~0.5): as Pascal
 // (add/mul/mad and abs one op, neg / saturate free, the quarter-rate unit and floor / ceil / round / frac 10,
 // pow 24, sign 10, lerp 8) except min / max / step / compares ~1.2 ops (4.6-4.9 against Pascal's 6.8), so
-// clamp 12 (measured 11.5) and compare + select 12 (select 7 after the 5-unit compare). sqrt 10 (M5000M;
-// the 860M's newer driver 32.0.15.8278 measures 24, rsqrt + rcp). Contraction to fma; no omod, no max3.
+// clamp 12 (measured 11.5) and compare + select 12 (select 7 after the 5-unit compare). sqrt 10 (GM20x, SM52:
+// MUFU.SQRT; the GM107 860M's 24 is the chip, see nvidia-maxwell1). Contraction to fma; no omod, no max3.
 const CostModel kNvidiaMaxwell{"nvidia-maxwell",
   {0, 0, 1, 4, 1, 10, 10, 10, 10,
    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 4, 4, 10, 5, 5, 5, 24,
    5, 5, 5, 5, 5, 5, 4, 8, 12, 7, 1,
    4, 14, 18, 18, 1, 1,
+   1, 1, 2, 2, 2, 2, 4, 4, 4, 2, 2, 2, 2, 2, 6,
+   4, 4, 1},
+  1, true};
+
+// NVIDIA Maxwell 1 (GM107 / GM108, SM50: GTX 750 / 750 Ti, 800M / 900M laptops up to the 960M; owner, 2026-10-13):
+// = nvidia-maxwell except sqrt 24. Mesa's NAK (src/nouveau/compiler/nak/sm50.rs): MUFU.SQRT only from SM52, so SM50
+// computes sqrt as rsqrt + rcp (GTX 860M, GM107, measured 24 on every driver; the GM204 Quadro M5000M measures 10).
+const CostModel kNvidiaMaxwell1{"nvidia-maxwell1",
+  {0, 0, 1, 4, 1, 10, 10, 10, 24,
+   10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 4, 4, 10, 5, 5, 5, 24,
+   5, 5, 5, 5, 5, 5, 4, 8, 12, 7, 1,
+   4, 28, 18, 32, 1, 1,
    1, 1, 2, 2, 2, 2, 4, 4, 4, 2, 2, 2, 2, 2, 6,
    4, 4, 1},
   1, true};
@@ -436,6 +448,7 @@ const CostModel& costRdna3() { return kRdna3; }
 const CostModel& costRdna3Rga() { return kRdna3Rga; }
 const CostModel& costNvidia() { return kNvidia; }
 const CostModel& costNvidiaMaxwell() { return kNvidiaMaxwell; }
+const CostModel& costNvidiaMaxwell1() { return kNvidiaMaxwell1; }
 const CostModel& costNvidiaPascal() { return kNvidiaPascal; }
 const CostModel& costNvidiaTuring() { return kNvidiaTuring; }
 const CostModel& costNvidiaAmpere() { return kNvidiaAmpere; }
@@ -459,7 +472,7 @@ const CostModel kRdna3NoFolds = [] {
 
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kRdna3Rga || &objective == &kNvidia ||
-                 &objective == &kNvidiaMaxwell || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
+                 &objective == &kNvidiaMaxwell || &objective == &kNvidiaMaxwell1 || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
                  &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kIntelGen12 || &objective == &kIntelXe2 || &objective == &kAmdRdna2 ||
                  &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
              ? kSearch
@@ -475,6 +488,7 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kSearch.name || name == "rdna3-search") return &kSearch;
   if (name == kNvidia.name) return &kNvidia;
   if (name == kNvidiaMaxwell.name) return &kNvidiaMaxwell;
+  if (name == kNvidiaMaxwell1.name) return &kNvidiaMaxwell1;
   if (name == kNvidiaPascal.name) return &kNvidiaPascal;
   if (name == kNvidiaTuring.name) return &kNvidiaTuring;
   if (name == kNvidiaAmpere.name) return &kNvidiaAmpere;

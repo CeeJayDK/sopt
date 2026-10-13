@@ -1569,6 +1569,39 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   GTX 1660 (drift 35%): x4, x8, x0.5, x0.125 ~0 (x0.25 1.1), x16 / x1/16 3.8, x-4 3.8 (NVIDIA's driver does not use the
   negated source as nouveau would), after an fma x4 1.2 / x0.25 1.5 / control 1.8 (alike: not free), after an add x4
   3.7 / control 3.2 (not free). UHD 630 (drift 1%): every scale 3.6-3.7. To take out once reports confirm per family.
+  Open-source driver sources (owner, 2026-10-13: mine them for clues; they say what the hardware can do and what that
+  compiler does, OpBench decides for the Windows drivers):
+  - NVIDIA, Mesa NAK (src/nouveau/compiler/nak): sm50.rs "SQRT is only on SM52 and later" (MUFU.SQRT): the Maxwell sqrt
+    split (860M 24, M5000M 10) is the chip, not the driver. Owner's go: two models, nvidia-maxwell (Maxwell 2, GM20x,
+    sqrt 10) and nvidia-maxwell1 (Maxwell 1, GM107 / GM108, sqrt 24 = rsqrt + rcp; Length 28, Distance 32); site
+    MODEL_RULES by name (GTX 750 / 8xxM / 9[2-6]0M / MX110 / MX130 / Quadro K620 ... = Maxwell 1), SweetOpt.bat key M.
+    MUFU.TANH from SM75 (D3D's tanh is not using it: ~80 on Ampere). sm75 / sm80 / sm120_instr_latencies.rs: latency
+    classes "provided by NVIDIA" (Turing, Ampere / Ada, Blackwell): to compare with OpBench's lat. LOP3 (any 3-input
+    logic function), IADD3, LEA (shift + add), IMAD.
+  - Intel, IGC (github.com/intel/intel-graphics-compiler, the Windows driver's compiler):
+    WorkaroundAnalysisPass.cpp puts a range reduction before every sin / cos (compare, 2 selects, mul, ftoi, itof, sub,
+    mul) when the driver sets enableRangeReduce (or the EnableTrigFuncRangeReduction key): the likely reason for the
+    Arc B580's sin / cos 24.4 (math unit 11.9 + ~12). Platform.hpp: native sin / cos (supportsNativeSinCos) and
+    accurate log2 only from Xe3P. Mesa's Intel model (brw_analysis_performance.cpp) costs every math-unit op alike.
+  - AMD, Mesa ACO (src/amd/compiler, the compiler on Linux and the Steam Deck): aco_statistics.cpp: RDNA valu 1 cycle,
+    transcendentals 1 valu + 4 on the separate trans unit (OpBench's fma+rcp overlap), GCN valu 4, transcendentals and
+    conversions 16 (quarter rate); OpBench measures GCN 5 rcp 8.5 and itof 2.1 (half and an eighth of that): to look
+    into. aco_opcodes.py: v_bfi_b32 (bit select) on every GCN, v_lshl_add / v_add3 / v_and_or / v_or3 / v_add_lshl
+    from GFX9 (Vega), v_xor3 from GFX10 (RDNA); no general 3-input logic op. aco_optimizer.cpp combines into all of
+    these, and v_mad_u32_u24.
+  - Others (not for ReShade's platforms, comparison only): Mesa freedreno ir3 (Adreno: ir3_delay.c), Asahi (Apple:
+    agx_performance.c, Dougall Johnson's applegpu docs), Panfrost (Mali), Imagination (pco).
+  OpBench 0.7.4 more tests (owner, 2026-10-13: test everything until we know what we can leave out): scaleneg0.5 /
+  scaleneg8, f32tof16 / f16tof32 alone (over bitor), degrees, all3and (all() of any3or), ishl, ineg, iabs, bfe, the
+  3-input set over x, x >> 7, x << 11 (xor3, or3, andor, bitsel, maj3, iadd3) and lshladd, addlshl, imad. Owner's PC:
+  GTX 1660 (Turing): every negative scale 3.6 (none free, as -4); xor3 / or3 / andor / bitsel / maj3 7.8 / 7.4 / 7.0 /
+  8.1 / 9.0 (alike although maj3 is 5 logic ops: LOP3), iadd3 7.7, lshladd 3.7 (LEA), addlshl 6.0 (no add + shift),
+  imad 4.2 (IMAD), bfe 7.7 (shift + and, no BFE on Volta+), iabs 4.2, ineg 0.4, ishl 2.1, f32tof16 11.3, f16tof32
+  2.3, degrees 0.2 (merged), all3and 12.3. UHD 630 (Gen9.5): integer ops one op each (xor3 14.5 = 4 ops, bitsel
+  18.1, maj3 21.7, iadd3 14.4: no add3 / bfn before Xe-HP), bfe 4.9 (BFE), iabs / ineg 3.6, f32tof16 9.1, f16tof32
+  5.5. Next (owner wants it, for odd tricks a superoptimizer finds): a cost rule for fused integer ops per vendor
+  (NVIDIA: any bitwise tree over <= 3 leaves = 1 op, add of 3 = 1, shift + add = 1, mul + add = 1; AMD from GFX9: the
+  ACO list; Intel Xe-HP+: bfn / add3), once reports cover the families.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

@@ -152,8 +152,10 @@ const CostModel& costRdna3();
 const CostModel& costRdna3Rga();
 // nvidia: NVIDIA Ada SASS (ptxas + nvdisasm) in quarter-ALU units, MUFU at 8x.
 const CostModel& costNvidia();
-// nvidia-maxwell: NVIDIA Maxwell (GTX 860M, Quadro M5000M) from OpBench timings, quarter units.
+// nvidia-maxwell: NVIDIA Maxwell 2 (GM20x: GTX 900, Quadro M5000M) from OpBench timings, quarter units.
 const CostModel& costNvidiaMaxwell();
+// nvidia-maxwell1: NVIDIA Maxwell 1 (GM107 / GM108: GTX 750, 800M / 900M laptops): sqrt is rsqrt + rcp.
+const CostModel& costNvidiaMaxwell1();
 // nvidia-pascal: NVIDIA Pascal (GT 1030, GTX 1060) from sopt-opbench timings, quarter units.
 const CostModel& costNvidiaPascal();
 // nvidia-turing: NVIDIA Turing (GTX 1660) from sopt-opbench timings, quarter units, MUFU ~3x extra.

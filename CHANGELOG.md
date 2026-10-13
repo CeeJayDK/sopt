@@ -17,8 +17,10 @@ docs/notes/history.md.
 - **More math understood:** shaders that use `trunc`, `%` (remainder), `all`, `any`, `asin` or `acos` can now be sped up too. In 75 popular effects that is 42 more places SweetOpt can work on.
 - **Fairer comparisons:** writing `x >= e ? 1.0 : 0.0` instead of `step(e, x)` now counts as exactly as fast, as it is on real graphics cards, both on the web page and in SweetOpt's choices.
 - **Intel Arc B-series:** SweetOpt now has its own settings for Intel Arc B-series graphics cards (Battlemage), measured with GPU Blueprint.
+- **NVIDIA GTX 750 and early Maxwell laptop chips:** they get their own settings: unlike the GTX 900 cards, they have no fast square root.
 
 ### GPU Blueprint
+- **More OpBench tests:** combined integer operations (three values in one step), each half-precision conversion on its own, all(), degrees and more negative scales.
 - **New OpBench tests:** where a graphics card can multiply a result by 2, 4, 8 or a half for free, and where it cannot.
 - **Fixed:** OpBench said the tests for how many math operations run at once differed from other cards of the same kind, when they did not.
 - **Fixed:** OpBench's tests for multiplying by 2, 4 or 0.5 could not see the multiply at all on NVIDIA and Intel graphics cards. They are measured in a new way, and a new test shows what a plain multiply really costs.
