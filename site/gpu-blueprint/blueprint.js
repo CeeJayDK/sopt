@@ -220,11 +220,12 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
   // words; tests with the same name (the multiplies by 2, 4, 0.5 ...) are averaged into one entry. Costs below 0 are
   // free (0), except the fp16 tests, which are measured against the same work in fp32.
   const TEST_NAME = {
-    mul: "x * y", mul16: "x * y (fp16)", radians: "radians", step: "step", divxy: "x / y", fmod: "fmod", modf: "modf",
+    mul: "x * constant merged into the next fma", mul16: "x * y (fp16)", radians: "radians merged into the next fma", mulxx: "x * y", step: "step", divxy: "x / y", fmod: "fmod", modf: "modf",
     imin: "integer min", iand: "bitwise and", ftoitof: "float → int → float", normalize: "normalize", sqrt: "sqrt",
     sqrt16: "sqrt (fp16)", mad16v3: "float3 fma in fp16, against fp32",
   };
-  const testName = (t) => (/^omod/.test(t) ? "x * 2, 4, 8, 0.5 …" : TEST_NAME[t] || t);
+  // omod*: the old scale tests after rcp (until OpBench 0.7.2), where the multiply could hide behind the rcp.
+  const testName = (t) => (/^omod/.test(t) ? "x * 2, 4, 8, 0.5 … hidden behind rcp" : /^scale/.test(t) ? "x * 2, 4, 8, 0.5 …" : TEST_NAME[t] || t);
   const changes = (tests) => {
     const by = new Map();
     for (const t of tests) {

@@ -85,7 +85,7 @@ const Test kTests[] = {
     {"mad", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, nullptr, "reference: one fma per step"},
     {"add", "mad(x + c.z, c.x, c.y)", 0.5f, 0.5f, 0.1f, 0.0f, "mad", ""},
     {"sub", "mad(c.z - x, c.x, c.y)", 0.5f, 1.0f, 2.0f, 0.0f, "mad", ""},
-    {"mul", "mad(x * c.z, c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.0f, "mad", ""},
+    {"mul", "mad(x * c.z, c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.0f, "mad", "~0 where the driver merges it: x * (c.z * c.x)"},
     // One fma with a single constant (x stays near the fixed point -0.37): the fp32 score's rate on GPUs where
     // the reference's two constants cost a second instruction (GCN's constant bus: an extra v_mov).
     {"fma1", "mad(x, x, c.x)", -0.5f, 0.0f, 0.0f, 0.0f, nullptr, "one fma, one constant: the fp32 score where it is faster"},
@@ -135,14 +135,19 @@ const Test kTests[] = {
     {"sin", "mad(sin(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", ""},
     {"cos", "mad(cos(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", ""},
     // Context effects (sopt's rdna3 model assumes them; compare with the plain forms above).
-    {"rcpmax", "mad(max(rcp(x), c.z), c.x, c.y)", 0.5f, 0.5f, 0.1f, 0.0f, "mad", "base for the omod tests"},
-    {"omod2", "mad(max(rcp(x) * 2.0, c.z), c.x, c.y)", 0.5f, 0.5f, 0.1f, 0.0f, "rcpmax", "AMD: output modifier, ~0"},
-    {"omodhalf", "mad(max(rcp(x) * 0.5, c.z), c.x, c.y)", 0.5f, 1.0f, 0.1f, 0.0f, "rcpmax", "AMD: output modifier, ~0"},
-    {"omod3", "mad(max(rcp(x) * 3.0, c.z), c.x, c.y)", 0.5f, 0.5f, 0.1f, 0.0f, "rcpmax", "control: not an omod scale"},
-    {"omod4", "mad(max(rcp(x) * 4.0, c.z), c.x, c.y)", 0.125f, 0.5f, 0.1f, 0.0f, "rcpmax", "AMD: output modifier, ~0"},
-    {"omod8", "mad(max(rcp(x) * 8.0, c.z), c.x, c.y)", 0.0625f, 0.5f, 0.1f, 0.0f, "rcpmax", "old GPUs only (DX9 _x8)?"},
-    {"omod0.25", "mad(max(rcp(x) * 0.25, c.z), c.x, c.y)", 2.0f, 0.5f, 0.1f, 0.0f, "rcpmax", "old GPUs only (DX9 _d4)?"},
-    {"omod0.125", "mad(max(rcp(x) * 0.125, c.z), c.x, c.y)", 4.0f, 0.5f, 0.01f, 0.0f, "rcpmax", "old GPUs only (DX9 _d8)?"},
+    // Free scales (owner, 2026-10-13; replaces the omod tests over rcp, whose multiply hid under the rcp's issue rate
+    // on NVIDIA and Intel: the x3 control measured 0 there). The scaled value is a plain x * x, so nothing slow hides
+    // the multiply, and max with x keeps the driver from pulling the constant out (max(k*a, c) = k*max(a, c/k)).
+    // x settles at 0.586 (k >= 2: x -> x*x/4 + 0.5) or 0.667 (k <= 0.5: max = x, x -> x/4 + 0.5).
+    {"sqmax", "mad(max(x * x, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "mad", "base for the scale tests"},
+    {"scale2", "mad(max(x * x * 2.0, x), c.x, c.y)", 0.125f, 0.5f, 0.0f, 0.0f, "sqmax", "fxc writes * 2 as x + x (here dp2): what D3D gets"},
+    {"scalehalf", "mad(max(x * x * 0.5, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "sqmax", "AMD: output modifier, ~0"},
+    {"scale4", "mad(max(x * x * 4.0, x), c.x, c.y)", 0.0625f, 0.5f, 0.0f, 0.0f, "sqmax", "AMD: output modifier, ~0"},
+    {"scale8", "mad(max(x * x * 8.0, x), c.x, c.y)", 0.03125f, 0.5f, 0.0f, 0.0f, "sqmax", "DX9 _x8; NVIDIA FMUL .M8?"},
+    {"scale0.25", "mad(max(x * x * 0.25, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "sqmax", "DX9 _d4; NVIDIA FMUL .D4?"},
+    {"scale0.125", "mad(max(x * x * 0.125, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "sqmax", "DX9 _d8"},
+    {"scale3", "mad(max(x * x * 3.0, x), c.x, c.y)", 0.25f / 3.0f, 0.5f, 0.0f, 0.0f, "sqmax", "control: a full multiply"},
+    {"mulxx", "mad(x * x, c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "mad", "a multiply no driver can merge"},
     {"max3", "mad(max(max(x, c.z), c.w), c.x, c.y)", 0.5f, 0.5f, 0.8f, 0.9f, "max", "AMD: v_max3, ~0"},
     {"minmax", "mad(min(max(x, c.z), c.w), c.x, c.y)", 0.5f, 0.5f, 0.8f, 1.2f, "max", "AMD: v_minmax / v_med3, ~0"},
     {"contract", "mad(x * c.z + c.w, c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.1f, "mad", "mul + add: one fma like mad2?"},
@@ -207,7 +212,7 @@ const Test kTests[] = {
     {"sinh", "mad(sinh(x), c.x, c.y)", 0.3f, 0.5f, 0.0f, 0.0f, "mad", "fxc: 2 exp"},
     {"tanh", "mad(tanh(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "fxc: exp, div"},
     {"log10", "mad(log10(x), c.x, c.y)", 0.5f, 1.0f, 0.0f, 0.0f, "mad", "fxc: log2 + mul"},
-    {"radians", "mad(radians(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "a mul (also degrees)"},
+    {"radians", "mad(radians(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "a mul by a constant (also degrees); ~0 where merged"},
     {"ldexp", "mad(ldexp(x, x - c.z), c.x, c.y)", 0.5f, 0.3f, 2.0f, 0.0f, "sub", "x * exp2(e): exp2 + mul"},
     {"frexp", "mad(frexpM(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "mantissa + exponent * 0.01"},
     {"modf", "mad(modfS(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "fraction + integer part * 0.5"},
@@ -579,13 +584,13 @@ struct Measured {
 // most GPUs measure it, the same on every GPU so results can be compared line by line.
 const char* const kDisplayOrder[] = {
     // One section for the few, fast basics (owner, 2026-10-10: like the web page's group).
-    "#Modifiers and basic arithmetic", "neg", "abs", "negabs", "saturate", "satmad", "mul", "omod2", "omodhalf", "omod4",
-    "omod8", "omod0.25", "omod0.125", "omod3", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
+    "#Modifiers and basic arithmetic", "neg", "abs", "negabs", "saturate", "satmad", "mul", "mulxx", "sqmax", "scale2", "scalehalf",
+    "scale4", "scale8", "scale0.25", "scale0.125", "scale3", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
     "lerp",
     "#Rounding and sign", "floor", "ceil", "round", "trunc", "frac", "roundadd", "flooradd", "fracadd", "signsel2", "signbits",
     "signsat", "signmad", "signclamp", "signsel", "sign",
     "#Division and transcendentals", "divxy", "rcp", "rsqrt", "sqrt", "div", "exp2", "log2", "log", "exp", "cos", "sin",
-    "rcpmax", "pow",
+    "pow",
     "#Fast approximations (ShaderFastMathLib, bit tricks)", "rsqrtnr0", "rsqrtnr1", "rcpnr0", "rcpnr1", "sqrtnr0",
     "pow2floor", "exp2floor", "pow2ceil", "exp2ceil", "acos4", "acos1", "atan4", "atan5a", "atan2q",
     "#Vector (float2 / float3 / float4)", "mad2v", "mad3v", "mad4v", "dot2", "dot3", "dot4", "cross", "length",

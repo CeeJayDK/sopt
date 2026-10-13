@@ -1541,6 +1541,18 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   report per card; verdict yes / sometimes / a little / no gain / runs as fp32). UNRELIABLE moved to build.py
   (gen_expected.py uses it). Ampere's radians split (RTX 3060 on 591.74 against Ada cards on newer drivers) may be
   the chip, like Maxwell's sqrt.
+  OpBench scale tests (owner, 2026-10-13: suspected a bug in the * 0.5 / * 2 / * 4 tests). The omod tests sat after
+  rcp (mad(max(rcp(x) * k, c.z), c.x, c.y) over rcpmax): on NVIDIA and Intel the multiply ran beside the quarter-rate
+  rcp and hid under it, so even the x3 control measured ~0 (Maxwell - Ampere 0-0.4, Gen9 / Gen12 / Xe2 0.3-0.8; on AMD
+  the AMD scales were right, the control too low, 1-3). Also mul (mad(x * c.z, ...)) and radians measure whether the
+  driver merges x * uniform into the mad (x * (c.z * c.x)), not a multiply's cost (B580: not merged, 3.9). OpBench
+  0.7.3: sqmax = mad(max(x * x, x), c.x, c.y), scaleK = max(x * x * K, x) (K = 2, 0.5, 4, 8, 0.25, 0.125, control 3;
+  max with x stops max(k*a, c) = k*max(a, c/k)), mulxx = mad(x * x, ...) (a multiply nothing merges); omod* / rcpmax
+  removed (new names: old and new readings do not mix). Owner's PC: GTX 1660 mulxx 4.0, scale3 3.8, scale2 3.8,
+  scale4 / 8 / 0.5 / 0.25 / 0.125 0.0 (NVIDIA FMUL .M4 / .M8 / .D2 / .D4 / .D8: free scales on a multiply's result);
+  UHD 630 every scale 3.6-3.7 (none free), mulxx 4.0, mul 0.06 (merged). fxc writes every * 2.0 as x + x (add, or dp2
+  with a product), so on D3D NVIDIA never gets the free x2 (scale2 = what D3D shaders get; Vulkan / OpenGL keep the
+  multiply). sopt's NVIDIA models have no scale folds yet (owner's go needed).
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

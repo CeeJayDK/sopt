@@ -51,11 +51,12 @@
   <tr><td><code>neg</code>, <code>abs</code>, <code>negabs</code></td><td><code>-x</code>, <code>abs(x)</code>, <code>-abs(x)</code> feeding the mad: source modifiers, usually free.</td></tr>
   <tr><td><code>saturate</code></td><td>clamp to [0, 1] on the previous mad's result: an output modifier.</td></tr>
   <tr><td><code>satmad</code></td><td><code>saturate(mad(...))</code>: the same, measured against two mads.</td></tr>
-  <tr><td><code>mul</code></td><td><code>x * c</code> before the mad: some drivers merge it into the mad.</td></tr>
-  <tr><td><code>omod2</code>, <code>omodhalf</code></td><td><code>rcp(x) * 2</code> and <code>* 0.5</code>: AMD can scale a result by 2, 4 or 0.5 for free.</td></tr>
-  <tr><td><code>omod4</code></td><td><code>rcp(x) * 4</code>: AMD's third output modifier scale.</td></tr>
-  <tr><td><code>omod8</code>, <code>omod0.25</code>, <code>omod0.125</code></td><td><code>rcp(x) * 8</code>, <code>* 0.25</code>, <code>* 0.125</code>: scales that DX9-era GPUs applied for free (_x8, _d4, _d8). Expected to cost a multiply on current GPUs: measured to know.</td></tr>
-  <tr><td><code>omod3</code></td><td><code>rcp(x) * 3</code>: the control (3 is no output modifier scale).</td></tr>
+  <tr><td><code>mul</code></td><td><code>x * c</code> before the mad, c a constant: not the cost of a multiply, but whether the driver merges it into the mad (<code>x * (c * c2)</code>, the constants multiplied once). ~0 where it does.</td></tr>
+  <tr><td><code>mulxx</code></td><td><code>x * x</code> before the mad: a multiply no driver can merge, its real cost.</td></tr>
+  <tr><td><code>sqmax</code></td><td><code>max(x * x, x)</code>: the base for the scale tests.</td></tr>
+  <tr><td><code>scale2</code>, <code>scalehalf</code>, <code>scale4</code></td><td><code>max(x * x * 2, x)</code>, <code>* 0.5</code>, <code>* 4</code>: AMD scales a result by 2, 4 or 0.5 for free (output modifier); NVIDIA's multiply has such scales too.</td></tr>
+  <tr><td><code>scale8</code>, <code>scale0.25</code>, <code>scale0.125</code></td><td><code>* 8</code>, <code>* 0.25</code>, <code>* 0.125</code>: scales that DX9-era GPUs applied for free (_x8, _d4, _d8).</td></tr>
+  <tr><td><code>scale3</code></td><td><code>* 3</code>: the control, a full multiply everywhere (3 is no free scale).</td></tr>
   <tr><td><code>min</code>, <code>max</code>, <code>step</code></td><td>min / max / compare; NVIDIA Turing runs one of them beside an fma.</td></tr>
   <tr><td><code>add</code>, <code>sub</code></td><td>one add.</td></tr>
   <tr><td><code>fma1</code></td><td><code>mad(x, x, c)</code>: one fma with a single constant. On AMD GCN the reference's two constants cost a second instruction, so this is the true fp32 rate there (the score uses whichever is faster).</td></tr>
@@ -80,7 +81,6 @@
   <tr><td><code>div</code>, <code>divxy</code></td><td><code>c / x</code> and <code>x / y</code> (rcp + mul).</td></tr>
   <tr><td><code>exp</code>, <code>log</code></td><td>fxc: exp2 / log2 with a multiply.</td></tr>
   <tr><td><code>pow</code></td><td>fxc: log2, mul, exp2.</td></tr>
-  <tr><td><code>rcpmax</code></td><td><code>max(rcp(x), c)</code>: the base for the omod tests.</td></tr>
 </table>
 
 <h3>Fast approximations</h3>
@@ -120,7 +120,7 @@
 <h3>More intrinsics</h3>
 <table>
   <tr><td><code>bitcast</code></td><td><code>asint</code> / <code>asfloat</code>: should be free.</td></tr>
-  <tr><td><code>radians</code></td><td>a multiply (degrees too).</td></tr>
+  <tr><td><code>radians</code></td><td>a multiply by a constant (degrees too); ~0 where the driver merges it into the mad, like <code>mul</code>.</td></tr>
   <tr><td><code>log10</code></td><td>log2 and a multiply.</td></tr>
   <tr><td><code>isnan</code>, <code>isinf</code></td><td>a compare and a select (a driver may drop isnan if it assumes no NaNs).</td></tr>
   <tr><td><code>isfinite</code>, <code>mod</code>, <code>asinh</code>, <code>acosh</code>, <code>atanh</code></td><td>functions HLSL or GLSL have and ReShade FX does not: <code>isfinite</code> (HLSL), GLSL's floor-based <code>mod</code>, and the inverse hyperbolic functions written out as GLSL defines them (log and sqrt).</td></tr>
