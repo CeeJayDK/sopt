@@ -105,3 +105,14 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 2: shaderinfo, NVIDIA GeForce GTX 1660 (driver NVIDIA 617.14 (617.14)): `docs/shaderinfo/nvidia-gtx-1660-6.txt`
 - upload 2: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2141): `docs/texbench/intel-uhd-630-5.csv`, `docs/texbench/intel-uhd-630-5-order.png`, `docs/texbench/intel-uhd-630-5-order-zoom.png` (TexBench 0.7.2)
 - upload 2: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1714): `docs/texbench/nvidia-gtx-1660-5.csv`, `docs/texbench/nvidia-gtx-1660-5-order.png`, `docs/texbench/nvidia-gtx-1660-5-order-zoom.png` (TexBench 0.7.2)
+
+## 2026-10-13 13:23 UTC
+- upload 1: opbench, Intel(R) UHD Graphics 620 (driver 31.0.101.2145): `docs/opbench/intel-uhd-620-2.csv` (OpBench 0.7.3)
+- upload 1: shaderinfo, Intel(R) UHD Graphics 620 (driver Intel Corporation Intel driver (101.2145)): `docs/shaderinfo/intel-uhd-620.txt`
+- upload 1: texbench, Intel(R) UHD Graphics 620 (driver 31.0.101.2145): `docs/texbench/intel-uhd-620.csv`, `docs/texbench/intel-uhd-620-order.png`, `docs/texbench/intel-uhd-620-order-zoom.png` (TexBench 0.7.3)
+- upload 2: opbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2135): `docs/opbench/intel-uhd-630-6.csv` (OpBench 0.7.3)
+- upload 2: shaderinfo, Intel(R) UHD Graphics 630 (driver Intel Corporation Intel driver (101.2135)): `docs/shaderinfo/intel-uhd-630-8.txt`
+- upload 2: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2135): `docs/texbench/intel-uhd-630-6.csv` (TexBench 0.7.3)
+- upload 3: opbench, Intel(R) HD Graphics 630 (driver 26.20.100.7986): `docs/opbench/intel-hd-graphics-630.csv` (OpBench 0.7.3)
+- upload 3: shaderinfo, Intel(R) HD Graphics 630 (driver Intel Corporation Intel driver (100.7986)): `docs/shaderinfo/intel-hd-graphics-630.txt`
+- upload 3: texbench, Intel(R) HD Graphics 630 (driver 26.20.100.7986): `docs/texbench/intel-hd-graphics-630.csv` (TexBench 0.7.3)
