@@ -148,6 +148,20 @@ const Test kTests[] = {
     {"scale0.125", "mad(max(x * x * 0.125, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "sqmax", "DX9 _d8"},
     {"scale3", "mad(max(x * x * 3.0, x), c.x, c.y)", 0.25f / 3.0f, 0.5f, 0.0f, 0.0f, "sqmax", "control: a full multiply"},
     {"mulxx", "mad(x * x, c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "mad", "a multiply no driver can merge"},
+    // Where free scales end (owner, 2026-10-13: confirm, then take out what is settled). Mesa's nouveau: NVIDIA's
+    // FMUL scales its result by 2^-3 .. 2^3 (post-factor), only a multiply's. AMD's omod: 2, 4, 0.5 on most VALU ops.
+    // Beyond the range (x16, /16), a negative scale, and the scale after an fma and after an add, each with an x3
+    // control. x settles at 0.586 / 0.667 / 1.0 as above (cx keeps the scaled step at x*x/4 + 0.5 or x/4 + 0.5).
+    {"scale16", "mad(max(x * x * 16.0, x), c.x, c.y)", 0.015625f, 0.5f, 0.0f, 0.0f, "sqmax", "beyond x8"},
+    {"scale0.0625", "mad(max(x * x * 0.0625, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "sqmax", "beyond /8"},
+    {"scaleneg4", "mad(max(x * x * -4.0, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "sqmax", "a negative scale"},
+    {"fmamax", "mad(max(mad(x, x, x), x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "mad", "base for the fma scale tests"},
+    {"fmascale4", "mad(max(mad(x, x, x) * 4.0, x), c.x, c.y)", 0.0625f, 0.5f, 0.0f, 0.0f, "fmamax", "AMD: omod on v_fma"},
+    {"fmascale0.25", "mad(max(mad(x, x, x) * 0.25, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "fmamax", "not an AMD scale"},
+    {"fmascale3", "mad(max(mad(x, x, x) * 3.0, x), c.x, c.y)", 0.25f / 3.0f, 0.5f, 0.0f, 0.0f, "fmamax", "control"},
+    {"addmax", "mad(max(x + abs(x), x), c.x, c.y)", 0.125f, 0.5f, 0.0f, 0.0f, "mad", "base for the add scale tests"},
+    {"addscale4", "mad(max((x + abs(x)) * 4.0, x), c.x, c.y)", 0.03125f, 0.5f, 0.0f, 0.0f, "addmax", "AMD: omod on v_add"},
+    {"addscale3", "mad(max((x + abs(x)) * 3.0, x), c.x, c.y)", 0.125f / 3.0f, 0.5f, 0.0f, 0.0f, "addmax", "control"},
     {"max3", "mad(max(max(x, c.z), c.w), c.x, c.y)", 0.5f, 0.5f, 0.8f, 0.9f, "max", "AMD: v_max3, ~0"},
     {"minmax", "mad(min(max(x, c.z), c.w), c.x, c.y)", 0.5f, 0.5f, 0.8f, 1.2f, "max", "AMD: v_minmax / v_med3, ~0"},
     {"contract", "mad(x * c.z + c.w, c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.1f, "mad", "mul + add: one fma like mad2?"},
@@ -585,7 +599,8 @@ struct Measured {
 const char* const kDisplayOrder[] = {
     // One section for the few, fast basics (owner, 2026-10-10: like the web page's group).
     "#Modifiers and basic arithmetic", "neg", "abs", "negabs", "saturate", "satmad", "mul", "mulxx", "sqmax", "scale2", "scalehalf",
-    "scale4", "scale8", "scale0.25", "scale0.125", "scale3", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
+    "scale4", "scale8", "scale0.25", "scale0.125", "scale3", "scale16", "scale0.0625", "scaleneg4",
+    "fmamax", "fmascale4", "fmascale0.25", "fmascale3", "addmax", "addscale4", "addscale3", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
     "lerp",
     "#Rounding and sign", "floor", "ceil", "round", "trunc", "frac", "roundadd", "flooradd", "fracadd", "signsel2", "signbits",
     "signsat", "signmad", "signclamp", "signsel", "sign",

@@ -57,6 +57,9 @@
   <tr><td><code>scale2</code>, <code>scalehalf</code>, <code>scale4</code></td><td><code>max(x * x * 2, x)</code>, <code>* 0.5</code>, <code>* 4</code>: AMD scales a result by 2, 4 or 0.5 for free (output modifier); NVIDIA's multiply has such scales too.</td></tr>
   <tr><td><code>scale8</code>, <code>scale0.25</code>, <code>scale0.125</code></td><td><code>* 8</code>, <code>* 0.25</code>, <code>* 0.125</code>: scales that DX9-era GPUs applied for free (_x8, _d4, _d8).</td></tr>
   <tr><td><code>scale3</code></td><td><code>* 3</code>: the control, a full multiply everywhere (3 is no free scale).</td></tr>
+  <tr><td><code>scale16</code>, <code>scale0.0625</code>, <code>scaleneg4</code></td><td><code>* 16</code>, <code>* 0.0625</code>, <code>* -4</code> after <code>x * x</code>: just beyond NVIDIA's free scales (8 to 1/8), and a negative one.</td></tr>
+  <tr><td><code>fmamax</code>, <code>fmascale4</code>, <code>fmascale0.25</code>, <code>fmascale3</code></td><td>the scale after an fma (<code>mad(x, x, x) * 4</code> ...) with its base and the x3 control: AMD scales an fma's result for free, NVIDIA only a multiply's.</td></tr>
+  <tr><td><code>addmax</code>, <code>addscale4</code>, <code>addscale3</code></td><td>the scale after an add (<code>(x + abs(x)) * 4</code>), with its base and the x3 control.</td></tr>
   <tr><td><code>min</code>, <code>max</code>, <code>step</code></td><td>min / max / compare; NVIDIA Turing runs one of them beside an fma.</td></tr>
   <tr><td><code>add</code>, <code>sub</code></td><td>one add.</td></tr>
   <tr><td><code>fma1</code></td><td><code>mad(x, x, c)</code>: one fma with a single constant. On AMD GCN the reference's two constants cost a second instruction, so this is the true fp32 rate there (the score uses whichever is faster).</td></tr>

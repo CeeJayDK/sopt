@@ -1560,6 +1560,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   Xe in all 174 math tests: Gen12's second card (build.py NAME_BY_DEVICE "Intel UHD Graphics (Tiger Lake)"); no free
   scale either (all 3.9). Bug: OpBench 0.7.3 flagged ilp1-6 as "4.3, usually 0.3": chain tests show their whole cost,
   the family values are over the base; fixed in 0.7.4 (the base's cost is added to the family value before comparing).
+  NVIDIA's free scales (owner, 2026-10-13: find sources, test the limits). Not documented by NVIDIA; Mesa's nouveau
+  (reverse-engineered) has a 3-bit post-factor on FMUL, 2^-3 .. 2^3: emitPDIV in nv50_ir_emit_gm107.cpp (Maxwell /
+  Pascal) and nv50_ir_emit_gv100.cpp (Volta onwards), TargetNVC0::isPostMultiplySupported (powers of two, |e| <= 3),
+  ConstantFolding::tryCollapseChainedMULs (only a MUL's result; a negative scale via a negated source), all in
+  src/nouveau/codegen (mesa-24.0.0). OpBench 0.7.4 tests the limits: scale16, scale0.0625, scaleneg4 (after x * x),
+  fmamax / fmascale4 / fmascale0.25 / fmascale3 (after an fma), addmax / addscale4 / addscale3 (after an add).
+  GTX 1660 (drift 35%): x4, x8, x0.5, x0.125 ~0 (x0.25 1.1), x16 / x1/16 3.8, x-4 3.8 (NVIDIA's driver does not use the
+  negated source as nouveau would), after an fma x4 1.2 / x0.25 1.5 / control 1.8 (alike: not free), after an add x4
+  3.7 / control 3.2 (not free). UHD 630 (drift 1%): every scale 3.6-3.7. To take out once reports confirm per family.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
