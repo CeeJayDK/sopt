@@ -178,10 +178,12 @@ step ends in `mad(y, c.x, c.y)`; the plain mad step is the reference, and a test
 time per step minus its base test's, in sopt's units (4 = one fma). Configurations: `tput`
 (8 independent chains per thread, 1M threads: throughput), `dep` (1 chain per thread, 1M
 threads), `lat` (1 chain, one thread group: latency relative to mad's). Besides single ops it
-tests the context effects the rdna3 model assumes: `omod2` / `omodhalf` (x * 2, x * 0.5 after
-rcp: AMD output modifier, expected ~0; `omod4` likewise; `omod8`, `omod0.25`, `omod0.125` are
-DX9-era scales, expected to cost a multiply now; `omod3` is the control), `max3`, `minmax`, `satmad`,
-`contract`. The GPU's clock is not known, so latency is relative too.
+tests the context effects the rdna3 model assumes: `scale2` / `scalehalf` / `scale4` (x * x * 2, * 0.5,
+* 4 inside max(..., x) over the base `sqmax`: AMD output modifier, expected ~0; `scale8`, `scale0.25`,
+`scale0.125` are DX9-era scales; `scale3` is the control, a full multiply), `max3`, `minmax`, `satmad`,
+`contract`. Until 0.7.2 the scales sat after `rcp` (`omod*` over `rcpmax`): on NVIDIA and Intel the multiply hid
+under the rcp's issue rate, so even the x3 control measured ~0 there (owner, 2026-10-13). `mul` (x * a constant)
+shows whether the driver merges the multiply into the mad; `mulxx` (x * x) is a multiply nothing can merge. The GPU's clock is not known, so latency is relative too.
 
 Version 2 (0.1.0): a 2-second warm-up, then every test is measured twice, forward and backward
 through the list, each time with a fresh reference mad right before it, so a GPU clock change only
