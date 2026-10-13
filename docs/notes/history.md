@@ -1553,6 +1553,13 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   UHD 630 every scale 3.6-3.7 (none free), mulxx 4.0, mul 0.06 (merged). fxc writes every * 2.0 as x + x (add, or dp2
   with a product), so on D3D NVIDIA never gets the free x2 (scale2 = what D3D shaders get; Vulkan / OpenGL keep the
   multiply). sopt's NVIDIA models have no scale folds yet (owner's go needed).
+  Reports 2026-10-13 (OpBench 0.7.3): UHD 620 (101.2145, drift 21%), UHD 630 (101.2135, 23%), HD 630 (26.20.100.7986,
+  7%) = Gen9; no free scale on Gen9 (scale2 / half / 4 / 3 all 3.0-3.9, mulxx 3.7-4.0, mul ~0: merged). The HD 630's
+  2020 driver already has every Gen9 driver improvement: they came between 21.20.16.4550 (2016) and 26.20.100.7986.
+  Owner's Tiger Lake UHD Graphics (0x9A78, 32.0.101.7085, drift 9%; OpBench + ShaderInfo, TexBench cut short) = Iris
+  Xe in all 174 math tests: Gen12's second card (build.py NAME_BY_DEVICE "Intel UHD Graphics (Tiger Lake)"); no free
+  scale either (all 3.9). Bug: OpBench 0.7.3 flagged ilp1-6 as "4.3, usually 0.3": chain tests show their whole cost,
+  the family values are over the base; fixed in 0.7.4 (the base's cost is added to the family value before comparing).
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

@@ -87,29 +87,32 @@ inline const Family kFamilies[] = {
      "floor 2.6 frac 2.6 lerp 5.2 log 10.7 log2 10.6 mad 4.0 mad2 2.6 max 2.6 max3 2.6 min 2.6 minmax 2.6 "
      "mul 2.6 neg 0.0 negabs 2.6 omod2 0.2 omod3 0.2 omodhalf 0.2 pow 23.9 rcp 10.6 rcpmax 10.7 round 2.6 "
      "rsqrt 10.6 satmad 0.0 saturate 0.2 select 5.2 sign 10.9 sin 16.1 sqrt 10.6 step 2.6 sub 2.6 "},
-    {"intel-gen12", "Xe-LP", 1,
-     "aAdd 18.0 aAdd1 47.6 aAnd 18.0 aAnd1 454.1 aCmpXchg 31.9 aCmpXchg1 2278.0 aMax 18.0 aMax1 454.7 "
-     "aMin 18.0 aMin1 454.7 aOr 18.0 aOr1 456.0 aXchg 18.1 aXchg1 454.7 aXor 17.9 aXor1 454.8 abs 0.0 "
-     "acos 41.1 acos1 30.9 acos4 45.3 add 3.9 add16 1.8 arraybase 23.0 arrayread 62.1 arraywrite 16061.0 "
-     "asin 44.9 atan 64.7 atan2 76.3 atan2q 31.6 atan4 22.7 atan5a 39.7 atombase 13.2 barrier 30.9 "
-     "bitcast 0.0 bitor 3.7 bitrev 3.9 branchdiv 112.6 branchuni 54.4 ceil 3.9 clamp 7.7 constarray 90.1 "
-     "contract 4.0 cos 10.6 cosh 25.5 cross 25.0 cvt1 3.5 det3 33.0 distance 40.0 div 10.6 divxy 7.1 "
-     "dot2 8.1 dot3 19.0 dot4 24.6 exp 10.7 exp2 10.6 exp2_16 12.6 exp2ceil 25.3 exp2floor 25.3 "
-     "f16round 4.3 faceforward 27.3 fbh 13.0 fbl 4.2 floor 3.7 flooradd 20.0 fma+cvt -1.8 fma+fma -0.0 "
-     "fma+half 0.9 fma+int -1.9 fma+minmax -1.9 fma+rcp -7.1 fma1 4.0 fmod 15.1 frac 3.7 fracadd 21.1 "
-     "frexp 40.1 ftoitof 14.9 ftou 4.1 groupbarrier 2.2 gsbase 27.0 gsbase32 26.8 gsread 0.1 gsread32 0.9 "
-     "gswrite 11.8 gswrite32 13.3 gswriteread 16.8 half1 -1.9 iadd 4.0 iand 4.0 icmpsel 7.9 idiv 137.1 "
-     "imin 4.2 imod 137.0 imul 7.9 int 3.7 irot 11.9 ishr 7.8 isinf 11.3 isnan 7.6 itof 4.0 ixmul 7.6 "
-     "ldexp 6.7 length 28.1 lerp 7.6 log 10.6 log10 10.6 log2 10.6 log2_16 12.6 mad 4.0 mad16 -1.9 "
-     "mad16v3 -6.1 mad2 4.0 mad2v 4.1 mad3v 8.0 mad4v 12.6 matmul4 68.9 max 3.9 max16 1.9 max3 3.7 "
-     "membarrier 16.5 min 3.9 minmax 3.7 minmax1 3.7 mix16 4.0 modf 7.4 mul 0.0 mul16 0.2 neg -0.0 "
-     "negabs 0.0 normalize 22.1 omod0.125 0.3 omod0.25 0.3 omod2 0.5 omod3 0.3 omod4 0.3 omod8 0.7 "
-     "omodhalf 0.4 popc 4.3 pow 25.3 pow2ceil 7.5 pow2floor 3.8 radians 0.1 rcp 10.6 rcp1 10.6 rcp16 12.6 "
-     "rcpmax 10.8 rcpnr0 3.7 rcpnr1 14.2 reflect 29.6 refract 65.7 round 3.8 roundadd 7.4 rsqrt 10.7 "
-     "rsqrtnr0 7.4 rsqrtnr1 26.3 satmad 0.0 saturate 0.2 select 7.8 selectboth 112.6 sign 17.8 "
-     "signbits 7.0 signclamp 10.8 signmad 7.4 signsat 11.0 signsel 13.9 signsel2 3.1 sin 10.6 sincos 20.6 "
-     "sinh 25.5 smoothstep 19.1 sqrt 10.6 sqrt16 12.6 sqrtnr0 7.4 step 7.5 sub 4.2 tan 39.8 tanh 40.0 "
-     "trunc 3.8 udiv 139.5 umod 138.6 unitf 11.2 utof 4.0 "},
+    {"intel-gen12", "Xe-LP", 2,
+     "aAdd 16.7 aAdd1 46.7 aAnd 16.7 aAnd1 450.5 aCmpXchg 30.5 aCmpXchg1 2258.2 aMax 16.4 aMax1 451.6 "
+     "aMin 17.2 aMin1 450.7 aOr 16.7 aOr1 450.6 aXchg 16.8 aXchg1 449.9 aXor 16.7 aXor1 449.7 abs 0.0 "
+     "acos 43.8 acos1 30.4 acos4 44.8 acosh 25.4 add 3.9 add16 1.9 any3abs 24.6 any3max 25.7 any3or 15.2 "
+     "any4abs 29.9 any4max3 28.6 any4or 19.9 any4pairs 24.0 arraybase 22.7 arrayread 60.7 "
+     "arraywrite 8411.9 asin 48.4 asinh 25.4 atan 64.9 atan2 75.4 atan2q 31.2 atan4 22.5 atan5a 39.2 "
+     "atanh 24.1 atombase 14.1 barrier 30.6 bitcast 0.0 bitor 3.7 bitrev 3.9 branchdiv 111.6 "
+     "branchuni 53.9 ceil 3.8 clamp 7.6 constarray 89.5 contract 4.0 cos 10.5 cosh 24.9 cross 24.2 "
+     "cvt1 3.5 det3 32.0 distance 39.0 div 10.5 divxy 7.0 dot2 8.3 dot3 18.5 dot4 23.9 exp 10.6 exp2 10.5 "
+     "exp2_16 12.7 exp2ceil 25.0 exp2floor 25.0 f16round 4.3 faceforward 26.4 fbh 12.8 fbl 4.4 floor 3.7 "
+     "flooradd 19.7 fma+cvt -1.8 fma+fma -0.0 fma+half 0.9 fma+int -1.9 fma+minmax -1.9 fma+rcp -7.1 "
+     "fma1 4.0 fma4+rcp -9.7 fmod 14.9 frac 3.7 fracadd 21.0 frexp 39.4 ftoitof 15.3 ftou 3.6 "
+     "groupbarrier 2.1 gsbase 26.7 gsbase32 26.6 gsread 0.1 gsread32 0.8 gswrite 11.6 gswrite32 12.6 "
+     "gswriteread 16.6 half1 -1.9 iadd 4.0 iand 4.0 icmpsel 7.6 idiv 135.9 ilp1 0.1 ilp2 0.0 ilp3 -0.1 "
+     "ilp4 -0.0 ilp5 -0.1 ilp6 -0.1 imin 4.2 imod 136.2 imul 7.7 int 3.7 irot 11.7 isfinite 11.4 ishr 8.1 "
+     "isinf 11.4 isnan 7.7 itof 4.0 ixmul 7.6 ldexp 6.4 length 26.8 lerp 7.6 log 10.5 log10 10.3 log2 10.5 "
+     "log2_16 12.3 mad 4.0 mad16 -1.9 mad16v3 -6.7 mad2 4.0 mad2v 4.2 mad3v 8.6 mad4v 13.0 matmul4 65.9 "
+     "max 3.9 max16 1.9 max3 3.7 membarrier 16.3 min 3.9 minmax 3.7 minmax1 3.7 mix16 4.0 mod 12.3 "
+     "modf 7.3 mul 0.0 mul16 0.2 mulxx 3.7 neg -0.0 negabs 0.0 normalize 21.2 omod0.125 0.3 omod0.25 0.3 "
+     "omod2 0.5 omod3 0.3 omod4 0.3 omod8 0.7 omodhalf 0.4 popc 4.3 pow 25.0 pow2ceil 7.4 pow2floor 3.8 "
+     "radians 0.0 rcp 10.5 rcp1 10.5 rcp16 12.4 rcpmax 10.8 rcpnr0 3.8 rcpnr1 14.1 reflect 28.7 "
+     "refract 64.7 round 3.8 roundadd 7.4 rsqrt 10.5 rsqrtnr0 7.4 rsqrtnr1 26.0 satmad 0.0 saturate 0.2 "
+     "scale0.125 3.9 scale0.25 3.9 scale2 3.9 scale3 3.9 scale4 3.9 scale8 3.9 scalehalf 3.9 select 7.7 "
+     "selectboth 111.6 sign 17.7 signbits 7.2 signclamp 10.9 signmad 7.5 signsat 11.1 signsel 13.9 "
+     "signsel2 3.2 sin 10.5 sincos 20.7 sinh 25.1 smoothstep 18.8 sqmax 7.6 sqrt 10.5 sqrt16 12.6 "
+     "sqrtnr0 7.4 step 7.5 sub 4.1 tan 39.0 tanh 39.5 trunc 3.8 udiv 137.6 umod 138.1 unitf 11.2 utof 4.0 "},
     {"intel-gen7.5", "Gen7.5", 1,
      "aAdd 46.3 aAdd1 200.5 aAnd 47.7 aAnd1 239.9 aCmpXchg 67.4 aCmpXchg1 240.0 aMax 45.6 aMax1 237.6 "
      "aMin 48.0 aMin1 240.7 aOr 45.6 aOr1 237.2 aXchg 47.7 aXchg1 239.7 aXor 45.8 aXor1 242.5 abs 0.3 "
@@ -337,7 +340,7 @@ inline const Rule kRules[] = {
     {R"(Vega)", "amd-gcn5"},
     {R"(HD [67]\d\d\dM?\b)", "amd-terascale2"},
     {R"(Arc\S* B\d\d\d|Arc\S* 1[34]0V)", "intel-xe2"},
-    {R"(Iris\S* Xe|UHD Graphics 7\d\d)", "intel-gen12"},
+    {R"(Iris\S* Xe|UHD Graphics (7\d\d|\(Tiger Lake\)))", "intel-gen12"},
     {R"(Iris\S* (Graphics )?5\d\d|U?HD Graphics 6\d\d|HD Graphics 5\d\d)", "intel-gen9"},
     {R"(HD Graphics 4[2-6]\d\d|Iris\S* (Pro )?(Graphics )?5[12]00)", "intel-gen7.5"},
 };
@@ -353,6 +356,7 @@ inline const Device kDevices[] = {
     {0x1636, "amd-gcn5"},
     {0x164E, "amd-rdna2"},
     {0x1681, "amd-rdna2"},
+    {0x9A78, "intel-gen12"},
 };
 
 }  // namespace expected

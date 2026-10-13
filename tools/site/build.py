@@ -34,6 +34,7 @@ NAME_BY_DEVICE = {
     "0x15D8": "AMD Radeon RX Vega 11 (Picasso)",
     "0x164E": "AMD Radeon Graphics (Raphael)",
     "0x13C0": "AMD Radeon Graphics (Granite Ridge)",
+    "0x9A78": "Intel UHD Graphics (Tiger Lake)",  # Xe-LP, measured = Iris Xe (2026-10-13)
 }
 SKIP_DEVICES = {"0x008C"}  # Microsoft Basic Render Driver (software)
 
@@ -60,7 +61,7 @@ MODEL_RULES = [
     (r"Vega", "amd-gcn5"),
     (r"HD [67]\d\d\dM?\b", "amd-terascale2"),
     (r"Arc\S* B\d\d\d|Arc\S* 1[34]0V", "intel-xe2"),
-    (r"Iris\S* Xe|UHD Graphics 7\d\d", "intel-gen12"),
+    (r"Iris\S* Xe|UHD Graphics (7\d\d|\(Tiger Lake\))", "intel-gen12"),
     (r"Iris\S* (Graphics )?5\d\d|U?HD Graphics 6\d\d|HD Graphics 5\d\d", "intel-gen9"),
     (r"HD Graphics 4[2-6]\d\d|Iris\S* (Pro )?(Graphics )?5[12]00", "intel-gen7.5"),
 ]

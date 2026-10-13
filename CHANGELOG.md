@@ -19,6 +19,7 @@ docs/notes/history.md.
 - **Intel Arc B-series:** SweetOpt now has its own settings for Intel Arc B-series graphics cards (Battlemage), measured with GPU Blueprint.
 
 ### GPU Blueprint
+- **Fixed:** OpBench said the tests for how many math operations run at once differed from other cards of the same kind, when they did not.
 - **Fixed:** OpBench's tests for multiplying by 2, 4 or 0.5 could not see the multiply at all on NVIDIA and Intel graphics cards. They are measured in a new way, and a new test shows what a plain multiply really costs.
 - **On the website:** which driver updates made graphics cards faster (a reason to keep your driver up to date), and on which graphics cards half precision (fp16) is faster. Both grow with every report.
 - **Your own copy of the results:** OpBench and TexBench now save what they show on screen as a text file in Reports\Results, for you to keep. It is not part of the reports you send.

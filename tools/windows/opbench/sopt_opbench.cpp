@@ -902,12 +902,15 @@ int main(int argc, char** argv) {
       if (shaky) note = st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus";
       else if (x.readings.size() > 2)
         note = std::string("  ") + st.c("\x1b[90m") + std::to_string(x.readings.size()) + " passes" + st.reset();
+      // The family's costs are over the base (expected.hpp, units_vs_base); chain tests show their whole cost, so
+      // their base's cost is added before comparing (ilp1-6 read "4.3, usually 0.3" in 0.7.3).
       const auto e = fam.cost.find(name);
+      const double usual = e != fam.cost.end() ? e->second + (v - x.vsBase) : 0.0;
       if (!shaky && !pair && e != fam.cost.end()) ++compared;
-      if (!shaky && !pair && e != fam.cost.end() && differs(v, e->second)) {
-        different.push_back({name, v, e->second});
+      if (!shaky && !pair && e != fam.cost.end() && differs(v, usual)) {
+        different.push_back({name, v, usual});
         char buf[48];
-        std::snprintf(buf, sizeof(buf), "  usually %.1f", e->second);
+        std::snprintf(buf, sizeof(buf), "  usually %.1f", usual);
         note += std::string(st.c("\x1b[95m")) + buf + st.reset();
       }
       const double shown = std::fabs(v) < 0.05 ? 0.0 : v;  // no "-0.0"
