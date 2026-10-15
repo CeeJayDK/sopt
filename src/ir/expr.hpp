@@ -145,10 +145,17 @@ int fusedArg(const Expr& e, uint32_t node, const std::vector<uint32_t>& uses, bo
 // a mul by a constant +-2 / +-4 / +-0.5 whose other operand is a single-use, same-width result of
 // an instruction with output modifiers (and that is not itself contracted into an fma), or a
 // min / max with a single-use min / max operand that does not fold itself (three operands).
-std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& uses, const CostModel& m);
-// The ops whose instruction takes an output modifier (omod) in amdFoldedNodes.
+// The model's fuse bits (fuseBits, ops.hpp) add NVIDIA's free scales after a multiply and the merged integer
+// instructions: bitwise groups of <= 3 inputs (LOP3 / bfn, AMD bit select) and the pairs of fusesIntPair.
+std::vector<bool> foldedNodes(const Expr& e, const std::vector<uint32_t>& uses, const CostModel& m);
+// The ops whose instruction takes an output modifier (omod) in foldedNodes.
 bool takesOmod(Op op);
 bool isOmodScale(float v);
+bool isFreeMulScale(float v);  // NVIDIA FMUL post-factor: 4, 8, 1/2, 1/4, 1/8
+bool isBitwiseOp(Op op);
+bool isLowMask(uint32_t v);    // 2^k - 1, 0 < k < 32
+bool fusesIntPair(uint16_t fuse, Op op, Op child, int childArg, std::optional<uint32_t> opConst,
+                  std::optional<uint32_t> childConst);
 bool containsInexact(const Expr& e);
 bool containsOp(const Expr& e, Op op);
 // Whether e relies on exact float rounding that fxc -O3 would reassociate away: (v + c) - c,

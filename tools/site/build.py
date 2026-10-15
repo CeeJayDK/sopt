@@ -34,10 +34,26 @@ NAME_BY_DEVICE = {
     "0x15D8": "AMD Radeon RX Vega 11 (Picasso)",
     "0x164E": "AMD Radeon Graphics (Raphael)",
     "0x13C0": "AMD Radeon Graphics (Granite Ridge)",
+    "0x9A78": "Intel UHD Graphics (Tiger Lake)",  # Xe-LP, measured = Iris Xe (2026-10-13)
 }
 SKIP_DEVICES = {"0x008C"}  # Microsoft Basic Render Driver (software)
 
 # Reports whose clock moved during the run (see CLAUDE.md): left out.
+# OpBench tests whose step or base changed: readings from older reports measured something else and are left out
+# (owner, 2026-10-15: the integer tests' base was an integer multiply until 0.7.4, cheaper ops hid under it).
+REDEFINED = {
+    (0, 7, 5): {"iadd", "imul", "iand", "imin", "ishr", "irot", "bitrev", "ishl", "ineg", "iabs", "bfe", "xor3", "or3",
+                "andor", "bitsel", "maj3", "iadd3", "lshladd", "addlshl", "imad", "icmpsel", "udiv", "umod", "idiv",
+                "imod", "itof", "utof", "unitf", "popc", "fbh", "fbl", "ftou"},
+}
+
+
+def reading_valid(version, test):
+    """Whether a report of this OpBench version measured the test as it is defined now."""
+    v = tuple(int(x) for x in str(version).split(".") if x.isdigit())
+    return all(v >= since or test not in tests for since, tests in REDEFINED.items())
+
+
 UNRELIABLE = {
     "nvidia-rtx-3050-laptop.csv", "nvidia-rtx-4070.csv", "nvidia-gtx-1660-ti.csv", "nvidia-gtx-1660-ti-2.csv",
     "nvidia-rtx-4090-laptop.csv", "nvidia-rtx-4090-laptop-dgpu.csv", "amd-radeon-680m-rembrandt.csv",
@@ -50,17 +66,21 @@ UNRELIABLE = {
 # Card name -> cost model, first match wins.
 MODEL_RULES = [
     (r"RTX 50\d\d", "nvidia-blackwell"),
-    (r"RTX (30|40)\d\d", "nvidia-ampere"),
+    (r"RTX 40\d\d", "nvidia-ada"),
+    (r"RTX 30\d\d", "nvidia-ampere"),
     (r"GTX 16\d\d|RTX 20\d\d", "nvidia-turing"),
     (r"GTX 10\d\d|GT 10\d\d", "nvidia-pascal"),
-    (r"GTX (9\d\d|8\d\dM)|Quadro M\d", "nvidia-maxwell"),
+    # Maxwell 2 (GM20x, SM52) before Maxwell 1 (GM107 / GM108, SM50: no hardware sqrt).
+    (r"GTX (9[5-8]0( Ti)?|TITAN X|9(65|70|80)M)\b|Quadro M(2000|3000M|4000|5000M?|5500|6000)\b", "nvidia-maxwell2"),
+    (r"GTX (745|750( Ti)?|8\d\dM|9[2-6][05]MX?)\b|MX1[13]0\b|Quadro (K620|K1200|K2200|M(500M|520|600M|620|1000M|1200|2000M))\b",
+     "nvidia-maxwell1"),
     (r"RX 9\d\d\d", "amd-rdna4"),
     (r"RX 7\d\d\d", "rdna3"),
     (r"RX 6\d\d\d|Radeon 6[68]0M|Raphael|Granite Ridge", "amd-rdna2"),
     (r"Vega", "amd-gcn5"),
     (r"HD [67]\d\d\dM?\b", "amd-terascale2"),
     (r"Arc\S* B\d\d\d|Arc\S* 1[34]0V", "intel-xe2"),
-    (r"Iris\S* Xe|UHD Graphics 7\d\d", "intel-gen12"),
+    (r"Iris\S* Xe|UHD Graphics (7\d\d|\(Tiger Lake\))", "intel-gen12"),
     (r"Iris\S* (Graphics )?5\d\d|U?HD Graphics 6\d\d|HD Graphics 5\d\d", "intel-gen9"),
     (r"HD Graphics 4[2-6]\d\d|Iris\S* (Pro )?(Graphics )?5[12]00", "intel-gen7.5"),
 ]
@@ -188,6 +208,8 @@ def opbench_extras():
         rows = [r for r in csv.DictReader(l for l in lines if l and not l.startswith("#")) if r.get("config") == "tput"]
         vals, units = {}, {}
         for r in rows:
+            if not reading_valid(info.get("version", "0"), r.get("test", "")):
+                continue
             try:
                 units[r["test"]] = float(r["units"])
                 if r.get("consensus") == "yes":
@@ -285,6 +307,7 @@ def texbench_data(out):
     cards = []
     for name, (rank, path, base, info, rows, lines) in sorted(best.items()):
         hdr = {k: v for k, v in (re.match(r"# ([^:]+): (.*)", l).groups() for l in lines if re.match(r"# [^:]+: ", l))}
+        version = tuple(int(x) for x in info.get("version", "0").split(".") if x.isdigit())
         col = {c: i for i, c in enumerate(rows[0])}
         sections = {}
         order = []
@@ -292,6 +315,8 @@ def texbench_data(out):
             if len(r) < len(rows[0]) - 1:
                 continue
             cfg, test, sec = r[0], TB_RENAMES.get(r[1], r[1]), r[2]
+            if test.endswith(" write smooth") and version < (0, 7, 7):
+                continue  # alpha was a gradient until 0.7.6 (now 1, what effects write)
             if cfg in TB_SKIP_CONFIGS or not sec:
                 continue
             note = r[col["note"]] if "note" in col else ""

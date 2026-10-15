@@ -22,7 +22,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Fewer instructions at equal measured speed are still better (less power; faster once the bottleneck moves).
 - When asking the owner to test or download something, repeat the links in that message (CI run / artifact links).
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
-  testers (now 0.7.3, test build; 0.7.0 released); the next test build is 0.7.4.
+  testers (now 0.7.7, test build; 0.7.0 released); the next test build is 0.7.8.
 - CHANGELOG.md: one `## <version>` section per release, add to the top section as things land (release.yml copies it).
   Changelog, release notes and README.md are for laymen (owner, 2026-10-10): plain English, short, what changes for the
   user, no option names or internals (those go in docs/notes/history.md, docs/technical.md).
@@ -72,7 +72,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 (Per-file map with a flow diagram: docs/code-map.md; update it when files are added, moved or change purpose.)
 - `src/ir`: ops (`ops.cpp`: op table, exactness, cost models, `CostModel::opCost` / `divCost` / `binaryCost`, HalfCosts),
   float32 evaluator (`evalNode`), hash-consed Expr DAG (`expr.cpp`: dagCost / nodeCosts / divCosts / fusedArg /
-  amdFoldedNodes / scheduleMetrics, printers incl. `toGlsl`), `.sopt` parser.
+  foldedNodes (AMD omod / min3, fuse bits) / scheduleMetrics, printers incl. `toGlsl`), `.sopt` parser.
 - `src/verify`: sample points (incl. special values, threshold points), block evaluation, budgets, accuracy rule
   (`verify/exact`), V2 exhaustive, V3 interval bounds (`bound.cpp`), problem inputs (`problems.cpp`).
 - `src/search`: `enumerator` (bottom-up by cost, observational equivalence, affine / inner fits, top-down split, two-phase,
@@ -85,7 +85,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 - `src/cli`: `main.cpp` (sopt), `fx_main.cpp` (sopt-fx), `console` (titles, progress bars, window title progress).
 - `third_party/reshadefx`: ReShade 6.8.0 FX lexer / preprocessor / parser with small hooks (symbolic macros, HLSL / GLSL
   modes, named expressions); `src/fx/codegen` records its codegen as a dataflow graph.
-- `tools/windows`: opbench (OpBench), texbench (TexBench), shaderinfo (ShaderInfo), benchkit.hpp (shared console /
+- `tools/windows`: opbench (OpBench; StageBench = the same source with SOPT_STAGEBENCH), texbench (TexBench), shaderinfo (ShaderInfo), benchkit.hpp (shared console /
   timing), host (sopt-host), timer (sopt-timer ReShade add-on), GPU-Blueprint.bat / SweetOpt.bat / Test-Host.bat menus,
   docs/*.html (shipped guides), stage.ps1, expected.hpp. `tools/reshade`: ReShade patches, IEEE754 test effect.
   `tools/site`: site build, Steam share script. `tools/sweetfx`: proposed SweetFX changes, BlendModes.fxh.
@@ -118,7 +118,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 
 ## Facts worth keeping in mind
 - Cost models (all from OpBench, docs/opbench): nvidia-ampere (default since 2026-10-10: largest Steam group), rdna3 (RX 7900 GRE), amd-rdna2, amd-rdna4, amd-gcn5,
-  amd-terascale2, nvidia-maxwell / pascal / turing / ampere (RTX 30 + 40) / blackwell, intel-gen7.5 / gen9 / gen12 / xe2 (Arc B),
+  amd-terascale2, nvidia-maxwell1 (GM107/108) / maxwell2 (GM20x; "nvidia-maxwell" still accepted) / pascal / turing / ampere (RTX 30) / ada (RTX 40) / blackwell, intel-gen7.5 / gen9 / gen12 / xe2 (Arc B),
   plus rdna3-rga (old instruction counts), nvidia (ptxas), generic, search (enumeration order). New cards that differ
   get their own model, identical ones share. GCN 4 (RX 590) would be its own model (owner's go needed).
 - min16float: ReShade writes it as min16float only on D3D10-12 (D3D9 float, OpenGL mediump = ignored, Vulkan

@@ -356,9 +356,12 @@ class Enumerator {
   }
   size_t lenOf(Type t) const { return width(t) * n_; }
   float constValue(uint32_t idx) const { return consts_[entry(idx).aux()][0]; }
-  // CostModel::amdFolds for op over bank entries a, b (bank entries are trees: every operand is
-  // used once): the node folds into another instruction (amdFoldedNodes in expr.hpp).
-  bool amdFolds(const CostModel& m, Op op, Type type, uint32_t a, uint32_t b) const;
+  // amdFolds and the fuse bits for op over bank entries a, b (bank entries are trees: every operand is
+  // used once): the node folds into another instruction (foldedNodes in expr.hpp).
+  bool folds(const CostModel& m, Op op, Type type, uint32_t a, uint32_t b) const;
+  // A bitwise op whose bitwise operands form a group of <= 3 inputs (LOP3 / bfn, AMD bit select): obj = the inputs'
+  // objectives + one instruction + 1 per op inside (foldedNodes' groups). False if no group forms.
+  bool bitwiseGroupObj(const CostModel& m, Op op, Type type, uint32_t a, uint32_t b, uint32_t& obj) const;
   const std::vector<Type>& floatTypes() const { return types_; }
   Expr extract(const Entry& e) const;
   void addSharedLeaves(SearchStats& stats);

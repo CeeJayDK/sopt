@@ -51,12 +51,17 @@
   <tr><td><code>neg</code>, <code>abs</code>, <code>negabs</code></td><td><code>-x</code>, <code>abs(x)</code>, <code>-abs(x)</code> feeding the mad: source modifiers, usually free.</td></tr>
   <tr><td><code>saturate</code></td><td>clamp to [0, 1] on the previous mad's result: an output modifier.</td></tr>
   <tr><td><code>satmad</code></td><td><code>saturate(mad(...))</code>: the same, measured against two mads.</td></tr>
+  <tr><td><code>madsatu</code>, <code>madlit</code>, <code>madlit1</code>, <code>madinl</code></td><td>a clamped mad with two uniforms, two literal numbers, one of each, and two numbers AMD encodes for free (2 and -0.5): where a GPU needs an extra move instruction to get a second constant in (AMD GCN can read only one).</td></tr>
   <tr><td><code>mul</code></td><td><code>x * c</code> before the mad, c a constant: not the cost of a multiply, but whether the driver merges it into the mad (<code>x * (c * c2)</code>, the constants multiplied once). ~0 where it does.</td></tr>
   <tr><td><code>mulxx</code></td><td><code>x * x</code> before the mad: a multiply no driver can merge, its real cost.</td></tr>
   <tr><td><code>sqmax</code></td><td><code>max(x * x, x)</code>: the base for the scale tests.</td></tr>
   <tr><td><code>scale2</code>, <code>scalehalf</code>, <code>scale4</code></td><td><code>max(x * x * 2, x)</code>, <code>* 0.5</code>, <code>* 4</code>: AMD scales a result by 2, 4 or 0.5 for free (output modifier); NVIDIA's multiply has such scales too.</td></tr>
   <tr><td><code>scale8</code>, <code>scale0.25</code>, <code>scale0.125</code></td><td><code>* 8</code>, <code>* 0.25</code>, <code>* 0.125</code>: scales that DX9-era GPUs applied for free (_x8, _d4, _d8).</td></tr>
   <tr><td><code>scale3</code></td><td><code>* 3</code>: the control, a full multiply everywhere (3 is no free scale).</td></tr>
+  <tr><td><code>scale16</code>, <code>scale0.0625</code>, <code>scaleneg4</code></td><td><code>* 16</code>, <code>* 0.0625</code>, <code>* -4</code> after <code>x * x</code>: just beyond NVIDIA's free scales (8 to 1/8), and a negative one.</td></tr>
+  <tr><td><code>scaleneg0.5</code>, <code>scaleneg8</code></td><td>more negative scales: is a negative scale ever free?</td></tr>
+  <tr><td><code>fmamax</code>, <code>fmascale4</code>, <code>fmascale0.25</code>, <code>fmascale3</code></td><td>the scale after an fma (<code>mad(x, x, x) * 4</code> ...) with its base and the x3 control: AMD scales an fma's result for free, NVIDIA only a multiply's.</td></tr>
+  <tr><td><code>addmax</code>, <code>addscale4</code>, <code>addscale3</code></td><td>the scale after an add (<code>(x + abs(x)) * 4</code>), with its base and the x3 control.</td></tr>
   <tr><td><code>min</code>, <code>max</code>, <code>step</code></td><td>min / max / compare; NVIDIA Turing runs one of them beside an fma.</td></tr>
   <tr><td><code>add</code>, <code>sub</code></td><td>one add.</td></tr>
   <tr><td><code>fma1</code></td><td><code>mad(x, x, c)</code>: one fma with a single constant. On AMD GCN the reference's two constants cost a second instruction, so this is the true fp32 rate there (the score uses whichever is faster).</td></tr>
@@ -121,14 +126,17 @@
 <table>
   <tr><td><code>bitcast</code></td><td><code>asint</code> / <code>asfloat</code>: should be free.</td></tr>
   <tr><td><code>radians</code></td><td>a multiply by a constant (degrees too); ~0 where the driver merges it into the mad, like <code>mul</code>.</td></tr>
+  <tr><td><code>degrees</code></td><td>the same multiply by a constant as <code>radians</code>, measured on its own.</td></tr>
   <tr><td><code>log10</code></td><td>log2 and a multiply.</td></tr>
   <tr><td><code>isnan</code>, <code>isinf</code></td><td>a compare and a select (a driver may drop isnan if it assumes no NaNs).</td></tr>
   <tr><td><code>isfinite</code>, <code>mod</code>, <code>asinh</code>, <code>acosh</code>, <code>atanh</code></td><td>functions HLSL or GLSL have and ReShade FX does not: <code>isfinite</code> (HLSL), GLSL's floor-based <code>mod</code>, and the inverse hyperbolic functions written out as GLSL defines them (log and sqrt).</td></tr>
   <tr><td><code>any3or</code>, <code>any3abs</code>, <code>any3max</code></td><td>"is any of three values not 0?" three ways: three compares joined by <code>||</code>; one compare of the sum of the absolute values; one compare of their maximum (one instruction on AMD). Shows which is fastest on your card.</td></tr>
+  <tr><td><code>all3and</code></td><td>"are all three values not 0?": the <code>all()</code> counterpart of <code>any3or</code>.</td></tr>
   <tr><td><code>any4or</code>, <code>any4pairs</code>, <code>any4max3</code>, <code>any4abs</code></td><td>the same for four values: four compares; the zero-comparison trick on two pairs joined by <code>||</code>; the trick on the maximum of three and the fourth; one compare of the sum of the absolute values.</td></tr>
   <tr><td><code>modf</code>, <code>frexp</code></td><td>fraction and integer part; mantissa and exponent.</td></tr>
   <tr><td><code>ldexp</code></td><td><code>x * exp2(e)</code>.</td></tr>
   <tr><td><code>f16round</code></td><td><code>f32tof16</code> + <code>f16tof32</code>: rounding a value through half precision.</td></tr>
+  <tr><td><code>f32tof16</code>, <code>f16tof32</code></td><td>each half-precision conversion on its own (over <code>bitor</code>, one integer operation).</td></tr>
   <tr><td><code>tanh</code>, <code>sinh</code>, <code>cosh</code></td><td>written out with exp (and a divide for tanh).</td></tr>
 </table>
 
@@ -145,6 +153,9 @@
   <tr><td><code>bitrev</code></td><td><code>reversebits</code>.</td></tr>
   <tr><td><code>fbl</code></td><td><code>firstbitlow</code>.</td></tr>
   <tr><td><code>icmpsel</code></td><td>unsigned compare and select.</td></tr>
+  <tr><td><code>ishl</code>, <code>ineg</code>, <code>iabs</code>, <code>bfe</code></td><td>left shift, integer negate and abs, and shift + and (one bitfield extract on many GPUs).</td></tr>
+  <tr><td><code>xor3</code>, <code>or3</code>, <code>andor</code>, <code>bitsel</code>, <code>maj3</code></td><td>logic functions of the same three values (<code>x</code>, <code>x &gt;&gt; 7</code>, <code>x &lt;&lt; 11</code>): xor of three, or of three, and-or, bit select, majority. NVIDIA does any 3-input logic function in one instruction (LOP3): then all five cost alike. AMD has xor3 / or3 / and-or / bit select, not majority.</td></tr>
+  <tr><td><code>iadd3</code>, <code>lshladd</code>, <code>addlshl</code>, <code>imad</code></td><td>three-input add, shift + add, add + shift, integer multiply-add: one instruction on many GPUs.</td></tr>
   <tr><td><code>unitf</code></td><td>uint &rarr; float in [1, 2) through the bits (shift, or): a fast random-number trick.</td></tr>
   <tr><td><code>utof</code>, <code>ftou</code>, <code>itof</code></td><td>uint &rarr; float and float &rarr; uint conversions; int &rarr; float.</td></tr>
   <tr><td><code>ftoitof</code></td><td>float &rarr; int, an integer or, int &rarr; float (fxc writes <code>float(int(x))</code> alone as one truncation instruction, so the or keeps the conversions).</td></tr>

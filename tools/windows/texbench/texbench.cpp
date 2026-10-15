@@ -180,7 +180,8 @@ struct Test {
   int uav = 0;               // compute: storage at u1, 1 float4 (W), 2 uint4 (WU), 3 uint for atomics (WA)
   bool intTex = false;       // integer format: read through Texture2D<uint4>
   float scaleX = 1.0f, scaleY = 1.0f;  // pixel shader: texture coordinate scale (mip level, anisotropy)
-  int write = 0;             // render target write: 0 smooth gradient, 1 noise (incompressible), 2 flat color
+  int write = 0;             // render target write: 0 smooth gradient, 1 noise (incompressible), 2 flat color,
+                             // 3 noise in rgb with alpha 1
   UINT tileW = 8;            // compute: thread tile of a 64-thread group, tileW x (64 / tileW) pixels
   int blend = 0;             // blending test: 0 plain write, 1 add, 2 lerp (alpha), 3 multiply, 4 min
   bool shaderBlend = false;  // blending test: the shader reads the destination as a texture and does the math
@@ -610,9 +611,12 @@ std::vector<Test> makeTests() {
   // same shader, only the data differs): GPUs compress render targets, so compressible output can beat
   // the memory bandwidth.
   for (const Format& f : kFormats)
-    for (int mode : {1, 0, 2}) {
+    for (int mode : {1, 3, 0, 2}) {
       Test t;
-      t.name = std::string(f.name) + (mode == 1 ? " write noise" : mode == 0 ? " write smooth" : " write flat");
+      t.name = std::string(f.name) + (mode == 1   ? " write noise"
+                                      : mode == 3 ? " write noise rgb"
+                                      : mode == 0 ? " write smooth"
+                                                  : " write flat");
       t.section = "Render target writes: full-screen passes into 3840 x 2160";
       t.stage = Stage::Write;
       t.format = &f;
@@ -762,19 +766,21 @@ const char* const kNoise =
     "uint4 noise4(float4 pos) { return TNU.Load(int3(uint2(pos.xy) & 127u, 0)); }\n";
 
 // Render target writes: a smooth gradient, noise or a flat color, picked by U[0].x (0 / 1 / 2), so all three
-// cost the same shader work.
+// cost the same shader work. The gradient has alpha 1, what most effects write (owner, 2026-10-16, from the topt
+// project; until 0.7.6 its alpha was a gradient too, build.py skips those readings). Noise comes twice: all four
+// channels (nothing to compress) and rgb with alpha 1 (grain or dithering on an opaque image), U[0].x 3.
 std::string writeSource(bool integer) {
   std::string s = std::string(kHeader) + kNoise;
   if (integer)
     return s + "uint4 main(float4 pos : SV_Position) : SV_Target {\n"
                "  uint mask = U[0].x > 0.5 ? 0xffffffffu : 0u;\n"
-               "  uint4 v = (noise4(pos) & mask) | (uint4(pos.xyxy) & ~mask);\n"
-               "  return U[0].x > 1.5 ? uint4(1u, 2u, 3u, 4u) : v;\n"
+               "  uint4 v = (noise4(pos) & mask) | (uint4(pos.xyx, 1u) & ~mask);\n"
+               "  return U[0].x > 2.5 ? uint4(noise4(pos).xyz, 1u) : U[0].x > 1.5 ? uint4(1u, 2u, 3u, 4u) : v;\n"
                "}\n";
   return s + "float4 main(float4 pos : SV_Position) : SV_Target {\n"
              "  float4 noise = TN.Load(int3(uint2(pos.xy) & 127u, 0));\n"
-             "  float4 smooth = frac(pos.xyxy * float4(0.0013, 0.0017, 0.0019, 0.0023));\n"
-             "  return U[0].x > 1.5 ? float4(0.25, 0.5, 0.75, 1.0) : lerp(smooth, noise, U[0].x);\n"
+             "  float4 smooth = float4(frac(pos.xyx * float3(0.0013, 0.0017, 0.0019)), 1.0);\n"
+             "  return U[0].x > 2.5 ? float4(noise.rgb, 1.0) : U[0].x > 1.5 ? float4(0.25, 0.5, 0.75, 1.0) : lerp(smooth, noise, U[0].x);\n"
              "}\n";
 }
 
@@ -1831,18 +1837,18 @@ int main(int argc, char** argv) {
     for (const Test* t : tests)
       if (t->stage == Stage::Write) maxW = std::max(maxW, writeUnits[t->name].value);
     // Noise cannot be compressed; Gain = how much faster the smooth gradient / the flat color writes.
-    const int w = std::clamp((cols - 1 - (2 + 18 + 1 + 3 * 9 + 2 * 7 + 2)) / 3, 4, 8);
+    const int w = std::clamp((cols - 1 - (2 + 18 + 1 + 4 * 9 + 3 * 7 + 2)) / 4, 4, 8);
     print("\n  %sRender target writes: full-screen passes into 3840 x 2160 (GB/s)%s\n"
-                "  %s%-18s %7s  %-*s  %7s  %-*s  %7s  %-*s  %6s %6s%s\n",
-                st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Format", "Noise", w, "", "Smooth", w, "", "Flat", w, "",
-                "Gain", "Gain", st.reset());
+                "  %s%-18s %7s  %-*s  %7s  %-*s  %7s  %-*s  %7s  %-*s  %6s %6s %6s%s\n",
+                st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Format", "Noise", w, "", "NoiseRGB", w, "", "Smooth",
+                w, "", "Flat", w, "", "Gain", "Gain", "Gain", st.reset());
     for (const Format& f : kFormats) {
       auto get = [&](const char* kind) {
         const std::string name = std::string(f.name) + " write " + kind;
         return writeUnits.count(name) ? writeUnits[name].value : -1.0;
       };
-      const double n = get("noise"), sm = get("smooth"), fl = get("flat");
-      if (n < 0.0 && sm < 0.0 && fl < 0.0) continue;
+      const double n = get("noise"), nr = get("noise rgb"), sm = get("smooth"), fl = get("flat");
+      if (n < 0.0 && nr < 0.0 && sm < 0.0 && fl < 0.0) continue;
       auto col = [&](double v) {
         char buf[32];
         std::snprintf(buf, sizeof(buf), "%7.1f", std::max(v, 0.0));
@@ -1854,8 +1860,8 @@ int main(int argc, char** argv) {
         else std::snprintf(buf, sizeof(buf), "%6s", "-");
         return std::string(buf);
       };
-      print("  %-18s %s  %s  %s  %s %s\n", f.name, col(n).c_str(), col(sm).c_str(), col(fl).c_str(),
-                  gain(sm).c_str(), gain(fl).c_str());
+      print("  %-18s %s  %s  %s  %s  %s %s %s\n", f.name, col(n).c_str(), col(nr).c_str(), col(sm).c_str(),
+            col(fl).c_str(), gain(nr).c_str(), gain(sm).c_str(), gain(fl).c_str());
     }
     print("%*s%s(longer is better)%s\n", 2 + 18 + 1 + 7 + 2, "", st.c("\x1b[90m"), st.reset());
   };
@@ -2405,7 +2411,7 @@ int main(int argc, char** argv) {
     for (const std::string& n : unstable) print(" %s", n.c_str());
     print("\n");
   }
-  print("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
+  std::printf("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());  // not in the shared results page
   if (const Score sc = score(); sc.texRate > 0.0) {
     std::vector<std::pair<std::string, std::string>> more;
     if (sc.fill > 0.0) more.push_back({"Pixel fill rate", threeDigits(sc.fill) + " GPixels/s"});

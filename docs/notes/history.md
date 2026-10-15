@@ -1553,6 +1553,132 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   UHD 630 every scale 3.6-3.7 (none free), mulxx 4.0, mul 0.06 (merged). fxc writes every * 2.0 as x + x (add, or dp2
   with a product), so on D3D NVIDIA never gets the free x2 (scale2 = what D3D shaders get; Vulkan / OpenGL keep the
   multiply). sopt's NVIDIA models have no scale folds yet (owner's go needed).
+  Reports 2026-10-13 (OpBench 0.7.3): UHD 620 (101.2145, drift 21%), UHD 630 (101.2135, 23%), HD 630 (26.20.100.7986,
+  7%) = Gen9; no free scale on Gen9 (scale2 / half / 4 / 3 all 3.0-3.9, mulxx 3.7-4.0, mul ~0: merged). The HD 630's
+  2020 driver already has every Gen9 driver improvement: they came between 21.20.16.4550 (2016) and 26.20.100.7986.
+  Owner's Tiger Lake UHD Graphics (0x9A78, 32.0.101.7085, drift 9%; OpBench + ShaderInfo, TexBench cut short) = Iris
+  Xe in all 174 math tests: Gen12's second card (build.py NAME_BY_DEVICE "Intel UHD Graphics (Tiger Lake)"); no free
+  scale either (all 3.9). Bug: OpBench 0.7.3 flagged ilp1-6 as "4.3, usually 0.3": chain tests show their whole cost,
+  the family values are over the base; fixed in 0.7.4 (the base's cost is added to the family value before comparing).
+  NVIDIA's free scales (owner, 2026-10-13: find sources, test the limits). Not documented by NVIDIA; Mesa's nouveau
+  (reverse-engineered) has a 3-bit post-factor on FMUL, 2^-3 .. 2^3: emitPDIV in nv50_ir_emit_gm107.cpp (Maxwell /
+  Pascal) and nv50_ir_emit_gv100.cpp (Volta onwards), TargetNVC0::isPostMultiplySupported (powers of two, |e| <= 3),
+  ConstantFolding::tryCollapseChainedMULs (only a MUL's result; a negative scale via a negated source), all in
+  src/nouveau/codegen (mesa-24.0.0). OpBench 0.7.4 tests the limits: scale16, scale0.0625, scaleneg4 (after x * x),
+  fmamax / fmascale4 / fmascale0.25 / fmascale3 (after an fma), addmax / addscale4 / addscale3 (after an add).
+  GTX 1660 (drift 35%): x4, x8, x0.5, x0.125 ~0 (x0.25 1.1), x16 / x1/16 3.8, x-4 3.8 (NVIDIA's driver does not use the
+  negated source as nouveau would), after an fma x4 1.2 / x0.25 1.5 / control 1.8 (alike: not free), after an add x4
+  3.7 / control 3.2 (not free). UHD 630 (drift 1%): every scale 3.6-3.7. To take out once reports confirm per family.
+  Open-source driver sources (owner, 2026-10-13: mine them for clues; they say what the hardware can do and what that
+  compiler does, OpBench decides for the Windows drivers):
+  - NVIDIA, Mesa NAK (src/nouveau/compiler/nak): sm50.rs "SQRT is only on SM52 and later" (MUFU.SQRT): the Maxwell sqrt
+    split (860M 24, M5000M 10) is the chip, not the driver. Owner's go: two models, nvidia-maxwell (Maxwell 2, GM20x,
+    sqrt 10) and nvidia-maxwell1 (Maxwell 1, GM107 / GM108, sqrt 24 = rsqrt + rcp; Length 28, Distance 32); site
+    MODEL_RULES by name (GTX 750 / 8xxM / 9[2-6]0M / MX110 / MX130 / Quadro K620 ... = Maxwell 1), SweetOpt.bat key M.
+    MUFU.TANH from SM75 (D3D's tanh is not using it: ~80 on Ampere). sm75 / sm80 / sm120_instr_latencies.rs: latency
+    classes "provided by NVIDIA" (Turing, Ampere / Ada, Blackwell): to compare with OpBench's lat. LOP3 (any 3-input
+    logic function), IADD3, LEA (shift + add), IMAD.
+  - Intel, IGC (github.com/intel/intel-graphics-compiler, the Windows driver's compiler):
+    WorkaroundAnalysisPass.cpp puts a range reduction before every sin / cos (compare, 2 selects, mul, ftoi, itof, sub,
+    mul) when the driver sets enableRangeReduce (or the EnableTrigFuncRangeReduction key): the likely reason for the
+    Arc B580's sin / cos 24.4 (math unit 11.9 + ~12). Platform.hpp: native sin / cos (supportsNativeSinCos) and
+    accurate log2 only from Xe3P. Mesa's Intel model (brw_analysis_performance.cpp) costs every math-unit op alike.
+  - AMD, Mesa ACO (src/amd/compiler, the compiler on Linux and the Steam Deck): aco_statistics.cpp: RDNA valu 1 cycle,
+    transcendentals 1 valu + 4 on the separate trans unit (OpBench's fma+rcp overlap), GCN valu 4, transcendentals and
+    conversions 16 (quarter rate); OpBench measures GCN 5 rcp 8.5 and itof 2.1 (half and an eighth of that): to look
+    into. aco_opcodes.py: v_bfi_b32 (bit select) on every GCN, v_lshl_add / v_add3 / v_and_or / v_or3 / v_add_lshl
+    from GFX9 (Vega), v_xor3 from GFX10 (RDNA); no general 3-input logic op. aco_optimizer.cpp combines into all of
+    these, and v_mad_u32_u24.
+  - Others (not for ReShade's platforms, comparison only): Mesa freedreno ir3 (Adreno: ir3_delay.c), Asahi (Apple:
+    agx_performance.c, Dougall Johnson's applegpu docs), Panfrost (Mali), Imagination (pco).
+  OpBench 0.7.4 more tests (owner, 2026-10-13: test everything until we know what we can leave out): scaleneg0.5 /
+  scaleneg8, f32tof16 / f16tof32 alone (over bitor), degrees, all3and (all() of any3or), ishl, ineg, iabs, bfe, the
+  3-input set over x, x >> 7, x << 11 (xor3, or3, andor, bitsel, maj3, iadd3) and lshladd, addlshl, imad. Owner's PC:
+  GTX 1660 (Turing): every negative scale 3.6 (none free, as -4); xor3 / or3 / andor / bitsel / maj3 7.8 / 7.4 / 7.0 /
+  8.1 / 9.0 (alike although maj3 is 5 logic ops: LOP3), iadd3 7.7, lshladd 3.7 (LEA), addlshl 6.0 (no add + shift),
+  imad 4.2 (IMAD), bfe 7.7 (shift + and, no BFE on Volta+), iabs 4.2, ineg 0.4, ishl 2.1, f32tof16 11.3, f16tof32
+  2.3, degrees 0.2 (merged), all3and 12.3. UHD 630 (Gen9.5): integer ops one op each (xor3 14.5 = 4 ops, bitsel
+  18.1, maj3 21.7, iadd3 14.4: no add3 / bfn before Xe-HP), bfe 4.9 (BFE), iabs / ineg 3.6, f32tof16 9.1, f16tof32
+  5.5. Next (owner wants it, for odd tricks a superoptimizer finds): a cost rule for fused integer ops per vendor
+  (NVIDIA: any bitwise tree over <= 3 leaves = 1 op, add of 3 = 1, shift + add = 1, mul + add = 1; AMD from GFX9: the
+  ACO list; Intel Xe-HP+: bfn / add3), once reports cover the families.
+  sopt knows the merged instructions (owner, 2026-10-13: "make sopt aware of all of these"): ops.hpp fuse bits per
+  model (fuseBits, by name like HalfCosts), expr.cpp foldedNodes (was amdFoldedNodes) and the enumerator's folds /
+  bitwiseGroupObj: a merged op costs 1 per component like an omod. NVIDIA (Maxwell+): LOP3 groups (an and / or / xor
+  tree over <= 3 inputs, an all-ones constant = a not is free), IADD3 (also with subtractions), LEA; IMAD on Turing+;
+  BFE on Maxwell / Pascal; the FMUL post-factor (4, 8, 1/2, 1/4, 1/8 after a multiply) up to Ampere (Blackwell until
+  a report shows it). AMD: v_bfi everywhere (TeraScale too), v_and_or / v_or3 / v_add3 / v_lshl_add / v_add_lshl /
+  v_lshl_or / v_bfe from GCN 5, v_xor3 from RDNA. Intel: bfe on every generation, bfn (= LOP3) and add3 on Xe2. Test
+  cost_fused_instructions (incl. x2 / x16 / x-4 / after an add not free, 4 inputs no group, GCN no xor3).
+  Nickname nvidia-maxwell -> nvidia-maxwell2 (owner: with a Maxwell 1 the other is Maxwell 2; the old name still
+  works). Kepler counts as Maxwell 1 in the Steam shares (no hardware sqrt either).
+  StageBench (owner, 2026-10-13: GPU Blueprint is architecture research, so vertex shaders too; a separate tool to
+  judge before it joins the menu): sopt_opbench.cpp built with SOPT_STAGEBENCH, the same tests in a pixel shader
+  (1024 x 1024 R32F target, one thread per pixel) and a vertex shader (point list, SV_VertexID, drawn off-screen),
+  throughput only; without --stage it runs ps, then vs (reports stagebench-ps / -vs-<gpu>.csv, header "# StageBench",
+  which the intake does not file). Compute-only tests (groupshared, barriers, atomics) are left out; pixel only: ddx,
+  ddy, ddx/ddy_coarse, ddx/ddy_fine, fwidth, clip. "usually" compares with OpBench's compute family values. GTX 1660:
+  vertex shader = compute (rcp 12.0, all 6 compared match), pixel shader: ddx / ddy / coarse 23.9 (6 ops), fine 8.0
+  (2 ops), add / mad / iadd as compute. In StageBench.exe in the GPU Blueprint bin folder, not in the menu yet.
+  Mined tables (owner, 2026-10-15: IGC, NVIDIA's guide, LLVM AMDGPU):
+  - IGC visa/LocalScheduler/LatencyTable.{h,cpp}: Xe (Gen12 on) FPU latency 10, math 17, math occupancy 4x a normal op
+    (OC_MATH 4 vs OC_OTHERS 1; it runs beside the FPU: OpBench's 2.75-3 ops on Gen12 / Xe2 rather than 4); fp16
+    (isFastHFInstruction) twice the rate on Xe and later, Xe2 included, yet the B580 measures no fp16 gain: the D3D
+    driver seems to run min16float at 32 bits there. Pre-Xe: math edge latency 22 (fdiv / pow 30), doubled from BDW.
+  - NVIDIA CUDA C++ Programming Guide 12.6, "Throughput of Native Arithmetic Instructions" (per clock per SM;
+    5.x / 6.1 / 7.5 / 8.6 / 8.9): fp32 128 / 128 / 64 / 128 / 128, special functions 32 / 32 / 16 / 16 / 16, int add 128 /
+    128 / 64 / 64 / 64, int mul multi / multi / 64 / 64 / 64, shift and compare / min / max 64, logic 128 / 128 / 64 / 64 /
+    64, bit reverse 64 / 64 / 16 / 16 / 16, BFE 64 / 64 / multi / multi / 64 (Ada has it again: nvidia-ampere covers both),
+    clz / popc / conversions 32 / 32 / 16 / 16 / 16, fp16 n/a / 2 (6.1) / 128 / 256 / 128. In our units (fma = 4) the
+    special functions are 16 / 16 / 16 / 32 / 32; OpBench measures 10 / 10 / 12 / 24: the cost on top of the mad, which
+    runs beside them.
+  - LLVM llvm/lib/Target/AMDGPU/SISchedule.td: GCN VALU 1, float conversions, transcendentals and int mul 4 (quarter
+    rate); GFX10 / 11 VALU 5, conversions 5 (full rate), transcendentals 10 on HWTransVALU (separate unit), quarter-rate
+    8, int mul 8; GFX12 transcendentals 9 on the VALU in LLVM's model (OpBench still sees them overlap on RDNA 4).
+  - Measuring flaw found: the integer tests' base ((x ^ c) * k) has an integer multiply, which is quarter rate on GCN
+    and several XMADs on Maxwell / Pascal, so cheaper ops hide under it (Maxwell / Pascal utof 0.2-0.3, ftou 0.6-0.7,
+    popc 6.4 against 16 in NVIDIA's table; GCN 5 itof / utof / ftou 2.1 against quarter rate). Same kind as the omod
+    tests over rcp. GCN 5 rcp 8.5 (quarter rate would be 16) is open too: RGA 2.15's vk-offline (LLPC) writes no ISA
+    for gfx900 / gfx906 / gfx90c any more (gfx1100: one v_rcp_f32); needs an older RGA or a dx11 run on an AMD PC.
+  Owner's go (2026-10-15): (1) the integer tests rebased on int ((x ^ c) + k: xor + add, cheap everywhere) instead of
+  ixmul ((x ^ c) * k); each test ends in + k now; ixmul stays as a test of its own. Same names; build.py REDEFINED /
+  reading_valid leaves the 32 changed tests out of reports before 0.7.5 (site, expected.hpp). (2) nvidia-ada (RTX 40):
+  Ampere's costs (the RTX 4060 Ti / 4070 / 4090 / 4090 Laptop match the RTX 3050 / 3060 in 146 of 147 tests, radians the
+  exception), plus BFE in one instruction (NVIDIA's table). Steam: RTX 40 20.2%, RTX 30 17.4% (data/steam-gpu-share.txt
+  split by hand; the steam-survey workflow recomputes it); the default stays nvidia-ampere (owner's choice; the two
+  differ only in BFE). SweetOpt.bat key N. Version 0.7.5.
+  GCN 5 rcp puzzle solved (the owner found RGA 2.4.1.114, C:\Util\RGA-2.4.1.114, which still compiles gfx900): Vega
+  compiles rcp to one v_rcp_f32, but mad(x, c.x, c.y) to v_mov + v_fma: GCN reads one scalar (uniform) operand per
+  instruction (constant bus), so OpBench's reference mad is two instructions there (fma1, one constant, measures 2.1
+  on Vega; the RX 7900 GRE 3.7: RDNA reads two). OpBench's GCN numbers are in half instructions: rcp 8.5 = 4.25
+  instructions = quarter rate, as ACO / LLVM say. The amd-gcn5 model already counts per instruction (plain ops 4,
+  transcendentals 16): no change. A refinement for later: the extra v_mov when an op reads two uniforms on GCN.
+  Movs (owner, 2026-10-15: they compute nothing, sopt should avoid them). RGA (GLSL fma, 2.4.1 for gfx900, 2.15 for
+  gfx1100): Vega needs a v_mov for fma(x, c.x, c.y) (two uniforms), fma(x, 0.4471, 0.2919) (two literals: GCN has no
+  literal in a 3-operand instruction) and fma(x, 0.4471, c.y); fma(x, 0.5, 0.25) became v_add_f32 v1, v1, 0.5 div:2
+  ((x + 0.5) / 2, inline constant + omod). RDNA 3 never: v_fmaak / v_fmamk carry a literal, VOP3 reads two scalars.
+  AMD inline constants: +-0.5, +-1, +-2, +-4, 0, 1 / 2pi (0.25 is a literal). D3D's mad may use the legacy v_mad_f32,
+  whose v_madak / v_madmk take a literal and a scalar: OpBench decides for D3D. OpBench 0.7.6 tests (each step
+  saturate(mad(x, ., .)), slope ~2, offset -0.5 so the clamp works both ways): madsatu (two uniforms, the base),
+  madlit (two literals, k = K[r] per unrolled step), madlit1 (literal + uniform), madinl (2.0, -0.5: inline).
+  Getting there: plain literal chains are merged by Intel's driver (x * k1 + b1 then * k2 + b2 = one mad, even through
+  abs: 0.29), and fxc tracks intervals through saturate across the unrolled steps and folds a chain whose interval
+  shrinks to a point (to 0 or to 1). UHD 630: all four 4.0 (no mov on Intel); GTX 1660: too noisy in this run, the plain
+  forms earlier showed no mov cost. Next (owner's go): amd-gcn5 charges a v_mov (4) for an op with two scalar operands
+  (Rate::Uniform inputs or non-inline literals), once Vega reports show what D3D does.
+  Windows drivers' own shader code (owner, 2026-10-16): IGC's ShaderDumpEnable / DumpToCustomDir (environment or
+  HKLM SOFTWARE\INTEL\IGFX\IGC) are read only in builds with IGC_DEBUG_VARIABLES (igc_regkeys.cpp), not in the public
+  drivers: nothing dumped on the owner's UHD 630 (101.2145, D3D11 OpBench and Vulkan ShaderInfo). Routes that do work on
+  public drivers: Intel GPA (Graphics Frame Analyzer shows a shader's ISA), NVIDIA Nsight Graphics (SASS in the shader
+  profiler, D3D12 / Vulkan), AMD RGA dx11 / dx12 and Radeon GPU Profiler (need an AMD card), ShaderInfo (full ISA on
+  AMD's Vulkan driver, counts on NVIDIA / Intel).
+  TexBench 0.7.7 (owner, 2026-10-16, suggested by the topt session): the "write smooth" gradient has alpha 1, what most
+  effects write (float formats: float4(gradient.rgb, 1); integer formats: 1u in the 4th channel); before, alpha was a
+  gradient too. build.py texbench_data skips "write smooth" rows from reports before 0.7.7. Noise and flat unchanged.
+  GTX 1660 RGBA8 write noise / smooth / flat 139.9 / 140.9 / 141.0 GB/s (no compression gain there). Version 0.7.7.
+  Owner (2026-10-16): flat already had alpha 1; noise now comes twice: "write noise" (all four channels, unchanged, the
+  worst case) and the new "write noise rgb" (rgb noise, alpha 1: grain / dithering on an opaque image; integer formats
+  1u). Summary table: Noise / NoiseRGB / Smooth / Flat with three gains. GTX 1660 and UHD 630: all four alike (no gain).
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

@@ -78,6 +78,49 @@ TEST(parser_dag_cost_counts_shared_nodes_once) {
     CHECK(dagCost(e, *m) == (*m)[Op::Mul] + (*m)[Op::Add]);  // shared mul: no contraction
 }
 
+// Merged instructions (fuseBits): the merged op costs 1, the instruction it merges into its full cost.
+TEST(cost_fused_instructions) {
+  auto cost = [&](const char* s, const CostModel& m) { return dagCost(parseExpr(s, abcx()), m); };
+  const CostModel& tu = costNvidiaTuring();
+  const uint32_t u = tu[Op::AsUint], op2 = cost("asuint(a) ^ asuint(b)", tu) - 2 * u;  // one LOP
+  // NVIDIA LOP3: any and / or / xor tree over 3 inputs is one instruction, the ops inside cost 1.
+  CHECK(cost("(asuint(a) & asuint(b)) | asuint(c)", tu) == 3 * u + op2 + 1);
+  CHECK(cost("((asuint(a) & asuint(b)) | (asuint(a) & asuint(c))) | (asuint(b) & asuint(c))", tu) == 3 * u + op2 + 4);
+  CHECK(cost("(asuint(a) & asuint(b)) | (asuint(c) & asuint(x))", tu) == 4 * u + 3 * op2);  // 4 inputs: no group
+  CHECK(cost("(asuint(a) ^ 4294967295u) & asuint(b)", tu) == 2 * u + op2 + 1);  // a not is no input
+  // IADD3, LEA, IMAD.
+  CHECK(cost("asuint(a) + asuint(b) + asuint(c)", tu) == 3 * u + tu[Op::UAdd] + 1);
+  CHECK(cost("asuint(a) - asuint(b) + asuint(c)", tu) == 3 * u + tu[Op::USub] + 1);
+  CHECK(cost("(asuint(a) << 3u) + asuint(b)", tu) == 2 * u + tu[Op::UShl] + 1);
+  CHECK(cost("asuint(a) * asuint(b) + asuint(c)", tu) == 3 * u + tu[Op::UMul] + 1);
+  CHECK(cost("(asuint(a) >> 5u) & 255u", tu) == u + tu[Op::UShr] + tu[Op::UAnd]);  // no BFE on Volta+
+  CHECK(cost("(asuint(a) >> 5u) & 255u", costNvidiaPascal()) == u + costNvidiaPascal()[Op::UShr] + 1);
+  CHECK(cost("(asuint(a) >> 5u) & 255u", costNvidiaAda()) == u + costNvidiaAda()[Op::UShr] + 1);  // Ada: BFE again
+  // NVIDIA's free scale: after a multiply, 4 / 8 / 0.5 / 0.25 / 0.125; not 2 (fxc's add), 16, -4 or after an add.
+  const uint32_t mul = tu[Op::Mul], add = tu[Op::Add];
+  CHECK(cost("a * b * 4.0", tu) == mul + 1);
+  CHECK(cost("a * b * 0.125", tu) == mul + 1);
+  CHECK(cost("a * b * 2.0", tu) == 2 * mul);
+  CHECK(cost("a * b * 16.0", tu) == 2 * mul);
+  CHECK(cost("a * b * -4.0", tu) == 2 * mul);
+  CHECK(cost("(a + b) * 4.0", tu) == add + mul);
+  CHECK(cost("a * b * 4.0", costNvidiaBlackwell()) == 2 * costNvidiaBlackwell()[Op::Mul]);  // not measured yet
+  // AMD (ACO): pairs from GFX9, xor3 from GFX10, bit select everywhere; no general 3-input logic.
+  const CostModel& r2 = costAmdRdna2();
+  const CostModel& g5 = costAmdGcn5();
+  const uint32_t ur = r2[Op::AsUint];
+  CHECK(cost("(asuint(a) & asuint(b)) | asuint(c)", r2) == 3 * ur + r2[Op::UOr] + 1);
+  CHECK(cost("asuint(a) ^ asuint(b) ^ asuint(c)", r2) == 3 * ur + r2[Op::UXor] + 1);
+  CHECK(cost("asuint(a) ^ asuint(b) ^ asuint(c)", g5) == 3 * g5[Op::AsUint] + 2 * g5[Op::UXor]);  // no v_xor3 on GCN
+  CHECK(cost("(asuint(a) & asuint(b)) | ((asuint(a) ^ 4294967295u) & asuint(c))", r2) == 3 * ur + r2[Op::UOr] + 3);
+  CHECK(cost("(asuint(a) + asuint(b)) << 2u", r2) == 2 * ur + r2[Op::UShl] + 1);
+  // Intel: Gen9 merges nothing but bitfield extract; Xe2 has bfn and add3.
+  const CostModel& g9 = costIntelGen9();
+  CHECK(cost("(asuint(a) & asuint(b)) | asuint(c)", g9) == 3 * g9[Op::AsUint] + g9[Op::UAnd] + g9[Op::UOr]);
+  CHECK(cost("(asuint(a) & asuint(b)) | asuint(c)", costIntelXe2()) ==
+        3 * costIntelXe2()[Op::AsUint] + costIntelXe2()[Op::UOr] + 1);
+}
+
 // rdna3 context effects (CostModel::amdFolds): omod and three-operand min / max cost 1.
 TEST(cost_amd_folds) {
   const CostModel& m = costRdna3();
@@ -127,7 +170,7 @@ TEST(cost_shared_reciprocal) {
 // min16float costs per family (HalfCosts, from OpBench): a win only where the hardware runs fp16 faster.
 TEST(cost_half_precision) {
   const CostModel &gcn = costAmdGcn5(), &rdna3 = costRdna3(), &gen9 = costIntelGen9(), &turing = costNvidiaTuring(),
-                  &maxwell = costNvidiaMaxwell();
+                  &maxwell = costNvidiaMaxwell2();
   CHECK(halfOpCost(gcn, Op::Add, 3) == 2 * gcn[Op::Add]);   // packed: two instructions for three components
   CHECK(halfOpCost(gcn, Op::Add, 1) == gcn[Op::Add]);       // one component: no gain
   CHECK(halfOpCost(gcn, Op::Rcp, 3) == gcn.opCost(Op::Rcp, 3));
@@ -150,7 +193,7 @@ TEST(cost_contraction) {
   CHECK(dagCost(parseExpr("a * b + c", abcx()), costGeneric()) ==
         costGeneric()[Op::Mul] + costGeneric()[Op::Add]);
   // Every non-leaf op costs >= 1 in every model.
-  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costRdna3Rga(), &costNvidia(), &costNvidiaMaxwell(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaAmpere(), &costNvidiaBlackwell(), &costIntelGen9(), &costIntelGen75(), &costIntelGen12(), &costIntelXe2(), &costAmdRdna2(), &costAmdRdna4(), &costAmdGcn5(), &costAmdTerascale2()})
+  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costRdna3Rga(), &costNvidia(), &costNvidiaMaxwell2(), &costNvidiaMaxwell1(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaAmpere(), &costNvidiaAda(), &costNvidiaBlackwell(), &costIntelGen9(), &costIntelGen75(), &costIntelGen12(), &costIntelXe2(), &costAmdRdna2(), &costAmdRdna4(), &costAmdGcn5(), &costAmdTerascale2()})
     for (size_t i = 2; i < static_cast<size_t>(Op::Count); ++i) CHECK(cm->cost[i] >= 1);
 }
 

@@ -60,17 +60,58 @@ inline int print(const char* fmt, ...) {
   return n;
 }
 
-// gScreen without colors and cursor codes, as a UTF-8 text file (Reports\Results\<report>.txt).
+// gScreen as a web page with the console's colors (owner, 2026-10-15: a tester missed the colors in the .txt):
+// Reports\Results\<report>.html. Color codes (SGR: 0, 1, 30-37 / 90-97, 40-47 / 100-107) become spans in the console's
+// palette; paths are not in gScreen (printed with std::printf), so the page can be shared.
 inline void saveScreen(const std::filesystem::path& file) {
-  std::string out;
+  static const char* const kPalette[16] = {"#0c0c0c", "#c50f1f", "#13a10e", "#c19c00", "#0037da", "#881798", "#3a96dd",
+                                           "#cccccc", "#767676", "#e74856", "#16c60c", "#f9f1a5", "#3b78ff", "#b4009e",
+                                           "#61d6d6", "#f2f2f2"};
+  std::string out =
+      "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>" + std::string(gProgram) + " - " + gGpu +
+      "</title></head>\n<body style=\"background:#0c0c0c;color:#cccccc;margin:16px\"><pre style=\"font:14px/1.25 "
+      "Consolas,'Cascadia Mono',monospace\">";
+  int fg = -1, bg = -1;
+  bool bold = false, open = false;
   for (size_t i = 0; i < gScreen.size(); ++i) {
-    if (gScreen[i] == '\x1b' && i + 1 < gScreen.size() && gScreen[i + 1] == '[') {
-      i += 2;
-      while (i < gScreen.size() && !(gScreen[i] >= 0x40 && gScreen[i] <= 0x7e)) ++i;
-    } else if (gScreen[i] != '\r') {
-      out += gScreen[i];
+    const char ch = gScreen[i];
+    if (ch == '\x1b' && i + 1 < gScreen.size() && gScreen[i + 1] == '[') {
+      size_t j = i + 2;
+      while (j < gScreen.size() && !(gScreen[j] >= 0x40 && gScreen[j] <= 0x7e)) ++j;
+      if (j < gScreen.size() && gScreen[j] == 'm') {
+        std::string p = gScreen.substr(i + 2, j - i - 2);
+        if (p.empty()) p = "0";
+        for (size_t a = 0; a <= p.size();) {
+          const size_t b = std::min(p.find(';', a), p.size());
+          const int v = std::atoi(p.substr(a, b - a).c_str());
+          if (v == 0) fg = bg = -1, bold = false;
+          else if (v == 1) bold = true;
+          else if (v >= 30 && v <= 37) fg = v - 30;
+          else if (v >= 90 && v <= 97) fg = v - 90 + 8;
+          else if (v >= 40 && v <= 47) bg = v - 40;
+          else if (v >= 100 && v <= 107) bg = v - 100 + 8;
+          a = b + 1;
+        }
+        if (open) out += "</span>";
+        open = fg >= 0 || bg >= 0 || bold;
+        if (open)
+          out += std::string("<span style=\"") + (fg >= 0 ? std::string("color:") + kPalette[fg] + ";" : "") +
+                 (bg >= 0 ? std::string("background:") + kPalette[bg] + ";" : "") + (bold ? "font-weight:bold" : "") +
+                 "\">";
+      }
+      i = j;
+    } else if (ch == '<') {
+      out += "&lt;";
+    } else if (ch == '>') {
+      out += "&gt;";
+    } else if (ch == '&') {
+      out += "&amp;";
+    } else if (ch != '\r') {
+      out += ch;
     }
   }
+  if (open) out += "</span>";
+  out += "</pre></body></html>\n";
   std::error_code ec;
   std::filesystem::create_directories(file.parent_path(), ec);
   if (FILE* f = _wfopen(file.c_str(), L"wb")) {
@@ -95,7 +136,12 @@ inline void setTitle(const std::string& state) {
 inline std::string titleBar(int pct) {
   pct = std::max(0, std::min(100, pct));
   std::string s = "[";
-  for (int k = 0; k < 10; ++k) s += k < pct / 10 ? "\xE2\x96\x88" : "\xE2\x96\x91";  // U+2588 / U+2591
+  // The cell being filled in shades (owner, 2026-10-15): U+2591 / U+2592 / U+2593, then U+2588 when full.
+  static const char* const kShade[4] = {"\xE2\x96\x91", "\xE2\x96\x92", "\xE2\x96\x93", "\xE2\x96\x88"};
+  for (int k = 0; k < 10; ++k) {
+    const int f = std::max(0, std::min(10, pct - 10 * k));  // tenths of this cell
+    s += kShade[f >= 10 ? 3 : f >= 7 ? 2 : f >= 4 ? 1 : 0];
+  }
   return s + "] " + std::to_string(pct) + "%";
 }
 
@@ -515,9 +561,10 @@ inline void printDrift(const Style& st, double drift) {
 // The last lines of a run: the drift, and the copy of the screen in Reports\Results (not sent with the reports).
 inline void finishRun(const Style& st, double drift, const std::filesystem::path& csv) {
   printDrift(st, drift);
-  const std::filesystem::path file = csv.parent_path() / "Results" / (csv.stem().string() + ".txt");
-  print("\n  Your results, as shown here: %s\n", file.string().c_str());
+  const std::filesystem::path file = csv.parent_path() / "Results" / (csv.stem().string() + ".html");
   saveScreen(file);
+  // On screen only: a path can hold the user's name (the page is meant to be shareable).
+  std::printf("\n  Your results, as shown here (open in a browser): %s\n", file.string().c_str());
 }
 
 inline void printScore(const Style& st, const std::string& title, const std::string& gpu, UINT vendor, double headline,

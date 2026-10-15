@@ -152,14 +152,18 @@ const CostModel& costRdna3();
 const CostModel& costRdna3Rga();
 // nvidia: NVIDIA Ada SASS (ptxas + nvdisasm) in quarter-ALU units, MUFU at 8x.
 const CostModel& costNvidia();
-// nvidia-maxwell: NVIDIA Maxwell (GTX 860M, Quadro M5000M) from OpBench timings, quarter units.
-const CostModel& costNvidiaMaxwell();
+// nvidia-maxwell2: NVIDIA Maxwell 2 (GM20x: GTX 900, Quadro M5000M) from OpBench timings, quarter units.
+const CostModel& costNvidiaMaxwell2();
+// nvidia-maxwell1: NVIDIA Maxwell 1 (GM107 / GM108: GTX 750, 800M / 900M laptops): sqrt is rsqrt + rcp.
+const CostModel& costNvidiaMaxwell1();
 // nvidia-pascal: NVIDIA Pascal (GT 1030, GTX 1060) from sopt-opbench timings, quarter units.
 const CostModel& costNvidiaPascal();
 // nvidia-turing: NVIDIA Turing (GTX 1660) from sopt-opbench timings, quarter units, MUFU ~3x extra.
 const CostModel& costNvidiaTuring();
 // nvidia-ampere / nvidia-blackwell: provisional, from sopt-opbench (RTX 3050; RTX 5080 / 5090).
 const CostModel& costNvidiaAmpere();
+// nvidia-ada: NVIDIA Ada Lovelace (RTX 40): Ampere's costs, bitfield extract in one instruction.
+const CostModel& costNvidiaAda();
 const CostModel& costNvidiaBlackwell();
 // intel-gen9: Intel Gen9 (Iris 540) from sopt-opbench timings, quarter units, math unit ~3x.
 const CostModel& costIntelGen9();
@@ -180,6 +184,26 @@ const CostModel& defaultCostModel();
 const CostModel* costModelByName(std::string_view name);
 // --no-amd-folds: rdna3 without CostModel::amdFolds (other models unchanged).
 const CostModel* withoutAmdFolds(const CostModel* m);
+
+// Instructions that merge two or more ops (owner, 2026-10-13: make sopt use them; Mesa NAK / ACO, Intel PRMs, OpBench
+// 0.7.4 on the owner's GTX 1660 / UHD 630). The merged op costs 1 per component, like amdFolds (foldedNodes).
+enum : uint16_t {
+  kFuseLop3 = 1 << 0,      // any and / or / xor tree over <= 3 inputs: NVIDIA LOP3 (Maxwell+), Intel bfn (Xe2)
+  kFuseAndOr = 1 << 1,     // (a & b) | c: AMD v_and_or_b32 (GFX9+)
+  kFuseOr3 = 1 << 2,       // a | b | c: AMD v_or3_b32 (GFX9+)
+  kFuseXor3 = 1 << 3,      // a ^ b ^ c: AMD v_xor3_b32 (GFX10+)
+  kFuseBfi = 1 << 4,       // (p & q) | (~p & r): AMD v_bfi_b32
+  kFuseAdd3 = 1 << 5,      // a + b + c: NVIDIA IADD3, AMD v_add3_u32 (GFX9+), Intel add3 (Xe2)
+  kFuseAdd3Neg = 1 << 6,   // ... with subtractions too (NVIDIA, Intel: negated inputs)
+  kFuseShlAdd = 1 << 7,    // (a << k) + b: NVIDIA LEA, AMD v_lshl_add_u32 (GFX9+)
+  kFuseAddShl = 1 << 8,    // (a + b) << k: AMD v_add_lshl_u32 (GFX9+)
+  kFuseShlOr = 1 << 9,     // (a << k) | b: AMD v_lshl_or_b32 (GFX9+)
+  kFuseImad = 1 << 10,     // a * b + c on integers: NVIDIA IMAD (Volta+)
+  kFuseBfe = 1 << 11,      // (a >> k) & (2^n - 1): bitfield extract (AMD, Intel, NVIDIA before Volta)
+  kFuseMulScale = 1 << 12, // (a * b) * 4 / 8 / 0.5 / 0.25 / 0.125: NVIDIA FMUL post-factor (x2: fxc writes an add)
+};
+uint16_t fuseBits(const CostModel& m);
+inline bool hasFolds(const CostModel& m) { return m.amdFolds || fuseBits(m) != 0; }
 // Enumeration order used when none is given: search for rdna3 and the nvidia / intel models, else the model.
 const CostModel& defaultOrderFor(const CostModel& objective);
 

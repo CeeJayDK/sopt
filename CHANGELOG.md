@@ -17,11 +17,20 @@ docs/notes/history.md.
 - **More math understood:** shaders that use `trunc`, `%` (remainder), `all`, `any`, `asin` or `acos` can now be sped up too. In 75 popular effects that is 42 more places SweetOpt can work on.
 - **Fairer comparisons:** writing `x >= e ? 1.0 : 0.0` instead of `step(e, x)` now counts as exactly as fast, as it is on real graphics cards, both on the web page and in SweetOpt's choices.
 - **Intel Arc B-series:** SweetOpt now has its own settings for Intel Arc B-series graphics cards (Battlemage), measured with GPU Blueprint.
+- **Knows more of the graphics cards' tricks:** NVIDIA, AMD and Intel cards can do some combinations of steps (for example three bit operations, or a multiply followed by multiplying by 4) in a single step. SweetOpt now counts them that way, so it can find speed-ups that use them.
+- **NVIDIA RTX 40 cards:** they get their own settings, separate from the RTX 30 cards.
+- **NVIDIA GTX 750 and early Maxwell laptop chips:** they get their own settings: unlike the GTX 900 cards, they have no fast square root.
 
 ### GPU Blueprint
+- **TexBench:** the test that writes a smooth color gradient now writes full opacity, as most effects do, and a new test writes noisy colors with full opacity (like film grain).
+- **More accurate integer tests:** OpBench measured some integer operations too cheap on older NVIDIA cards and AMD Vega. They are measured in a new way now.
+- **More OpBench tests:** combined integer operations (three values in one step), each half-precision conversion on its own, all(), degrees and more negative scales.
+- **New OpBench tests:** where a graphics card can multiply a result by 2, 4, 8 or a half for free, and where it cannot.
+- **Fixed:** OpBench said the tests for how many math operations run at once differed from other cards of the same kind, when they did not.
 - **Fixed:** OpBench's tests for multiplying by 2, 4 or 0.5 could not see the multiply at all on NVIDIA and Intel graphics cards. They are measured in a new way, and a new test shows what a plain multiply really costs.
 - **On the website:** which driver updates made graphics cards faster (a reason to keep your driver up to date), and on which graphics cards half precision (fp16) is faster. Both grow with every report.
-- **Your own copy of the results:** OpBench and TexBench now save what they show on screen as a text file in Reports\Results, for you to keep. It is not part of the reports you send.
+- **Your own copy of the results:** OpBench and TexBench now save what they show on screen, colors included, as a web page in ReportsResults, for you to keep or share (it leaves out where the files are on your PC). It is not part of the reports you send.
+- **Smoother progress in the window title:** the bar now fills in finer steps.
 - **Easier to read:** the clock drift is shown in color at the very end of each run, the progress bar goes away when the tests are done, and TexBench's formats and filtering table is colored from fast (green) to slow (red).
 - **Your privacy:** the upload page asks for a name and an email, but they do not have to be real.
 - **Fixed names:** TexBench's 1D texture test is now called linear (it was called bilinear) and the 3D one trilinear (it was called linear).

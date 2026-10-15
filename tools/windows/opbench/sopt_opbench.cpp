@@ -78,7 +78,25 @@ struct Test {
   int chains = 0;
   int pairCount = 0;
 };
-enum { kGroupshared = 1, kLocalArray = 2 };
+enum { kGroupshared = 1, kLocalArray = 2, kPixelOnly = 4 };  // kPixelOnly: derivatives / clip (StageBench's pixel run)
+
+// StageBench (owner, 2026-10-13: GPU Blueprint researches GPU architectures, not only what ReShade uses): this file
+// built with SOPT_STAGEBENCH runs the same tests in a pixel shader (one thread per pixel of a 1024 x 1024 target) or a
+// vertex shader (one thread per point, drawn off-screen) instead of a compute shader; throughput only. Compute-only
+// tests (groupshared memory, barriers, atomics) are left out there, the derivative tests are pixel shader only.
+enum class Stage { Compute, Vertex, Pixel };
+#ifdef SOPT_STAGEBENCH
+Stage gStage = Stage::Pixel;
+constexpr const char* kTool = "StageBench";
+#else
+Stage gStage = Stage::Compute;
+constexpr const char* kTool = "OpBench";
+#endif
+const char* stageName() { return gStage == Stage::Pixel ? "ps" : gStage == Stage::Vertex ? "vs" : "cs"; }
+bool runsHere(const Test& t) {
+  if (gStage != Stage::Compute && (t.setup & kGroupshared)) return false;
+  return gStage == Stage::Pixel || !(t.setup & kPixelOnly);
+}
 
 // Constants keep every chain finite and away from denormals (x stays roughly in [0.3, 3]).
 const Test kTests[] = {
@@ -89,6 +107,18 @@ const Test kTests[] = {
     // One fma with a single constant (x stays near the fixed point -0.37): the fp32 score's rate on GPUs where
     // the reference's two constants cost a second instruction (GCN's constant bus: an extra v_mov).
     {"fma1", "mad(x, x, c.x)", -0.5f, 0.0f, 0.0f, 0.0f, nullptr, "one fma, one constant: the fp32 score where it is faster"},
+    // Movs (owner, 2026-10-15: they compute nothing; can sopt avoid them?): GCN reads one scalar operand per
+    // instruction and no literal in a 3-operand one (a v_mov first), RDNA two scalars and one literal (RGA: v_fmaak /
+    // v_fmamk). Each step is clamped by saturate (free everywhere, and active: x climbs above 1), so no driver can merge
+    // steps whose constants are all literals (Intel does: x * k1 + b1 then * k2 + b2 is one mad, even through abs). The
+    // clamp must be able to go either way: each step maps [0, 1] over all of [0, 1] (slope ~2, offset -0.5); fxc tracks
+    // intervals through the unrolled steps and folds a chain whose interval shrinks to a point.
+    // madsatu: two uniforms (the base), madlit: two literals (k: this step's own), madlit1: a literal and a uniform,
+    // madinl: two values AMD encodes for free (inline constants: +-0.5, 1, 2, 4, 1 / 2pi).
+    {"madsatu", "saturate(mad(x, c.x, c.y))", 2.1f, -0.5f, 0.0f, 0.0f, "mad", "base for the literal tests: two uniforms"},
+    {"madlit", "saturate(mad(x, k + 1.5, -0.5 - k * 0.1))", 0.0f, 0.0f, 0.0f, 0.0f, "madsatu", "two literals: a v_mov on GCN?"},
+    {"madlit1", "saturate(mad(x, k + 1.5, c.y))", 0.0f, -0.5f, 0.0f, 0.0f, "madsatu", "a literal and a uniform"},
+    {"madinl", "saturate(mad(x, 2.0, -0.5))", 0.0f, 0.0f, 0.0f, 0.0f, "madsatu", "inline constants: free to encode on AMD"},
     {"mad2", "mad(mad(x, c.z, c.w), c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.1f, "mad", "a second mad"},
     {"min", "mad(min(x, c.z), c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.0f, "mad", ""},
     {"max", "mad(max(x, c.z), c.x, c.y)", 0.5f, 0.5f, 0.8f, 0.0f, "mad", ""},
@@ -148,6 +178,22 @@ const Test kTests[] = {
     {"scale0.125", "mad(max(x * x * 0.125, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "sqmax", "DX9 _d8"},
     {"scale3", "mad(max(x * x * 3.0, x), c.x, c.y)", 0.25f / 3.0f, 0.5f, 0.0f, 0.0f, "sqmax", "control: a full multiply"},
     {"mulxx", "mad(x * x, c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "mad", "a multiply no driver can merge"},
+    // Where free scales end (owner, 2026-10-13: confirm, then take out what is settled). Mesa's nouveau: NVIDIA's
+    // FMUL scales its result by 2^-3 .. 2^3 (post-factor), only a multiply's. AMD's omod: 2, 4, 0.5 on most VALU ops.
+    // Beyond the range (x16, /16), a negative scale, and the scale after an fma and after an add, each with an x3
+    // control. x settles at 0.586 / 0.667 / 1.0 as above (cx keeps the scaled step at x*x/4 + 0.5 or x/4 + 0.5).
+    {"scale16", "mad(max(x * x * 16.0, x), c.x, c.y)", 0.015625f, 0.5f, 0.0f, 0.0f, "sqmax", "beyond x8"},
+    {"scale0.0625", "mad(max(x * x * 0.0625, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "sqmax", "beyond /8"},
+    {"scaleneg4", "mad(max(x * x * -4.0, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "sqmax", "a negative scale"},
+    {"scaleneg0.5", "mad(max(x * x * -0.5, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "sqmax", "a negative scale"},
+    {"scaleneg8", "mad(max(x * x * -8.0, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "sqmax", "a negative scale"},
+    {"fmamax", "mad(max(mad(x, x, x), x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "mad", "base for the fma scale tests"},
+    {"fmascale4", "mad(max(mad(x, x, x) * 4.0, x), c.x, c.y)", 0.0625f, 0.5f, 0.0f, 0.0f, "fmamax", "AMD: omod on v_fma"},
+    {"fmascale0.25", "mad(max(mad(x, x, x) * 0.25, x), c.x, c.y)", 0.25f, 0.5f, 0.0f, 0.0f, "fmamax", "not an AMD scale"},
+    {"fmascale3", "mad(max(mad(x, x, x) * 3.0, x), c.x, c.y)", 0.25f / 3.0f, 0.5f, 0.0f, 0.0f, "fmamax", "control"},
+    {"addmax", "mad(max(x + abs(x), x), c.x, c.y)", 0.125f, 0.5f, 0.0f, 0.0f, "mad", "base for the add scale tests"},
+    {"addscale4", "mad(max((x + abs(x)) * 4.0, x), c.x, c.y)", 0.03125f, 0.5f, 0.0f, 0.0f, "addmax", "AMD: omod on v_add"},
+    {"addscale3", "mad(max((x + abs(x)) * 3.0, x), c.x, c.y)", 0.125f / 3.0f, 0.5f, 0.0f, 0.0f, "addmax", "control"},
     {"max3", "mad(max(max(x, c.z), c.w), c.x, c.y)", 0.5f, 0.5f, 0.8f, 0.9f, "max", "AMD: v_max3, ~0"},
     {"minmax", "mad(min(max(x, c.z), c.w), c.x, c.y)", 0.5f, 0.5f, 0.8f, 1.2f, "max", "AMD: v_minmax / v_med3, ~0"},
     {"contract", "mad(x * c.z + c.w, c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.1f, "mad", "mul + add: one fma like mad2?"},
@@ -229,6 +275,8 @@ const Test kTests[] = {
     // (library/rewrites.txt; max3 with abs is one instruction on AMD).
     {"any3or", "mad((x - c.z != 0.0 || x - c.w != 0.0 || x * c.z - c.w != 0.0) ? x : c.z, c.x, c.y)", 0.5f, 0.5f, 1.1f,
      0.9f, "mad", "3 subs, 3 compares, 2 ors, select"},
+    {"all3and", "mad((x - c.z != 0.0 && x - c.w != 0.0 && x * c.z - c.w != 0.0) ? x : c.z, c.x, c.y)", 0.5f, 0.5f, 1.1f,
+     0.9f, "mad", "all(): 3 subs, 3 compares, 2 ands, select"},
     {"any3abs", "mad(abs(x - c.z) + abs(x - c.w) + abs(x * c.z - c.w) != 0.0 ? x : c.z, c.x, c.y)", 0.5f, 0.5f, 1.1f,
      0.9f, "mad", "3 subs, 2 adds of abs, 1 compare, select"},
     {"any3max", "mad(max(max(abs(x - c.z), abs(x - c.w)), abs(x * c.z - c.w)) != 0.0 ? x : c.z, c.x, c.y)", 0.5f, 0.5f,
@@ -244,35 +292,55 @@ const Test kTests[] = {
     {"any4abs", "mad(abs(x - c.z) + abs(x - c.w) + (abs(x * c.z - c.w) + abs(x * c.w - c.z)) != 0.0 ? x : c.z, c.x, c.y)",
      0.5f, 0.5f, 1.1f, 0.9f, "mad", "4 subs, 3 adds of abs, 1 compare, select"},
     {"f16round", "mad(f16tof32(f32tof16(x)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "f32tof16 + f16tof32"},
+    // Each half alone (owner, 2026-10-13: test everything), over bitor (one integer op on the float's bits).
+    {"f32tof16", "mad(asfloat(f32tof16(x) + 0x3f800000u), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "bitor", "f32tof16 + iadd"},
+    {"f16tof32", "mad(f16tof32(asuint(x) & 0x3bffu), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "bitor", "iand + f16tof32 (finite halves)"},
+    {"degrees", "mad(degrees(x), c.x, c.y)", 0.5f / 57.29578f, 0.5f, 0.0f, 0.0f, "mad", "a mul by a constant, like radians"},
     {"bitcast", "mad(asfloat(asint(x)), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "asint / asfloat: free"},
-    // Integer and bit operations (uint chains: x = (x ^ c.y) * c.x mixes, nothing reassociates)
-    // and conversions between int and float.
-    {"ixmul", "(x ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "mad", "base: xor + imul", "uint"},
-    {"iadd", "((x + asuint(c.z)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "", "uint"},
-    {"imul", "((x * asuint(c.z)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "", "uint"},
-    {"iand", "((x & asuint(c.z)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "NVIDIA: LOP3 can merge it with the xor",
+    // Integer and bit operations (uint chains: x = (x OP ...) ^ c.y) + c.x over the base int, xor + add) and conversions
+    // between int and float. Until 0.7.4 the base was ixmul, (x ^ c.y) * c.x: an integer multiply is quarter rate on GCN
+    // and several XMADs on Maxwell / Pascal, so cheaper ops hid under it (owner, 2026-10-15; build.py skips those readings).
+    {"ixmul", "(x ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "mad", "xor + imul (the integer base until 0.7.4)", "uint"},
+    {"iadd", "((x + asuint(c.z)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "", "uint"},
+    {"imul", "((x * asuint(c.z)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "", "uint"},
+    {"iand", "((x & asuint(c.z)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "NVIDIA: LOP3 can merge it with the xor",
      "uint"},
-    {"imin", "(min(x, asuint(c.z)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "umin", "uint"},
-    {"ishr", "((x ^ (x >> 13)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "ushr + xor", "uint"},
-    {"irot", "(((x << 7) | (x >> 25)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul",
+    {"imin", "(min(x, asuint(c.z)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "umin", "uint"},
+    {"ishr", "((x ^ (x >> 13)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "ushr + xor", "uint"},
+    {"irot", "(((x << 7) | (x >> 25)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int",
      "rotate: shl, shr, or (or one funnel shift / alignbit)", "uint"},
-    {"popc", "((x + countbits(x)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "iadd", "countbits", "uint"},
-    {"fbh", "((x + firstbithigh(x)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "iadd", "firstbithigh", "uint"},
-    {"bitrev", "(reversebits(x) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "reversebits", "uint"},
-    {"fbl", "((x + firstbitlow(x)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "iadd", "firstbitlow", "uint"},
-    {"icmpsel", "((x > asuint(c.z) ? x : ~x) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "ult, not, movc", "uint"},
-    {"udiv", "((x / ((asuint(c.z) >> 24) | 1u)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul",
+    {"popc", "((x + countbits(x)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "iadd", "countbits", "uint"},
+    {"fbh", "((x + firstbithigh(x)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "iadd", "firstbithigh", "uint"},
+    {"bitrev", "(reversebits(x) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "reversebits", "uint"},
+    {"fbl", "((x + firstbitlow(x)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "iadd", "firstbitlow", "uint"},
+    {"ishl", "((x ^ (x << 11)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "shl + xor", "uint"},
+    {"ineg", "(asuint(-asint(x)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "integer negate", "uint"},
+    {"iabs", "(asuint(abs(asint(x))) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "integer abs", "uint"},
+    {"bfe", "(((x >> 5) & 0xffu) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "shr + and: one bitfield extract?", "uint"},
+    {"xor3", "((x ^ (x >> 7) ^ (x << 11)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "2 shifts + 2 xors: v_xor3, LOP3", "uint"},
+    {"or3", "((x | (x >> 7) | (x << 11)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "2 shifts + 2 ors: v_or3, LOP3", "uint"},
+    {"andor", "(((x & (x >> 7)) | (x << 11)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "2 shifts, and, or: v_and_or, LOP3", "uint"},
+    {"bitsel", "(((x & (x >> 7)) | (~x & (x << 11))) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int",
+     "bit select (and, not, and, or): v_bfi, LOP3", "uint"},
+    {"maj3", "((((x & (x >> 7)) | (x & (x << 11))) | ((x >> 7) & (x << 11))) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0,
+     "int", "majority (3 ands, 2 ors): LOP3", "uint"},
+    {"iadd3", "((x + (x >> 7) + (x << 11)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "2 shifts + 2 adds: IADD3, v_add3", "uint"},
+    {"lshladd", "(((x << 3) + (x >> 7)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "shl + add: LEA, v_lshl_add", "uint"},
+    {"addlshl", "(((x + (x >> 7)) << 3) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "add + shl: v_add_lshl", "uint"},
+    {"imad", "((x * asuint(c.z) + (x >> 7)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "imul + add: IMAD", "uint"},
+    {"icmpsel", "((x > asuint(c.z) ? x : ~x) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "ult, not, movc", "uint"},
+    {"udiv", "((x / ((asuint(c.z) >> 24) | 1u)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int",
      "unsigned divide (no instruction on most GPUs), plus shr, or", "uint"},
-    {"umod", "((x % ((asuint(c.z) >> 24) | 1u)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "unsigned modulo", "uint"},
-    {"idiv", "(asuint(asint(x) / (asint(asuint(c.z) >> 24) | 1)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul",
+    {"umod", "((x % ((asuint(c.z) >> 24) | 1u)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "unsigned modulo", "uint"},
+    {"idiv", "(asuint(asint(x) / (asint(asuint(c.z) >> 24) | 1)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int",
      "signed divide", "uint"},
-    {"imod", "(asuint(asint(x) % (asint(asuint(c.z) >> 24) | 1)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul",
+    {"imod", "(asuint(asint(x) % (asint(asuint(c.z) >> 24) | 1)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int",
      "signed modulo", "uint"},
-    {"itof", "(asuint(float(asint(x))) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "int -> float conversion", "uint"},
-    {"utof", "(asuint(float(x)) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul", "uint -> float conversion", "uint"},
-    {"unitf", "(asuint(asfloat((x >> 9) | 0x3f800000u) * 1.5) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "ixmul",
+    {"itof", "(asuint(float(asint(x))) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "int -> float conversion", "uint"},
+    {"utof", "(asuint(float(x)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "uint -> float conversion", "uint"},
+    {"unitf", "(asuint(asfloat((x >> 9) | 0x3f800000u) * 1.5) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int",
      "uint -> [1, 2) by bits: ushr, or, plus a mul", "uint"},
-    {"ftou", "(uint(asfloat((x >> 9) | 0x3f800000u) * 4194304.0) ^ asuint(c.y)) * asuint(c.x)", 0, 0, 0, 0, "unitf",
+    {"ftou", "(uint(asfloat((x >> 9) | 0x3f800000u) * 4194304.0) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "unitf",
      "float -> uint conversion", "uint"},
     // The | 1 keeps the int: fxc writes float(int(v)) alone as one round_z (truncation).
     {"ftoitof", "mad(float(int(x * c.z) | 1), c.x, c.y)", 0.0005f, 0.5f, 1000.0f, 0.0f, "mul", "ftoi, or, itof"},
@@ -386,6 +454,15 @@ const Test kTests[] = {
     {"ilp4", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "4 chains per thread", "float", 0, nullptr, "float", nullptr, 4},
     {"ilp5", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "5 chains per thread", "float", 0, nullptr, "float", nullptr, 5},
     {"ilp6", "mad(x, c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "6 chains per thread", "float", 0, nullptr, "float", nullptr, 6},
+    // Pixel shaders only (StageBench): differences to the neighbour pixel of the 2 x 2 quad, and clip.
+    {"ddx", "mad(x + ddx(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "add", "ddx (coarse or fine, the driver's choice)", "float", kPixelOnly},
+    {"ddy", "mad(x + ddy(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "add", "ddy", "float", kPixelOnly},
+    {"ddx_coarse", "mad(x + ddx_coarse(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "add", "one value per quad", "float", kPixelOnly},
+    {"ddy_coarse", "mad(x + ddy_coarse(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "add", "one value per quad", "float", kPixelOnly},
+    {"ddx_fine", "mad(x + ddx_fine(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "add", "per row of the quad", "float", kPixelOnly},
+    {"ddy_fine", "mad(x + ddy_fine(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "add", "per column of the quad", "float", kPixelOnly},
+    {"fwidth", "mad(x + fwidth(x), c.x, c.y)", 0.5f, 0.5f, 0.0f, 0.0f, "add", "abs(ddx) + abs(ddy)", "float", kPixelOnly},
+    {"clip", "clip(x + 2.0); x = mad(x, c.x, c.y);", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "clip that never discards", "float", kPixelOnly},
 };
 
 constexpr int kUnroll = 16;          // steps per loop iteration, each with its own constants
@@ -402,9 +479,12 @@ struct Config {
 Config kConfigs[] = {
     {"tput", 8, kGroupsFull, "Cost, many in parallel",
      "how many of each instruction the GPU finishes per second (the number sopt's cost models use)"},
+#ifndef SOPT_STAGEBENCH
     {"dep", 1, kGroupsFull, "Cost, one dependent chain",
      "every step waits for the one before it; the GPU hides the wait by switching between threads"},
-    {"lat", 1, 1, "Latency, one at a time", "how long one step takes until its result is ready (one group of threads, nothing to hide it)"}};
+    {"lat", 1, 1, "Latency, one at a time", "how long one step takes until its result is ready (one group of threads, nothing to hide it)"},
+#endif
+};
 
 std::string shaderSource(const Test& t, int chains) {
   std::string s =
@@ -429,9 +509,16 @@ std::string shaderSource(const Test& t, int chains) {
       "float fracAdd(float v) { precise float d = v - ((v + 12582912.0) - 12582912.0); precise float f = d + saturate(d * -1e38); return f; }\n"
       "static const float K[16] = {0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.59, 0.60, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66};\n";
   if (t.setup & kGroupshared) s += "groupshared float GS[2048];\ngroupshared uint GSI[64];\n";
-  s += "[numthreads(64, 1, 1)]\n"
-       "void main(uint3 id : SV_DispatchThreadID)\n{\n"
-       "  const uint g = id.x / 64u, l = id.x % 64u;\n";
+  if (gStage == Stage::Pixel)  // one thread per pixel of the 1024-wide target
+    s += "float4 main(float4 pos : SV_Position) : SV_Target\n{\n"
+         "  const uint3 id = uint3(uint(pos.x) + uint(pos.y) * 1024u, 0u, 0u);\n";
+  else if (gStage == Stage::Vertex)  // one thread per point
+    s += "float4 main(uint vid : SV_VertexID) : SV_Position\n{\n"
+         "  const uint3 id = uint3(vid, 0u, 0u);\n";
+  else
+    s += "[numthreads(64, 1, 1)]\n"
+         "void main(uint3 id : SV_DispatchThreadID)\n{\n";
+  s += "  const uint g = id.x / 64u, l = id.x % 64u;\n";
   if (t.setup & kGroupshared)
     s += "  for (uint k = l; k < 2048u; k += 64u) GS[k] = 0.5 + float(k) * 1e-4 + seed;\n"
          "  GSI[l] = l;\n  GroupMemoryBarrierWithGroupSync();\n";
@@ -455,7 +542,8 @@ std::string shaderSource(const Test& t, int chains) {
   }
   s += "  [loop] for (uint i = 0; i < iters; ++i)\n  {\n";
   for (int r = 0; r < kUnroll; ++r) {
-    s += "    {\n      const float4 c = U[" + std::to_string(r) + "];\n";
+    // k: a literal of this step (K[r] folds to a constant; distinct per step, so no two steps merge).
+    s += "    {\n      const float4 c = U[" + std::to_string(r) + "];\n      const float k = K[" + std::to_string(r) + "];\n";
     for (int k = 0; k < chains; ++k) {
       const std::string x = "x" + std::to_string(k);
       std::string step = stepOf(k);
@@ -471,7 +559,9 @@ std::string shaderSource(const Test& t, int chains) {
     }
     s += "    }\n";
   }
-  s += "  }\n  O[id.x] = 0.0";
+  s += "  }\n";
+  // The chains' sum: written to the buffer, returned as the pixel, or as an off-screen point's position.
+  s += gStage == Stage::Pixel ? "  return float4(0.0" : gStage == Stage::Vertex ? "  return float4(4.0 + 1e-30 * (0.0" : "  O[id.x] = 0.0";
   for (int k = 0; k < chains; ++k) {
     const std::string x = "x" + std::to_string(k);
     const std::string type = typeOf(k);
@@ -481,7 +571,7 @@ std::string shaderSource(const Test& t, int chains) {
     else s += " + dot(" + x + ", 1.0)";
   }
   if (t.setup & kGroupshared) s += " + GS[(l * 7u) & 2047u] + float(GSI[l] & 1u)";  // keeps the writes
-  s += ";\n}\n";
+  s += gStage == Stage::Pixel ? ", 0.0, 0.0, 1.0);\n}\n" : gStage == Stage::Vertex ? "), 4.0, 0.5, 1.0);\n}\n" : ";\n}\n";
   return s;
 }
 
@@ -491,8 +581,23 @@ struct Gpu {
   ID3D11Buffer* cb = nullptr;
   ID3D11Buffer* out = nullptr;
   ID3D11UnorderedAccessView* uav = nullptr;
+  ID3D11RenderTargetView* rtv = nullptr;   // StageBench's pixel run: 1024 x 1024 R32_FLOAT
+  ID3D11VertexShader* fullVS = nullptr;    // its full-screen triangle
   Timer timer;
 };
+
+// Binds a test's shader for the current stage (the map keeps every stage's shader as a device child).
+void bindShader(Gpu& g, ID3D11DeviceChild* sh) {
+  if (gStage == Stage::Compute) {
+    g.ctx->CSSetShader(static_cast<ID3D11ComputeShader*>(sh), nullptr, 0);
+  } else if (gStage == Stage::Pixel) {
+    g.ctx->VSSetShader(g.fullVS, nullptr, 0);
+    g.ctx->PSSetShader(static_cast<ID3D11PixelShader*>(sh), nullptr, 0);
+  } else {
+    g.ctx->VSSetShader(static_cast<ID3D11VertexShader*>(sh), nullptr, 0);
+    g.ctx->PSSetShader(nullptr, nullptr, 0);
+  }
+}
 
 struct CbData {
   float U[16][4];
@@ -530,6 +635,13 @@ void setConstants(Gpu& g, const Test& t, UINT iters) {
 
 // One timed dispatch in milliseconds (negative if the timestamps were disjoint).
 double timeDispatch(Gpu& g, UINT groups) {
+  const UINT threads = groups * 64u;
+  if (gStage == Stage::Pixel) {  // the same threads as pixels: 1024 wide (fewer: one row)
+    D3D11_VIEWPORT vp = {0.0f, 0.0f, float(std::min(threads, 1024u)), float(std::max(1u, threads / 1024u)), 0.0f, 1.0f};
+    g.ctx->RSSetViewports(1, &vp);
+    return g.timer.time(g.ctx, [&] { g.ctx->Draw(3, 0); });
+  }
+  if (gStage == Stage::Vertex) return g.timer.time(g.ctx, [&] { g.ctx->Draw(threads, 0); });
   return g.timer.time(g.ctx, [&] { g.ctx->Dispatch(groups, 1, 1); });
 }
 
@@ -543,8 +655,8 @@ struct Result {
 int chainsOf(const Test& t, const Config& c) { return t.chains && std::strcmp(c.name, "tput") == 0 ? t.chains : c.chains; }
 
 // Doubles the iteration count until a dispatch takes >= 2 ms.
-UINT calibrate(Gpu& g, ID3D11ComputeShader* cs, const Test& t, const Config& c) {
-  g.ctx->CSSetShader(cs, nullptr, 0);
+UINT calibrate(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c) {
+  bindShader(g, cs);
   UINT iters = 2;
   for (;;) {
     setConstants(g, t, iters);
@@ -555,8 +667,8 @@ UINT calibrate(Gpu& g, ID3D11ComputeShader* cs, const Test& t, const Config& c) 
 }
 
 // The median of reps runs at a known iteration count.
-Result measureAt(Gpu& g, ID3D11ComputeShader* cs, const Test& t, const Config& c, UINT iters, int reps) {
-  g.ctx->CSSetShader(cs, nullptr, 0);
+Result measureAt(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c, UINT iters, int reps) {
+  bindShader(g, cs);
   setConstants(g, t, iters);
   std::vector<double> runs;
   for (int k = 0; k < reps * 3 && int(runs.size()) < reps; ++k)
@@ -585,7 +697,8 @@ struct Measured {
 const char* const kDisplayOrder[] = {
     // One section for the few, fast basics (owner, 2026-10-10: like the web page's group).
     "#Modifiers and basic arithmetic", "neg", "abs", "negabs", "saturate", "satmad", "mul", "mulxx", "sqmax", "scale2", "scalehalf",
-    "scale4", "scale8", "scale0.25", "scale0.125", "scale3", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
+    "scale4", "scale8", "scale0.25", "scale0.125", "scale3", "scale16", "scale0.0625", "scaleneg4", "scaleneg0.5", "scaleneg8",
+    "fmamax", "fmascale4", "fmascale0.25", "fmascale3", "addmax", "addscale4", "addscale3", "min", "max", "step", "add", "sub", "fma1", "madsatu", "madlit", "madlit1", "madinl", "mad2", "contract", "max3", "minmax", "clamp", "select",
     "lerp",
     "#Rounding and sign", "floor", "ceil", "round", "trunc", "frac", "roundadd", "flooradd", "fracadd", "signsel2", "signbits",
     "signsat", "signmad", "signclamp", "signsel", "sign",
@@ -596,11 +709,12 @@ const char* const kDisplayOrder[] = {
     "#Vector (float2 / float3 / float4)", "mad2v", "mad3v", "mad4v", "dot2", "dot3", "dot4", "cross", "length",
     "distance", "normalize", "reflect", "refract", "faceforward", "det3", "matmul4", "transpose",
     "#Written out by fxc", "smoothstep", "fmod", "sincos", "tan", "atan", "atan2", "asin", "acos",
-    "#More intrinsics", "bitcast", "radians", "log10", "isnan", "isinf", "isfinite", "modf", "frexp", "ldexp", "f16round",
-    "tanh", "sinh", "cosh", "mod", "asinh", "acosh", "atanh", "any3or", "any3abs", "any3max", "any4or",
+    "#More intrinsics", "bitcast", "radians", "log10", "isnan", "isinf", "isfinite", "modf", "frexp", "ldexp", "f16round", "f32tof16", "f16tof32", "degrees",
+    "tanh", "sinh", "cosh", "mod", "asinh", "acosh", "atanh", "any3or", "all3and", "any3abs", "any3max", "any4or",
     "any4pairs", "any4max3", "any4abs",
     "#Integer and conversions", "bitor", "ixmul", "iadd", "iand", "imin", "ishr", "irot", "imul", "popc", "fbh",
-    "bitrev", "fbl", "icmpsel", "unitf", "utof", "itof", "ftou", "ftoitof", "udiv", "umod", "idiv", "imod",
+    "bitrev", "fbl", "ishl", "ineg", "iabs", "bfe", "xor3", "or3", "andor", "bitsel", "maj3", "iadd3",
+    "lshladd", "addlshl", "imad", "icmpsel", "unitf", "utof", "itof", "ftou", "ftoitof", "udiv", "umod", "idiv", "imod",
     "#Half precision (min16float)", "mad16", "add16", "mul16", "max16", "rcp16", "sqrt16", "exp2_16", "log2_16",
     "mad16v3", "mix16",
     "#Compute: groupshared memory and barriers", "gsread", "gswrite", "gswriteread", "gsread32", "gswrite32", "barrier",
@@ -612,7 +726,8 @@ const char* const kDisplayOrder[] = {
     "#Parallel issue: an fma and X together (Cost = both; % = of the two one after the other)", "fma+fma", "fma+int",
     "fma+minmax", "fma+cvt", "fma+rcp", "fma+half", "fma4+rcp",
     "#Parallel issue: how many fmas at once (Cost per fma with 1 to 6 independent chains per thread; the same as 8 = scalar)",
-    "ilp1", "ilp2", "ilp3", "ilp4", "ilp5", "ilp6"};
+    "ilp1", "ilp2", "ilp3", "ilp4", "ilp5", "ilp6",
+    "#Pixel shaders only", "ddx", "ddy", "ddx_coarse", "ddy_coarse", "ddx_fine", "ddy_fine", "fwidth", "clip"};
 
 // What other cards of this card's family measure (expected.hpp, from the reports in docs/opbench; owner,
 // 2026-10-06: a card that differs from its family makes an interesting report).
@@ -649,12 +764,13 @@ bool differs(double measured, double expected) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  gProgram = "OpBench";
+  gProgram = kTool;
   std::setvbuf(stdout, nullptr, _IONBF, 0);  // progress shows while it runs
   const Style st = initConsole();
   int adapterIndex = -1;
   bool list = false;
   std::string filter, outPath;
+  [[maybe_unused]] bool stageGiven = false;
   int reps = 5;  // runs per reading (median); readings agree within ~0.1% on clean runs
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
@@ -673,16 +789,38 @@ int main(int argc, char** argv) {
     else if (a == "--out") outPath = next();
     else if (a == "--groups") {  // thread groups of 64 for tput / dep (default 16384; small for a quick check)
       const UINT n = UINT(std::max(1, std::min(int(kGroupsFull), std::atoi(next()))));
-      kConfigs[0].groups = kConfigs[1].groups = n;
+      for (Config& c : kConfigs)
+        if (std::strcmp(c.name, "lat") != 0) c.groups = n;
+#ifdef SOPT_STAGEBENCH
+    } else if (a == "--stage") {
+      const std::string v = next();
+      if (v != "ps" && v != "vs") fail("--stage takes ps or vs");
+      gStage = v == "ps" ? Stage::Pixel : Stage::Vertex;
+      stageGiven = true;
+#endif
     } else {
-      print("OpBench %s\nusage: OpBench [--adapter N] [--list] [--adapters] [--filter text] [--reps N] [--out file.csv] [--groups N]\n",
-                  SOPT_VERSION);
+      print("%s %s\nusage: %s [--adapter N] [--list] [--adapters] [--filter text] [--reps N] [--out file.csv] [--groups N]%s\n",
+            kTool, SOPT_VERSION, kTool, gStage == Stage::Compute ? "" : " [--stage ps|vs]");
       return a == "-h" || a == "--help" ? 0 : 1;
     }
   }
 
+#ifdef SOPT_STAGEBENCH
+  // Without --stage: the pixel run, then the vertex run, each a run of its own (own CSV, own summary).
+  if (!stageGiven && !list) {
+    std::vector<std::string> args(argv, argv + argc);
+    for (const char* stage : {"ps", "vs"}) {
+      std::string cmd = "\"\"" + args[0] + "\"";
+      for (size_t k = 1; k < args.size(); ++k) cmd += " \"" + args[k] + "\"";
+      cmd += std::string(" --stage ") + stage + "\"";
+      if (const int rc = std::system(cmd.c_str()); rc != 0) return rc;
+    }
+    return 0;
+  }
+#endif
   if (!list) {
-    printBox(st, std::string("OpBench ") + SOPT_VERSION + "  -  by CeeJay.dk");
+    printBox(st, std::string(kTool) + " " + SOPT_VERSION + "  -  by CeeJay.dk" +
+                     (gStage == Stage::Pixel ? "  -  pixel shaders" : gStage == Stage::Vertex ? "  -  vertex shaders" : ""));
     print("\n");
   }
   const Adapter ad = selectAdapter(st, list, adapterIndex);
@@ -703,7 +841,8 @@ int main(int argc, char** argv) {
   {
     D3D11_FEATURE_DATA_SHADER_MIN_PRECISION_SUPPORT mp = {};
     if (SUCCEEDED(g.dev->CheckFeatureSupport(D3D11_FEATURE_SHADER_MIN_PRECISION_SUPPORT, &mp, sizeof(mp))))
-      half16 = (mp.AllOtherShaderStagesMinPrecision & D3D11_SHADER_MIN_PRECISION_16_BIT) != 0;
+      half16 = ((gStage == Stage::Pixel ? mp.PixelShaderMinPrecision : mp.AllOtherShaderStagesMinPrecision) &
+                D3D11_SHADER_MIN_PRECISION_16_BIT) != 0;
   }
   {
     D3D11_BUFFER_DESC bd = {};
@@ -722,20 +861,49 @@ int main(int argc, char** argv) {
     g.timer.create(g.dev);
     g.ctx->CSSetConstantBuffers(0, 1, &g.cb);
     g.ctx->CSSetUnorderedAccessViews(0, 1, &g.uav, nullptr);
+    if (gStage != Stage::Compute) {
+      g.ctx->VSSetConstantBuffers(0, 1, &g.cb);
+      g.ctx->PSSetConstantBuffers(0, 1, &g.cb);
+      g.ctx->IASetPrimitiveTopology(gStage == Stage::Pixel ? D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST : D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+    }
+    if (gStage == Stage::Pixel) {
+      D3D11_TEXTURE2D_DESC td = {};
+      td.Width = td.Height = 1024;
+      td.MipLevels = td.ArraySize = 1;
+      td.Format = DXGI_FORMAT_R32_FLOAT;
+      td.SampleDesc.Count = 1;
+      td.BindFlags = D3D11_BIND_RENDER_TARGET;
+      ID3D11Texture2D* rt = nullptr;
+      if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &rt)) || FAILED(g.dev->CreateRenderTargetView(rt, nullptr, &g.rtv)))
+        fail("cannot create the render target");
+      g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
+      const char* vs = "float4 main(uint v : SV_VertexID) : SV_Position\n"
+                       "{ float2 p = float2((v << 1) & 2, v & 2); return float4(p * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0); }\n";
+      ID3DBlob* code = nullptr;
+      if (FAILED(D3DCompile(vs, std::strlen(vs), "fullscreen", nullptr, nullptr, "main", "vs_5_0", 0, 0, &code, nullptr)) ||
+          FAILED(g.dev->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &g.fullVS)))
+        fail("cannot create the full-screen vertex shader");
+      code->Release();
+    }
   }
 
   const std::filesystem::path reports = reportsDir();
   std::string safeName = gpuName;
   for (char& ch : safeName)
     if (!isalnum((unsigned char)ch)) ch = '_';
-  if (outPath.empty()) outPath = (reports / ("opbench-" + safeName + ".csv")).string();
-  const std::filesystem::path dxbcDir = reports / "Shaders" / "OpBench";
+  std::string prefix = kTool;
+  for (char& ch : prefix) ch = char(std::tolower((unsigned char)ch));
+  if (gStage != Stage::Compute) prefix += std::string("-") + stageName();
+  if (outPath.empty()) outPath = (reports / (prefix + "-" + safeName + ".csv")).string();
+  const std::filesystem::path dxbcDir =
+      reports / "Shaders" / (std::string(kTool) + (gStage == Stage::Compute ? "" : std::string("-") + stageName()));
   std::filesystem::create_directories(dxbcDir);
 
   // Compile every test for every configuration (chains differ).
   std::vector<const Test*> tests;
   for (const Test& t : kTests)
-    if (filter.empty() || std::string(t.name).find(filter) != std::string::npos || !t.base || std::strcmp(t.name, "mad") == 0)
+    if (runsHere(t) && (filter.empty() || std::string(t.name).find(filter) != std::string::npos || !t.base ||
+                        std::strcmp(t.name, "mad") == 0))
       tests.push_back(&t);
   // Bases of the selected tests are needed too.
   for (bool added = true; added;) {
@@ -752,7 +920,7 @@ int main(int argc, char** argv) {
   // Shaders compile in the background, section by section in measuring order (owner, 2026-10-05: results
   // start sooner); each section waits for its own. The map is filled with every key first, so the worker only
   // writes values.
-  std::map<std::string, std::map<std::string, ID3D11ComputeShader*>> shaders;
+  std::map<std::string, std::map<std::string, ID3D11DeviceChild*>> shaders;
   for (const Config& c : kConfigs)
     for (const Test* t : tests) shaders[c.name][t->name] = nullptr;
   auto compileTest = [&](const Test* t) {
@@ -760,7 +928,8 @@ int main(int argc, char** argv) {
       const std::string src = shaderSource(*t, chainsOf(*t, c));
       ID3DBlob* code = nullptr;
       ID3DBlob* err = nullptr;
-      if (FAILED(D3DCompile(src.data(), src.size(), t->name, nullptr, nullptr, "main", "cs_5_0",
+      const char* profile = gStage == Stage::Pixel ? "ps_5_0" : gStage == Stage::Vertex ? "vs_5_0" : "cs_5_0";
+      if (FAILED(D3DCompile(src.data(), src.size(), t->name, nullptr, nullptr, "main", profile,
                             D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err)))
         fail(std::string("cannot compile test ") + t->name + ":\n" + (err ? (const char*)err->GetBufferPointer() : ""));
       if (std::strcmp(c.name, "tput") == 0) {  // disassembly of the throughput version
@@ -775,9 +944,15 @@ int main(int argc, char** argv) {
           dis->Release();
         }
       }
-      ID3D11ComputeShader* cs = nullptr;
-      if (FAILED(g.dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &cs)))
-        fail(std::string("cannot create test ") + t->name);
+      ID3D11DeviceChild* cs = nullptr;
+      HRESULT hr;
+      if (gStage == Stage::Pixel)
+        hr = g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, reinterpret_cast<ID3D11PixelShader**>(&cs));
+      else if (gStage == Stage::Vertex)
+        hr = g.dev->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, reinterpret_cast<ID3D11VertexShader**>(&cs));
+      else
+        hr = g.dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, reinterpret_cast<ID3D11ComputeShader**>(&cs));
+      if (FAILED(hr)) fail(std::string("cannot create test ") + t->name);
       code->Release();
       shaders[c.name][t->name] = cs;
     }
@@ -843,7 +1018,7 @@ int main(int argc, char** argv) {
               "by section while the rest is measured.\n"
               "Warming up the GPU for 2 seconds so its clock settles ...");
   {
-    g.ctx->CSSetShader(shaders["tput"]["mad"], nullptr, 0);
+    bindShader(g, shaders["tput"]["mad"]);
     setConstants(g, *madTest, 256);
     const ULONGLONG start = GetTickCount64();
     while (GetTickCount64() - start < 2000) timeDispatch(g, kConfigs[0].groups);
@@ -902,12 +1077,15 @@ int main(int argc, char** argv) {
       if (shaky) note = st.vt ? "  \x1b[93m! no consensus\x1b[0m" : "  ! no consensus";
       else if (x.readings.size() > 2)
         note = std::string("  ") + st.c("\x1b[90m") + std::to_string(x.readings.size()) + " passes" + st.reset();
+      // The family's costs are over the base (expected.hpp, units_vs_base); chain tests show their whole cost, so
+      // their base's cost is added before comparing (ilp1-6 read "4.3, usually 0.3" in 0.7.3).
       const auto e = fam.cost.find(name);
+      const double usual = e != fam.cost.end() ? e->second + (v - x.vsBase) : 0.0;
       if (!shaky && !pair && e != fam.cost.end()) ++compared;
-      if (!shaky && !pair && e != fam.cost.end() && differs(v, e->second)) {
-        different.push_back({name, v, e->second});
+      if (!shaky && !pair && e != fam.cost.end() && differs(v, usual)) {
+        different.push_back({name, v, usual});
         char buf[48];
-        std::snprintf(buf, sizeof(buf), "  usually %.1f", e->second);
+        std::snprintf(buf, sizeof(buf), "  usually %.1f", usual);
         note += std::string(st.c("\x1b[95m")) + buf + st.reset();
       }
       const double shown = std::fabs(v) < 0.05 ? 0.0 : v;  // no "-0.0"
@@ -960,8 +1138,11 @@ int main(int argc, char** argv) {
   auto writeCsv = [&] {
   FILE* csv = std::fopen(outPath.c_str(), "wb");
   if (!csv) return;
-  std::fprintf(csv, "# OpBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", SOPT_VERSION,
-               gpuName.c_str(), desc.VendorId, desc.DeviceId, driver.c_str());
+  // StageBench's own header (the report intake files only OpBench / TexBench reports).
+  std::fprintf(csv, "# %s %s\n", kTool, SOPT_VERSION);
+  if (gStage != Stage::Compute) std::fprintf(csv, "# stage: %s\n", stageName());
+  std::fprintf(csv, "# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", gpuName.c_str(), desc.VendorId,
+               desc.DeviceId, driver.c_str());
   std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
   for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, driftOf(c.name));
   const Score sc = score();
@@ -1075,7 +1256,7 @@ int main(int argc, char** argv) {
 
   // Summary: banner and the GPU (the sections are shown above).
   print("\n");
-  printBox(st, std::string("OpBench ") + SOPT_VERSION + "  -  " + gpuName);
+  printBox(st, std::string(kTool) + " " + SOPT_VERSION + "  -  " + gpuName);
   print("  driver %s, vendor 0x%04X, device 0x%04X, %.1f TFLOPS fp32 (measured)\n", driver.c_str(), desc.VendorId,
               desc.DeviceId, score().fp32);
   print("  min16float runs at %s\n", half16 ? "16 bits" : "32 bits on this driver (the half precision tests measure fp32)");
@@ -1133,12 +1314,12 @@ int main(int argc, char** argv) {
       print("  Such reports are especially interesting: please send this one.\n");
     }
   }
-  print("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
+  std::printf("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());  // not in the shared results page
   if (const Score sc = score(); sc.fp32 > 0.0) {
     std::vector<std::pair<std::string, std::string>> more;
     more.push_back({"fp16 (min16float)", sc.fp16 > 0.0 ? threeDigits(sc.fp16) + " TFLOPS" : std::string("runs at fp32")});
     if (sc.special > 0.0) more.push_back({"Special functions (rcp)", threeDigits(sc.special) + " Gops/s"});
-    printScore(st, "OpBench score", gpuName, desc.VendorId, sc.fp32, "TFLOPS", "fp32, measured", more);
+    printScore(st, std::string(kTool) + " score", gpuName, desc.VendorId, sc.fp32, "TFLOPS", "fp32, measured", more);
   }
   finishRun(st, maxDrift, outPath);
   gCurrent.clear();

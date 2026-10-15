@@ -232,6 +232,15 @@ ShaderInfo and GPU-Blueprint.bat. Since 0.6.0 (testers' notes, owner 2026-10-05)
 "another graphics card"), reports in `Reports\` and zipped into `Reports-<cards>.zip` (bin\zip-reports.ps1: the card models, e.g. Reports-GTX-1660+UHD-630.zip) after every run, the
 guide as HTML (README.html, a hub, and `Docs\<Program>.html`), a beep when a run ends (before the pause).
 
+## StageBench (OpBench's tests in vertex and pixel shaders)
+
+`StageBench.exe` (owner, 2026-10-13; in the GPU Blueprint `bin` folder, not in the menu yet) is OpBench built with
+`SOPT_STAGEBENCH`: the same tests, throughput only, in a pixel shader (one thread per pixel of a 1024 x 1024 target)
+and in a vertex shader (one thread per point, drawn off-screen). Without `--stage ps|vs` it runs both, one after
+the other; reports `Reports\stagebench-ps-<gpu>.csv` / `-vs-`. Compute-only tests are left out; the pixel run adds
+`ddx`, `ddy` (also `_coarse` / `_fine`), `fwidth` and `clip`. "usually" is OpBench's compute value of the family:
+a difference means the stage changes what the instruction costs.
+
 ## TexBench (texture costs)
 
 `GPU-Blueprint.bat` (or `TexBench.exe [--adapter N] [--list] [--filter text] [--reps N] [--groups N]`)

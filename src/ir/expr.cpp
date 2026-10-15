@@ -264,13 +264,85 @@ bool isOmodScale(float v) {
   return a == 2.0f || a == 4.0f || a == 0.5f;
 }
 
-std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& uses, const CostModel& m) {
+bool isFreeMulScale(float v) { return v == 4.0f || v == 8.0f || v == 0.5f || v == 0.25f || v == 0.125f; }
+
+bool isBitwiseOp(Op op) { return op == Op::UAnd || op == Op::UOr || op == Op::UXor; }
+
+bool isLowMask(uint32_t v) { return v != 0 && v != 0xFFFFFFFFu && (v & (v + 1)) == 0; }
+
+// The integer pairs that merge into one instruction (CostModel fuse bits): op over an operand computed by child, whose
+// other operand (if a shift amount or mask) is childConst / opConst. The consumer costs 1.
+bool fusesIntPair(uint16_t f, Op op, Op child, int childArg, std::optional<uint32_t> opConst,
+                  std::optional<uint32_t> childConst) {
+  const bool addLike = op == Op::UAdd || op == Op::USub, childAddLike = child == Op::UAdd || child == Op::USub;
+  if ((f & kFuseAndOr) && op == Op::UOr && child == Op::UAnd) return true;
+  if ((f & kFuseOr3) && op == Op::UOr && child == Op::UOr) return true;
+  if ((f & kFuseXor3) && op == Op::UXor && child == Op::UXor) return true;
+  if ((f & kFuseAdd3) && op == Op::UAdd && child == Op::UAdd) return true;
+  if ((f & kFuseAdd3Neg) && addLike && childAddLike) return true;
+  if ((f & kFuseShlAdd) && op == Op::UAdd && child == Op::UShl && childConst) return true;
+  if ((f & kFuseAddShl) && op == Op::UShl && childArg == 0 && child == Op::UAdd && opConst) return true;
+  if ((f & kFuseShlOr) && op == Op::UOr && child == Op::UShl && childConst) return true;
+  if ((f & kFuseImad) && op == Op::UAdd && child == Op::UMul) return true;
+  if ((f & kFuseBfe) && op == Op::UAnd && child == Op::UShr && childConst && opConst && isLowMask(*opConst)) return true;
+  return false;
+}
+
+std::vector<bool> foldedNodes(const Expr& e, const std::vector<uint32_t>& uses, const CostModel& m) {
   std::vector<bool> folded(e.nodes.size(), false);
-  if (!m.amdFolds) return folded;
+  const uint16_t fuse = fuseBits(m);
+  if (!m.amdFolds && !fuse) return folded;
   std::vector<bool> fused(e.nodes.size(), false);  // a mul contracted into its consumer's fma
   if (m.fusedAdd)
     for (uint32_t i = 0; i < e.nodes.size(); ++i)
       if (const int f = fusedArg(e, i, uses, m.divIsMul); f >= 0) fused[e.nodes[i].args[f]] = true;
+  auto uconst = [&](uint32_t i) -> std::optional<uint32_t> {
+    const Node& c = e.nodes[i];
+    if (c.op != Op::Const || c.type != Type::Uint) return std::nullopt;
+    return std::bit_cast<uint32_t>(c.value[0]);
+  };
+  // Bitwise groups: a tree of and / or / xor over single-use bitwise nodes with at most 3 distinct leaves (an all-ones
+  // constant, a not, is no input) is one LOP3 / bfn; on AMD only bit select, (p & q) | (~p & r) (v_bfi_b32). The root
+  // pays the instruction, every node inside costs 1. Done first, from the root down; the pairs below skip grouped nodes.
+  std::vector<bool> grouped(e.nodes.size(), false);
+  if (fuse & (kFuseLop3 | kFuseBfi))
+    for (uint32_t i = static_cast<uint32_t>(e.nodes.size()); i-- > 0;) {
+      const Node& n = e.nodes[i];
+      if (grouped[i] || n.type != Type::Uint || !isBitwiseOp(n.op)) continue;
+      std::vector<uint32_t> inner, leaves, todo{n.args[0], n.args[1]};
+      while (!todo.empty() && leaves.size() <= 3) {
+        const uint32_t k = todo.back();
+        todo.pop_back();
+        const Node& c = e.nodes[k];
+        if (isBitwiseOp(c.op) && c.type == Type::Uint && uses[k] == 1 && !grouped[k]) {
+          inner.push_back(k);
+          todo.push_back(c.args[0]);
+          todo.push_back(c.args[1]);
+        } else if (uconst(k) != 0xFFFFFFFFu && std::find(leaves.begin(), leaves.end(), k) == leaves.end()) {
+          leaves.push_back(k);
+        }
+      }
+      if (inner.empty() || leaves.size() > 3 || !todo.empty()) continue;
+      bool ok = (fuse & kFuseLop3) != 0;
+      if (!ok && n.op == Op::UOr && inner.size() == 3) {  // bit select: Or(And(p, q), And(Xor(p, ~0), r))
+        auto isNotOf = [&](uint32_t k) -> std::optional<uint32_t> {
+          const Node& x = e.nodes[k];
+          if (x.op != Op::UXor) return std::nullopt;
+          if (uconst(x.args[1]) == 0xFFFFFFFFu) return x.args[0];
+          if (uconst(x.args[0]) == 0xFFFFFFFFu) return x.args[1];
+          return std::nullopt;
+        };
+        const Node& l = e.nodes[n.args[0]];
+        const Node& r = e.nodes[n.args[1]];
+        if (l.op == Op::UAnd && r.op == Op::UAnd)
+          for (const auto& [a, b] : {std::pair{&l, &r}, std::pair{&r, &l}})
+            for (int s = 0; s < 2 && !ok; ++s)
+              if (const auto p = isNotOf(b->args[s])) ok = a->args[0] == *p || a->args[1] == *p;
+      }
+      if (!ok) continue;
+      grouped[i] = true;
+      for (const uint32_t k : inner) folded[k] = grouped[k] = true;
+    }
   auto omodConst = [&](uint32_t i) {
     const Node& c = e.nodes[i];
     if (c.op != Op::Const || !isOmodScale(c.value[0])) return false;
@@ -279,15 +351,34 @@ std::vector<bool> amdFoldedNodes(const Expr& e, const std::vector<uint32_t>& use
     return true;
   };
   auto isMinMax = [](Op op) { return op == Op::Min || op == Op::Max; };
+  // NVIDIA's FMUL post-factor: a multiply's result times 4, 8, 1/2, 1/4 or 1/8 (all components alike).
+  auto scaleConst = [&](uint32_t i) {
+    const Node& c = e.nodes[i];
+    if (c.op != Op::Const || c.type == Type::Uint || !isFreeMulScale(c.value[0])) return false;
+    for (unsigned k = 1; k < width(c.type); ++k)
+      if (c.value[k] != c.value[0]) return false;
+    return true;
+  };
   for (uint32_t i = 0; i < e.nodes.size(); ++i) {
     const Node& n = e.nodes[i];
-    if (n.op == Op::Mul && !fused[i]) {
+    const bool intConsumer = n.op == Op::UAnd || n.op == Op::UOr || n.op == Op::UXor || n.op == Op::UAdd ||
+                             n.op == Op::USub || n.op == Op::UShl;
+    if (n.type == Type::Uint && intConsumer && !grouped[i]) {
+      for (int k = 0; k < 2 && !folded[i]; ++k) {
+        const uint32_t v = n.args[k];
+        const Node& p = e.nodes[v];
+        if (uses[v] != 1 || p.type != Type::Uint || folded[v] || grouped[v] || info(p.op).arity != 2) continue;
+        folded[i] = fusesIntPair(fuse, n.op, p.op, k, uconst(n.args[1 - k]), uconst(p.args[1]));
+      }
+    } else if (n.op == Op::Mul && !fused[i]) {
       for (int k = 0; k < 2 && !folded[i]; ++k) {
         const uint32_t v = n.args[1 - k];
         const Node& p = e.nodes[v];
-        folded[i] = omodConst(n.args[k]) && uses[v] == 1 && p.type == n.type && takesOmod(p.op) && !folded[v];
+        folded[i] = m.amdFolds && omodConst(n.args[k]) && uses[v] == 1 && p.type == n.type && takesOmod(p.op) && !folded[v];
+        folded[i] = folded[i] || ((fuse & kFuseMulScale) && scaleConst(n.args[k]) && uses[v] == 1 && p.type == n.type &&
+                                  p.op == Op::Mul && !folded[v]);
       }
-    } else if (isMinMax(n.op)) {
+    } else if (m.amdFolds && isMinMax(n.op)) {
       for (int k = 0; k < 2 && !folded[i]; ++k) {
         const uint32_t v = n.args[k];
         const Node& p = e.nodes[v];
@@ -339,7 +430,7 @@ std::vector<uint32_t> divCosts(const Expr& e, const CostModel& m, const std::vec
 
 uint32_t dagCost(const Expr& e, const CostModel& m) {
   const auto uses = useCounts(e);
-  const auto folded = amdFoldedNodes(e, uses, m);
+  const auto folded = foldedNodes(e, uses, m);
   const auto div = divCosts(e, m, compileTimeNodes(e, {}));
   const auto stepSel = stepSelectCosts(e, uses, m);
   uint32_t cost = 0;
@@ -376,7 +467,7 @@ std::vector<bool> compileTimeNodes(const Expr& e, const std::vector<InputDecl>& 
 std::vector<uint32_t> nodeCosts(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
   const auto ct = compileTimeNodes(e, inputs);
   const auto uses = useCounts(e);
-  const auto folded = amdFoldedNodes(e, uses, m);
+  const auto folded = foldedNodes(e, uses, m);
   const auto div = divCosts(e, m, ct);
   const auto stepSel = stepSelectCosts(e, uses, m);
   std::vector<uint32_t> cost(e.nodes.size(), 0);

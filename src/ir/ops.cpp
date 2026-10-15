@@ -227,13 +227,25 @@ const CostModel kNvidiaTuring{"nvidia-turing",
 // nvidia-quadro-m5000m.csv, OpBench 0.4.0, clean: drift <= 0.3%; the two agree within ~0.5): as Pascal
 // (add/mul/mad and abs one op, neg / saturate free, the quarter-rate unit and floor / ceil / round / frac 10,
 // pow 24, sign 10, lerp 8) except min / max / step / compares ~1.2 ops (4.6-4.9 against Pascal's 6.8), so
-// clamp 12 (measured 11.5) and compare + select 12 (select 7 after the 5-unit compare). sqrt 10 (M5000M;
-// the 860M's newer driver 32.0.15.8278 measures 24, rsqrt + rcp). Contraction to fma; no omod, no max3.
-const CostModel kNvidiaMaxwell{"nvidia-maxwell",
+// clamp 12 (measured 11.5) and compare + select 12 (select 7 after the 5-unit compare). sqrt 10 (GM20x, SM52:
+// MUFU.SQRT; the GM107 860M's 24 is the chip, see nvidia-maxwell1). Contraction to fma; no omod, no max3.
+const CostModel kNvidiaMaxwell2{"nvidia-maxwell2",
   {0, 0, 1, 4, 1, 10, 10, 10, 10,
    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 4, 4, 10, 5, 5, 5, 24,
    5, 5, 5, 5, 5, 5, 4, 8, 12, 7, 1,
    4, 14, 18, 18, 1, 1,
+   1, 1, 2, 2, 2, 2, 4, 4, 4, 2, 2, 2, 2, 2, 6,
+   4, 4, 1},
+  1, true};
+
+// NVIDIA Maxwell 1 (GM107 / GM108, SM50: GTX 750 / 750 Ti, 800M / 900M laptops up to the 960M; owner, 2026-10-13):
+// = nvidia-maxwell2 except sqrt 24. Mesa's NAK (src/nouveau/compiler/nak/sm50.rs): MUFU.SQRT only from SM52, so SM50
+// computes sqrt as rsqrt + rcp (GTX 860M, GM107, measured 24 on every driver; the GM204 Quadro M5000M measures 10).
+const CostModel kNvidiaMaxwell1{"nvidia-maxwell1",
+  {0, 0, 1, 4, 1, 10, 10, 10, 24,
+   10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 4, 4, 10, 5, 5, 5, 24,
+   5, 5, 5, 5, 5, 5, 4, 8, 12, 7, 1,
+   4, 28, 18, 32, 1, 1,
    1, 1, 2, 2, 2, 2, 4, 4, 4, 2, 2, 2, 2, 2, 6,
    4, 4, 1},
   1, true};
@@ -256,6 +268,18 @@ const CostModel kNvidiaPascal{"nvidia-pascal",
 // conversion). min/max/step/compares ~1.25 ops on Ampere, ~0.8 on Blackwell (min/max 1 there, so clamp =
 // min + max: fxc writes clamp as max + min); compare + select 10.6 / 8; clamp two min/max. Contraction to fma; no omod, no max3.
 const CostModel kNvidiaAmpere{"nvidia-ampere",
+  {0, 0, 1, 1, 1, 24, 24, 28, 24,
+   24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 4, 4, 4, 24, 5, 5, 5, 52,
+   5, 5, 5, 5, 5, 5, 4, 8, 10, 5, 1,
+   4, 28, 32, 32, 1, 1,
+   1, 1, 14, 14, 7, 7, 2, 2, 2, 5, 5, 5, 2, 2, 2,
+   2, 2, 1},
+  1, true};
+// NVIDIA Ada Lovelace (RTX 40; owner, 2026-10-15: its own model): the RTX 4060 Ti / 4070 / 4090 / 4090 Laptop reports
+// measure as the RTX 3050 / 3060 in 146 of 147 tests (radians: whether the driver merges the multiply), so the costs are
+// Ampere's; NVIDIA's throughput table gives Ada a single-instruction bitfield extract again (fuseBits) and fp16 at the
+// fp32 rate (Ampere 2x on paper; neither measures a gain under D3D).
+const CostModel kNvidiaAda{"nvidia-ada",
   {0, 0, 1, 1, 1, 24, 24, 28, 24,
    24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 4, 4, 4, 24, 5, 5, 5, 52,
    5, 5, 5, 5, 5, 5, 4, 8, 10, 5, 1,
@@ -385,6 +409,41 @@ const CostModel kAmdTerascale2{"amd-terascale2",
 //   NVIDIA Turing: mad16 0 (adds 2.0 vs 4.0, but fma not faster), rcp16 16 vs 12; Ampere / Ada / Blackwell: no gain.
 //   Maxwell, Pascal, Intel Gen7.5, AMD GCN 4 (RX 590): the driver reports no 16-bit min precision (runs it at 32 bits).
 // fxc packs OpBench's 8 scalar chains into float4 registers, so the packed figures are for pairs of components.
+// Per family, from the compilers' instruction lists (Mesa NAK / ACO, IGC, Intel PRMs); NVIDIA's free scale measured on
+// Turing (Maxwell / Pascal / Ampere by nouveau's encoder; Blackwell left out until a report shows it).
+uint16_t fuseBits(const CostModel& m) {
+  constexpr uint16_t amd9 = kFuseAndOr | kFuseOr3 | kFuseBfi | kFuseAdd3 | kFuseShlAdd | kFuseAddShl | kFuseShlOr | kFuseBfe;
+  constexpr uint16_t nv = kFuseLop3 | kFuseAdd3 | kFuseAdd3Neg | kFuseShlAdd;
+  static const std::pair<std::string_view, uint16_t> table[] = {
+      {"amd-terascale2", kFuseBfi | kFuseBfe},
+      {"amd-gcn5", amd9},
+      {"amd-rdna2", amd9 | kFuseXor3},
+      {"rdna3", amd9 | kFuseXor3},
+      {"rdna3-rga", amd9 | kFuseXor3},
+      {"amd-rdna4", amd9 | kFuseXor3},
+      {"nvidia-maxwell1", nv | kFuseBfe | kFuseMulScale},
+      {"nvidia-maxwell2", nv | kFuseBfe | kFuseMulScale},
+      {"nvidia-pascal", nv | kFuseBfe | kFuseMulScale},
+      {"nvidia-turing", nv | kFuseImad | kFuseMulScale},
+      {"nvidia-ampere", nv | kFuseImad | kFuseMulScale},
+      {"nvidia-ada", nv | kFuseImad | kFuseMulScale | kFuseBfe},
+      {"nvidia", nv | kFuseImad | kFuseMulScale},
+      {"nvidia-blackwell", nv | kFuseImad},
+      {"intel-gen7.5", kFuseBfe},
+      {"intel-gen9", kFuseBfe},
+      {"intel-gen12", kFuseBfe},
+      {"intel-xe2", kFuseLop3 | kFuseAdd3 | kFuseAdd3Neg | kFuseBfe},
+  };
+  static thread_local const CostModel* last = nullptr;  // the enumerator asks per candidate, for one model
+  static thread_local uint16_t lastBits = 0;
+  if (&m == last) return lastBits;
+  uint16_t bits = 0;
+  for (const auto& [name, b] : table)
+    if (m.name == name) bits = b;
+  last = &m;
+  return lastBits = bits;
+}
+
 const HalfCosts& halfCosts(const CostModel& m) {
   static const HalfCosts none{};
   static const std::pair<std::string_view, HalfCosts> table[] = {
@@ -398,6 +457,7 @@ const HalfCosts& halfCosts(const CostModel& m) {
       {"intel-xe2", {true, false, 100, 100, 1}},
       {"nvidia-turing", {true, false, 100, 133, 1}},
       {"nvidia-ampere", {true, false, 100, 100, 1}},
+      {"nvidia-ada", {true, false, 100, 100, 1}},
       {"nvidia-blackwell", {true, false, 100, 100, 1}},
       {"nvidia", {true, false, 100, 100, 1}},
   };
@@ -435,10 +495,12 @@ const CostModel& costGeneric() { return kGeneric; }
 const CostModel& costRdna3() { return kRdna3; }
 const CostModel& costRdna3Rga() { return kRdna3Rga; }
 const CostModel& costNvidia() { return kNvidia; }
-const CostModel& costNvidiaMaxwell() { return kNvidiaMaxwell; }
+const CostModel& costNvidiaMaxwell2() { return kNvidiaMaxwell2; }
+const CostModel& costNvidiaMaxwell1() { return kNvidiaMaxwell1; }
 const CostModel& costNvidiaPascal() { return kNvidiaPascal; }
 const CostModel& costNvidiaTuring() { return kNvidiaTuring; }
 const CostModel& costNvidiaAmpere() { return kNvidiaAmpere; }
+const CostModel& costNvidiaAda() { return kNvidiaAda; }
 const CostModel& costNvidiaBlackwell() { return kNvidiaBlackwell; }
 const CostModel& costIntelGen9() { return kIntelGen9; }
 const CostModel& costIntelGen75() { return kIntelGen75; }
@@ -459,7 +521,7 @@ const CostModel kRdna3NoFolds = [] {
 
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kRdna3Rga || &objective == &kNvidia ||
-                 &objective == &kNvidiaMaxwell || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
+                 &objective == &kNvidiaMaxwell2 || &objective == &kNvidiaMaxwell1 || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAda || &objective == &kNvidiaAmpere ||
                  &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kIntelGen12 || &objective == &kIntelXe2 || &objective == &kAmdRdna2 ||
                  &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
              ? kSearch
@@ -474,10 +536,13 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kRdna3Rga.name) return &kRdna3Rga;
   if (name == kSearch.name || name == "rdna3-search") return &kSearch;
   if (name == kNvidia.name) return &kNvidia;
-  if (name == kNvidiaMaxwell.name) return &kNvidiaMaxwell;
+  if (name == kNvidiaMaxwell2.name) return &kNvidiaMaxwell2;
+  if (name == "nvidia-maxwell") return &kNvidiaMaxwell2;  // the name until 0.7.4 (one model for both Maxwells)
+  if (name == kNvidiaMaxwell1.name) return &kNvidiaMaxwell1;
   if (name == kNvidiaPascal.name) return &kNvidiaPascal;
   if (name == kNvidiaTuring.name) return &kNvidiaTuring;
   if (name == kNvidiaAmpere.name) return &kNvidiaAmpere;
+  if (name == kNvidiaAda.name) return &kNvidiaAda;
   if (name == kNvidiaBlackwell.name) return &kNvidiaBlackwell;
   if (name == kIntelGen9.name) return &kIntelGen9;
   if (name == kIntelGen75.name) return &kIntelGen75;

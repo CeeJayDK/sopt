@@ -61,7 +61,7 @@ def main():
         model = site.model_of(name)
         if not model:
             continue
-        rows = [r for r in rows_of(full) if r.get("config") == "tput"]
+        rows = [r for r in rows_of(full) if r.get("config") == "tput" and site.reading_valid(info.get("version", "0"), r["test"])]
         neg = [float(r["units_vs_base"]) for r in rows if r["test"] == "neg"]
         if not neg or abs(neg[0]) > 0.3:
             continue
