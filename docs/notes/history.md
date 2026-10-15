@@ -1672,6 +1672,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   public drivers: Intel GPA (Graphics Frame Analyzer shows a shader's ISA), NVIDIA Nsight Graphics (SASS in the shader
   profiler, D3D12 / Vulkan), AMD RGA dx11 / dx12 and Radeon GPU Profiler (need an AMD card), ShaderInfo (full ISA on
   AMD's Vulkan driver, counts on NVIDIA / Intel).
+  TexBench 0.7.7 (owner, 2026-10-16, suggested by the topt session): the "write smooth" gradient has alpha 1, what most
+  effects write (float formats: float4(gradient.rgb, 1); integer formats: 1u in the 4th channel); before, alpha was a
+  gradient too. build.py texbench_data skips "write smooth" rows from reports before 0.7.7. Noise and flat unchanged.
+  GTX 1660 RGBA8 write noise / smooth / flat 139.9 / 140.9 / 141.0 GB/s (no compression gain there). Version 0.7.7.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

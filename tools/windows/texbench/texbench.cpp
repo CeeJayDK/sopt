@@ -762,18 +762,19 @@ const char* const kNoise =
     "uint4 noise4(float4 pos) { return TNU.Load(int3(uint2(pos.xy) & 127u, 0)); }\n";
 
 // Render target writes: a smooth gradient, noise or a flat color, picked by U[0].x (0 / 1 / 2), so all three
-// cost the same shader work.
+// cost the same shader work. The gradient has alpha 1, what most effects write (owner, 2026-10-16, from the topt
+// project; until 0.7.6 its alpha was a gradient too, build.py skips those readings).
 std::string writeSource(bool integer) {
   std::string s = std::string(kHeader) + kNoise;
   if (integer)
     return s + "uint4 main(float4 pos : SV_Position) : SV_Target {\n"
                "  uint mask = U[0].x > 0.5 ? 0xffffffffu : 0u;\n"
-               "  uint4 v = (noise4(pos) & mask) | (uint4(pos.xyxy) & ~mask);\n"
+               "  uint4 v = (noise4(pos) & mask) | (uint4(pos.xyx, 1u) & ~mask);\n"
                "  return U[0].x > 1.5 ? uint4(1u, 2u, 3u, 4u) : v;\n"
                "}\n";
   return s + "float4 main(float4 pos : SV_Position) : SV_Target {\n"
              "  float4 noise = TN.Load(int3(uint2(pos.xy) & 127u, 0));\n"
-             "  float4 smooth = frac(pos.xyxy * float4(0.0013, 0.0017, 0.0019, 0.0023));\n"
+             "  float4 smooth = float4(frac(pos.xyx * float3(0.0013, 0.0017, 0.0019)), 1.0);\n"
              "  return U[0].x > 1.5 ? float4(0.25, 0.5, 0.75, 1.0) : lerp(smooth, noise, U[0].x);\n"
              "}\n";
 }

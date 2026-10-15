@@ -307,6 +307,7 @@ def texbench_data(out):
     cards = []
     for name, (rank, path, base, info, rows, lines) in sorted(best.items()):
         hdr = {k: v for k, v in (re.match(r"# ([^:]+): (.*)", l).groups() for l in lines if re.match(r"# [^:]+: ", l))}
+        version = tuple(int(x) for x in info.get("version", "0").split(".") if x.isdigit())
         col = {c: i for i, c in enumerate(rows[0])}
         sections = {}
         order = []
@@ -314,6 +315,8 @@ def texbench_data(out):
             if len(r) < len(rows[0]) - 1:
                 continue
             cfg, test, sec = r[0], TB_RENAMES.get(r[1], r[1]), r[2]
+            if test.endswith(" write smooth") and version < (0, 7, 7):
+                continue  # alpha was a gradient until 0.7.6 (now 1, what effects write)
             if cfg in TB_SKIP_CONFIGS or not sec:
                 continue
             note = r[col["note"]] if "note" in col else ""

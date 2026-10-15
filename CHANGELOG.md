@@ -22,6 +22,7 @@ docs/notes/history.md.
 - **NVIDIA GTX 750 and early Maxwell laptop chips:** they get their own settings: unlike the GTX 900 cards, they have no fast square root.
 
 ### GPU Blueprint
+- **TexBench:** the test that writes a smooth color gradient now writes full opacity, as most effects do.
 - **More accurate integer tests:** OpBench measured some integer operations too cheap on older NVIDIA cards and AMD Vega. They are measured in a new way now.
 - **More OpBench tests:** combined integer operations (three values in one step), each half-precision conversion on its own, all(), degrees and more negative scales.
 - **New OpBench tests:** where a graphics card can multiply a result by 2, 4, 8 or a half for free, and where it cannot.
