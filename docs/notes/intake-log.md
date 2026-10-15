@@ -126,3 +126,11 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: shaderinfo, Radeon RX 5500 XT (driver AMD proprietary driver 26.5.2 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-rx-5500-xt.txt`
 - upload 1: opbench, Radeon RX 5500 XT (driver 32.0.21043.10005): `docs/opbench/amd-radeon-rx-5500-xt.csv` (OpBench 0.7.0)
 - upload 1: texbench, Radeon RX 5500 XT (driver 32.0.21043.10005): `docs/texbench/amd-radeon-rx-5500-xt.csv`, `docs/texbench/amd-radeon-rx-5500-xt-order.png`, `docs/texbench/amd-radeon-rx-5500-xt-order-zoom.png` (TexBench 0.7.0)
+
+## 2026-10-15 21:31 UTC
+- upload 1: opbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/opbench/intel-uhd-630-7.csv` (OpBench 0.7.5)
+- upload 1: opbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/opbench/nvidia-gtx-1660-5.csv` (OpBench 0.7.5)
+- upload 1: shaderinfo, Intel(R) UHD Graphics 630 (driver Intel Corporation Intel driver (101.2145)): `docs/shaderinfo/intel-uhd-630-9.txt`
+- upload 1: shaderinfo, NVIDIA GeForce GTX 1660 (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-gtx-1660-7.txt`
+- upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-7.csv`, `docs/texbench/intel-uhd-630-7-order.png`, `docs/texbench/intel-uhd-630-7-order-zoom.png` (TexBench 0.7.5)
+- upload 1: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/texbench/nvidia-gtx-1660-6.csv`, `docs/texbench/nvidia-gtx-1660-6-order.png`, `docs/texbench/nvidia-gtx-1660-6-order-zoom.png` (TexBench 0.7.5)
