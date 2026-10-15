@@ -116,3 +116,13 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 3: opbench, Intel(R) HD Graphics 630 (driver 26.20.100.7986): `docs/opbench/intel-hd-graphics-630.csv` (OpBench 0.7.3)
 - upload 3: shaderinfo, Intel(R) HD Graphics 630 (driver Intel Corporation Intel driver (100.7986)): `docs/shaderinfo/intel-hd-graphics-630.txt`
 - upload 3: texbench, Intel(R) HD Graphics 630 (driver 26.20.100.7986): `docs/texbench/intel-hd-graphics-630.csv` (TexBench 0.7.3)
+
+## 2026-10-14 05:03 UTC
+- upload 1: opbench, AMD Radeon RX 9070 XT (driver 32.0.32015.2008): `docs/opbench/amd-radeon-rx-9070-xt-4.csv` (OpBench 0.7.0)
+- upload 1: shaderinfo, AMD Radeon RX 9070 XT (driver AMD proprietary driver 26.9.2 (LLPC) (2.0.406)): `docs/shaderinfo/amd-radeon-rx-9070-xt-4.txt`
+- upload 1: texbench, AMD Radeon RX 9070 XT (driver 32.0.32015.2008): `docs/texbench/amd-radeon-rx-9070-xt-4.csv`, `docs/texbench/amd-radeon-rx-9070-xt-4-order.png`, `docs/texbench/amd-radeon-rx-9070-xt-4-order-zoom.png` (TexBench 0.7.0)
+
+## 2026-10-15 11:43 UTC
+- upload 1: shaderinfo, Radeon RX 5500 XT (driver AMD proprietary driver 26.5.2 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-rx-5500-xt.txt`
+- upload 1: opbench, Radeon RX 5500 XT (driver 32.0.21043.10005): `docs/opbench/amd-radeon-rx-5500-xt.csv` (OpBench 0.7.0)
+- upload 1: texbench, Radeon RX 5500 XT (driver 32.0.21043.10005): `docs/texbench/amd-radeon-rx-5500-xt.csv`, `docs/texbench/amd-radeon-rx-5500-xt-order.png`, `docs/texbench/amd-radeon-rx-5500-xt-order-zoom.png` (TexBench 0.7.0)
