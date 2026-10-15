@@ -12,7 +12,7 @@ rdna3 2.26
 amd-gcn5 1.91
 intel-gen12 1.77
 intel-gen9 0.94
-nvidia-maxwell 0.16
+nvidia-maxwell2 0.16
 other 13.22
 # total 99.97
 #
@@ -112,5 +112,5 @@ other 13.22
 # Intel HD Graphics 520                              0.17  intel-gen9
 # AMD Radeon Vega 3 Graphics                         0.16  amd-gcn5
 # Intel HD Graphics 620                              0.16  intel-gen9
-# NVIDIA GeForce GTX 970                             0.16  nvidia-maxwell
+# NVIDIA GeForce GTX 970                             0.16  nvidia-maxwell2
 # Other                                              8.33  other

@@ -169,7 +169,7 @@ if "%k%"=="5" set "MODEL=nvidia-turing" & set "MODELNAME=NVIDIA Turing (GTX 16, 
 if "%k%"=="6" set "MODEL=nvidia-ampere" & set "MODELNAME=NVIDIA Ampere (RTX 30, RTX 40)"
 if "%k%"=="7" set "MODEL=nvidia-blackwell" & set "MODELNAME=NVIDIA Blackwell (RTX 50)"
 if "%k%"=="8" set "MODEL=nvidia-pascal" & set "MODELNAME=NVIDIA Pascal (GTX 10)"
-if "%k%"=="9" set "MODEL=nvidia-maxwell" & set "MODELNAME=NVIDIA Maxwell 2 (GTX 900)"
+if "%k%"=="9" set "MODEL=nvidia-maxwell2" & set "MODELNAME=NVIDIA Maxwell 2 (GTX 900)"
 if "%k%"=="10" set "MODEL=intel-gen9" & set "MODELNAME=Intel Gen9 (HD / UHD Graphics)"
 if "%k%"=="11" set "MODEL=intel-gen7.5" & set "MODELNAME=Intel Gen7.5 (HD Graphics 4600)"
 if "%k%"=="12" set "MODEL=intel-gen12" & set "MODELNAME=Intel Gen12 (Iris Xe)"

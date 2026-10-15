@@ -589,26 +589,95 @@ uint32_t Enumerator::addConst(Type t, const float* v, SearchStats& stats) {
   return static_cast<uint32_t>(bank_.size() - 1);
 }
 
-bool Enumerator::amdFolds(const CostModel& m, Op op, Type type, uint32_t a, uint32_t b) const {
+bool Enumerator::folds(const CostModel& m, Op op, Type type, uint32_t a, uint32_t b) const {
   auto minMax = [](Op o) { return o == Op::Min || o == Op::Max; };
-  if (op == Op::Mul) {
+  const uint16_t fuse = fuseBits(m);
+  auto uconst = [&](uint32_t i) -> std::optional<uint32_t> {
+    const Entry& c = entry(i);
+    if (!c.isConst || c.type != Type::Uint) return std::nullopt;
+    return std::bit_cast<uint32_t>(constValue(i));
+  };
+  if (type == Type::Uint && fuse &&
+      (op == Op::UAnd || op == Op::UOr || op == Op::UXor || op == Op::UAdd || op == Op::USub || op == Op::UShl)) {
+    for (int k = 0; k < 2; ++k) {
+      const uint32_t v = k ? b : a;
+      const Entry& ev = entry(v);
+      if (ev.isConst || ev.ctime || ev.type != Type::Uint || info(ev.op).arity != 2 ||
+          folds(m, ev.op, ev.type, ev.args[0], ev.args[1]))
+        continue;
+      if (fusesIntPair(fuse, op, ev.op, k, uconst(k ? a : b), uconst(ev.args[1]))) return true;
+    }
+  } else if (op == Op::Mul) {
     for (int k = 0; k < 2; ++k) {
       const uint32_t c = k ? b : a, v = k ? a : b;
       const Entry& ec = entry(c);
       const Entry& ev = entry(v);
-      if (ec.isConst && ec.type == Type::Float && isOmodScale(constValue(c)) && !ev.isConst && !ev.ctime &&
-          ev.type == type && takesOmod(ev.op) && !amdFolds(m, ev.op, ev.type, ev.args[0], ev.args[1]))
+      if (!ec.isConst || ec.type != Type::Float || ev.isConst || ev.ctime || ev.type != type) continue;
+      if (m.amdFolds && isOmodScale(constValue(c)) && takesOmod(ev.op) && !folds(m, ev.op, ev.type, ev.args[0], ev.args[1]))
+        return true;
+      if ((fuse & kFuseMulScale) && isFreeMulScale(constValue(c)) && ev.op == Op::Mul &&
+          !folds(m, ev.op, ev.type, ev.args[0], ev.args[1]))
         return true;
     }
-  } else if (minMax(op)) {
+  } else if (m.amdFolds && minMax(op)) {
     for (const uint32_t v : {a, b}) {
       const Entry& ev = entry(v);
       if (minMax(ev.op) && (!m.sameMinMaxOnly || ev.op == op) && !ev.ctime && ev.type == type &&
-          !amdFolds(m, ev.op, ev.type, ev.args[0], ev.args[1]))
+          !folds(m, ev.op, ev.type, ev.args[0], ev.args[1]))
         return true;
     }
   }
   return false;
+}
+
+bool Enumerator::bitwiseGroupObj(const CostModel& m, Op op, Type type, uint32_t a, uint32_t b, uint32_t& obj) const {
+  const uint16_t fuse = fuseBits(m);
+  if (type != Type::Uint || !isBitwiseOp(op) || !(fuse & (kFuseLop3 | kFuseBfi))) return false;
+  auto bitwise = [&](uint32_t i) {
+    const Entry& x = entry(i);
+    return !x.isConst && !x.ctime && x.type == Type::Uint && isBitwiseOp(x.op);
+  };
+  auto allOnes = [&](uint32_t i) {
+    const Entry& x = entry(i);
+    return x.isConst && x.type == Type::Uint && std::bit_cast<uint32_t>(constValue(i)) == 0xFFFFFFFFu;
+  };
+  std::vector<uint32_t> inner, leaves;
+  uint32_t todo[16];
+  int n = 0;
+  todo[n++] = a;
+  todo[n++] = b;
+  while (n > 0) {
+    const uint32_t k = todo[--n];
+    if (bitwise(k)) {
+      if (n + 2 > 16) return false;
+      inner.push_back(k);
+      todo[n++] = entry(k).args[0];
+      todo[n++] = entry(k).args[1];
+    } else if (!allOnes(k) && std::find(leaves.begin(), leaves.end(), k) == leaves.end()) {
+      leaves.push_back(k);
+      if (leaves.size() > 3) return false;
+    }
+  }
+  if (inner.empty()) return false;
+  if (!(fuse & kFuseLop3)) {  // AMD: only bit select, Or(And(p, q), And(Xor(p, ~0), r))
+    if (op != Op::UOr || inner.size() != 3 || !bitwise(a) || !bitwise(b)) return false;
+    const Entry& l = entry(a);
+    const Entry& r = entry(b);
+    if (l.op != Op::UAnd || r.op != Op::UAnd) return false;
+    bool ok = false;
+    for (const auto& [x, y] : {std::pair{&l, &r}, std::pair{&r, &l}})
+      for (int s = 0; s < 2 && !ok; ++s) {
+        const uint32_t nt = y->args[s];
+        const Entry& t = entry(nt);
+        if (t.op != Op::UXor || !bitwise(nt)) continue;
+        const uint32_t p = allOnes(t.args[1]) ? t.args[0] : allOnes(t.args[0]) ? t.args[1] : UINT32_MAX;
+        ok = p != UINT32_MAX && (x->args[0] == p || x->args[1] == p);
+      }
+    if (!ok) return false;
+  }
+  obj = m.opCost(op, 1) + static_cast<uint32_t>(inner.size());
+  for (const uint32_t k : leaves) obj += entry(k).obj;
+  return true;
 }
 
 // target ~ p * v + q: least squares over the finite target points, then the budget
@@ -1272,11 +1341,14 @@ Enumerator::Prep Enumerator::prepare(const Item& it, Entry& e, float* out) const
   auto fuses = [&](int k) {
     const Entry& ex = ea[k];
     return !ex.ctime && model.fusesIntoAdd(ex.op) && ex.type == type &&
-           !(model.amdFolds && amdFolds(model, ex.op, ex.type, ex.args[0], ex.args[1]));
+           !(hasFolds(model) && folds(model, ex.op, ex.type, ex.args[0], ex.args[1]));
   };
+  uint32_t groupObj = 0;
   if (ctime)
     obj = 0;
-  else if (model.amdFolds && amdFolds(model, op, type, a, b))
+  else if (oi.arity == 2 && bitwiseGroupObj(model, op, type, a, b, groupObj))
+    obj = groupObj;
+  else if (hasFolds(model) && folds(model, op, type, a, b))
     obj += w;
   else if (model.fusedAdd && (op == Op::Add || op == Op::Sub) && (fuses(0) || fuses(1)))
     obj += w * model.fusedAdd;

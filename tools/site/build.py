@@ -55,7 +55,7 @@ MODEL_RULES = [
     (r"GTX 16\d\d|RTX 20\d\d", "nvidia-turing"),
     (r"GTX 10\d\d|GT 10\d\d", "nvidia-pascal"),
     # Maxwell 2 (GM20x, SM52) before Maxwell 1 (GM107 / GM108, SM50: no hardware sqrt).
-    (r"GTX (9[5-8]0( Ti)?|TITAN X|9(65|70|80)M)\b|Quadro M(2000|3000M|4000|5000M?|5500|6000)\b", "nvidia-maxwell"),
+    (r"GTX (9[5-8]0( Ti)?|TITAN X|9(65|70|80)M)\b|Quadro M(2000|3000M|4000|5000M?|5500|6000)\b", "nvidia-maxwell2"),
     (r"GTX (745|750( Ti)?|8\d\dM|9[2-6][05]MX?)\b|MX1[13]0\b|Quadro (K620|K1200|K2200|M(500M|520|600M|620|1000M|1200|2000M))\b",
      "nvidia-maxwell1"),
     (r"RX 9\d\d\d", "amd-rdna4"),

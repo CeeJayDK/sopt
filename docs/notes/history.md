@@ -1602,6 +1602,24 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   5.5. Next (owner wants it, for odd tricks a superoptimizer finds): a cost rule for fused integer ops per vendor
   (NVIDIA: any bitwise tree over <= 3 leaves = 1 op, add of 3 = 1, shift + add = 1, mul + add = 1; AMD from GFX9: the
   ACO list; Intel Xe-HP+: bfn / add3), once reports cover the families.
+  sopt knows the merged instructions (owner, 2026-10-13: "make sopt aware of all of these"): ops.hpp fuse bits per
+  model (fuseBits, by name like HalfCosts), expr.cpp foldedNodes (was amdFoldedNodes) and the enumerator's folds /
+  bitwiseGroupObj: a merged op costs 1 per component like an omod. NVIDIA (Maxwell+): LOP3 groups (an and / or / xor
+  tree over <= 3 inputs, an all-ones constant = a not is free), IADD3 (also with subtractions), LEA; IMAD on Turing+;
+  BFE on Maxwell / Pascal; the FMUL post-factor (4, 8, 1/2, 1/4, 1/8 after a multiply) up to Ampere (Blackwell until
+  a report shows it). AMD: v_bfi everywhere (TeraScale too), v_and_or / v_or3 / v_add3 / v_lshl_add / v_add_lshl /
+  v_lshl_or / v_bfe from GCN 5, v_xor3 from RDNA. Intel: bfe on every generation, bfn (= LOP3) and add3 on Xe2. Test
+  cost_fused_instructions (incl. x2 / x16 / x-4 / after an add not free, 4 inputs no group, GCN no xor3).
+  Nickname nvidia-maxwell -> nvidia-maxwell2 (owner: with a Maxwell 1 the other is Maxwell 2; the old name still
+  works). Kepler counts as Maxwell 1 in the Steam shares (no hardware sqrt either).
+  StageBench (owner, 2026-10-13: GPU Blueprint is architecture research, so vertex shaders too; a separate tool to
+  judge before it joins the menu): sopt_opbench.cpp built with SOPT_STAGEBENCH, the same tests in a pixel shader
+  (1024 x 1024 R32F target, one thread per pixel) and a vertex shader (point list, SV_VertexID, drawn off-screen),
+  throughput only; without --stage it runs ps, then vs (reports stagebench-ps / -vs-<gpu>.csv, header "# StageBench",
+  which the intake does not file). Compute-only tests (groupshared, barriers, atomics) are left out; pixel only: ddx,
+  ddy, ddx/ddy_coarse, ddx/ddy_fine, fwidth, clip. "usually" compares with OpBench's compute family values. GTX 1660:
+  vertex shader = compute (rcp 12.0, all 6 compared match), pixel shader: ddx / ddy / coarse 23.9 (6 ops), fine 8.0
+  (2 ops), add / mad / iadd as compute. In StageBench.exe in the GPU Blueprint bin folder, not in the menu yet.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

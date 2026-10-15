@@ -59,7 +59,7 @@ TEST(bits_eval) {
 
 TEST(bits_costs) {
   // Every integer op costs >= 1 in every model (levels stay well-founded).
-  const char* models[] = {"generic", "rdna3", "search", "nvidia", "nvidia-maxwell", "nvidia-maxwell1", "nvidia-pascal", "nvidia-turing",
+  const char* models[] = {"generic", "rdna3", "search", "nvidia", "nvidia-maxwell2", "nvidia-maxwell1", "nvidia-pascal", "nvidia-turing",
                           "nvidia-ampere", "nvidia-blackwell", "intel-xe2", "intel-gen12", "intel-gen9", "intel-gen7.5", "amd-rdna2", "amd-rdna4",
                           "amd-gcn5", "amd-terascale2"};
   for (const char* name : models) {

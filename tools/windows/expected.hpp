@@ -229,29 +229,6 @@ inline const Family kFamilies[] = {
      "signclamp 10.8 signmad 7.2 signsat 10.7 signsel 14.6 signsel2 3.0 sin 24.1 sincos 47.6 sinh 51.2 "
      "smoothstep 19.2 sqrt 23.2 sqrt16 24.1 step 3.1 sub 3.6 tan 75.8 tanh 78.7 trunc 23.4 udiv 65.4 "
      "umod 66.4 unitf 7.1 utof 6.8 "},
-    {"nvidia-maxwell", "Maxwell 2", 1,
-     "aAdd 7.2 aAdd1 204.9 aAnd 7.2 aAnd1 431.2 aCmpXchg 15.8 aCmpXchg1 431.3 aMax 7.2 aMax1 431.2 "
-     "aMin 7.2 aMin1 431.3 aOr 7.2 aOr1 431.3 aXchg 7.2 aXchg1 431.4 aXor 7.2 aXor1 431.3 abs 3.5 "
-     "acos 39.4 acos1 24.7 acos4 39.2 add 3.5 add16 3.5 arraybase 14.5 arrayread 105.8 arraywrite 1102.3 "
-     "asin 44.2 atan 66.2 atan2 88.9 atan2q 24.9 atan4 24.3 atan5a 32.3 atombase 10.5 barrier 13.1 "
-     "bitcast -0.0 bitor 3.5 bitrev 3.6 branchdiv 139.5 branchuni 70.6 ceil 10.0 clamp 11.4 "
-     "constarray 202.9 contract 3.9 cos 10.0 cosh 24.0 cross 21.5 cvt1 10.0 det3 31.5 distance 34.9 "
-     "div 10.0 divxy 6.5 dot2 6.7 dot3 10.0 dot4 14.2 exp 10.0 exp2 10.0 exp2_16 10.0 exp2ceil 37.7 "
-     "exp2floor 37.7 f16round 23.9 faceforward 24.9 fbh 14.0 fbl 10.9 floor 10.0 flooradd 17.5 "
-     "fma+cvt -7.0 fma+fma -0.0 fma+half 0.0 fma+int -1.3 fma+minmax -7.0 fma+rcp -7.0 fma1 3.6 fmod 14.9 "
-     "frac 10.0 fracadd 17.5 frexp 32.0 ftoitof 23.5 ftou 0.6 groupbarrier 20.6 gsbase 17.6 gsbase32 16.1 "
-     "gsread 1.4 gsread32 368.9 gswrite 6.8 gswrite32 423.2 gswriteread 15.7 half1 0.0 iadd 0.6 iand 3.4 "
-     "icmpsel 7.5 idiv 90.2 imin 3.6 imod 108.1 imul 2.3 int 3.1 irot 7.8 ishr 3.9 isinf 13.8 isnan 11.7 "
-     "itof 0.2 ixmul 10.1 ldexp 7.7 length 21.9 lerp 7.5 log 10.0 log10 10.0 log2 10.0 log2_16 10.0 "
-     "mad 4.0 mad16 0.0 mad16v3 0.0 mad2 3.9 mad2v 3.6 mad3v 7.4 mad4v 11.0 matmul4 63.2 max 4.9 max16 4.9 "
-     "max3 6.5 membarrier 20.6 min 4.9 minmax 6.5 minmax1 10.0 mix16 3.9 modf 10.0 mul 0.4 mul16 0.4 "
-     "neg 0.0 negabs 3.5 normalize 23.3 omod0.125 0.0 omod0.25 0.0 omod2 0.0 omod3 0.0 omod4 0.0 omod8 0.0 "
-     "omodhalf 0.0 popc 6.4 pow 24.0 pow2ceil 7.0 pow2floor 3.5 radians 0.4 rcp 10.0 rcp1 10.0 rcp16 10.0 "
-     "rcpmax 10.0 rcpnr0 3.5 rcpnr1 10.6 reflect 25.3 refract 63.8 round 10.0 roundadd 7.0 rsqrt 10.0 "
-     "rsqrtnr0 8.3 rsqrtnr1 17.9 satmad -0.0 saturate 0.2 select 11.7 selectboth 108.3 sign 10.2 "
-     "signbits 7.0 signclamp 15.2 signmad 7.1 signsat 10.5 signsel 15.3 signsel2 7.3 sin 10.0 sincos 20.5 "
-     "sinh 24.0 smoothstep 17.6 sqrt 10.0 sqrt16 10.0 sqrtnr0 4.9 step 4.9 sub 3.5 tan 37.4 tanh 37.9 "
-     "trunc 10.0 udiv 79.4 umod 98.7 unitf 7.0 utof 0.2 "},
     {"nvidia-maxwell1", "Maxwell 1", 1,
      "aAdd 9.7 aAdd1 305.0 aAnd 9.7 aAnd1 426.0 aCmpXchg 17.3 aCmpXchg1 426.3 aMax 9.7 aMax1 426.0 "
      "aMin 9.7 aMin1 426.1 aOr 9.7 aOr1 426.0 aXchg 9.7 aXchg1 426.0 aXor 9.7 aXor1 425.9 abs 3.5 "
@@ -275,6 +252,29 @@ inline const Family kFamilies[] = {
      "signbits 7.0 signclamp 15.2 signmad 7.1 signsat 10.5 signsel 15.5 signsel2 7.3 sin 9.9 sincos 20.4 "
      "sinh 23.9 smoothstep 18.3 sqrt 23.8 sqrt16 23.8 sqrtnr0 4.6 step 4.6 sub 3.5 tan 37.1 tanh 37.6 "
      "trunc 9.9 udiv 100.4 umod 126.6 unitf 7.3 utof 0.3 "},
+    {"nvidia-maxwell2", "Maxwell 2", 1,
+     "aAdd 7.2 aAdd1 204.9 aAnd 7.2 aAnd1 431.2 aCmpXchg 15.8 aCmpXchg1 431.3 aMax 7.2 aMax1 431.2 "
+     "aMin 7.2 aMin1 431.3 aOr 7.2 aOr1 431.3 aXchg 7.2 aXchg1 431.4 aXor 7.2 aXor1 431.3 abs 3.5 "
+     "acos 39.4 acos1 24.7 acos4 39.2 add 3.5 add16 3.5 arraybase 14.5 arrayread 105.8 arraywrite 1102.3 "
+     "asin 44.2 atan 66.2 atan2 88.9 atan2q 24.9 atan4 24.3 atan5a 32.3 atombase 10.5 barrier 13.1 "
+     "bitcast -0.0 bitor 3.5 bitrev 3.6 branchdiv 139.5 branchuni 70.6 ceil 10.0 clamp 11.4 "
+     "constarray 202.9 contract 3.9 cos 10.0 cosh 24.0 cross 21.5 cvt1 10.0 det3 31.5 distance 34.9 "
+     "div 10.0 divxy 6.5 dot2 6.7 dot3 10.0 dot4 14.2 exp 10.0 exp2 10.0 exp2_16 10.0 exp2ceil 37.7 "
+     "exp2floor 37.7 f16round 23.9 faceforward 24.9 fbh 14.0 fbl 10.9 floor 10.0 flooradd 17.5 "
+     "fma+cvt -7.0 fma+fma -0.0 fma+half 0.0 fma+int -1.3 fma+minmax -7.0 fma+rcp -7.0 fma1 3.6 fmod 14.9 "
+     "frac 10.0 fracadd 17.5 frexp 32.0 ftoitof 23.5 ftou 0.6 groupbarrier 20.6 gsbase 17.6 gsbase32 16.1 "
+     "gsread 1.4 gsread32 368.9 gswrite 6.8 gswrite32 423.2 gswriteread 15.7 half1 0.0 iadd 0.6 iand 3.4 "
+     "icmpsel 7.5 idiv 90.2 imin 3.6 imod 108.1 imul 2.3 int 3.1 irot 7.8 ishr 3.9 isinf 13.8 isnan 11.7 "
+     "itof 0.2 ixmul 10.1 ldexp 7.7 length 21.9 lerp 7.5 log 10.0 log10 10.0 log2 10.0 log2_16 10.0 "
+     "mad 4.0 mad16 0.0 mad16v3 0.0 mad2 3.9 mad2v 3.6 mad3v 7.4 mad4v 11.0 matmul4 63.2 max 4.9 max16 4.9 "
+     "max3 6.5 membarrier 20.6 min 4.9 minmax 6.5 minmax1 10.0 mix16 3.9 modf 10.0 mul 0.4 mul16 0.4 "
+     "neg 0.0 negabs 3.5 normalize 23.3 omod0.125 0.0 omod0.25 0.0 omod2 0.0 omod3 0.0 omod4 0.0 omod8 0.0 "
+     "omodhalf 0.0 popc 6.4 pow 24.0 pow2ceil 7.0 pow2floor 3.5 radians 0.4 rcp 10.0 rcp1 10.0 rcp16 10.0 "
+     "rcpmax 10.0 rcpnr0 3.5 rcpnr1 10.6 reflect 25.3 refract 63.8 round 10.0 roundadd 7.0 rsqrt 10.0 "
+     "rsqrtnr0 8.3 rsqrtnr1 17.9 satmad -0.0 saturate 0.2 select 11.7 selectboth 108.3 sign 10.2 "
+     "signbits 7.0 signclamp 15.2 signmad 7.1 signsat 10.5 signsel 15.3 signsel2 7.3 sin 10.0 sincos 20.5 "
+     "sinh 24.0 smoothstep 17.6 sqrt 10.0 sqrt16 10.0 sqrtnr0 4.9 step 4.9 sub 3.5 tan 37.4 tanh 37.9 "
+     "trunc 10.0 udiv 79.4 umod 98.7 unitf 7.0 utof 0.2 "},
     {"nvidia-pascal", "Pascal", 4,
      "aAdd 7.2 aAdd1 203.6 aAnd 7.2 aAnd1 430.1 aCmpXchg 15.8 aCmpXchg1 432.5 aMax 7.2 aMax1 430.8 "
      "aMin 7.2 aMin1 430.7 aOr 7.2 aOr1 430.7 aXchg 7.2 aXchg1 430.6 aXor 7.2 aXor1 430.7 abs 3.5 "
@@ -356,7 +356,7 @@ inline const Rule kRules[] = {
     {R"(RTX (30|40)\d\d)", "nvidia-ampere"},
     {R"(GTX 16\d\d|RTX 20\d\d)", "nvidia-turing"},
     {R"(GTX 10\d\d|GT 10\d\d)", "nvidia-pascal"},
-    {R"(GTX (9[5-8]0( Ti)?|TITAN X|9(65|70|80)M)\b|Quadro M(2000|3000M|4000|5000M?|5500|6000)\b)", "nvidia-maxwell"},
+    {R"(GTX (9[5-8]0( Ti)?|TITAN X|9(65|70|80)M)\b|Quadro M(2000|3000M|4000|5000M?|5500|6000)\b)", "nvidia-maxwell2"},
     {R"(GTX (745|750( Ti)?|8\d\dM|9[2-6][05]MX?)\b|MX1[13]0\b|Quadro (K620|K1200|K2200|M(500M|520|600M|620|1000M|1200|2000M))\b)", "nvidia-maxwell1"},
     {R"(RX 9\d\d\d)", "amd-rdna4"},
     {R"(RX 7\d\d\d)", "rdna3"},

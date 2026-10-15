@@ -3,7 +3,7 @@
 # the other pages, the stylesheet and the licenses in Docs\.
 #   SweetOpt\       SweetOpt.bat, README.html; bin\ sopt.exe, sopt-fx.exe, sopt-fxc.exe (for sopt-fx --backends);
 #                   Docs\ style.css, LICENSE.txt
-#   GPU-Blueprint\  GPU-Blueprint.bat, README.html; bin\ OpBench.exe, TexBench.exe, ShaderInfo.exe, zip-reports.ps1, drift-check.ps1;
+#   GPU-Blueprint\  GPU-Blueprint.bat, README.html; bin\ OpBench.exe, StageBench.exe (not in the menu yet), TexBench.exe, ShaderInfo.exe, zip-reports.ps1, drift-check.ps1;
 #                   Docs\ OpBench.html, TexBench.html, ShaderInfo.html, style.css, LICENSE.txt
 #   Test-Host\      Test-Host.bat, README.html; bin\ sopt-host.exe, sopt-timer.addon64 / .addon32,
 #                   common.ps1, run-test.ps1, run-bench.ps1, timings.py, ReShade64.dll; Effects\ the test effects
@@ -33,7 +33,7 @@ Stage "SweetOpt" (Join-Path $win "SweetOpt.bat") (Join-Path $root "docs/sweetopt
   @((Join-Path $win "docs/style.css"))
 
 Stage "GPU-Blueprint" (Join-Path $win "GPU-Blueprint.bat") (Join-Path $win "docs/README.html") `
-  @("$Build/OpBench.exe", "$Build/TexBench.exe", "$Build/ShaderInfo.exe", (Join-Path $win "zip-reports.ps1"), (Join-Path $win "drift-check.ps1")) `
+  @("$Build/OpBench.exe", "$Build/StageBench.exe", "$Build/TexBench.exe", "$Build/ShaderInfo.exe", (Join-Path $win "zip-reports.ps1"), (Join-Path $win "drift-check.ps1")) `
   @((Join-Path $win "docs/OpBench.html"), (Join-Path $win "docs/TexBench.html"), (Join-Path $win "docs/ShaderInfo.html"), (Join-Path $win "docs/style.css"))
 
 # Test Host (owner, 2026-10-06: one test host for every API ReShade supports, a menu, test effects in Effects\).

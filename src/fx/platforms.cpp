@@ -22,7 +22,7 @@ const Data& data() {
         {"amd-gcn5", "GCN", "AMD"},           {"amd-rdna2", "RDNA 2", "AMD"},
         {"rdna3", "RDNA 3", "AMD"},           {"amd-rdna4", "RDNA 4", "AMD"},
         {"nvidia-maxwell1", "Maxwell 1", "NVIDIA"},
-        {"nvidia-maxwell", "Maxwell", "NVIDIA"}, {"nvidia-pascal", "Pascal", "NVIDIA"},
+        {"nvidia-maxwell2", "Maxwell 2", "NVIDIA"}, {"nvidia-pascal", "Pascal", "NVIDIA"},
         {"nvidia-turing", "Turing", "NVIDIA"}, {"nvidia-ampere", "Ampere/Ada", "NVIDIA"},
         {"nvidia-blackwell", "Blackwell", "NVIDIA"}, {"intel-gen7.5", "Gen7.5", "Intel"},
         {"intel-gen9", "Gen9", "Intel"},      {"intel-gen12", "Gen12", "Intel"},

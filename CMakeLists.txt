@@ -159,6 +159,13 @@ if(WIN32)
   target_compile_features(opbench PRIVATE cxx_std_17)
   target_link_libraries(opbench PRIVATE d3d11 dxgi d3dcompiler)
   target_compile_definitions(opbench PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
+  # StageBench (owner, 2026-10-13): OpBench's tests in vertex and pixel shaders (the same source, SOPT_STAGEBENCH);
+  # a separate tool so the owner can judge it before it joins the GPU Blueprint menu.
+  add_executable(stagebench tools/windows/opbench/sopt_opbench.cpp)
+  set_target_properties(stagebench PROPERTIES OUTPUT_NAME StageBench)
+  target_compile_features(stagebench PRIVATE cxx_std_17)
+  target_link_libraries(stagebench PRIVATE d3d11 dxgi d3dcompiler)
+  target_compile_definitions(stagebench PRIVATE SOPT_VERSION="${PROJECT_VERSION}" SOPT_STAGEBENCH)
   # TexBench (owner, 2026-10-04): texture reads, derivatives and render target writes per format,
   # tools/windows/texbench; shares tools/windows/benchkit.hpp with OpBench.
   add_executable(texbench tools/windows/texbench/texbench.cpp)
