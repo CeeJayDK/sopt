@@ -107,6 +107,18 @@ const Test kTests[] = {
     // One fma with a single constant (x stays near the fixed point -0.37): the fp32 score's rate on GPUs where
     // the reference's two constants cost a second instruction (GCN's constant bus: an extra v_mov).
     {"fma1", "mad(x, x, c.x)", -0.5f, 0.0f, 0.0f, 0.0f, nullptr, "one fma, one constant: the fp32 score where it is faster"},
+    // Movs (owner, 2026-10-15: they compute nothing; can sopt avoid them?): GCN reads one scalar operand per
+    // instruction and no literal in a 3-operand one (a v_mov first), RDNA two scalars and one literal (RGA: v_fmaak /
+    // v_fmamk). Each step is clamped by saturate (free everywhere, and active: x climbs above 1), so no driver can merge
+    // steps whose constants are all literals (Intel does: x * k1 + b1 then * k2 + b2 is one mad, even through abs). The
+    // clamp must be able to go either way: each step maps [0, 1] over all of [0, 1] (slope ~2, offset -0.5); fxc tracks
+    // intervals through the unrolled steps and folds a chain whose interval shrinks to a point.
+    // madsatu: two uniforms (the base), madlit: two literals (k: this step's own), madlit1: a literal and a uniform,
+    // madinl: two values AMD encodes for free (inline constants: +-0.5, 1, 2, 4, 1 / 2pi).
+    {"madsatu", "saturate(mad(x, c.x, c.y))", 2.1f, -0.5f, 0.0f, 0.0f, "mad", "base for the literal tests: two uniforms"},
+    {"madlit", "saturate(mad(x, k + 1.5, -0.5 - k * 0.1))", 0.0f, 0.0f, 0.0f, 0.0f, "madsatu", "two literals: a v_mov on GCN?"},
+    {"madlit1", "saturate(mad(x, k + 1.5, c.y))", 0.0f, -0.5f, 0.0f, 0.0f, "madsatu", "a literal and a uniform"},
+    {"madinl", "saturate(mad(x, 2.0, -0.5))", 0.0f, 0.0f, 0.0f, 0.0f, "madsatu", "inline constants: free to encode on AMD"},
     {"mad2", "mad(mad(x, c.z, c.w), c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.1f, "mad", "a second mad"},
     {"min", "mad(min(x, c.z), c.x, c.y)", 0.5f, 0.5f, 1.2f, 0.0f, "mad", ""},
     {"max", "mad(max(x, c.z), c.x, c.y)", 0.5f, 0.5f, 0.8f, 0.0f, "mad", ""},
@@ -530,7 +542,8 @@ std::string shaderSource(const Test& t, int chains) {
   }
   s += "  [loop] for (uint i = 0; i < iters; ++i)\n  {\n";
   for (int r = 0; r < kUnroll; ++r) {
-    s += "    {\n      const float4 c = U[" + std::to_string(r) + "];\n";
+    // k: a literal of this step (K[r] folds to a constant; distinct per step, so no two steps merge).
+    s += "    {\n      const float4 c = U[" + std::to_string(r) + "];\n      const float k = K[" + std::to_string(r) + "];\n";
     for (int k = 0; k < chains; ++k) {
       const std::string x = "x" + std::to_string(k);
       std::string step = stepOf(k);
@@ -685,7 +698,7 @@ const char* const kDisplayOrder[] = {
     // One section for the few, fast basics (owner, 2026-10-10: like the web page's group).
     "#Modifiers and basic arithmetic", "neg", "abs", "negabs", "saturate", "satmad", "mul", "mulxx", "sqmax", "scale2", "scalehalf",
     "scale4", "scale8", "scale0.25", "scale0.125", "scale3", "scale16", "scale0.0625", "scaleneg4", "scaleneg0.5", "scaleneg8",
-    "fmamax", "fmascale4", "fmascale0.25", "fmascale3", "addmax", "addscale4", "addscale3", "min", "max", "step", "add", "sub", "fma1", "mad2", "contract", "max3", "minmax", "clamp", "select",
+    "fmamax", "fmascale4", "fmascale0.25", "fmascale3", "addmax", "addscale4", "addscale3", "min", "max", "step", "add", "sub", "fma1", "madsatu", "madlit", "madlit1", "madinl", "mad2", "contract", "max3", "minmax", "clamp", "select",
     "lerp",
     "#Rounding and sign", "floor", "ceil", "round", "trunc", "frac", "roundadd", "flooradd", "fracadd", "signsel2", "signbits",
     "signsat", "signmad", "signclamp", "signsel", "sign",

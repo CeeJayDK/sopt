@@ -51,6 +51,7 @@
   <tr><td><code>neg</code>, <code>abs</code>, <code>negabs</code></td><td><code>-x</code>, <code>abs(x)</code>, <code>-abs(x)</code> feeding the mad: source modifiers, usually free.</td></tr>
   <tr><td><code>saturate</code></td><td>clamp to [0, 1] on the previous mad's result: an output modifier.</td></tr>
   <tr><td><code>satmad</code></td><td><code>saturate(mad(...))</code>: the same, measured against two mads.</td></tr>
+  <tr><td><code>madsatu</code>, <code>madlit</code>, <code>madlit1</code>, <code>madinl</code></td><td>a clamped mad with two uniforms, two literal numbers, one of each, and two numbers AMD encodes for free (2 and -0.5): where a GPU needs an extra move instruction to get a second constant in (AMD GCN can read only one).</td></tr>
   <tr><td><code>mul</code></td><td><code>x * c</code> before the mad, c a constant: not the cost of a multiply, but whether the driver merges it into the mad (<code>x * (c * c2)</code>, the constants multiplied once). ~0 where it does.</td></tr>
   <tr><td><code>mulxx</code></td><td><code>x * x</code> before the mad: a multiply no driver can merge, its real cost.</td></tr>
   <tr><td><code>sqmax</code></td><td><code>max(x * x, x)</code>: the base for the scale tests.</td></tr>

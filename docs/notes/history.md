@@ -1653,6 +1653,19 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   on Vega; the RX 7900 GRE 3.7: RDNA reads two). OpBench's GCN numbers are in half instructions: rcp 8.5 = 4.25
   instructions = quarter rate, as ACO / LLVM say. The amd-gcn5 model already counts per instruction (plain ops 4,
   transcendentals 16): no change. A refinement for later: the extra v_mov when an op reads two uniforms on GCN.
+  Movs (owner, 2026-10-15: they compute nothing, sopt should avoid them). RGA (GLSL fma, 2.4.1 for gfx900, 2.15 for
+  gfx1100): Vega needs a v_mov for fma(x, c.x, c.y) (two uniforms), fma(x, 0.4471, 0.2919) (two literals: GCN has no
+  literal in a 3-operand instruction) and fma(x, 0.4471, c.y); fma(x, 0.5, 0.25) became v_add_f32 v1, v1, 0.5 div:2
+  ((x + 0.5) / 2, inline constant + omod). RDNA 3 never: v_fmaak / v_fmamk carry a literal, VOP3 reads two scalars.
+  AMD inline constants: +-0.5, +-1, +-2, +-4, 0, 1 / 2pi (0.25 is a literal). D3D's mad may use the legacy v_mad_f32,
+  whose v_madak / v_madmk take a literal and a scalar: OpBench decides for D3D. OpBench 0.7.6 tests (each step
+  saturate(mad(x, ., .)), slope ~2, offset -0.5 so the clamp works both ways): madsatu (two uniforms, the base),
+  madlit (two literals, k = K[r] per unrolled step), madlit1 (literal + uniform), madinl (2.0, -0.5: inline).
+  Getting there: plain literal chains are merged by Intel's driver (x * k1 + b1 then * k2 + b2 = one mad, even through
+  abs: 0.29), and fxc tracks intervals through saturate across the unrolled steps and folds a chain whose interval
+  shrinks to a point (to 0 or to 1). UHD 630: all four 4.0 (no mov on Intel); GTX 1660: too noisy in this run, the plain
+  forms earlier showed no mov cost. Next (owner's go): amd-gcn5 charges a v_mov (4) for an op with two scalar operands
+  (Rate::Uniform inputs or non-inline literals), once Vega reports show what D3D does.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
