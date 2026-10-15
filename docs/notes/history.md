@@ -1676,6 +1676,9 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   effects write (float formats: float4(gradient.rgb, 1); integer formats: 1u in the 4th channel); before, alpha was a
   gradient too. build.py texbench_data skips "write smooth" rows from reports before 0.7.7. Noise and flat unchanged.
   GTX 1660 RGBA8 write noise / smooth / flat 139.9 / 140.9 / 141.0 GB/s (no compression gain there). Version 0.7.7.
+  Owner (2026-10-16): flat already had alpha 1; noise now comes twice: "write noise" (all four channels, unchanged, the
+  worst case) and the new "write noise rgb" (rgb noise, alpha 1: grain / dithering on an opaque image; integer formats
+  1u). Summary table: Noise / NoiseRGB / Smooth / Flat with three gains. GTX 1660 and UHD 630: all four alike (no gain).
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
