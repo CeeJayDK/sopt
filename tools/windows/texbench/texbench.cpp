@@ -2405,7 +2405,7 @@ int main(int argc, char** argv) {
     for (const std::string& n : unstable) print(" %s", n.c_str());
     print("\n");
   }
-  print("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
+  std::printf("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());  // not in the shared results page
   if (const Score sc = score(); sc.texRate > 0.0) {
     std::vector<std::pair<std::string, std::string>> more;
     if (sc.fill > 0.0) more.push_back({"Pixel fill rate", threeDigits(sc.fill) + " GPixels/s"});

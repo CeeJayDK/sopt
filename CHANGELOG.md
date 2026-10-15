@@ -28,7 +28,8 @@ docs/notes/history.md.
 - **Fixed:** OpBench said the tests for how many math operations run at once differed from other cards of the same kind, when they did not.
 - **Fixed:** OpBench's tests for multiplying by 2, 4 or 0.5 could not see the multiply at all on NVIDIA and Intel graphics cards. They are measured in a new way, and a new test shows what a plain multiply really costs.
 - **On the website:** which driver updates made graphics cards faster (a reason to keep your driver up to date), and on which graphics cards half precision (fp16) is faster. Both grow with every report.
-- **Your own copy of the results:** OpBench and TexBench now save what they show on screen as a text file in Reports\Results, for you to keep. It is not part of the reports you send.
+- **Your own copy of the results:** OpBench and TexBench now save what they show on screen, colors included, as a web page in ReportsResults, for you to keep or share (it leaves out where the files are on your PC). It is not part of the reports you send.
+- **Smoother progress in the window title:** the bar now fills in finer steps.
 - **Easier to read:** the clock drift is shown in color at the very end of each run, the progress bar goes away when the tests are done, and TexBench's formats and filtering table is colored from fast (green) to slow (red).
 - **Your privacy:** the upload page asks for a name and an email, but they do not have to be real.
 - **Fixed names:** TexBench's 1D texture test is now called linear (it was called bilinear) and the 3D one trilinear (it was called linear).

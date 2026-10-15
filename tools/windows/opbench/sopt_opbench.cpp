@@ -1314,7 +1314,7 @@ int main(int argc, char** argv) {
       print("  Such reports are especially interesting: please send this one.\n");
     }
   }
-  print("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());
+  std::printf("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());  // not in the shared results page
   if (const Score sc = score(); sc.fp32 > 0.0) {
     std::vector<std::pair<std::string, std::string>> more;
     more.push_back({"fp16 (min16float)", sc.fp16 > 0.0 ? threeDigits(sc.fp16) + " TFLOPS" : std::string("runs at fp32")});

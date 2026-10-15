@@ -87,9 +87,15 @@ void setTitle(const Style& st, const std::string& utf8) {
 
 std::string titleBar(size_t done, size_t total) {
   const int cells = 10;
-  const int full = total ? static_cast<int>(std::min<size_t>(done * cells / total, cells)) : cells;
   const int pct = total ? static_cast<int>(std::min<size_t>(100 * done / total, 100)) : 100;
-  return "[" + repeat(kFull, full) + repeat("\xE2\x96\x91", cells - full) + "] " + std::to_string(pct) + "%";  // U+2591
+  // The cell being filled in shades (owner, 2026-10-15): U+2591 / U+2592 / U+2593, then the full block.
+  static const char* const kShade[3] = {"\xE2\x96\x91", "\xE2\x96\x92", "\xE2\x96\x93"};
+  std::string s = "[";
+  for (int k = 0; k < cells; ++k) {
+    const int f = std::max(0, std::min(10, pct - 10 * k));  // tenths of this cell
+    s += f >= 10 ? std::string(kFull) : std::string(kShade[f >= 7 ? 2 : f >= 4 ? 1 : 0]);
+  }
+  return s + "] " + std::to_string(pct) + "%";
 }
 
 Progress::Progress(const Style& st, size_t total, std::string what, int width)
