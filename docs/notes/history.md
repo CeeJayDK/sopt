@@ -1640,6 +1640,19 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
     popc 6.4 against 16 in NVIDIA's table; GCN 5 itof / utof / ftou 2.1 against quarter rate). Same kind as the omod
     tests over rcp. GCN 5 rcp 8.5 (quarter rate would be 16) is open too: RGA 2.15's vk-offline (LLPC) writes no ISA
     for gfx900 / gfx906 / gfx90c any more (gfx1100: one v_rcp_f32); needs an older RGA or a dx11 run on an AMD PC.
+  Owner's go (2026-10-15): (1) the integer tests rebased on int ((x ^ c) + k: xor + add, cheap everywhere) instead of
+  ixmul ((x ^ c) * k); each test ends in + k now; ixmul stays as a test of its own. Same names; build.py REDEFINED /
+  reading_valid leaves the 32 changed tests out of reports before 0.7.5 (site, expected.hpp). (2) nvidia-ada (RTX 40):
+  Ampere's costs (the RTX 4060 Ti / 4070 / 4090 / 4090 Laptop match the RTX 3050 / 3060 in 146 of 147 tests, radians the
+  exception), plus BFE in one instruction (NVIDIA's table). Steam: RTX 40 20.2%, RTX 30 17.4% (data/steam-gpu-share.txt
+  split by hand; the steam-survey workflow recomputes it); the default stays nvidia-ampere (owner's choice; the two
+  differ only in BFE). SweetOpt.bat key N. Version 0.7.5.
+  GCN 5 rcp puzzle solved (the owner found RGA 2.4.1.114, C:\Util\RGA-2.4.1.114, which still compiles gfx900): Vega
+  compiles rcp to one v_rcp_f32, but mad(x, c.x, c.y) to v_mov + v_fma: GCN reads one scalar (uniform) operand per
+  instruction (constant bus), so OpBench's reference mad is two instructions there (fma1, one constant, measures 2.1
+  on Vega; the RX 7900 GRE 3.7: RDNA reads two). OpBench's GCN numbers are in half instructions: rcp 8.5 = 4.25
+  instructions = quarter rate, as ACO / LLVM say. The amd-gcn5 model already counts per instruction (plain ops 4,
+  transcendentals 16): no change. A refinement for later: the extra v_mov when an op reads two uniforms on GCN.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

@@ -95,6 +95,7 @@ TEST(cost_fused_instructions) {
   CHECK(cost("asuint(a) * asuint(b) + asuint(c)", tu) == 3 * u + tu[Op::UMul] + 1);
   CHECK(cost("(asuint(a) >> 5u) & 255u", tu) == u + tu[Op::UShr] + tu[Op::UAnd]);  // no BFE on Volta+
   CHECK(cost("(asuint(a) >> 5u) & 255u", costNvidiaPascal()) == u + costNvidiaPascal()[Op::UShr] + 1);
+  CHECK(cost("(asuint(a) >> 5u) & 255u", costNvidiaAda()) == u + costNvidiaAda()[Op::UShr] + 1);  // Ada: BFE again
   // NVIDIA's free scale: after a multiply, 4 / 8 / 0.5 / 0.25 / 0.125; not 2 (fxc's add), 16, -4 or after an add.
   const uint32_t mul = tu[Op::Mul], add = tu[Op::Add];
   CHECK(cost("a * b * 4.0", tu) == mul + 1);
@@ -192,7 +193,7 @@ TEST(cost_contraction) {
   CHECK(dagCost(parseExpr("a * b + c", abcx()), costGeneric()) ==
         costGeneric()[Op::Mul] + costGeneric()[Op::Add]);
   // Every non-leaf op costs >= 1 in every model.
-  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costRdna3Rga(), &costNvidia(), &costNvidiaMaxwell2(), &costNvidiaMaxwell1(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaAmpere(), &costNvidiaBlackwell(), &costIntelGen9(), &costIntelGen75(), &costIntelGen12(), &costIntelXe2(), &costAmdRdna2(), &costAmdRdna4(), &costAmdGcn5(), &costAmdTerascale2()})
+  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costRdna3Rga(), &costNvidia(), &costNvidiaMaxwell2(), &costNvidiaMaxwell1(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaAmpere(), &costNvidiaAda(), &costNvidiaBlackwell(), &costIntelGen9(), &costIntelGen75(), &costIntelGen12(), &costIntelXe2(), &costAmdRdna2(), &costAmdRdna4(), &costAmdGcn5(), &costAmdTerascale2()})
     for (size_t i = 2; i < static_cast<size_t>(Op::Count); ++i) CHECK(cm->cost[i] >= 1);
 }
 

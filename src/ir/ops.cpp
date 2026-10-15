@@ -275,6 +275,18 @@ const CostModel kNvidiaAmpere{"nvidia-ampere",
    1, 1, 14, 14, 7, 7, 2, 2, 2, 5, 5, 5, 2, 2, 2,
    2, 2, 1},
   1, true};
+// NVIDIA Ada Lovelace (RTX 40; owner, 2026-10-15: its own model): the RTX 4060 Ti / 4070 / 4090 / 4090 Laptop reports
+// measure as the RTX 3050 / 3060 in 146 of 147 tests (radians: whether the driver merges the multiply), so the costs are
+// Ampere's; NVIDIA's throughput table gives Ada a single-instruction bitfield extract again (fuseBits) and fp16 at the
+// fp32 rate (Ampere 2x on paper; neither measures a gain under D3D).
+const CostModel kNvidiaAda{"nvidia-ada",
+  {0, 0, 1, 1, 1, 24, 24, 28, 24,
+   24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 4, 4, 4, 24, 5, 5, 5, 52,
+   5, 5, 5, 5, 5, 5, 4, 8, 10, 5, 1,
+   4, 28, 32, 32, 1, 1,
+   1, 1, 14, 14, 7, 7, 2, 2, 2, 5, 5, 5, 2, 2, 2,
+   2, 2, 1},
+  1, true};
 const CostModel kNvidiaBlackwell{"nvidia-blackwell",
   {0, 0, 1, 1, 1, 23, 23, 18, 23,
    23, 23, 24, 23, 25, 24, 23, 23, 23, 23, 23, 4, 4, 4, 23, 4, 4, 3, 50,
@@ -414,6 +426,7 @@ uint16_t fuseBits(const CostModel& m) {
       {"nvidia-pascal", nv | kFuseBfe | kFuseMulScale},
       {"nvidia-turing", nv | kFuseImad | kFuseMulScale},
       {"nvidia-ampere", nv | kFuseImad | kFuseMulScale},
+      {"nvidia-ada", nv | kFuseImad | kFuseMulScale | kFuseBfe},
       {"nvidia", nv | kFuseImad | kFuseMulScale},
       {"nvidia-blackwell", nv | kFuseImad},
       {"intel-gen7.5", kFuseBfe},
@@ -444,6 +457,7 @@ const HalfCosts& halfCosts(const CostModel& m) {
       {"intel-xe2", {true, false, 100, 100, 1}},
       {"nvidia-turing", {true, false, 100, 133, 1}},
       {"nvidia-ampere", {true, false, 100, 100, 1}},
+      {"nvidia-ada", {true, false, 100, 100, 1}},
       {"nvidia-blackwell", {true, false, 100, 100, 1}},
       {"nvidia", {true, false, 100, 100, 1}},
   };
@@ -486,6 +500,7 @@ const CostModel& costNvidiaMaxwell1() { return kNvidiaMaxwell1; }
 const CostModel& costNvidiaPascal() { return kNvidiaPascal; }
 const CostModel& costNvidiaTuring() { return kNvidiaTuring; }
 const CostModel& costNvidiaAmpere() { return kNvidiaAmpere; }
+const CostModel& costNvidiaAda() { return kNvidiaAda; }
 const CostModel& costNvidiaBlackwell() { return kNvidiaBlackwell; }
 const CostModel& costIntelGen9() { return kIntelGen9; }
 const CostModel& costIntelGen75() { return kIntelGen75; }
@@ -506,7 +521,7 @@ const CostModel kRdna3NoFolds = [] {
 
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kRdna3Rga || &objective == &kNvidia ||
-                 &objective == &kNvidiaMaxwell2 || &objective == &kNvidiaMaxwell1 || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAmpere ||
+                 &objective == &kNvidiaMaxwell2 || &objective == &kNvidiaMaxwell1 || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAda || &objective == &kNvidiaAmpere ||
                  &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kIntelGen12 || &objective == &kIntelXe2 || &objective == &kAmdRdna2 ||
                  &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
              ? kSearch
@@ -527,6 +542,7 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kNvidiaPascal.name) return &kNvidiaPascal;
   if (name == kNvidiaTuring.name) return &kNvidiaTuring;
   if (name == kNvidiaAmpere.name) return &kNvidiaAmpere;
+  if (name == kNvidiaAda.name) return &kNvidiaAda;
   if (name == kNvidiaBlackwell.name) return &kNvidiaBlackwell;
   if (name == kIntelGen9.name) return &kIntelGen9;
   if (name == kIntelGen75.name) return &kIntelGen75;

@@ -10,7 +10,7 @@
       {"name": "Volta", "examples": "Titan V", "model": null},
       {"name": "Turing", "examples": "GeForce GTX 1650 / 1660, RTX 20", "model": "nvidia-turing"},
       {"name": "Ampere", "examples": "GeForce RTX 30", "model": "nvidia-ampere"},
-      {"name": "Ada Lovelace", "examples": "GeForce RTX 40", "model": "nvidia-ampere"},
+      {"name": "Ada Lovelace", "examples": "GeForce RTX 40", "model": "nvidia-ada"},
       {"name": "Blackwell", "examples": "GeForce RTX 50", "model": "nvidia-blackwell"}
     ]},
     {"vendor": "AMD", "architectures": [

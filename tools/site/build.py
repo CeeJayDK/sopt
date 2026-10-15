@@ -39,6 +39,21 @@ NAME_BY_DEVICE = {
 SKIP_DEVICES = {"0x008C"}  # Microsoft Basic Render Driver (software)
 
 # Reports whose clock moved during the run (see CLAUDE.md): left out.
+# OpBench tests whose step or base changed: readings from older reports measured something else and are left out
+# (owner, 2026-10-15: the integer tests' base was an integer multiply until 0.7.4, cheaper ops hid under it).
+REDEFINED = {
+    (0, 7, 5): {"iadd", "imul", "iand", "imin", "ishr", "irot", "bitrev", "ishl", "ineg", "iabs", "bfe", "xor3", "or3",
+                "andor", "bitsel", "maj3", "iadd3", "lshladd", "addlshl", "imad", "icmpsel", "udiv", "umod", "idiv",
+                "imod", "itof", "utof", "unitf", "popc", "fbh", "fbl", "ftou"},
+}
+
+
+def reading_valid(version, test):
+    """Whether a report of this OpBench version measured the test as it is defined now."""
+    v = tuple(int(x) for x in str(version).split(".") if x.isdigit())
+    return all(v >= since or test not in tests for since, tests in REDEFINED.items())
+
+
 UNRELIABLE = {
     "nvidia-rtx-3050-laptop.csv", "nvidia-rtx-4070.csv", "nvidia-gtx-1660-ti.csv", "nvidia-gtx-1660-ti-2.csv",
     "nvidia-rtx-4090-laptop.csv", "nvidia-rtx-4090-laptop-dgpu.csv", "amd-radeon-680m-rembrandt.csv",
@@ -51,7 +66,8 @@ UNRELIABLE = {
 # Card name -> cost model, first match wins.
 MODEL_RULES = [
     (r"RTX 50\d\d", "nvidia-blackwell"),
-    (r"RTX (30|40)\d\d", "nvidia-ampere"),
+    (r"RTX 40\d\d", "nvidia-ada"),
+    (r"RTX 30\d\d", "nvidia-ampere"),
     (r"GTX 16\d\d|RTX 20\d\d", "nvidia-turing"),
     (r"GTX 10\d\d|GT 10\d\d", "nvidia-pascal"),
     # Maxwell 2 (GM20x, SM52) before Maxwell 1 (GM107 / GM108, SM50: no hardware sqrt).
@@ -192,6 +208,8 @@ def opbench_extras():
         rows = [r for r in csv.DictReader(l for l in lines if l and not l.startswith("#")) if r.get("config") == "tput"]
         vals, units = {}, {}
         for r in rows:
+            if not reading_valid(info.get("version", "0"), r.get("test", "")):
+                continue
             try:
                 units[r["test"]] = float(r["units"])
                 if r.get("consensus") == "yes":

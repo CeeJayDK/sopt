@@ -162,6 +162,8 @@ const CostModel& costNvidiaPascal();
 const CostModel& costNvidiaTuring();
 // nvidia-ampere / nvidia-blackwell: provisional, from sopt-opbench (RTX 3050; RTX 5080 / 5090).
 const CostModel& costNvidiaAmpere();
+// nvidia-ada: NVIDIA Ada Lovelace (RTX 40): Ampere's costs, bitfield extract in one instruction.
+const CostModel& costNvidiaAda();
 const CostModel& costNvidiaBlackwell();
 // intel-gen9: Intel Gen9 (Iris 540) from sopt-opbench timings, quarter units, math unit ~3x.
 const CostModel& costIntelGen9();
