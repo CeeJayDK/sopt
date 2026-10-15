@@ -1620,6 +1620,26 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   ddy, ddx/ddy_coarse, ddx/ddy_fine, fwidth, clip. "usually" compares with OpBench's compute family values. GTX 1660:
   vertex shader = compute (rcp 12.0, all 6 compared match), pixel shader: ddx / ddy / coarse 23.9 (6 ops), fine 8.0
   (2 ops), add / mad / iadd as compute. In StageBench.exe in the GPU Blueprint bin folder, not in the menu yet.
+  Mined tables (owner, 2026-10-15: IGC, NVIDIA's guide, LLVM AMDGPU):
+  - IGC visa/LocalScheduler/LatencyTable.{h,cpp}: Xe (Gen12 on) FPU latency 10, math 17, math occupancy 4x a normal op
+    (OC_MATH 4 vs OC_OTHERS 1; it runs beside the FPU: OpBench's 2.75-3 ops on Gen12 / Xe2 rather than 4); fp16
+    (isFastHFInstruction) twice the rate on Xe and later, Xe2 included, yet the B580 measures no fp16 gain: the D3D
+    driver seems to run min16float at 32 bits there. Pre-Xe: math edge latency 22 (fdiv / pow 30), doubled from BDW.
+  - NVIDIA CUDA C++ Programming Guide 12.6, "Throughput of Native Arithmetic Instructions" (per clock per SM;
+    5.x / 6.1 / 7.5 / 8.6 / 8.9): fp32 128 / 128 / 64 / 128 / 128, special functions 32 / 32 / 16 / 16 / 16, int add 128 /
+    128 / 64 / 64 / 64, int mul multi / multi / 64 / 64 / 64, shift and compare / min / max 64, logic 128 / 128 / 64 / 64 /
+    64, bit reverse 64 / 64 / 16 / 16 / 16, BFE 64 / 64 / multi / multi / 64 (Ada has it again: nvidia-ampere covers both),
+    clz / popc / conversions 32 / 32 / 16 / 16 / 16, fp16 n/a / 2 (6.1) / 128 / 256 / 128. In our units (fma = 4) the
+    special functions are 16 / 16 / 16 / 32 / 32; OpBench measures 10 / 10 / 12 / 24: the cost on top of the mad, which
+    runs beside them.
+  - LLVM llvm/lib/Target/AMDGPU/SISchedule.td: GCN VALU 1, float conversions, transcendentals and int mul 4 (quarter
+    rate); GFX10 / 11 VALU 5, conversions 5 (full rate), transcendentals 10 on HWTransVALU (separate unit), quarter-rate
+    8, int mul 8; GFX12 transcendentals 9 on the VALU in LLVM's model (OpBench still sees them overlap on RDNA 4).
+  - Measuring flaw found: the integer tests' base ((x ^ c) * k) has an integer multiply, which is quarter rate on GCN
+    and several XMADs on Maxwell / Pascal, so cheaper ops hide under it (Maxwell / Pascal utof 0.2-0.3, ftou 0.6-0.7,
+    popc 6.4 against 16 in NVIDIA's table; GCN 5 itof / utof / ftou 2.1 against quarter rate). Same kind as the omod
+    tests over rcp. GCN 5 rcp 8.5 (quarter rate would be 16) is open too: RGA 2.15's vk-offline (LLPC) writes no ISA
+    for gfx900 / gfx906 / gfx90c any more (gfx1100: one v_rcp_f32); needs an older RGA or a dx11 run on an AMD PC.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
