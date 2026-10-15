@@ -121,3 +121,8 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: opbench, AMD Radeon RX 9070 XT (driver 32.0.32015.2008): `docs/opbench/amd-radeon-rx-9070-xt-4.csv` (OpBench 0.7.0)
 - upload 1: shaderinfo, AMD Radeon RX 9070 XT (driver AMD proprietary driver 26.9.2 (LLPC) (2.0.406)): `docs/shaderinfo/amd-radeon-rx-9070-xt-4.txt`
 - upload 1: texbench, AMD Radeon RX 9070 XT (driver 32.0.32015.2008): `docs/texbench/amd-radeon-rx-9070-xt-4.csv`, `docs/texbench/amd-radeon-rx-9070-xt-4-order.png`, `docs/texbench/amd-radeon-rx-9070-xt-4-order-zoom.png` (TexBench 0.7.0)
+
+## 2026-10-15 11:43 UTC
+- upload 1: shaderinfo, Radeon RX 5500 XT (driver AMD proprietary driver 26.5.2 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-rx-5500-xt.txt`
+- upload 1: opbench, Radeon RX 5500 XT (driver 32.0.21043.10005): `docs/opbench/amd-radeon-rx-5500-xt.csv` (OpBench 0.7.0)
+- upload 1: texbench, Radeon RX 5500 XT (driver 32.0.21043.10005): `docs/texbench/amd-radeon-rx-5500-xt.csv`, `docs/texbench/amd-radeon-rx-5500-xt-order.png`, `docs/texbench/amd-radeon-rx-5500-xt-order-zoom.png` (TexBench 0.7.0)
