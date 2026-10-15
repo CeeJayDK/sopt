@@ -1666,6 +1666,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   shrinks to a point (to 0 or to 1). UHD 630: all four 4.0 (no mov on Intel); GTX 1660: too noisy in this run, the plain
   forms earlier showed no mov cost. Next (owner's go): amd-gcn5 charges a v_mov (4) for an op with two scalar operands
   (Rate::Uniform inputs or non-inline literals), once Vega reports show what D3D does.
+  Windows drivers' own shader code (owner, 2026-10-16): IGC's ShaderDumpEnable / DumpToCustomDir (environment or
+  HKLM SOFTWARE\INTEL\IGFX\IGC) are read only in builds with IGC_DEBUG_VARIABLES (igc_regkeys.cpp), not in the public
+  drivers: nothing dumped on the owner's UHD 630 (101.2145, D3D11 OpBench and Vulkan ShaderInfo). Routes that do work on
+  public drivers: Intel GPA (Graphics Frame Analyzer shows a shader's ISA), NVIDIA Nsight Graphics (SASS in the shader
+  profiler, D3D12 / Vulkan), AMD RGA dx11 / dx12 and Radeon GPU Profiler (need an AMD card), ShaderInfo (full ISA on
+  AMD's Vulkan driver, counts on NVIDIA / Intel).
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
