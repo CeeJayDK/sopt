@@ -147,3 +147,8 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: opbench, AMD Radeon RX 7900 XTX (driver 32.0.31041.1004): `docs/opbench/amd-radeon-rx-7900-xtx.csv` (OpBench 0.7.0)
 - upload 1: shaderinfo, AMD Radeon RX 7900 XTX (driver AMD proprietary driver 26.8.1 (LLPC) (2.0.395)): `docs/shaderinfo/amd-radeon-rx-7900-xtx.txt`
 - upload 1: texbench, AMD Radeon RX 7900 XTX (driver 32.0.31041.1004): `docs/texbench/amd-radeon-rx-7900-xtx.csv`, `docs/texbench/amd-radeon-rx-7900-xtx-order.png`, `docs/texbench/amd-radeon-rx-7900-xtx-order-zoom.png` (TexBench 0.7.0)
+
+## 2026-10-16 21:22 UTC
+- upload 1: opbench, AMD Radeon HD 6450 (driver 8.17.10.1404): `docs/opbench/amd-radeon-hd-6450.csv` (OpBench 0.7.11)
+- upload 1: stagebench, AMD Radeon HD 6450 (driver 8.17.10.1404): `docs/stagebench/amd-radeon-hd-6450-ps.csv` (StageBench 0.7.11)
+- upload 1: stagebench, AMD Radeon HD 6450 (driver 8.17.10.1404): `docs/stagebench/amd-radeon-hd-6450-vs.csv` (StageBench 0.7.11)
