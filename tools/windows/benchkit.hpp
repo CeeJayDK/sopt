@@ -16,6 +16,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <functional>
 #include <stdexcept>
@@ -640,7 +641,11 @@ inline void printUniqueAdapters() {
               e.DedicatedVideoMemory == d.DedicatedVideoMemory);
     if (dup) continue;
     seen.push_back(d);
-    print("%u\n", k);
+    // The name too, without (R) / (TM): the menu offers each card by name (owner, 2026-10-16).
+    std::string name = narrow(d.Description);
+    for (const char* mark : {"(R)", "(TM)"})
+      for (size_t at; (at = name.find(mark)) != std::string::npos;) name.erase(at, std::strlen(mark));
+    print("%u %s\n", k, name.c_str());
   }
   factory->Release();
 }

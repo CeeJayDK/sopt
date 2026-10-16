@@ -11,6 +11,9 @@ set "BIN=%~dp0bin\"
 rem ESC for colors (Windows 10 and later; older consoles show the codes as text); BEL (a raw 0x07 byte below) beeps.
 for /f %%e in ('echo prompt $E^| cmd') do set "E=%%e"
 set "BEL="
+rem The cards by name, once (owner, 2026-10-16: a PC rarely has more than two; with two, keys 2 and 3 name them).
+set "cards=0"
+if exist "%BIN%OpBench.exe" for /f "usebackq tokens=1,*" %%a in (`call "%BIN%OpBench.exe" --adapters`) do call :addCard %%a "%%b"
 :menu
 set "ZIP="
 for %%z in (Reports*.zip) do set "ZIP=%%~nxz"
@@ -22,8 +25,14 @@ echo   %E%[90m  measures your graphics card for sopt%E%[0m
 echo   %E%[96m=====================================================%E%[0m
 echo.
 echo   %E%[1;93m1%E%[0m  %E%[1;92mEvery graphics card in this PC: ShaderInfo, OpBench and TexBench%E%[0m %E%[90m(5-15 min per card)%E%[0m %E%[92m^<- recommended%E%[0m
+if "%cards%"=="2" goto menuCards
 echo   %E%[1;93m2%E%[0m  Main graphics card only
 echo   %E%[1;93m3%E%[0m  Another graphics card: you pick the card
+goto menuTools
+:menuCards
+echo   %E%[1;93m2%E%[0m  Only the %cardName1%
+echo   %E%[1;93m3%E%[0m  Only the %cardName2%
+:menuTools
 echo.
 echo   %E%[1;93m4%E%[0m  OpBench only     %E%[90mwhat math instructions cost%E%[0m
 echo   %E%[1;93m5%E%[0m  TexBench only    %E%[90mwhat texture reads, writes and blending cost%E%[0m
@@ -46,8 +55,8 @@ choice /c 1234567890 /n /m "  Press a number: "
 set "n=%errorlevel%"
 if "%n%"=="10" goto :eof
 if "%n%"=="1" call :every
-if "%n%"=="2" call :run "" all
-if "%n%"=="3" call :pick
+if "%n%"=="2" if "%cards%"=="2" (call :run %cardIdx1% all) else (call :run "" all)
+if "%n%"=="3" if "%cards%"=="2" (call :run %cardIdx2% all) else (call :pick)
 if "%n%"=="4" call :run "" opbench
 if "%n%"=="5" call :run "" texbench
 if "%n%"=="6" call :run "" shaderinfo
@@ -55,6 +64,13 @@ if "%n%"=="7" call :reports
 if "%n%"=="8" start "" "%~dp0README.html"
 if "%n%"=="9" call :send
 goto menu
+
+rem :addCard <adapter number> "<name>" (from OpBench --adapters)
+:addCard
+set /a cards+=1
+set "cardIdx%cards%=%~1"
+set "cardName%cards%=%~2"
+exit /b
 
 :reports
 if not exist "Reports" mkdir "Reports"
@@ -94,6 +110,11 @@ start "" "%UPLOAD%"
 start "" explorer /select,"%~dp0%ZIP%"
 if not exist "Reports\.sent" type nul > "Reports\.sent"
 attrib +h "Reports\.sent" >nul 2>&1
+rem Sent reports move to Reports\Sent, so the next zip holds only new ones (owner, 2026-10-16); the zip itself stays.
+if not exist "Reports\Sent" mkdir "Reports\Sent"
+for %%f in (Reports\*.csv Reports\*.txt Reports\*.png) do move /y "%%f" "Reports\Sent\" >nul
+echo.
+echo   %E%[90mThe sent reports are now in Reports\Sent; the next zip holds only new ones.%E%[0m
 exit /b
 
 rem :drift <percent> <program> "<GPU>": how much the GPU clock moved during a run (owner, 2026-10-11/12: say it
