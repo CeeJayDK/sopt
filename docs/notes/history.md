@@ -1687,6 +1687,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   compresses, rgb noise with alpha 1 does not. UHD 630 TexBench stopped after the formats section (lat "RGBA32I random",
   378 rows, before "bilinear offset"), the same spot as the 0.7.3 Gen9 runs (intel-hd-graphics-630, intel-uhd-630-6);
   0.7.5 ran through twice on the same driver. Cause unknown (fail() prints to stderr only).
+  Owner's rerun on the UHD 630 alone (same evening, drift 1.8%): TexBench ran through (182 s). OpBench: every long test
+  (udiv / idiv 34-35, atan 16, atomics 55, arrays 25-29) back at the Gen9 family values; the first run had them ~30%
+  higher while its fp32 rate was higher (0.455 vs 0.402 TFLOPS) and its drift low (1.4%): the iGPU clock held on the
+  short reference tests and dropped on the long ones (it shares power with the CPU, and ran right after the GTX 1660
+  runs). Drift does not catch that. UHD 630 writes: RGBA8 noise / noise rgb / smooth / flat 1.53 / 1.51 / 1.09 / 1.17 ms,
+  RGBA16F 2.77 / 2.77 / 1.66 / 1.65: Gen9 compresses smooth and flat, not noise (alpha 1 alone does not help).
+  The zip resent the earlier GTX 1660 OpBench / TexBench and both ShaderInfo files unchanged (it holds every report in
+  Reports\, not only the run's): skipped.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
