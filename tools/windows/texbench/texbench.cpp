@@ -430,6 +430,47 @@ void makeBlurTests(std::vector<Test>& v) {
     t.base = "chain: plain", t.count = 1, t.per = "pixel", t.uz = 2.0f;
   }
 
+  // Constant tables per pixel (owner, 2026-10-17: does sopt's table rewrite pay off beyond AMD?): a local array of 16
+  // constants built in every pixel against the same as a static const table (what sopt's rewrite writes), and with
+  // one entry from a uniform (sopt writes it as (i == 3 ? value : table[i])); 8 reads at indices from the pixel.
+  // Cost in fma per pixel over the same pass without a table.
+  const std::string pt = "Constant tables per pixel: 16 entries, 8 reads, R8 3840 x 2160 (fma per pixel over none)";
+  std::string list, tab;
+  for (int k = 0; k < 16; ++k) list += (k ? ", " : "") + std::to_string(0.5 + 0.013 * k);
+  auto reads = [&](const std::string& at) {
+    std::string b = "  uint i = uint(pos.x) * 7u + uint(pos.y) * 13u;\n  float s = 0.0;\n";
+    for (int k = 0; k < 8; ++k) {
+      std::string a = at;
+      for (size_t q; (q = a.find("IDX")) != std::string::npos;) a.replace(q, 3, "((i + " + std::to_string(k * 5) + "u) & 15u)");
+      b += "  s += " + a + ";\n";
+    }
+    return b + "  return s;\n";
+  };
+  // The 16 constants as a tree of selects on the index's bits (no table at all).
+  auto selectTree = [&] {
+    std::string f = "float pickTab(uint i) {\n";
+    for (int k = 0; k < 16; k += 2)
+      f += "  const float a" + std::to_string(k / 2) + " = (i & 1u) ? " + std::to_string(0.5 + 0.013 * (k + 1)) + " : " +
+           std::to_string(0.5 + 0.013 * k) + ";\n";
+    for (int k = 0; k < 8; k += 2)
+      f += "  const float b" + std::to_string(k / 2) + " = (i & 2u) ? a" + std::to_string(k + 1) + " : a" + std::to_string(k) + ";\n";
+    f += "  const float c0 = (i & 4u) ? b1 : b0, c1 = (i & 4u) ? b3 : b2;\n  return (i & 8u) ? c1 : c0;\n}\n";
+    return f;
+  };
+  blur("table: none", pt, "R8", 1, 1, 0, reads("float(IDX) * 0.013"), "the base: the index as a value");
+  for (const auto& [name, at, decl, prefix, note] : std::vector<std::array<std::string, 5>>{
+           {"table: local array", "A[IDX]", "  float A[16] = {" + list + "};\n", "", "float A[16] = {...} in the function"},
+           {"table: static const", "kTab[IDX]", "", "static const float kTab[16] = {" + list + "};\n",
+            "sopt's rewrite: static const"},
+           {"table: static + uniform", "(IDX == 3u ? U[0].z : kTab[IDX])", "", "static const float kTab[16] = {" + list + "};\n",
+            "static const, one entry a uniform"},
+           {"table: select tree", "pickTab(IDX)", "", selectTree(), "the constants picked by 15 selects (bits of the index)"}}) {
+    std::string body = reads(at);
+    body.insert(body.find("  float s"), decl);
+    Test& t = blur(name, pt, "R8", 1, 1, 0, body, note, prefix);
+    t.base = "table: none", t.count = 1, t.per = "pixel";
+  }
+
   // P9 compute: chains of small dependent dispatches (each reads the target the one before wrote).
   const std::string p9 = "Compute: chains of dispatches into 240 x 135 RGBA8";
   for (int k : {1, 2, 4, 8, 16, 32}) {
