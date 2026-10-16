@@ -22,6 +22,9 @@ docs/notes/history.md.
 - **NVIDIA GTX 750 and early Maxwell laptop chips:** they get their own settings: unlike the GTX 900 cards, they have no fast square root.
 
 ### GPU Blueprint
+- **New TexBench tests for blur effects:** what one more pass costs, how many texture reads a pass gets almost for free, small targets, sharing reads between neighboring pixels, noise and dither sources, the order of reads, loops with branches, chains of compute passes, and drawing only part of the screen. They run for everyone, about half a minute more.
+- **Pick your card by name:** with two graphics cards, the menu shows both by name (keys 2 and 3).
+- **Only new reports are sent:** after you send your reports they move to Reports\Sent, so the next zip holds only new ones.
 - **TexBench:** the test that writes a smooth color gradient now writes full opacity, as most effects do, and a new test writes noisy colors with full opacity (like film grain).
 - **More accurate integer tests:** OpBench measured some integer operations too cheap on older NVIDIA cards and AMD Vega. They are measured in a new way now.
 - **More OpBench tests:** combined integer operations (three values in one step), each half-precision conversion on its own, all(), degrees and more negative scales.
@@ -29,7 +32,7 @@ docs/notes/history.md.
 - **Fixed:** OpBench said the tests for how many math operations run at once differed from other cards of the same kind, when they did not.
 - **Fixed:** OpBench's tests for multiplying by 2, 4 or 0.5 could not see the multiply at all on NVIDIA and Intel graphics cards. They are measured in a new way, and a new test shows what a plain multiply really costs.
 - **On the website:** which driver updates made graphics cards faster (a reason to keep your driver up to date), and on which graphics cards half precision (fp16) is faster. Both grow with every report.
-- **Your own copy of the results:** OpBench and TexBench now save what they show on screen, colors included, as a web page in ReportsResults, for you to keep or share (it leaves out where the files are on your PC). It is not part of the reports you send.
+- **Your own copy of the results:** OpBench and TexBench now save what they show on screen, colors included, as a web page in Reports\Results, for you to keep or share (it leaves out where the files are on your PC). It is not part of the reports you send.
 - **Smoother progress in the window title:** the bar now fills in finer steps.
 - **Easier to read:** the clock drift is shown in color at the very end of each run, the progress bar goes away when the tests are done, and TexBench's formats and filtering table is colored from fast (green) to slow (red).
 - **Your privacy:** the upload page asks for a name and an email, but they do not have to be real.

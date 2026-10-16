@@ -1695,6 +1695,23 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   RGBA16F 2.77 / 2.77 / 1.66 / 1.65: Gen9 compresses smooth and flat, not noise (alpha 1 alone does not help).
   The zip resent the earlier GTX 1660 OpBench / TexBench and both ShaderInfo files unchanged (it holds every report in
   Reports\, not only the run's): skipped.
+  Owner (2026-10-16): fxc writing every x * 2.0 as x + x (D3D never gets NVIDIA's free x2 / AMD's omod x2) is worth a
+  bug report, but fxc (d3dcompiler_47) is frozen (DXC replaced it); the realistic route is the drivers (fold an add
+  x + x right after a multiply into its post-scale). GPU Blueprint 0.7.8 (owner's go): with two cards the menu names
+  them on keys 2 / 3 (OpBench / TexBench --adapters print "index name", (R) / (TM) dropped); after "send" (Y) the
+  reports move to Reports\Sent, so the next zip holds only new ones; report_intake.py skips reports already saved.
+  TexBench 0.7.8: topt's wishlist (docs/notes/topt-requests.md) in the normal run (owner: numbers wanted from every
+  card), Stage::Blur (one runner: chain draws / dispatches of a shader, ms per unit, CSV config "pass" with the base and
+  the cost per read / lookup in units_vs_base): P1 pass chains, P3 reads per pixel, P4 target size, P5 quad exchange,
+  P6 noise sources, P7 fetch order, P8 branches, P9 dispatch chains; P10 bands (vertex shader / stencil / discard, 25%)
+  in Pass states. Not done: P2 (Test Host), P9's groupshared float4 rate. First GTX 1660 run (92 tests, ~20 s):
+  one more pass ~3.4 us at 1/64, ~1.6 us at 1/256; dispatches ~2.3 us each; reads per pixel 1-4 flat (0.42-0.45 ms),
+  then ~0.06 ms per read; target size 1/4 0.26, 1/16 0.23 (source reads at stride 4 bound), 1/64 0.10, 1/256 0.026,
+  1/1024 0.011 ms; quad exchange 6.3 fma (float3), 4 reads + 12 exchanges 0.64 ms against 16 reads 1.14; noise x1 all
+  free (the R8 pass is fill bound at 0.11 ms), x8 per lookup: textures 10.5-11.8 fma at every size 4^2-512^2 (R8 / RG8),
+  RGBA8 / two 4-bit / Load ~15, table[16] 74 (an indexed constant array), IGN 5, R2 2, Hoskins hash22 26; fetch order
+  within 2% except 81 random +7%; loop uniform n 16 1.01 ms < unrolled 1.15, n 8 0.87, per-pixel n (avg 8) 0.95;
+  bands: vertex 0.407 = stencil 0.409, discard 0.491 ms.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
