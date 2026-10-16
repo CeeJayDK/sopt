@@ -1715,6 +1715,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   than coarse (and than plain ddx). Everything else within noise of compute.
   Compute vs pixel (owner, 2026-10-16: find out why stages differ): the mul test's DXBC is identical in cs and ps
   (fxc is not the cause); NVIDIA and Intel drivers merge (x * c.z) * c.x into x * (c.z * c.x) only in compute shaders.
+  Table rewrite per vendor (owner's go, 2026-10-17; measurements: TexBench constant tables, PR #36): name[i] ->
+  sopt_<fn>_<name>_at(i), defined before the shader: NVIDIA (D3D10+, GL, Vulkan; up to 32 entries) a select tree on i's
+  bits, else the static const table; every edit has && __VENDOR__ != 0x8086 (Intel keeps the array). fxc keeps an
+  all-constant local array as an indexable temporary (dcl_indexableTemp x0, movs per pixel; static const -> icb), so
+  all-constant arrays are rewritten too; measured table rewrites are kept unless AMD gets worse. frontend: given macros
+  now override the built-in ones (the preprocessor keeps the first definition). Checked: fx tests (27) incl. parsing per
+  vendor / renderer; sopt-fx on tests/fx/sopt_table.fx in the Test Host (SOPT_ALL 1), D3D9 / D3D11 / Vulkan / GL on the
+  GTX 1660: all OK, D3D11 code 5 movc and no icb.
   Owner's NVS 310 (Fermi GF119, sm_21, device 0x107D, driver 10.18.13.5362 = 353.62; GPU Blueprint 0.7.11), the
   first Fermi report: OpBench and TexBench stopped at once ("# stopped: the GPU has not finished a measurement in 60
   seconds", OpBench while warming up, TexBench at its compute mad reference): compute timing hangs on this card /
