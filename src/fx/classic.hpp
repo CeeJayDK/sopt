@@ -24,9 +24,8 @@ struct SourceRewrite {
   std::string kind;         // "static const table", "to the vertex shader"
   std::string tag = "T";    // switch letter: SOPT_<file>_<tag><line>
   std::string description;  // one line for the report and the variant comment
-  // Table rewrites: entries that are not constants (a uniform, ...). All-constant local arrays are
-  // made constant data by the compilers already (measured: fxc and AMD's Vulkan compiler unroll and
-  // fold them); a non-constant entry keeps the whole array per pixel (Monochrome: in scratch memory).
+  // Table rewrites: entries that are not constants (a uniform, ...), picked at the use. fxc keeps even
+  // an all-constant local array as an indexable temporary filled in every pixel (checked 2026-10-17).
   uint32_t otherEntries = 0;
   std::vector<LineEdit> edits;  // sorted, disjoint
   // Measured (--isa: fxstat + RGA, the pixel / compute shader of the effect it was found in, with the
@@ -65,12 +64,13 @@ std::string rewriteSwitch(const SourceRewrite& r);
 
 // Local arrays initialized with constants (at most two other entries, e.g. a uniform for a
 // "custom" preset) and indexed at run time are built in every pixel, often in scratch memory
-// (SweetFX Monochrome, RDNA 3 without performance mode: 58 VALU and spills vs 15 VALU). sopt-fx
-// keeps all-constant ones only where --isa measures a gain (SourceRewrite::otherEntries). As a
-// static const table the compiler keeps them in its constant data: the declaration goes away, the
-// table is defined before the function, and every name[i] becomes table[i], with the other entries
-// picked as (i == k ? value : table[i]). Only arrays never written after their initializer, read
-// only by index, with all text on plain source lines (no macros around them).
+// (SweetFX Monochrome, RDNA 3 without performance mode: 58 VALU and spills vs 15 VALU). The fastest
+// form differs per vendor (TexBench, 2026-10-17): every name[i] becomes table_at(i), a function before
+// the shader that is a tree of selects on i's bits on NVIDIA (D3D10+, up to 32 entries; ~8x faster
+// than any table there) and a static const table read elsewhere (AMD: constant data, no scratch);
+// Intel keeps the original array (its indexed temporaries beat a constant table ~5x): every edit has
+// "&& __VENDOR__ != 0x8086". Other entries are picked as (i == k ? value : table_at(i)). Only arrays
+// never written after their initializer, read only by index, with all text on plain source lines.
 std::vector<SourceRewrite> tableRewrites(const Effect& fx);
 
 }  // namespace sopt::fx

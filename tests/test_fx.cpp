@@ -1052,20 +1052,31 @@ TEST(fx_table_rewrite) {
   bool use = false;
   for (const auto& ed : rw[0].edits)
     for (const auto& l : ed.lines)
-      use = use || l.find("(Preset == 0 ? Custom : sopt_TablePS_Coefficients[Preset])") != std::string::npos;
+      use = use || l.find("(Preset == 0 ? Custom : sopt_TablePS_Coefficients_at(Preset))") != std::string::npos;
   CHECK(use);
-  // Written and parsed with the switch off and on.
+  // Per vendor (owner, 2026-10-17): a select tree for NVIDIA, the table for the rest, Intel keeps the array.
+  bool tree = false, intelOff = true;
+  for (const auto& ed : rw[0].edits) {
+    intelOff = intelOff && ed.extra.find("__VENDOR__ != 0x8086") != std::string::npos;
+    for (const auto& l : ed.lines) tree = tree || l.find("(i & 2) != 0 ?") != std::string::npos;
+  }
+  CHECK(tree && intelOff);
+  // Written and parsed with the switch off and on, as each vendor (and D3D9 for NVIDIA) compiles it.
   const fs::path out = fs::temp_directory_path() / "sopt-test-table";
   std::string errors;
   const auto files = fx::writeVariants({}, out, errors, rw);
   CHECK(files.size() == 1 && errors.empty());
-  for (const char* on : {"0", "1"}) {
-    fx::LoadOptions l2;
-    l2.macros.emplace_back(fx::rewriteSwitch(rw[0]), on);
-    std::string err2;
-    CHECK(fx::loadEffect(out / "sopt_table.fx", l2, err2) != nullptr);
-    if (!err2.empty()) std::printf("  %s\n", err2.c_str());
-  }
+  for (const char* on : {"0", "1"})
+    for (const char* vendor : {"0x10DE", "0x1002", "0x8086"})
+      for (const char* renderer : {"0xb000", "0x9000"}) {
+        fx::LoadOptions l2;
+        l2.macros.emplace_back(fx::rewriteSwitch(rw[0]), on);
+        l2.macros.emplace_back("__VENDOR__", vendor);
+        l2.macros.emplace_back("__RENDERER__", renderer);
+        std::string err2;
+        CHECK(fx::loadEffect(out / "sopt_table.fx", l2, err2) != nullptr);
+        if (!err2.empty()) std::printf("  %s %s %s: %s\n", on, vendor, renderer, err2.c_str());
+      }
   fs::remove_all(out);
 }
 
