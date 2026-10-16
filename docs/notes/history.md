@@ -1679,6 +1679,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   Owner (2026-10-16): flat already had alpha 1; noise now comes twice: "write noise" (all four channels, unchanged, the
   worst case) and the new "write noise rgb" (rgb noise, alpha 1: grain / dithering on an opaque image; integer formats
   1u). Summary table: Noise / NoiseRGB / Smooth / Flat with three gains. GTX 1660 and UHD 630: all four alike (no gain).
+  Owner's 0.7.7 reports (2026-10-16): GTX 1660 (617.42, drift 32%) and UHD 630 (101.2145, drift 1.4%), every test in
+  consensus and at the family values. Mov tests madsatu / madlit / madlit1 / madinl all ~0 over the base on both (no mov
+  cost on Turing or Gen9). Free scales confirmed again on Turing (x 0.5 / 4 / 8 / 0.25 / 0.125 free; x 2 / 3 / 16 /
+  1/16 and every negative one cost a mul), none on Gen9 (all 0.9). GTX 1660 writes: RGBA8 noise / noise rgb / smooth /
+  flat 0.29 / 0.31 / 0.29 / 0.29 ms (bandwidth bound alike), RGBA16F 0.43 / 0.42 / 0.31 / 0.30: smooth with alpha 1
+  compresses, rgb noise with alpha 1 does not. UHD 630 TexBench stopped after the formats section (lat "RGBA32I random",
+  378 rows, before "bilinear offset"), the same spot as the 0.7.3 Gen9 runs (intel-hd-graphics-630, intel-uhd-630-6);
+  0.7.5 ran through twice on the same driver. Cause unknown (fail() prints to stderr only).
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /
