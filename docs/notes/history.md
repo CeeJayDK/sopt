@@ -1715,6 +1715,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   than coarse (and than plain ddx). Everything else within noise of compute.
   Compute vs pixel (owner, 2026-10-16: find out why stages differ): the mul test's DXBC is identical in cs and ps
   (fxc is not the cause); NVIDIA and Intel drivers merge (x * c.z) * c.x into x * (c.z * c.x) only in compute shaders.
+  HD 6450 (owner, 2026-10-16): TexBench stopped at "RGBA32F aniso 16x" (one run too long). calibrate() ran the first
+  run at full size (pixel tests always 1024 x 1024; compute only shrank after a full-size run): now it starts at
+  kMinGroups / kMinRows (16 rows of 1024) and grows the size up to an 8 ms run, then the iterations up to 2 ms; run()
+  draws pixel tests into the top rows. GTX 1660 RGBA32F tests before / after within the usual 5%.
   Uniform math per pixel (TexBench pass, no loop: OpBench's loop let fxc lift uniform-only math out of it, so its
   mulpre / constuni / selectuni read ~0 for that reason and were removed). 32 fmas on a pixel value, fma per pixel
   over the plain chain, GTX 1660 / UHD 630: multipliers a * b written first (16 distinct products, each used twice)

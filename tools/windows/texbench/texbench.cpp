@@ -1278,8 +1278,11 @@ void bind(Gpu& g, const Test& t, const Bound& b, const Kernel& k) {
   }
 }
 
+// Compute: groups thread groups; pixel shader: the top groups rows of the kPsSize x kPsSize target.
 double run(Gpu& g, const Kernel& k, UINT groups) {
   if (k.cs) return g.timer.time(g.ctx, [&] { g.ctx->Dispatch(groups, 1, 1); });
+  const D3D11_VIEWPORT vp = {0.0f, 0.0f, float(kPsSize), float(std::min(groups, kPsSize)), 0.0f, 1.0f};
+  g.ctx->RSSetViewports(1, &vp);
   return g.timer.time(g.ctx, [&] { g.ctx->Draw(3, 0); });
 }
 
@@ -1295,17 +1298,20 @@ struct Plan {
   UINT groups = 1;
 };
 
-// A run of >= 2 ms. Slow tests on slow GPUs (random reads on an iGPU) took far longer than that even at one
-// iteration, and every reading repeats the run: then fewer thread groups, down to kMinGroups (64K threads,
-// still enough to fill a GPU).
+// A run of >= 2 ms (up to 8 ms by size first). It starts small (kMinGroups thread groups, kMinRows pixel rows: 64K / 16K threads, still enough
+// to fill a GPU) and grows (more groups or rows, then more iterations), so no run is much longer than needed: a
+// full-size first run of a slow test took seconds on slow GPUs (random reads on an iGPU; RGBA32F aniso 16x on an
+// HD 6450 stopped TexBench, owner 2026-10-16: Windows resets a GPU that is busy for about 2 seconds).
 constexpr UINT kMinGroups = 1024;
+constexpr UINT kMinRows = 16;
 Plan calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
   Plan p;
-  p.groups = groups;
+  const UINT most = k.cs ? groups : kPsSize;
+  p.groups = std::min(most, k.cs ? kMinGroups : kMinRows);
   setConstants(g, t, p.iters, t.size);
   double ms = run(g, k, p.groups);
-  while (k.cs && ms > 8.0 && p.groups > kMinGroups) {
-    p.groups = std::max(kMinGroups, p.groups / 2);
+  while (ms >= 0.0 && ms < 8.0 && p.groups < most) {  // size up to an 8 ms run (fills big GPUs), then iterations
+    p.groups = std::min(most, p.groups * 2);
     ms = run(g, k, p.groups);
   }
   // ms < 0: no valid reading (disjoint every time); keep the run length rather than doubling it blindly.
@@ -1326,7 +1332,7 @@ Result measureAt(Gpu& g, const Test& t, const Kernel& k, const Config& c, const 
   Result r;
   r.iters = iters;
   r.ms = median(runs);
-  const double threads = k.cs ? double(p.groups) * kGroupSize : double(kPsSize) * kPsSize;
+  const double threads = k.cs ? double(p.groups) * kGroupSize : double(kPsSize) * std::min(p.groups, kPsSize);
   r.nsPerStep = r.ms * 1e6 / (double(iters) * kUnroll * threads * c.chains);
   return r;
 }

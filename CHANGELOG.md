@@ -24,6 +24,7 @@ docs/notes/history.md.
 ### GPU Blueprint
 - **New TexBench tests for blur effects:** what one more pass costs, how many texture reads a pass gets almost for free, small targets, sharing reads between neighboring pixels, noise and dither sources, the order of reads, loops with branches, chains of compute passes, and drawing only part of the screen. They run for everyone, about half a minute more.
 - **New OpBench tests:** they show where Microsoft's shader compiler, which ReShade uses for Direct3D, makes some math slower than written, for a future project that undoes it.
+- **Fixed: TexBench on slow graphics cards:** a very slow test (like 16x anisotropic filtering on an AMD Radeon HD 6450) could stop the run. Each test now starts small and only grows as far as needed.
 - **Missing Microsoft runtime:** if the Visual C++ runtime the tests need is not installed, the menu says so and opens Microsoft's download page with the V key.
 - **Fits the window:** the first lines the tests print no longer wrap in Windows' standard console window.
 - **Fixed (we hope):** TexBench could stop halfway on some Intel graphics. It now frees memory as it goes, and if a run still stops, the report says why.
