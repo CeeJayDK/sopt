@@ -95,6 +95,7 @@ Vulkan on NVIDIA (2026-10-17, GTX 1660, 617.42): 32 x max(a * b * k, a) in a com
 (keeps OpFMul by 2.0), ShaderInfo --spv, NVIDIA's reported binary size: k = 2 4736 bytes, k = 4 4736, k = 3 5248 (+32
 instructions of 16 bytes). x2 is free when the driver gets a multiply: the Vulkan path (ReShade writes SPIR-V itself,
 no fxc) keeps it; only D3D loses it to fxc. Intel (UHD 630): 170 instructions for both k = 2 and 3 (no free scales).
+OpenGL on NVIDIA (timed): x2 = x4, x3 one instruction more per step; NVIDIA's GL assembly keeps MUL by {2}.
 Tools that show the GPU's own instructions (2026-10-17): NVIDIA Nsight Graphics shows SASS only in its Pro build
 (NDA); the public build shows DXIL / SPIR-V. Intel GPA reached end of life (2025.1 final, downloads ended 2025); its
 shader profiler needed Iris Xe or newer. AMD: RGA. So measure (OpBench pairs) rather than read the ISA.

@@ -1750,8 +1750,13 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   (cs) / 1.01 -> 0.02 (ps), irot 2.0 -> 1.0 (both); UHD 630 irot 4.0 -> 2.7 (cs), 3.6 -> 2.7 (ps), scale2 0.9 both
   (no free scales), shladd5 0.9 both ways (Gen9 imul = shl + add). Rotates are a measured fxc loss on both vendors.
   x2 under Vulkan on NVIDIA (2026-10-17, ShaderInfo --spv with DXC-made SPIR-V): free (x2 = x4 = 4736 bytes, x3 +512):
-  NVIDIA's Vulkan compiler does not repeat nvcc's add rewrite; ReShade on Vulkan keeps the free x2, D3D loses it to fxc.
-  OpenGL not checked (same driver back end, likely the same).
+  NVIDIA's Vulkan compiler does not repeat nvcc's add rewrite. Owner: test, do not assume. Tested 2026-10-17:
+  Vulkan x1 = x2 = x4 = 4736 bytes (x3 5248): the scales are free. OpenGL (scratch gltest, GLSL fragment shader, 32 x
+  max(a * b * k, a), 2048^2 passes, GL timer queries, best of 7, twice): x2 0.1915 / 0.1888 ms = x4 0.1914 / 0.1888,
+  x3 0.2548 / 0.2512, x1 0.1517 (x1 faster than x2 / x4 under GL: unexplained; Vulkan sizes are equal). NVIDIA's GL
+  intermediate assembly (!!NVfp5.0 in glGetProgramBinary) keeps MUL.F32 R, R, {2} like {4}: no add rewrite in the GL
+  front end. ReShade 6.8.0 effect_codegen_spirv.cpp emit_binary_op maps * to OpFMul with no special case (read in the
+  source, not run). So x2 stays free on NVIDIA under Vulkan and OpenGL; only D3D (fxc) loses it.
   NVIDIA forum thread "The curious case of the missing multiply-by-2" (owner's find, 2026-10-16; details in the fxc
   brief): CUDA loses FMUL.M2 the same way (nvcc writes * 2 as an add, ptxas does not fold it). So the earlier note
   "Vulkan / OpenGL keep the multiply" is unverified: NVIDIA's GLSL / SPIR-V front end may do the same as nvcc.
