@@ -277,7 +277,7 @@ std::optional<SourceRewrite> tableRewrite(const Codegen& cg, const Function& f, 
                           (c + 1 >= idx.size() || idx[c + 1] != '=');
       if (assign || idx.compare(c, 2, "++") == 0 || idx.compare(c, 2, "--") == 0) return std::nullopt;
     }
-    std::string repl = table + "[" + idx + "]";
+    std::string repl = table + "_at(" + idx + ")";
     for (auto it = otherEntries.rbegin(); it != otherEntries.rend(); ++it)
       repl = "(" + idx + " == " + std::to_string(it->first) + " ? " + it->second + " : " + repl + ")";
     const uint32_t ln = text.lineOf(i);
@@ -317,14 +317,52 @@ std::optional<SourceRewrite> tableRewrite(const Codegen& cg, const Function& f, 
     insert.lines.push_back(l);
     a = b + 1;
   }
+  // The pick per vendor (owner, 2026-10-17; TexBench, 16 entries, 8 reads per pixel, fma per pixel GTX 1660 / UHD 630:
+  // local array 479 / 64, static const 464 / 313, select tree 55 / 125): NVIDIA a tree of selects on the index's bits
+  // (D3D10 and newer, GL, Vulkan: D3D9's shader model has no integer bit operations; up to 32 entries), AMD and the rest
+  // the static const table (RGA: the local array spilled to scratch), Intel the original local array (every edit off).
+  const std::string at = table + "_at";
+  if (t.array_length <= 32) {
+    std::vector<std::string> v;  // the entries without comments; others are picked at the use, as in the table
+    for (size_t k = 0; k < elems.size(); ++k) {
+      std::string e = isConst[k] ? s.substr(elems[k].first, elems[k].second - elems[k].first) : zeroOf(t, typeName);
+      for (size_t c; (c = e.find("/*")) != std::string::npos;) e.erase(c, e.find("*/", c) == std::string::npos ? e.size() : e.find("*/", c) + 2 - c);
+      for (size_t c; (c = e.find("//")) != std::string::npos;) e.erase(c, e.find('\n', c) == std::string::npos ? e.size() : e.find('\n', c) - c);
+      for (char& ch : e)
+        if (ch == '\n' || ch == '\r' || ch == '\t') ch = ' ';
+      v.push_back(trim(e));
+    }
+    while (v.size() & (v.size() - 1)) v.push_back(v.back());  // a power of two (indices past the end: undefined anyway)
+    insert.lines.push_back("#if __VENDOR__ == 0x10DE && __RENDERER__ >= 0xa000");
+    insert.lines.push_back(typeName + " " + at + "(int i)");
+    insert.lines.push_back("{");
+    std::vector<std::string> level = v;
+    for (int bit = 0; level.size() > 1; ++bit) {
+      std::vector<std::string> next;
+      for (size_t k = 0; k < level.size(); k += 2) {
+        const std::string n = "s" + std::to_string(bit) + "_" + std::to_string(k / 2);
+        insert.lines.push_back("\tconst " + typeName + " " + n + " = (i & " + std::to_string(1 << bit) + ") != 0 ? " + level[k + 1] +
+                               " : " + level[k] + ";");
+        next.push_back(n);
+      }
+      level = std::move(next);
+    }
+    insert.lines.push_back("\treturn " + level[0] + ";");
+    insert.lines.push_back("}");
+    insert.lines.push_back("#else");
+  }
+  insert.lines.push_back(typeName + " " + at + "(int i) { return " + table + "[i]; }");
+  if (t.array_length <= 32) insert.lines.push_back("#endif");
   insert.lines.push_back("");
   insert.lines.push_back(head);
   r.edits.push_back(std::move(insert));
   r.edits.push_back({declLine, endLine, {}});
   for (auto& [ln, l] : useLines) r.edits.push_back({ln, ln, {l}});
+  for (auto& ed : r.edits) ed.extra = " && __VENDOR__ != 0x8086";
   r.otherEntries = static_cast<uint32_t>(others);
   r.description = "local array " + var.name + lenText + " (" + std::to_string(consts) + " constants" +
-                  (others ? ", " + std::to_string(others) + " other" : "") + ") as a static const table";
+                  (others ? ", " + std::to_string(others) + " other" : "") +
+                  ") as a select tree (NVIDIA) / static const table (AMD); Intel keeps the array";
   return r;
 }
 

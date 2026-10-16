@@ -1448,15 +1448,11 @@ int main(int argc, char** argv) {
         continue;
       }
       const bool worse = rw.amdAfter > rw.amdBefore || perfWorse;
-      if (measured ? gain && !worse : rw.otherEntries > 0) kept.push_back(std::move(rw));
+      const bool table = rw.tag == "T";  // per vendor: NVIDIA's select tree gains even where AMD's table does not
+      if (measured ? (table ? !worse : gain && !worse) : (table || rw.otherEntries > 0)) kept.push_back(std::move(rw));
     }
     std::printf("classical rewrites: %zu of %zu kept (measured gain)\n", kept.size(), rewrites.size());
     rewrites = std::move(kept);
-  } else {
-    // Not measured: only arrays with a non-constant entry (all-constant ones the compilers fold already).
-    rewrites.erase(std::remove_if(rewrites.begin(), rewrites.end(),
-                                  [](const fx::SourceRewrite& rw) { return rw.otherEntries == 0; }),
-                   rewrites.end());
   }
   std::string errors;
   // Easy mode: the files get only our picks (the report still lists every variant).

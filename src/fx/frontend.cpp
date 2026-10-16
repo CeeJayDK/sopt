@@ -82,6 +82,9 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   reshadefx::preprocessor pp;
   pp.add_include_path(path.parent_path());
   for (const auto& p : opt.includePaths) pp.add_include_path(p);
+  // Given macros first: the preprocessor keeps a name's first definition, so they override the defaults below
+  // (e.g. __VENDOR__ / __RENDERER__ to check per-vendor rewrites).
+  for (const auto& [k, v] : opt.macros) pp.add_macro_definition(k, v);
   // As ReShade 6 defines them (runtime.cpp), D3D11 renderer, SDR 8-bit back buffer (not
   // for plain HLSL).
   if (!opt.hlsl && !opt.glsl) {
@@ -100,7 +103,6 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
     pp.add_macro_definition("BUFFER_COLOR_FORMAT", "28");
     pp.add_macro_definition("BUFFER_COLOR_BIT_DEPTH", "8");
   }
-  for (const auto& [k, v] : opt.macros) pp.add_macro_definition(k, v);
   pp.symbolic_macros.insert(opt.symbolic.begin(), opt.symbolic.end());
   std::string decls;
   for (const auto& m : opt.symbolic) decls += "uniform float " + std::string(kSymbolicPrefix) + m + ";\n";
