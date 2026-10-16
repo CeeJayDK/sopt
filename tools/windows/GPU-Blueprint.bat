@@ -11,9 +11,15 @@ set "BIN=%~dp0bin\"
 rem ESC for colors (Windows 10 and later; older consoles show the codes as text); BEL (a raw 0x07 byte below) beeps.
 for /f %%e in ('echo prompt $E^| cmd') do set "E=%%e"
 set "BEL="
-rem The cards by name, once (owner, 2026-10-16: a PC rarely has more than two; with two, keys 2 and 3 name them).
+rem The cards by name, once (owner, 2026-10-16: a PC rarely has more than two; one or two cards are named on keys 2
+rem and 3, with one card key 3 is not shown; more cards keep "main card" and "pick a card").
 set "cards=0"
 if exist "%BIN%OpBench.exe" for /f "usebackq tokens=1,*" %%a in (`call "%BIN%OpBench.exe" --adapters`) do call :addCard %%a "%%b"
+set "run2="
+set "run3="
+if "%cards%"=="1" set "run2=%cardIdx1%"
+if "%cards%"=="2" set "run2=%cardIdx1%"
+if "%cards%"=="2" set "run3=%cardIdx2%"
 :menu
 set "ZIP="
 for %%z in (Reports*.zip) do set "ZIP=%%~nxz"
@@ -26,8 +32,12 @@ echo   %E%[96m=====================================================%E%[0m
 echo.
 echo   %E%[1;93m1%E%[0m  %E%[1;92mEvery graphics card in this PC: ShaderInfo, OpBench, StageBench and TexBench%E%[0m %E%[90m(10-25 min per card)%E%[0m %E%[92m^<- recommended%E%[0m
 if "%cards%"=="2" goto menuCards
+if "%cards%"=="1" goto menuOne
 echo   %E%[1;93m2%E%[0m  Main graphics card only
 echo   %E%[1;93m3%E%[0m  Another graphics card: you pick the card
+goto menuTools
+:menuOne
+echo   %E%[1;93m2%E%[0m  Only the %cardName1%
 goto menuTools
 :menuCards
 echo   %E%[1;93m2%E%[0m  Only the %cardName1%
@@ -65,8 +75,8 @@ set "n=%errorlevel%"
 if "%n%"=="10" goto :eof
 if "%n%"=="11" start "" "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist"
 if "%n%"=="1" call :every
-if "%n%"=="2" if "%cards%"=="2" (call :run %cardIdx1% all) else (call :run "" all)
-if "%n%"=="3" if "%cards%"=="2" (call :run %cardIdx2% all) else (call :pick)
+if "%n%"=="2" if defined run2 (call :run %run2% all) else (call :run "" all)
+if "%n%"=="3" if defined run3 (call :run %run3% all) else if not "%cards%"=="1" call :pick
 if "%n%"=="4" call :run "" opbench
 if "%n%"=="5" call :run "" texbench
 if "%n%"=="6" call :run "" shaderinfo

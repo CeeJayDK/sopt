@@ -29,7 +29,8 @@ docs/notes/history.md.
 - **Fits the window:** the first lines the tests print no longer wrap in Windows' standard console window.
 - **Fixed (we hope):** TexBench could stop halfway on some Intel graphics. It now frees memory as it goes, and if a run still stops, the report says why.
 - **StageBench joins the full run:** OpBench's tests again, in pixel shaders and in vertex shaders, the kinds of shaders ReShade effects use. Some math costs differently there, so SweetOpt can learn the real costs for effects. A full run takes a few minutes longer.
-- **Pick your card by name:** with two graphics cards, the menu shows both by name (keys 2 and 3).
+- **Pick your card by name:** the menu shows your graphics card by name (with two cards both, on keys 2 and 3).
+- **Smaller result pages:** the saved copy of what the tests show is about half the size.
 - **Only new reports are sent:** after you send your reports they move to Reports\Sent, so the next zip holds only new ones.
 - **TexBench:** the test that writes a smooth color gradient now writes full opacity, as most effects do, and a new test writes noisy colors with full opacity (like film grain).
 - **More accurate integer tests:** OpBench measured some integer operations too cheap on older NVIDIA cards and AMD Vega. They are measured in a new way now.
