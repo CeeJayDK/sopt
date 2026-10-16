@@ -444,7 +444,7 @@ void makeBlurTests(std::vector<Test>& v) {
 double testBytes(const Test& t) {
   const double b = t.format ? t.format->bytes : 4.0, s = t.size, screen = double(kRtW) * kRtH;
   switch (t.stage) {
-    case Stage::Write: return 2.0 * screen * b;
+    case Stage::Write: return 2.0 * (t.tw ? double(t.tw) * t.th : screen) * b;
     case Stage::Blend: return 3.0 * screen * b;
     case Stage::Pass: return (2.0 * t.count + (t.pass >= kPassCopySample ? 1.0 : 0.0)) * screen * b;
     case Stage::Blur: return screen * 4.0 + (t.chainMode == 1 ? t.chain + 1.0 : 2.0) * double(t.tw) * t.th * b;
@@ -1368,8 +1368,9 @@ struct Measured {
 // takes >= 2 ms. The draws alternate between two targets: NVIDIA (and other tiling GPUs) keep back to
 // back full-screen draws into one target in an on-chip tile cache, so only the last one reached memory
 // (measured above the GTX 1660's memory bandwidth).
-double writePass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader* ps, int reps, UINT& draws) {
-  D3D11_VIEWPORT vp = {0.0f, 0.0f, float(kRtW), float(kRtH), 0.0f, 1.0f};
+double writePass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader* ps, int reps, UINT& draws, UINT w = kRtW,
+                 UINT h = kRtH) {
+  D3D11_VIEWPORT vp = {0.0f, 0.0f, float(w), float(h), 0.0f, 1.0f};
   g.ctx->RSSetViewports(1, &vp);
   g.ctx->PSSetShader(ps, nullptr, 0);
   auto timeDraws = [&](UINT n) {
@@ -1869,7 +1870,7 @@ int main(int argc, char** argv) {
   std::filesystem::create_directories(dxbcDir);
 
   // The selected tests and the bases they need.
-  const std::vector<Test> all = makeTests();
+  std::vector<Test> all = makeTests();
   std::vector<const Test*> tests;
   auto byName = [&](const std::string& n) -> const Test* {
     for (const Test& t : all)
@@ -1889,7 +1890,26 @@ int main(int argc, char** argv) {
   // Memory: the card's own, plus shared system memory where the GPU uses that (integrated GPUs: unified memory).
   D3D11_FEATURE_DATA_D3D11_OPTIONS2 o2 = {};
   const bool uma = SUCCEEDED(g.dev->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS2, &o2, sizeof(o2))) && o2.UnifiedMemoryArchitecture;
-  const double memory = double(ad.desc.DedicatedVideoMemory) + (uma ? double(ad.desc.SharedSystemMemory) : 0.0);
+  // TEXBENCH_MEMORY_MB pretends a card's memory size (to check the scaling below on a big card).
+  const char* fake = std::getenv("TEXBENCH_MEMORY_MB");
+  const double memory = fake ? std::atof(fake) * 1048576.0
+                             : double(ad.desc.DedicatedVideoMemory) + (uma ? double(ad.desc.SharedSystemMemory) : 0.0);
+  // Too big for this card's memory (owner, 2026-10-16: 512 MB cards such as the HD 6450 and NVS 310): textures half
+  // their size (still far beyond any cache), writes a smaller target (they report GB/s); noted in the CSV. Tests whose
+  // size is what they measure (cache sizes, texture sizes) and the rest are left out below.
+  for (Test& t : all) {
+    const bool sizeIsTheTest = t.section.rfind("Cache sizes", 0) == 0 || t.name.find("^2") != std::string::npos;
+    const bool texture = (t.stage == Stage::Compute || t.stage == Stage::Pixel) && t.tex != Tex::None && t.size >= 512;
+    if (memory <= 0.0 || sizeIsTheTest || testBytes(t) <= memory / 2.0) continue;
+    if (texture) {
+      while (testBytes(t) > memory / 2.0 && t.size > 512) t.size /= 2;
+      t.note += (t.note.empty() ? "" : "; ") + std::string("scaled to ") + std::to_string(t.size) + " for the card's memory";
+    } else if (t.stage == Stage::Write) {
+      t.tw = kRtW, t.th = kRtH;
+      while (testBytes(t) > memory / 2.0 && t.th > 270) t.tw /= 2, t.th /= 2;
+      t.note = "scaled to " + std::to_string(t.tw) + " x " + std::to_string(t.th) + " for the card's memory";
+    }
+  }
   std::string tooBig;
   auto fits = [&](const Test& t) {
     if (memory <= 0.0 || testBytes(t) <= memory / 2.0) return true;
@@ -2272,10 +2292,10 @@ int main(int argc, char** argv) {
     }
   for (const Test* t : tests)
     if (t->stage == Stage::Write && writeUnits.count(t->name))
-      std::fprintf(csv, "write,\"%s\",\"%s\",,,%.4f,,%.3f,,%zu,%s,%s,\"GB/s, %u x %u\",\"\",%.2f\n", t->name.c_str(),
+      std::fprintf(csv, "write,\"%s\",\"%s\",,,%.4f,,%.3f,,%zu,%s,%s,\"GB/s, %u x %u\",\"%s\",%.2f\n", t->name.c_str(),
                    t->section.c_str(), writeMs[t->name], writeUnits[t->name].value, writeReadings[t->name].size(),
-                   writeUnits[t->name].ok ? "yes" : "no", readingsText(writeReadings[t->name]).c_str(), kRtW, kRtH,
-                   seconds[t->name]);
+                   writeUnits[t->name].ok ? "yes" : "no", readingsText(writeReadings[t->name]).c_str(), t->tw ? t->tw : kRtW,
+                   t->th ? t->th : kRtH, t->note.c_str(), seconds[t->name]);
   for (const Test* t : tests)
     if (t->stage == Stage::Pass && passMs.count(t->name))
       std::fprintf(csv, "pass,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"%s\",%.2f\n", t->name.c_str(),
@@ -2666,10 +2686,11 @@ int main(int argc, char** argv) {
       return;
     }
     if (t->stage == Stage::Write) {
-      // Two 3840 x 2160 targets of the format (see writePass); GB/s from the pass time.
+      // Two 3840 x 2160 targets of the format (see writePass; smaller on a card short of memory); GB/s from the pass time.
+      const UINT w = t->tw ? t->tw : kRtW, h = t->th ? t->th : kRtH;
       D3D11_TEXTURE2D_DESC td = {};
-      td.Width = kRtW;
-      td.Height = kRtH;
+      td.Width = w;
+      td.Height = h;
       td.MipLevels = td.ArraySize = 1;
       td.Format = t->format->dxgi;
       td.SampleDesc.Count = 1;
@@ -2689,8 +2710,8 @@ int main(int argc, char** argv) {
       UINT draws = 0;
       std::vector<double>& rd = writeReadings[t->name];
       for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
-        const double ms = writePass(g, rtv, ps, reps, draws);
-        rd.push_back(double(kRtW) * kRtH * t->format->bytes / (ms * 1e6));  // GB/s
+        const double ms = writePass(g, rtv, ps, reps, draws, w, h);
+        rd.push_back(double(w) * h * t->format->bytes / (ms * 1e6));  // GB/s
         progress.step();
       }
       writeUnits[t->name] = consensus(rd, 0.0);

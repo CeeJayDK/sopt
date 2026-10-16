@@ -1721,7 +1721,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   draws pixel tests into the top rows. GTX 1660 RGBA32F tests before / after within the usual 5%. Owner: small cards
   may also run out of memory (paging = very slow): testBytes() (texture or render targets) > half the memory leaves
   the test out, listed on screen; memory = dedicated + shared where D3D11_OPTIONS2 says unified memory (iGPUs). On
-  512 MB: RGBA32F writes / blends / copies at 3840 x 2160 (265-400 MB) go; 256 MB textures stay.
+  512 MB: RGBA32F blends / copies at 3840 x 2160 go (writes 253 MB and 256 MB textures fit). Owner: scale instead of
+  cutting where possible: textures halve (min 512) and writes take a smaller target (GB/s) until they fit, noted in the
+  CSV ("scaled to ..."); cache / texture size sweeps (the size is the test) and blends / passes (ms at 4K) are left out.
+  TEXBENCH_MEMORY_MB pretends a memory size. GTX 1660 as 256 MB: RGBA32F random at 2048 6790 against 7388 at 4096
+  (-8%: more cache hits), writes at 1920 x 1080 169 GB/s = full size.
   Uniform math per pixel (TexBench pass, no loop: OpBench's loop let fxc lift uniform-only math out of it, so its
   mulpre / constuni / selectuni read ~0 for that reason and were removed). 32 fmas on a pixel value, fma per pixel
   over the plain chain, GTX 1660 / UHD 630: multipliers a * b written first (16 distinct products, each used twice)
