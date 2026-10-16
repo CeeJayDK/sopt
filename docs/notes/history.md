@@ -1713,6 +1713,9 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   read 0.65 / 10.8 (vs 15.5), write 42 / 171 (vs 184), static const array 13.5 / 59 (vs 58). Derivatives (ps): ddx /
   ddy and the coarse forms 6.0, the fine forms 2.0, fwidth 9.9, clip 0.6: on Turing fine derivatives are 3x cheaper
   than coarse (and than plain ddx). Everything else within noise of compute.
+  Owner's 0.7.11 run (GTX 1660, UHD 630; all complete): fxc pairs, compute / pixel the same: 1660 scale2 0.96 -> 0.00
+  (cs) / 1.01 -> 0.02 (ps), irot 2.0 -> 1.0 (both); UHD 630 irot 4.0 -> 2.7 (cs), 3.6 -> 2.7 (ps), scale2 0.9 both
+  (no free scales), shladd5 0.9 both ways (Gen9 imul = shl + add). Rotates are a measured fxc loss on both vendors.
   NVIDIA forum thread "The curious case of the missing multiply-by-2" (owner's find, 2026-10-16; details in the fxc
   brief): CUDA loses FMUL.M2 the same way (nvcc writes * 2 as an add, ptxas does not fold it). So the earlier note
   "Vulkan / OpenGL keep the multiply" is unverified: NVIDIA's GLSL / SPIR-V front end may do the same as nvcc.

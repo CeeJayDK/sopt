@@ -67,7 +67,8 @@ free instruction slots (SM3: 512).
 9. **Rotates (candidate).** fxc writes a constant rotate as `ushr` + `bfi`; NVIDIA has a one-instruction funnel shift
    (SHF). OpBench pair irot / irot-od (0.7.11). GTX 1660 (measured): fxc's ushr + bfi 1.78 fma, the plain shl / shr /
    or compiled with /Od 0.88: the driver makes one funnel shift of the plain form, not of fxc's. shladd5 is free on
-   the 1660 both ways (IMAD); AMD reports will tell.
+   the 1660 both ways (IMAD); AMD reports will tell. UHD 630 (0.7.11): irot 4.0 -> 2.7 fma in compute, 3.6 -> 2.7 in pixel
+   shaders; shladd5 0.9 both ways. The rotate loss is on both vendors, in both stages.
 10. **Checked, not fxc's doing (2026-10-16, from a list another assistant suggested):** `a * b + a * c` is not factored
    (it becomes `dp2`, like x * 2); bit select `(a & m) | (b & ~m)`, min / max / median networks and bool-to-float
    arithmetic stay as written; saturate keeps its place before a scale. Stephen Hill's "Righting Wrap, Part 2" (fxc
