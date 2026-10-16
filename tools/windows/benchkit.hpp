@@ -71,12 +71,29 @@ inline void saveScreen(const std::filesystem::path& file) {
   static const char* const kPalette[16] = {"#0c0c0c", "#c50f1f", "#13a10e", "#c19c00", "#0037da", "#881798", "#3a96dd",
                                            "#cccccc", "#767676", "#e74856", "#16c60c", "#f9f1a5", "#3b78ff", "#b4009e",
                                            "#61d6d6", "#f2f2f2"};
-  std::string out =
-      "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>" + std::string(gProgram) + " - " + gGpu +
-      "</title></head>\n<body style=\"background:#0c0c0c;color:#cccccc;margin:16px\"><pre style=\"font:14px/1.25 "
-      "Consolas,'Cascadia Mono',monospace\">";
-  int fg = -1, bg = -1;
-  bool bold = false, open = false;
+  // The colors as classes defined once (f0..f15 text, b0..b15 background, B bold), and a span only where the style
+  // changes (owner, 2026-10-16: a span with the whole style on almost every character made the page needlessly big).
+  std::string out = "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>" + std::string(gProgram) + " - " + gGpu +
+                    "</title>\n<style>body{background:#0c0c0c;color:#cccccc;margin:16px}pre{font:14px/1.25 Consolas,"
+                    "'Cascadia Mono',monospace}.B{font-weight:bold}";
+  for (int k = 0; k < 16; ++k)
+    out += ".f" + std::to_string(k) + "{color:" + kPalette[k] + "}.b" + std::to_string(k) + "{background:" + kPalette[k] + "}";
+  out += "</style></head>\n<body><pre>";
+  int fg = -1, bg = -1;  // the style the escape codes ask for
+  bool bold = false;
+  int curFg = -1, curBg = -1;  // the style of the open span (all -1 / false: none open)
+  bool curBold = false;
+  auto restyle = [&] {
+    if (fg == curFg && bg == curBg && bold == curBold) return;
+    if (curFg >= 0 || curBg >= 0 || curBold) out += "</span>";
+    curFg = fg, curBg = bg, curBold = bold;
+    if (fg < 0 && bg < 0 && !bold) return;
+    std::string cls;
+    if (fg >= 0) cls += "f" + std::to_string(fg);
+    if (bg >= 0) cls += std::string(cls.empty() ? "" : " ") + "b" + std::to_string(bg);
+    if (bold) cls += std::string(cls.empty() ? "" : " ") + "B";
+    out += "<span class=\"" + cls + "\">";
+  };
   for (size_t i = 0; i < gScreen.size(); ++i) {
     const char ch = gScreen[i];
     if (ch == '\x1b' && i + 1 < gScreen.size() && gScreen[i + 1] == '[') {
@@ -96,25 +113,19 @@ inline void saveScreen(const std::filesystem::path& file) {
           else if (v >= 100 && v <= 107) bg = v - 100 + 8;
           a = b + 1;
         }
-        if (open) out += "</span>";
-        open = fg >= 0 || bg >= 0 || bold;
-        if (open)
-          out += std::string("<span style=\"") + (fg >= 0 ? std::string("color:") + kPalette[fg] + ";" : "") +
-                 (bg >= 0 ? std::string("background:") + kPalette[bg] + ";" : "") + (bold ? "font-weight:bold" : "") +
-                 "\">";
       }
       i = j;
-    } else if (ch == '<') {
-      out += "&lt;";
-    } else if (ch == '>') {
-      out += "&gt;";
-    } else if (ch == '&') {
-      out += "&amp;";
-    } else if (ch != '\r') {
-      out += ch;
+      continue;
     }
+    if (ch == '\r') continue;
+    // Spaces and line ends without a background look the same in any text color: no new span for them.
+    if (!((ch == ' ' || ch == '\n') && bg < 0 && curBg < 0)) restyle();
+    if (ch == '<') out += "&lt;";
+    else if (ch == '>') out += "&gt;";
+    else if (ch == '&') out += "&amp;";
+    else out += ch;
   }
-  if (open) out += "</span>";
+  if (curFg >= 0 || curBg >= 0 || curBold) out += "</span>";
   out += "</pre></body></html>\n";
   std::error_code ec;
   std::filesystem::create_directories(file.parent_path(), ec);
