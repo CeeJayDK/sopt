@@ -52,6 +52,16 @@ MIT); the DXBC checksum (a modified MD5, reimplemented in those projects).
    folds what becomes constant; keep in mind when writing tests.
 7. **D3D9 round (behavior).** For SM3 fxc writes `round(x)` as `floor(x + 0.5)` (halves up); SM4+ uses `round_ne`.
 
+OpBench 0.7.8 runs pairs (section "fxc's rewrites": sqmax, scale2, scale4, sign, clamp, lerp, smoothstep, fmod,
+atan2, each also as "<name>-od" compiled with /Od). GTX 1660 (fma units over the base, -O3 / -od): scale2 0.96 /
+0.12, sign 2.13 / 1.96, the others equal within noise (sqmax 1.09 / 0.96, clamp 1.02 / 1.06, lerp 2.0 / 1.98,
+smoothstep 5.0 / 5.0, fmod 3.5 / 3.6, atan2 15.1 / 15.4): NVIDIA's driver undoes everything but x2 there. Other
+families (AMD clamp / med3, Ampere / Blackwell sign) come with the reports.
+
+Idea to keep (owner, 2026-10-16): the ReShade add-on could also dump a game's shaders, optimize them with sopt and put
+the faster ones back. A driver's shader cache keys on the shader's bytes, so a replaced shader is compiled once more
+and cached under its new bytes.
+
 ## Collecting more
 
 Candidates to test with OpBench pairs (fxc -O3 against `/Od`, same step): every intrinsic fxc writes out (smoothstep,

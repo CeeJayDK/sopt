@@ -203,6 +203,9 @@
   <tr><td><code>ilp1</code> ... <code>ilp6</code></td><td>the same fma with 1 to 6 independent chains per thread (the normal tests use 8). Cost per fma. On most GPUs it stays the same (one instruction at a time per thread, the GPU fills up with other threads). On a VLIW card (AMD TeraScale) it is higher with few chains, until there are enough chains to fill all slots: the chain count where it stops dropping is how many ops the card runs at once.</td></tr>
 </table>
 
+<h3>fxc's rewrites</h3>
+<p>Microsoft's shader compiler (fxc, which ReShade uses for Direct3D) rewrites some math before the driver sees it, for example <code>x * 2.0</code> as <code>x + x</code>. Each test here runs twice: as fxc -O3 writes it, and with fxc's optimizer off (<code>-od</code>), so the driver gets the step as written. Where the <code>-od</code> version is faster, fxc's rewrite costs speed on this card (on the GTX 1660: <code>x * 2.0</code> is free as written, one instruction after fxc).</p>
+
 <h2>Reading the CSV</h2>
 <p>Lines starting with <code>#</code> describe the card, driver, OpBench version and how much the reference moved (drift) in each mode. Then one row per mode and test:</p>
 <table>
