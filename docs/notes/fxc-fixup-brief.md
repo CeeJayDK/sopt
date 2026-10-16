@@ -85,6 +85,16 @@ Idea to keep (owner, 2026-10-16): the ReShade add-on could also dump a game's sh
 the faster ones back. A driver's shader cache keys on the shader's bytes, so a replaced shader is compiled once more
 and cached under its new bytes.
 
+Mesa (2026-10-17, src/compiler/nir/nir_opt_algebraic.py on main, the rules every Mesa driver runs, so DXVK / vkd3d on
+Linux): `fadd a, a -> fmul a, 2.0` (line ~274) undoes fxc's x2 rewrite before the back ends pick output modifiers;
+`fadd a, fadd(a, b) -> b + a * 2`. D3D patterns it recognises, worth copying: D3D Booleans (0 / -1 masks: bcsel(a, -1,
+0) -> -b2i(a), and of a mask -> bcsel, imax / umax of masks = and / or, shifts of masks), b2f(compare) * x -> x or a
+select (fxc's `and r, cmp, 0x3f800000` then mul), D3D9 trunc (floor + compare fix-ups -> ftrunc), DXVK's (a >> b) << b
+-> and. Windows drivers apparently lack the x2 one (GTX 1660: x2 not free after fxc).
+Tools that show the GPU's own instructions (2026-10-17): NVIDIA Nsight Graphics shows SASS only in its Pro build
+(NDA); the public build shows DXIL / SPIR-V. Intel GPA reached end of life (2025.1 final, downloads ended 2025); its
+shader profiler needed Iris Xe or newer. AMD: RGA. So measure (OpBench pairs) rather than read the ISA.
+
 ## Collecting more
 
 Candidates to test with OpBench pairs (fxc -O3 against `/Od`, same step): every intrinsic fxc writes out (smoothstep,
