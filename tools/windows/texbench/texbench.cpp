@@ -439,6 +439,26 @@ void makeBlurTests(std::vector<Test>& v) {
   }
 }
 
+// The memory a test's largest resources take (its texture, or its render targets), to leave out tests that do not
+// fit a small card (owner, 2026-10-16: an HD 6450 has 512 MB or 1 GB; paging to system memory is very slow).
+double testBytes(const Test& t) {
+  const double b = t.format ? t.format->bytes : 4.0, s = t.size, screen = double(kRtW) * kRtH;
+  switch (t.stage) {
+    case Stage::Write: return 2.0 * screen * b;
+    case Stage::Blend: return 3.0 * screen * b;
+    case Stage::Pass: return (2.0 * t.count + (t.pass >= kPassCopySample ? 1.0 : 0.0)) * screen * b;
+    case Stage::Blur: return screen * 4.0 + (t.chainMode == 1 ? t.chain + 1.0 : 2.0) * double(t.tw) * t.th * b;
+    default: break;
+  }
+  switch (t.tex) {
+    case Tex::Plain: case Tex::Storage: return s * s * b;
+    case Tex::Mipped: return s * s * b * 4.0 / 3.0;
+    case Tex::Lut3D: case Tex::Lut2D: return s * s * s * b;
+    case Tex::Vol: return s * s * t.depth * b;
+    default: return s * b;
+  }
+}
+
 std::vector<Test> makeTests() {
   std::vector<Test> v;
   auto add = [&](Test t) { v.push_back(std::move(t)); };
@@ -1866,11 +1886,23 @@ int main(int argc, char** argv) {
     unsupported += std::string(unsupported.empty() ? "" : ", ") + t.name;
     return false;
   };
+  // Memory: the card's own, plus shared system memory where the GPU uses that (integrated GPUs: unified memory).
+  D3D11_FEATURE_DATA_D3D11_OPTIONS2 o2 = {};
+  const bool uma = SUCCEEDED(g.dev->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS2, &o2, sizeof(o2))) && o2.UnifiedMemoryArchitecture;
+  const double memory = double(ad.desc.DedicatedVideoMemory) + (uma ? double(ad.desc.SharedSystemMemory) : 0.0);
+  std::string tooBig;
+  auto fits = [&](const Test& t) {
+    if (memory <= 0.0 || testBytes(t) <= memory / 2.0) return true;
+    tooBig += std::string(tooBig.empty() ? "" : ", ") + t.name;
+    return false;
+  };
   for (const Test& t : all)
     if ((filter.empty() || t.name.find(filter) != std::string::npos || t.name == "mad" || t.name == "ps.mad") &&
-        storageOk(t))
+        storageOk(t) && fits(t))
       tests.push_back(&t);
   if (!unsupported.empty()) print("Not supported by this GPU, left out: %s\n", unsupported.c_str());
+  if (!tooBig.empty())
+    print("Need more than half of the GPU's %.0f MB of memory, left out: %s\n", memory / 1048576.0, tooBig.c_str());
   for (bool added = true; added;) {
     added = false;
     for (const Test* t : std::vector<const Test*>(tests))

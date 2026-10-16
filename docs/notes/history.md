@@ -1718,7 +1718,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   HD 6450 (owner, 2026-10-16): TexBench stopped at "RGBA32F aniso 16x" (one run too long). calibrate() ran the first
   run at full size (pixel tests always 1024 x 1024; compute only shrank after a full-size run): now it starts at
   kMinGroups / kMinRows (16 rows of 1024) and grows the size up to an 8 ms run, then the iterations up to 2 ms; run()
-  draws pixel tests into the top rows. GTX 1660 RGBA32F tests before / after within the usual 5%.
+  draws pixel tests into the top rows. GTX 1660 RGBA32F tests before / after within the usual 5%. Owner: small cards
+  may also run out of memory (paging = very slow): testBytes() (texture or render targets) > half the memory leaves
+  the test out, listed on screen; memory = dedicated + shared where D3D11_OPTIONS2 says unified memory (iGPUs). On
+  512 MB: RGBA32F writes / blends / copies at 3840 x 2160 (265-400 MB) go; 256 MB textures stay.
   Uniform math per pixel (TexBench pass, no loop: OpBench's loop let fxc lift uniform-only math out of it, so its
   mulpre / constuni / selectuni read ~0 for that reason and were removed). 32 fmas on a pixel value, fma per pixel
   over the plain chain, GTX 1660 / UHD 630: multipliers a * b written first (16 distinct products, each used twice)
