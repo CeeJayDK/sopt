@@ -44,6 +44,13 @@ free instruction slots (SM3: 512).
    2^-3 .. 2^3 for free. GTX 1660, OpBench scale tests: with fxc -O3 x2 costs 0.96 fma, x4 / x8 / x0.5 / x0.25 /
    x0.125 cost 0; compiled with `/Od` x2 costs 0.00. Fix: `add r, a, a` -> `mul r, a, l(2.0)` (and `dp2 r, a.xx,
    b.xx` -> `mul` + `mul l(2.0)`) where the driver folds the scale into the instruction before.
+   NVIDIA's own CUDA compiler has the same problem (NVIDIA developer forum, "The curious case of the missing
+   multiply-by-2", 2026-08): nvcc's front end turns * 2 into an add in PTX, and ptxas folds 2^k into FMUL (.M4 .M8
+   .D2 .D4 .D8 on sm_89) but not the add: a * b * 2 becomes FMUL + FFMA(a, b, a * b). Workarounds there: __fmul_rn(a * b,
+   2.0f) or inline PTX mul. The thread argues FFMA(a, b, FMUL(a, b)) is bit-identical to FMUL.M2(a, b), so fxc's dp2
+   form can be turned back into mul + mul l(2.0) without changing any result. It also recalls the scale factor came with
+   sm_52 (Maxwell 2); nouveau's GM107 emitter (sm_50) encodes it too, and no Maxwell 1 report has the fixed scale tests
+   yet (OpBench >= 0.7.3): sopt's nvidia-maxwell1 model assumes it, unverified.
 2. **sign (measured, costs speed).** fxc writes `sign(x)` as `lt`, `lt`, `iadd`, `itof`; the int -> float conversion
    is quarter rate on Ampere / Blackwell (sign 18-28 quarter units). `mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0)` is
    cheaper on every family measured so far (9 on gen12 against 18; see docs/inexact-tricks.md for its limits at 0 /
