@@ -13,7 +13,7 @@ if ($files.Count -eq 0) { exit 1 }
 # shaderinfo-<GPU>.txt), where the programs turned every character but letters and digits into '_'.
 $gpus = @()
 foreach ($f in $files) {
-  if ($f.Name -match '^(?:opbench|texbench|shaderinfo)-(.+?)(?:-order(?:-zoom)?)?\.(?:csv|txt|png)$') {
+  if ($f.Name -match '^(?:opbench|texbench|shaderinfo|stagebench-(?:ps|vs))-(.+?)(?:-order(?:-zoom)?)?\.(?:csv|txt|png)$') {
     $words = @($Matches[1] -split '_+' | Where-Object { $_ -and $_ -notmatch '^(R|TM)$' })
     $short = @($words | Where-Object { $_ -notmatch '^(NVIDIA|GeForce|AMD|ATI|Radeon|Intel|Graphics|GPU)$' })
     if ($short.Count -eq 0) { $short = @($words | Where-Object { $_ -notmatch '^(Graphics|GPU)$' }) }  # "AMD Radeon(TM) Graphics"

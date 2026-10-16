@@ -24,7 +24,7 @@ echo   %E%[1;97m  GPU Blueprint  -  by CeeJay.dk%E%[0m
 echo   %E%[90m  measures your graphics card for sopt%E%[0m
 echo   %E%[96m=====================================================%E%[0m
 echo.
-echo   %E%[1;93m1%E%[0m  %E%[1;92mEvery graphics card in this PC: ShaderInfo, OpBench and TexBench%E%[0m %E%[90m(5-15 min per card)%E%[0m %E%[92m^<- recommended%E%[0m
+echo   %E%[1;93m1%E%[0m  %E%[1;92mEvery graphics card in this PC: ShaderInfo, OpBench, StageBench and TexBench%E%[0m %E%[90m(10-25 min per card)%E%[0m %E%[92m^<- recommended%E%[0m
 if "%cards%"=="2" goto menuCards
 echo   %E%[1;93m2%E%[0m  Main graphics card only
 echo   %E%[1;93m3%E%[0m  Another graphics card: you pick the card
@@ -136,6 +136,7 @@ set "adapter="
 if not "%~1"=="" set "adapter=--adapter %~1"
 if /i "%~2"=="all" call :one ShaderInfo.exe ""
 if /i "%~2"=="all" call :one OpBench.exe "%adapter%"
+if /i "%~2"=="all" call :one StageBench.exe "%adapter%"
 if /i "%~2"=="all" call :one TexBench.exe "%adapter%"
 if /i "%~2"=="opbench" call :one OpBench.exe "%adapter%"
 if /i "%~2"=="texbench" call :one TexBench.exe "%adapter%"
@@ -160,11 +161,13 @@ goto pick
 call :run %card% all
 exit /b
 
-rem Every card: ShaderInfo once (it covers every Vulkan GPU), then OpBench and TexBench per card.
+rem Every card: ShaderInfo once (it covers every Vulkan GPU), then OpBench, StageBench (owner, 2026-10-16: pixel
+rem shaders are most of what sopt optimizes) and TexBench per card.
 :every
 call :one ShaderInfo.exe ""
 for /f "usebackq" %%i in (`call "%BIN%OpBench.exe" --adapters`) do (
   call :one OpBench.exe "--adapter %%i"
+  call :one StageBench.exe "--adapter %%i"
   call :one TexBench.exe "--adapter %%i"
 )
 goto :finish

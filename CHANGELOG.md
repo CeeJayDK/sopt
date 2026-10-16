@@ -24,6 +24,7 @@ docs/notes/history.md.
 ### GPU Blueprint
 - **New TexBench tests for blur effects:** what one more pass costs, how many texture reads a pass gets almost for free, small targets, sharing reads between neighboring pixels, noise and dither sources, the order of reads, loops with branches, chains of compute passes, and drawing only part of the screen. They run for everyone, about half a minute more.
 - **New OpBench tests:** they show where Microsoft's shader compiler, which ReShade uses for Direct3D, makes some math slower than written, for a future project that undoes it.
+- **StageBench joins the full run:** OpBench's tests again, in pixel shaders and in vertex shaders, the kinds of shaders ReShade effects use. Some math costs differently there, so SweetOpt can learn the real costs for effects. A full run takes a few minutes longer.
 - **Pick your card by name:** with two graphics cards, the menu shows both by name (keys 2 and 3).
 - **Only new reports are sent:** after you send your reports they move to Reports\Sent, so the next zip holds only new ones.
 - **TexBench:** the test that writes a smooth color gradient now writes full opacity, as most effects do, and a new test writes noisy colors with full opacity (like film grain).

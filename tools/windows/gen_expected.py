@@ -49,12 +49,19 @@ def main():
         for a in v["architectures"]:
             if a["model"]:
                 labels.setdefault(a["model"], []).append(a["name"])
-    cards = {}  # name -> (key, model, rows)
-    for path in sorted(os.listdir(os.path.join(ROOT, "docs", "opbench"))):
+    cards = {}  # (name, stage) -> (key, model, rows)
+    reports = [("opbench", p) for p in sorted(os.listdir(os.path.join(ROOT, "docs", "opbench")))]
+    if os.path.isdir(os.path.join(ROOT, "docs", "stagebench")):
+        reports += [("stagebench", p) for p in sorted(os.listdir(os.path.join(ROOT, "docs", "stagebench")))]
+    for folder, path in reports:
         if not path.endswith(".csv") or path in UNRELIABLE:
             continue
-        full = os.path.join(ROOT, "docs", "opbench", path)
+        full = os.path.join(ROOT, "docs", folder, path)
         info = site.read_report(full)
+        stage = info.get("stage", "cs") if folder == "stagebench" else "cs"
+        # StageBench before 0.7.9: the vertex run's integer tests were folded away (all 0).
+        if stage == "vs" and version_key(info, "")[0] < (0, 7, 9):
+            continue
         if info.get("device") in site.SKIP_DEVICES:
             continue
         name = site.clean_name(site.NAME_BY_FILE.get(path) or site.NAME_BY_DEVICE.get(info.get("device", "")) or info.get("gpu", ""))
@@ -66,11 +73,11 @@ def main():
         if not neg or abs(neg[0]) > 0.3:
             continue
         key = version_key(info, path[:-4])
-        if name not in cards or key > cards[name][0]:
-            cards[name] = (key, model, rows)
+        if (name, stage) not in cards or key > cards[(name, stage)][0]:
+            cards[(name, stage)] = (key, model, rows)
     families = {}
-    for name, (key, model, rows) in sorted(cards.items()):
-        fam = families.setdefault(model, {"cards": [], "values": {}})
+    for (name, stage), (key, model, rows) in sorted(cards.items()):
+        fam = families.setdefault((model, stage), {"cards": [], "values": {}})
         fam["cards"].append(name)
         for r in rows:
             # Test names go into C++ string literals: anything but plain names (from an uploaded report) is skipped.
@@ -92,16 +99,17 @@ def main():
         "  const char* model;",
         "  const char* label;  // architectures",
         "  int cards;",
+        "  const char* stage;  // cs (OpBench), ps / vs (StageBench)",
         "  const char* costs;  // \"test cost test cost ...\"",
         "};",
         "",
         "inline const Family kFamilies[] = {",
     ]
-    for model in sorted(families):
-        fam = families[model]
+    for model, stage in sorted(families):
+        fam = families[(model, stage)]
         costs = " ".join(f"{t} {statistics.median(v):.1f}" for t, v in sorted(fam["values"].items()))
         label = " / ".join(labels.get(model, [model]))
-        out.append(f'    {{"{model}", "{label}", {len(fam["cards"])},')
+        out.append(f'    {{"{model}", "{label}", {len(fam["cards"])}, "{stage}",')
         # Split long strings into several literals.
         parts = []
         cur = ""

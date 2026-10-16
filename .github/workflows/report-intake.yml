@@ -37,7 +37,7 @@ jobs:
           python3 tools/site/report_intake.py fetch "$RUNNER_TEMP/intake"
       - name: Expected costs
         run: |
-          if grep -q "^docs/opbench/" "$RUNNER_TEMP/intake/saved.txt" 2>/dev/null; then
+          if grep -qE "^docs/(opbench|stagebench)/" "$RUNNER_TEMP/intake/saved.txt" 2>/dev/null; then
             python3 tools/windows/gen_expected.py
           fi
       - name: Commit, push, delete the uploads

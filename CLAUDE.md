@@ -22,7 +22,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Fewer instructions at equal measured speed are still better (less power; faster once the bottleneck moves).
 - When asking the owner to test or download something, repeat the links in that message (CI run / artifact links).
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
-  testers (now 0.7.7, test build; 0.7.0 released); the next test build is 0.7.8.
+  testers (now 0.7.9, test build; 0.7.0 released); the next test build is 0.7.10.
 - CHANGELOG.md: one `## <version>` section per release, add to the top section as things land (release.yml copies it).
   Changelog, release notes and README.md are for laymen (owner, 2026-10-10): plain English, short, what changes for the
   user, no option names or internals (those go in docs/notes/history.md, docs/technical.md).
@@ -48,7 +48,8 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Release: PR to main (check for a PR template), owner merges, run release.yml manually on main = draft release, owner
   publishes (this session cannot push tags). Run the steam-survey workflow on main before each release.
 - pages.yml builds the site (tools/site/build.py) from docs/opbench / texbench; optimize-pngs.yml compresses report PNGs.
-- After adding OpBench reports: rerun `tools/windows/gen_expected.py` (writes tools/windows/expected.hpp).
+- After adding OpBench / StageBench reports: rerun `tools/windows/gen_expected.py` (writes tools/windows/expected.hpp,
+  family values per stage: cs from docs/opbench, ps / vs from docs/stagebench).
 - 0.7.0 released 2026-10-09. Next: the open review items (open item 1), then fp16 step 2.
 - Bot pushes (report-intake, steam-survey, optimize-pngs) start no CI run; release.yml runs the tests itself.
 
@@ -57,9 +58,9 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 1. Dropbox list_folder "/Apps/GPU Blueprint/Reports" (recursive; was /Uploads/GPU Blueprint until 2026-10-09); touch no other folder. Uploads: "<uploader> - <file>".
 2. Per zip: Dropbox download_link (single use, never preview) + curl, unzip in a fresh folder. Fallback: Dropbox fetch
    (text files concatenated, each after a line with its name; no PNGs).
-3. Valid: OpBench / TexBench CSVs with "# OpBench <v>" / "# TexBench <v>" headers and numeric rows; ShaderInfo .txt
+3. Valid: OpBench / TexBench / StageBench CSVs with "# OpBench <v>" / "# TexBench <v>" / "# StageBench <v>" (+ "# stage: ps|vs") headers and numeric rows; ShaderInfo .txt
    starting with "GPU: "; TexBench order PNGs next to a valid TexBench CSV. Everything else is junk.
-4. Save to docs/opbench, docs/texbench (+ PNGs), docs/shaderinfo as `<vendor>-<gpu>.csv|.txt|-order*.png` (never
+4. Save to docs/opbench, docs/texbench (+ PNGs), docs/stagebench (`<gpu>-ps|vs`), docs/shaderinfo as `<vendor>-<gpu>.csv|.txt|-order*.png` (never
    overwrite: -2, -3 ...), a short note per GPU in docs/notes/history.md (family match, drift, consensus, new / odd;
    TexBench time and scores), gen_expected.py if OpBench reports came in, commit, push.
 5. Only after the push delete every file in the folder. 6. Tell the owner per GPU what came in (uploader name in chat).

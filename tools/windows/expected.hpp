@@ -9,11 +9,12 @@ struct Family {
   const char* model;
   const char* label;  // architectures
   int cards;
+  const char* stage;  // cs (OpBench), ps / vs (StageBench)
   const char* costs;  // "test cost test cost ..."
 };
 
 inline const Family kFamilies[] = {
-    {"amd-gcn5", "GCN 5 (Vega)", 3,
+    {"amd-gcn5", "GCN 5 (Vega)", 3, "cs",
      "aAdd 6.8 aAdd1 251.6 aAnd 6.8 aAnd1 251.5 aCmpXchg 10.9 aCmpXchg1 251.6 aMax 6.8 aMax1 251.6 "
      "aMin 6.8 aMin1 251.5 aOr 6.8 aOr1 251.6 aXchg 6.8 aXchg1 251.7 aXor 6.8 aXor1 251.6 abs -0.0 "
      "acos 33.0 acos1 26.3 acos4 34.1 add 2.1 add16 1.5 arraybase 9.3 arrayread 163.2 arraywrite 267.8 "
@@ -34,7 +35,7 @@ inline const Family kFamilies[] = {
      "selectboth 83.6 sign 10.5 signbits 4.3 signclamp 4.3 signmad 4.4 signsat 6.3 signsel 8.5 "
      "signsel2 4.1 sin 10.6 sincos 18.8 sinh 21.2 smoothstep 10.9 sqrt 8.5 sqrt16 8.6 sqrtnr0 4.4 step 4.2 "
      "sub 2.1 tan 32.8 tanh 33.5 trunc 2.2 "},
-    {"amd-rdna2", "RDNA 2", 6,
+    {"amd-rdna2", "RDNA 2", 6, "cs",
      "aAdd 3.9 aAdd1 344.1 aAnd 3.9 aAnd1 343.7 aCmpXchg 6.8 aCmpXchg1 344.8 aMax 3.9 aMax1 343.7 aMin 3.9 "
      "aMin1 343.7 aOr 3.9 aOr1 343.7 aXchg 3.9 aXchg1 343.7 aXor 3.9 aXor1 343.7 abs -0.0 acos 32.7 "
      "acos1 23.2 acos4 34.8 add 3.0 add16 1.5 arraybase 13.2 arrayread 297.3 arraywrite 377.1 asin 35.6 "
@@ -55,7 +56,7 @@ inline const Family kFamilies[] = {
      "signbits 5.9 signclamp 5.9 signmad 5.8 signsat 7.8 signsel 10.9 signsel2 4.9 sin 7.9 sincos 16.6 "
      "sinh 19.0 smoothstep 13.8 sqrt 7.7 sqrt16 10.1 sqrtnr0 5.9 step 4.9 sub 3.0 tan 32.3 tanh 30.0 "
      "trunc 3.0 "},
-    {"amd-rdna4", "RDNA 4", 1,
+    {"amd-rdna4", "RDNA 4", 1, "cs",
      "aAdd 15.5 aAdd1 887.1 aAnd 14.8 aAnd1 883.9 aCmpXchg 27.4 aCmpXchg1 877.3 aMax 15.1 aMax1 882.8 "
      "aMin 14.9 aMin1 880.6 aOr 15.1 aOr1 884.2 aXchg 15.0 aXchg1 877.3 aXor 15.4 aXor1 887.0 abs 0.0 "
      "acos 56.0 acos1 40.9 acos4 60.2 add 3.8 add16 3.6 arraybase 30.0 arrayread 481.8 arraywrite 806.4 "
@@ -76,12 +77,12 @@ inline const Family kFamilies[] = {
      "rsqrtnr1 29.5 satmad -0.0 saturate 1.2 select 11.9 selectboth 248.8 sign 38.0 signbits 14.1 "
      "signclamp 10.8 signmad 7.1 signsat 10.1 signsel 23.0 signsel2 10.9 sin 25.6 sincos 53.1 sinh 67.1 "
      "smoothstep 18.5 sqrt 25.4 sqrt16 25.1 sqrtnr0 14.9 step 12.1 sub 4.5 tan 87.3 tanh 88.0 trunc 7.8 "},
-    {"amd-terascale2", "TeraScale 2", 1,
+    {"amd-terascale2", "TeraScale 2", 1, "cs",
      "abs 2.6 add 2.6 ceil 2.6 clamp 5.2 contract 2.6 cos 13.5 div 10.7 divxy 8.2 exp 10.7 exp2 10.6 "
      "floor 2.6 frac 2.6 lerp 5.2 log 10.7 log2 10.6 mad 4.0 mad2 2.6 max 2.6 max3 2.6 min 2.6 minmax 2.6 "
      "mul 2.6 neg 0.0 negabs 2.6 omod2 0.2 omod3 0.2 omodhalf 0.2 pow 23.9 rcp 10.6 rcpmax 10.7 round 2.6 "
      "rsqrt 10.6 satmad 0.0 saturate 0.2 select 5.2 sign 10.9 sin 16.1 sqrt 10.6 step 2.6 sub 2.6 "},
-    {"intel-gen12", "Xe-LP", 2,
+    {"intel-gen12", "Xe-LP", 2, "cs",
      "aAdd 16.7 aAdd1 46.7 aAnd 16.7 aAnd1 450.5 aCmpXchg 30.5 aCmpXchg1 2258.2 aMax 16.4 aMax1 451.6 "
      "aMin 17.2 aMin1 450.7 aOr 16.7 aOr1 450.6 aXchg 16.8 aXchg1 449.9 aXor 16.7 aXor1 449.7 abs 0.0 "
      "acos 43.8 acos1 30.4 acos4 44.8 acosh 25.4 add 3.9 add16 1.9 any3abs 24.6 any3max 25.7 any3or 15.2 "
@@ -106,7 +107,7 @@ inline const Family kFamilies[] = {
      "signclamp 10.9 signmad 7.5 signsat 11.1 signsel 13.9 signsel2 3.2 sin 10.5 sincos 20.7 sinh 25.1 "
      "smoothstep 18.8 sqmax 7.6 sqrt 10.5 sqrt16 12.6 sqrtnr0 7.4 step 7.5 sub 4.1 tan 39.0 tanh 39.5 "
      "trunc 3.8 "},
-    {"intel-gen7.5", "Gen7.5", 1,
+    {"intel-gen7.5", "Gen7.5", 1, "cs",
      "aAdd 46.3 aAdd1 200.5 aAnd 47.7 aAnd1 239.9 aCmpXchg 67.4 aCmpXchg1 240.0 aMax 45.6 aMax1 237.6 "
      "aMin 48.0 aMin1 240.7 aOr 45.6 aOr1 237.2 aXchg 47.7 aXchg1 239.7 aXor 45.8 aXor1 242.5 abs 0.3 "
      "acos 43.1 acos1 24.2 acos4 40.9 add 3.6 add16 3.6 arraybase 30.7 arrayread 37.8 arraywrite 400.7 "
@@ -127,7 +128,7 @@ inline const Family kFamilies[] = {
      "selectboth 54.5 sign 14.7 signbits 7.5 signclamp 12.4 signmad 7.7 signsat 10.0 signsel 19.8 "
      "signsel2 3.6 sin 3.4 sincos 9.6 sinh 13.5 smoothstep 17.6 sqrt 3.4 sqrt16 3.4 sqrtnr0 10.6 step 7.4 "
      "sub 3.6 tan 22.7 tanh 26.6 trunc 3.8 "},
-    {"intel-gen9", "Gen9 / Gen9.5", 5,
+    {"intel-gen9", "Gen9 / Gen9.5", 5, "cs",
      "aAdd 26.5 aAdd1 69.8 aAnd 27.5 aAnd1 220.8 aCmpXchg 38.2 aCmpXchg1 218.4 aMax 26.6 aMax1 220.9 "
      "aMin 26.5 aMin1 220.0 aOr 27.3 aOr1 220.7 aXchg 26.5 aXchg1 220.3 aXor 26.1 aXor1 220.5 abs 0.0 "
      "acos 45.1 acos1 30.8 acos4 45.7 acosh 32.9 add 4.0 add16 2.9 addlshl 10.9 addmax 7.6 addscale3 3.6 "
@@ -158,7 +159,7 @@ inline const Family kFamilies[] = {
      "signsel 10.9 signsel2 3.6 sin 12.2 sincos 22.6 sinh 29.9 smoothstep 18.8 sqmax 7.6 sqrt 12.1 "
      "sqrt16 12.6 sqrtnr0 7.5 step 4.2 sub 4.0 tan 41.1 tanh 46.8 trunc 4.0 udiv 141.2 umod 140.9 "
      "unitf 10.9 utof 3.7 xor3 14.5 "},
-    {"intel-xe2", "Xe2 (Battlemage)", 1,
+    {"intel-xe2", "Xe2 (Battlemage)", 1, "cs",
      "aAdd 29.6 aAdd1 89.5 aAnd 29.6 aAnd1 1790.4 aCmpXchg 128.3 aCmpXchg1 1816.0 aMax 29.7 aMax1 1793.0 "
      "aMin 29.6 aMin1 1793.9 aOr 29.7 aOr1 1785.6 aXchg 29.6 aXchg1 1797.8 aXor 29.6 aXor1 1790.9 abs -0.0 "
      "acos 33.5 acos1 22.8 acos4 40.1 add 3.9 add16 3.9 arraybase 13.7 arrayread 132.5 arraywrite 305.6 "
@@ -179,7 +180,7 @@ inline const Family kFamilies[] = {
      "satmad -0.0 saturate 0.2 select 7.9 selectboth 564.5 sign 11.8 signbits 0.0 signclamp 11.8 "
      "signmad 8.0 signsat 11.7 signsel 11.8 signsel2 3.8 sin 24.4 sincos 254.9 sinh 28.6 smoothstep 19.9 "
      "sqrt 11.9 sqrt16 11.9 sqrtnr0 4.9 step 3.9 sub 3.9 tan 248.9 tanh 44.1 trunc 3.9 "},
-    {"nvidia-ada", "Ada Lovelace", 4,
+    {"nvidia-ada", "Ada Lovelace", 4, "cs",
      "aAdd 0.5 aAdd1 249.6 aAnd 0.5 aAnd1 412.4 aCmpXchg 4.0 aCmpXchg1 852.0 aMax 0.5 aMax1 412.7 aMin 0.5 "
      "aMin1 412.5 aOr 0.5 aOr1 412.5 aXchg 0.5 aXchg1 412.5 aXor 0.5 aXor1 412.4 abs -0.0 acos 41.5 "
      "acos1 26.2 acos4 40.0 add 3.4 add16 3.9 arraybase 25.0 arrayread 26.1 arraywrite 1702.3 asin 45.2 "
@@ -200,7 +201,7 @@ inline const Family kFamilies[] = {
      "selectboth 218.3 sign 27.6 signbits 11.4 signclamp 14.7 signmad 7.0 signsat 10.5 signsel 27.2 "
      "signsel2 6.5 sin 23.9 sincos 47.7 sinh 51.6 smoothstep 17.5 sqrt 23.6 sqrt16 23.9 sqrtnr0 4.5 "
      "step 4.5 sub 3.4 tan 78.8 tanh 79.5 trunc 23.7 "},
-    {"nvidia-ampere", "Ampere", 2,
+    {"nvidia-ampere", "Ampere", 2, "cs",
      "aAdd 3.9 aAdd1 242.6 aAnd 3.9 aAnd1 413.3 aCmpXchg 7.7 aCmpXchg1 852.0 aMax 4.0 aMax1 413.1 aMin 3.9 "
      "aMin1 413.2 aOr 4.0 aOr1 413.1 aXchg 3.9 aXchg1 413.1 aXor 3.9 aXor1 413.1 abs 0.0 acos 41.8 "
      "acos1 26.6 acos4 38.9 add 3.4 add16 3.8 arraybase 24.7 arrayread 26.5 arraywrite 1124.9 asin 45.6 "
@@ -221,7 +222,7 @@ inline const Family kFamilies[] = {
      "select 10.6 selectboth 219.1 sign 27.5 signbits 11.5 signclamp 14.8 signmad 6.9 signsat 10.3 "
      "signsel 27.2 signsel2 6.5 sin 23.9 sincos 47.8 sinh 51.8 smoothstep 17.5 sqrt 23.8 sqrt16 23.9 "
      "sqrtnr0 4.5 step 4.5 sub 3.4 tan 78.6 tanh 79.4 trunc 23.7 "},
-    {"nvidia-blackwell", "Blackwell", 2,
+    {"nvidia-blackwell", "Blackwell", 2, "cs",
      "aAdd -0.2 aAdd1 244.7 aAnd 0.9 aAnd1 399.6 aCmpXchg 7.5 aCmpXchg1 852.0 aMax 0.1 aMax1 399.4 "
      "aMin 0.9 aMin1 410.8 aOr 0.9 aOr1 414.2 aXchg 0.9 aXchg1 411.6 aXor 1.0 aXor1 427.9 abs -0.1 "
      "acos 42.1 add 3.5 add16 3.0 arraybase 25.2 arrayread 25.8 arraywrite 1187.5 asin 45.6 atan 64.5 "
@@ -240,7 +241,7 @@ inline const Family kFamilies[] = {
      "selectboth 215.8 sign 18.0 signbits 9.3 signclamp 10.8 signmad 7.2 signsat 10.7 signsel 14.6 "
      "signsel2 3.0 sin 24.1 sincos 47.6 sinh 51.2 smoothstep 19.2 sqrt 23.2 sqrt16 24.1 step 3.1 sub 3.6 "
      "tan 75.8 tanh 78.7 trunc 23.4 "},
-    {"nvidia-maxwell1", "Maxwell 1", 1,
+    {"nvidia-maxwell1", "Maxwell 1", 1, "cs",
      "aAdd 9.7 aAdd1 305.0 aAnd 9.7 aAnd1 426.0 aCmpXchg 17.3 aCmpXchg1 426.3 aMax 9.7 aMax1 426.0 "
      "aMin 9.7 aMin1 426.1 aOr 9.7 aOr1 426.0 aXchg 9.7 aXchg1 426.0 aXor 9.7 aXor1 425.9 abs 3.5 "
      "acos 44.8 acos1 28.0 acos4 43.8 add 3.5 add16 3.5 arraybase 14.4 arrayread 322.2 arraywrite 1058.7 "
@@ -261,7 +262,7 @@ inline const Family kFamilies[] = {
      "saturate 0.2 select 11.8 selectboth 107.9 sign 9.7 signbits 7.0 signclamp 15.2 signmad 7.1 "
      "signsat 10.5 signsel 15.5 signsel2 7.3 sin 9.9 sincos 20.4 sinh 23.9 smoothstep 18.3 sqrt 23.8 "
      "sqrt16 23.8 sqrtnr0 4.6 step 4.6 sub 3.5 tan 37.1 tanh 37.6 trunc 9.9 "},
-    {"nvidia-maxwell2", "Maxwell 2", 1,
+    {"nvidia-maxwell2", "Maxwell 2", 1, "cs",
      "aAdd 7.2 aAdd1 204.9 aAnd 7.2 aAnd1 431.2 aCmpXchg 15.8 aCmpXchg1 431.3 aMax 7.2 aMax1 431.2 "
      "aMin 7.2 aMin1 431.3 aOr 7.2 aOr1 431.3 aXchg 7.2 aXchg1 431.4 aXor 7.2 aXor1 431.3 abs 3.5 "
      "acos 39.4 acos1 24.7 acos4 39.2 add 3.5 add16 3.5 arraybase 14.5 arrayread 105.8 arraywrite 1102.3 "
@@ -282,7 +283,7 @@ inline const Family kFamilies[] = {
      "satmad -0.0 saturate 0.2 select 11.7 selectboth 108.3 sign 10.2 signbits 7.0 signclamp 15.2 "
      "signmad 7.1 signsat 10.5 signsel 15.3 signsel2 7.3 sin 10.0 sincos 20.5 sinh 24.0 smoothstep 17.6 "
      "sqrt 10.0 sqrt16 10.0 sqrtnr0 4.9 step 4.9 sub 3.5 tan 37.4 tanh 37.9 trunc 10.0 "},
-    {"nvidia-pascal", "Pascal", 4,
+    {"nvidia-pascal", "Pascal", 4, "cs",
      "aAdd 7.2 aAdd1 203.6 aAnd 7.2 aAnd1 430.1 aCmpXchg 15.8 aCmpXchg1 432.5 aMax 7.2 aMax1 430.8 "
      "aMin 7.2 aMin1 430.7 aOr 7.2 aOr1 430.7 aXchg 7.2 aXchg1 430.6 aXor 7.2 aXor1 430.7 abs 3.5 "
      "acos 39.7 acos1 24.7 acos4 40.4 add 3.5 add16 3.5 arraybase 14.4 arrayread 116.3 arraywrite 1406.4 "
@@ -303,7 +304,7 @@ inline const Family kFamilies[] = {
      "satmad -0.0 saturate 0.2 select 12.0 selectboth 107.4 sign 10.3 signbits 7.0 signclamp 17.0 "
      "signmad 7.0 signsat 10.5 signsel 18.0 signsel2 7.7 sin 10.0 sincos 20.3 sinh 24.0 smoothstep 17.6 "
      "sqrt 10.0 sqrt16 9.9 sqrtnr0 6.8 step 6.7 sub 3.5 tan 37.4 tanh 37.8 trunc 10.0 "},
-    {"nvidia-turing", "Turing", 5,
+    {"nvidia-turing", "Turing", 5, "cs",
      "aAdd 0.8 aAdd1 166.8 aAnd 0.8 aAnd1 494.1 aCmpXchg 16.5 aCmpXchg1 1001.3 aMax 0.8 aMax1 494.0 "
      "aMin 0.8 aMin1 494.0 aOr 0.8 aOr1 494.2 aXchg 0.8 aXchg1 494.1 aXor 0.8 aXor1 494.1 abs -0.0 "
      "acos 32.1 acos1 19.6 acos4 35.9 acosh 28.2 add 4.0 add16 2.0 addlshl 4.0 addmax 4.3 addscale3 3.9 "
@@ -334,7 +335,7 @@ inline const Family kFamilies[] = {
      "signsel 12.1 signsel2 0.1 sin 12.0 sincos 24.1 sinh 28.1 smoothstep 20.1 sqmax 4.4 sqrt 12.0 "
      "sqrt16 16.2 sqrtnr0 0.6 step 0.7 sub 4.0 tan 43.6 tanh 44.1 trunc 12.0 udiv 61.2 umod 67.0 unitf 4.0 "
      "utof 8.0 xor3 8.1 "},
-    {"rdna3", "RDNA 3", 1,
+    {"rdna3", "RDNA 3", 1, "cs",
      "aAdd 14.5 aAdd1 900.4 aAnd 14.3 aAnd1 904.0 aCmpXchg 29.3 aCmpXchg1 896.2 aMax 14.9 aMax1 902.5 "
      "aMin 14.3 aMin1 900.4 aOr 14.6 aOr1 900.6 aXchg 15.3 aXchg1 903.6 aXor 14.8 aXor1 901.9 abs -0.0 "
      "acos 54.4 add 3.7 add16 3.7 arraybase 31.3 arrayread 381.0 arraywrite 626.7 asin 58.7 atan 87.4 "

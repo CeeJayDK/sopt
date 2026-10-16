@@ -30,7 +30,7 @@
 
 <table>
   <tr><th>Key</th><th>What it does</th></tr>
-  <tr><td><kbd>1</kbd></td><td>Every graphics card in the PC: ShaderInfo, then OpBench and TexBench for each card (about 5 to 15 minutes per card). With one card, that card. This is the one to use.</td></tr>
+  <tr><td><kbd>1</kbd></td><td>Every graphics card in the PC: ShaderInfo, then OpBench, StageBench and TexBench for each card (about 10 to 25 minutes per card). With one card, that card. This is the one to use.</td></tr>
   <tr><td><kbd>2</kbd></td><td>Main graphics card only (on a laptop with built-in and dedicated graphics: the dedicated one).</td></tr>
   <tr><td><kbd>3</kbd></td><td>Another graphics card: shows the cards in the PC, you type the number of the one to measure.</td></tr>
   <tr><td><kbd>4</kbd> <kbd>5</kbd> <kbd>6</kbd></td><td>OpBench, TexBench or ShaderInfo alone, on the main graphics card.</td></tr>
@@ -46,6 +46,7 @@
 <table>
   <tr><th>File</th><th>What</th></tr>
   <tr><td><code>Reports\opbench-&lt;GPU&gt;.csv</code></td><td>OpBench's results</td></tr>
+  <tr><td><code>Reports\stagebench-ps-&lt;GPU&gt;.csv</code>, <code>-vs-</code></td><td>StageBench's results: OpBench's tests in pixel and in vertex shaders (what ReShade effects run), with the pixel shader extras (ddx / ddy, clip)</td></tr>
   <tr><td><code>Reports\texbench-&lt;GPU&gt;.csv</code></td><td>TexBench's results</td></tr>
   <tr><td><code>Reports\texbench-&lt;GPU&gt;-order*.png</code></td><td>pictures of the order in which the card shades pixels</td></tr>
   <tr><td><code>Reports\shaderinfo-&lt;GPU&gt;.txt</code></td><td>what the driver reports about compiled shaders</td></tr>

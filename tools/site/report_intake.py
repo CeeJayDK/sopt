@@ -116,7 +116,7 @@ def numeric_rows(text, minimum):
 
 
 def classify(name, data):
-    """('opbench' | 'texbench' | 'shaderinfo' | 'png' | None, text or None)."""
+    """('opbench' | 'texbench' | 'stagebench' | 'shaderinfo' | 'png' | None, text or None)."""
     low = name.lower()
     if low.endswith(".png"):
         return ("png", None) if data[:8] == b"\x89PNG\r\n\x1a\n" else (None, None)
@@ -130,6 +130,8 @@ def classify(name, data):
         return "opbench", text
     if re.match(r"# TexBench \d", text) and "# gpu:" in text and numeric_rows(text, 20):
         return "texbench", text
+    if re.match(r"# StageBench \d", text) and re.search(r"^# stage: (ps|vs)$", text, re.M) and "# gpu:" in text and numeric_rows(text, 20):
+        return "stagebench", text
     if text.startswith("GPU: ") and low.endswith(".txt"):
         return "shaderinfo", text
     return None, None
@@ -196,13 +198,15 @@ def fetch(work):
                     vid, dev = int(h.get("vendor", "0"), 16), int(h.get("device", "0"), 16)
                     version = text.split("\n", 1)[0][2:]
                 folder = "docs/" + kind
+                os.makedirs(os.path.join(ROOT, folder), exist_ok=True)
                 if known(folder, text):
                     resent += 1
                     stem = os.path.splitext(name)[0]
                     for suffix in ("-order.png", "-order-zoom.png"):
                         pngs.pop(stem + suffix, None)
                     continue
-                base = free_name(folder, slug(gpu, vid, dev), ".txt" if kind == "shaderinfo" else ".csv")
+                stem = slug(gpu, vid, dev) + ("-" + h["stage"] if kind == "stagebench" else "")
+                base = free_name(folder, stem, ".txt" if kind == "shaderinfo" else ".csv")
                 ext = ".txt" if kind == "shaderinfo" else ".csv"
                 out = [os.path.join(folder, base + ext)]
                 with open(os.path.join(ROOT, out[0]), "w", encoding="utf-8", newline="\n") as f:

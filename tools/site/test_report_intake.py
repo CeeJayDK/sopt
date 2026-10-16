@@ -28,6 +28,9 @@ def test_classify():
     assert ri.classify("x.csv", b"\xff\xfe junk") == (None, None)
     assert ri.classify("x.txt", b"GPU: Foo\n")[0] == "shaderinfo"
     assert ri.classify("x.csv", b"GPU: Foo\n") == (None, None)
+    stage = b"# StageBench 0.7.9\n# stage: ps\n# gpu: Foo\nconfig,test\n" + b"tput,a,1.0\n" * 30
+    assert ri.classify("stagebench-ps-Foo.csv", stage)[0] == "stagebench"
+    assert ri.classify("x.csv", stage.replace(b"# stage: ps\n", b""))[0] is None
     assert ri.classify("x.png", b"\x89PNG\r\n\x1a\nrest")[0] == "png"
     assert ri.classify("x.png", b"<html>") == (None, None)
 

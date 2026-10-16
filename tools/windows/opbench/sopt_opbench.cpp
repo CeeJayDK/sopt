@@ -782,7 +782,7 @@ FamilyCosts familyOf(const std::string& gpuName, unsigned deviceId) {
     if (!model && std::regex_search(name, std::regex(r.pattern))) model = r.model;
   if (!model) return fc;
   for (const expected::Family& f : expected::kFamilies)
-    if (std::strcmp(f.model, model) == 0) fc.family = &f;
+    if (std::strcmp(f.model, model) == 0 && std::strcmp(f.stage, stageName()) == 0) fc.family = &f;
   if (!fc.family) return fc;
   std::istringstream in(fc.family->costs);
   std::string test;

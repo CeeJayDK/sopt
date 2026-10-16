@@ -92,11 +92,11 @@ def read_report(path):
     with open(path, encoding="utf-8", errors="replace") as f:
         lines = f.read().splitlines()
     for line in lines:
-        m = re.match(r"# (OpBench|TexBench) (\S+)", line)
+        m = re.match(r"# (OpBench|TexBench|StageBench) (\S+)", line)
         if m:
             info["tool"] = m.group(1)
             info["version"] = m.group(2)
-        m = re.match(r"# (gpu|vendor|device|driver): (.*)", line)
+        m = re.match(r"# (gpu|vendor|device|driver|stage): (.*)", line)
         if m:
             info[m.group(1)] = m.group(2).strip()
     if "gpu" not in info:  # version 1: gpu,vendor,device,driver on every row
