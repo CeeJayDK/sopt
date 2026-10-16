@@ -591,8 +591,9 @@ std::string shaderSource(const Test& t, int chains) {
     s += "    }\n";
   }
   s += "  }\n";
-  // The chains' sum: written to the buffer, returned as the pixel, or as an off-screen point's position.
-  s += gStage == Stage::Pixel ? "  return float4(0.0" : gStage == Stage::Vertex ? "  return float4(4.0 + 1e-30 * (0.0" : "  O[id.x] = 0.0";
+  // The chains' sum: written to the buffer, returned as the pixel, or as an off-screen point's position (x = 4 + |sum|;
+  // 4 + 1e-30 * sum let fxc fold bounded sums, the integer chains' float(x & 1023u), into a constant: StageBench 0.7.8).
+  s += gStage == Stage::Pixel ? "  return float4(0.0" : gStage == Stage::Vertex ? "  return float4(4.0 + abs(0.0" : "  O[id.x] = 0.0";
   for (int k = 0; k < chains; ++k) {
     const std::string x = "x" + std::to_string(k);
     const std::string type = typeOf(k);

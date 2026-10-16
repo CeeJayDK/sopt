@@ -1705,6 +1705,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   mul; only /Od (no optimization) keeps a plain mul l(2.0). OpBench scale tests compiled with /Od (trial build, not
   kept) on the GTX 1660: scale2 0.00 like x4 / x8 / x0.5 / x0.25 / x0.125; x3, x16, x1/16 and negatives ~1: the
   driver does give x2 for free when the DXBC has the multiply. fxc's x + x / dp2 rewrite alone costs it on D3D.
+  StageBench 0.7.8, owner's GTX 1660 (617.42; ps drift 35%, vs 41%; reports not kept: vs had a bug): the vertex run's
+  output 4 + 1e-30 * sum let fxc fold every integer test (float(x & 1023u) is bounded) and mad16v3 / cvt1 / int into
+  mov o0, (4, 4, 0.5, 1): all 0. Fixed (x = 4 + |sum|); integer tests then ~1 fma like ps / cs. Pixel against compute
+  (fma units): a multiply by a uniform before an fma costs 1.0 in ps and vs, 0.12 in cs (the driver merges x * (c.z *
+  c.x) only in compute; radians / degrees too), iadd 1.0 against 0.08, popc 1.0 / 1.9, fbh 2.1 / 3.0, local array
+  read 0.65 / 10.8 (vs 15.5), write 42 / 171 (vs 184), static const array 13.5 / 59 (vs 58). Derivatives (ps): ddx /
+  ddy and the coarse forms 6.0, the fine forms 2.0, fwidth 9.9, clip 0.6: on Turing fine derivatives are 3x cheaper
+  than coarse (and than plain ddx). Everything else within noise of compute.
   GPU Blueprint 0.7.8 (owner's go): with two cards the menu names
   them on keys 2 / 3 (OpBench / TexBench --adapters print "index name", (R) / (TM) dropped); after "send" (Y) the
   reports move to Reports\Sent, so the next zip holds only new ones; report_intake.py skips reports already saved.
