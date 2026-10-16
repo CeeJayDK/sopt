@@ -54,6 +54,17 @@ free instruction slots (SM3: 512).
    any split costs more than the plain mul / mad chain.
 6. **Constant folding through saturate (harmless, note only).** fxc tracks value ranges across unrolled code and
    folds what becomes constant; keep in mind when writing tests.
+8. **Integer shift + add -> imul (candidate, from Emil Persson's DX11 talk, slides 53-55).** fxc writes `(x << 2) + x`
+   as `imul x, 5` and `(x << 3) - x` as `imul x, 7` (checked with fxc -O3). Integer multiplies are quarter rate on AMD
+   (shl + add is one v_lshl_add); NVIDIA Turing+ has a full-rate IMAD. OpBench pair shladd5 / shladd5-od (0.7.11).
+9. **Rotates (candidate).** fxc writes a constant rotate as `ushr` + `bfi`; NVIDIA has a one-instruction funnel shift
+   (SHF). OpBench pair irot / irot-od (0.7.11). GTX 1660 (measured): fxc's ushr + bfi 1.78 fma, the plain shl / shr /
+   or compiled with /Od 0.88: the driver makes one funnel shift of the plain form, not of fxc's. shladd5 is free on
+   the 1660 both ways (IMAD); AMD reports will tell.
+10. **Checked, not fxc's doing (2026-10-16, from a list another assistant suggested):** `a * b + a * c` is not factored
+   (it becomes `dp2`, like x * 2); bit select `(a & m) | (b & ~m)`, min / max / median networks and bool-to-float
+   arithmetic stay as written; saturate keeps its place before a scale. Stephen Hill's "Righting Wrap, Part 2" (fxc
+   misoptimising when it knows constant values, DX9 / Xbox 360) is not reproduced yet.
 7. **D3D9 round (behavior).** For SM3 fxc writes `round(x)` as `floor(x + 0.5)` (halves up); SM4+ uses `round_ne`.
 
 OpBench 0.7.8 runs pairs (section "fxc's rewrites": sqmax, scale2, scale4, sign, clamp, lerp, smoothstep, fmod,

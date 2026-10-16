@@ -1713,6 +1713,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   read 0.65 / 10.8 (vs 15.5), write 42 / 171 (vs 184), static const array 13.5 / 59 (vs 58). Derivatives (ps): ddx /
   ddy and the coarse forms 6.0, the fine forms 2.0, fwidth 9.9, clip 0.6: on Turing fine derivatives are 3x cheaper
   than coarse (and than plain ddx). Everything else within noise of compute.
+  fxc candidates from another assistant (owner, 2026-10-16), checked with fxc -O3: (x << 2) + x -> imul x, 5 (Persson's
+  DX11 talk) and rotates -> ushr + bfi are fxc's doing; a * b + a * c (dp2, not factored), bit select, min / max /
+  median networks, bool arithmetic stay as written. OpBench 0.7.11 pairs shladd5 / irot (+ -od). GTX 1660: shladd5
+  -0.10 / -0.03 (IMAD absorbs it), irot 1.78 / 0.88 (fxc's bfi form loses the funnel shift). Brief items 8-10.
   Owner's 0.7.10 run (2026-10-16): GTX 1660 (OpBench drift 68%, TexBench 46%) and UHD 630 (OpBench 1.5%, TexBench 9%,
   191 s): TexBench ran through on the UHD 630 (the flush). StageBench ps / vs for both (the 1660's 0.7.10 ps run has
   neg 0.32, unclean; its 0.7.8 ps run is kept as nvidia-gtx-1660-ps-2, valid there). Blur tests, 1660 / UHD 630 (ms):
