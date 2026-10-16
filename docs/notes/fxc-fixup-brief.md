@@ -91,6 +91,10 @@ Linux): `fadd a, a -> fmul a, 2.0` (line ~274) undoes fxc's x2 rewrite before th
 0) -> -b2i(a), and of a mask -> bcsel, imax / umax of masks = and / or, shifts of masks), b2f(compare) * x -> x or a
 select (fxc's `and r, cmp, 0x3f800000` then mul), D3D9 trunc (floor + compare fix-ups -> ftrunc), DXVK's (a >> b) << b
 -> and. Windows drivers apparently lack the x2 one (GTX 1660: x2 not free after fxc).
+Vulkan on NVIDIA (2026-10-17, GTX 1660, 617.42): 32 x max(a * b * k, a) in a compute shader compiled to SPIR-V by DXC
+(keeps OpFMul by 2.0), ShaderInfo --spv, NVIDIA's reported binary size: k = 2 4736 bytes, k = 4 4736, k = 3 5248 (+32
+instructions of 16 bytes). x2 is free when the driver gets a multiply: the Vulkan path (ReShade writes SPIR-V itself,
+no fxc) keeps it; only D3D loses it to fxc. Intel (UHD 630): 170 instructions for both k = 2 and 3 (no free scales).
 Tools that show the GPU's own instructions (2026-10-17): NVIDIA Nsight Graphics shows SASS only in its Pro build
 (NDA); the public build shows DXIL / SPIR-V. Intel GPA reached end of life (2025.1 final, downloads ended 2025); its
 shader profiler needed Iris Xe or newer. AMD: RGA. So measure (OpBench pairs) rather than read the ISA.
