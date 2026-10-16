@@ -1757,6 +1757,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   intermediate assembly (!!NVfp5.0 in glGetProgramBinary) keeps MUL.F32 R, R, {2} like {4}: no add rewrite in the GL
   front end. ReShade 6.8.0 effect_codegen_spirv.cpp emit_binary_op maps * to OpFMul with no special case (read in the
   source, not run). So x2 stays free on NVIDIA under Vulkan and OpenGL; only D3D (fxc) loses it.
+  End to end (owner: test with the Test Host, 2026-10-17): Effects\sopt_x2.fx (max(a * b * 2 / 4 / 3, a)) run by
+  run-test.ps1 on Vulkan and D3D11 (GTX 1660); ReShade's cache (%TEMP%\ReShade, reshade-<effect>-<renderer>-...cso /
+  .asm = what it hands the driver): Vulkan SPIR-V has OpFMul %62 2.0 (and 4.0, 3.0); D3D11 has add r0.z, r0.y, r0.y
+  for x2, mul for x4 / x3. With the driver tests above: free x2 on NVIDIA under Vulkan, lost under D3D to fxc.
   NVIDIA forum thread "The curious case of the missing multiply-by-2" (owner's find, 2026-10-16; details in the fxc
   brief): CUDA loses FMUL.M2 the same way (nvcc writes * 2 as an add, ptxas does not fold it). So the earlier note
   "Vulkan / OpenGL keep the multiply" is unverified: NVIDIA's GLSL / SPIR-V front end may do the same as nvcc.
