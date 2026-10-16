@@ -1723,6 +1723,8 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   needs instruction-level parallelism (48 cores per SM, dual issue); no free scales (scale4 0.47 = scale3); rcp /
   exp2 / sin 3.1, sqrt 7.1, sign 3.1 (signmad 1.5), ddx 3.6 / ddx_fine 1.7, fwidth 5.6, arrays 5.2-5.6, udiv 11.4,
   min16float runs at 32 bits; fxc pairs: irot 3.0 = irot-od, shladd5 0.9 / 1.05. No cost model yet (Fermi).
+  Second NVS 310 run (same driver 353.62): StageBench ps 0.9% / vs 0.01% drift (vs-2 is the clean vertex run);
+  OpBench / TexBench stopped the same way at their first compute dispatch. Next: driver update (Fermi's last is 39x).
   HD 6450 (owner, 2026-10-16): TexBench stopped at "RGBA32F aniso 16x" (one run too long). calibrate() ran the first
   run at full size (pixel tests always 1024 x 1024; compute only shrank after a full-size run): now it starts at
   kMinGroups / kMinRows (16 rows of 1024) and grows the size up to an 8 ms run, then the iterations up to 2 ms; run()
