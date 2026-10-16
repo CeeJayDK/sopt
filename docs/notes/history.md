@@ -1695,6 +1695,48 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   RGBA16F 2.77 / 2.77 / 1.66 / 1.65: Gen9 compresses smooth and flat, not noise (alpha 1 alone does not help).
   The zip resent the earlier GTX 1660 OpBench / TexBench and both ShaderInfo files unchanged (it holds every report in
   Reports\, not only the run's): skipped.
+  Owner (2026-10-16): fxc writing every x * 2.0 as x + x (D3D never gets NVIDIA's free x2 / AMD's omod x2) is worth a
+  bug report, but fxc (d3dcompiler_47) is frozen (DXC replaced it); the realistic route is the drivers (fold an add
+  x + x right after a multiply into its post-scale). Checked with fxc -O3 (2026-10-16): x * 2.0 -> add x, x;
+  a * b * 2.0 -> dp2 (a * b + a * b, also with a uniform); float4 a * b * 2.0 -> mul + add; rcp(x) * 2.0 -> add; * 4.0
+  stays a mul. Only `precise` keeps mul l(2.0), but a trial on the GTX 1660 (scale2p / scale4p through a precise
+  helper, not kept) cost 0.95 for both: precise stops the driver's free scales altogether (x4 too), so it cannot show
+  the hardware x2 (nouveau says FMUL has it). fxc options (SDK fxc.exe): /O0-/O3, /Gpp, /Gfp: add / dp2; /Gis: precise
+  mul; only /Od (no optimization) keeps a plain mul l(2.0). OpBench scale tests compiled with /Od (trial build, not
+  kept) on the GTX 1660: scale2 0.00 like x4 / x8 / x0.5 / x0.25 / x0.125; x3, x16, x1/16 and negatives ~1: the
+  driver does give x2 for free when the DXBC has the multiply. fxc's x + x / dp2 rewrite alone costs it on D3D.
+  StageBench 0.7.8, owner's GTX 1660 (617.42; ps drift 35%, vs 41%; reports not kept: vs had a bug): the vertex run's
+  output 4 + 1e-30 * sum let fxc fold every integer test (float(x & 1023u) is bounded) and mad16v3 / cvt1 / int into
+  mov o0, (4, 4, 0.5, 1): all 0. Fixed (x = 4 + |sum|); integer tests then ~1 fma like ps / cs. Pixel against compute
+  (fma units): a multiply by a uniform before an fma costs 1.0 in ps and vs, 0.12 in cs (the driver merges x * (c.z *
+  c.x) only in compute; radians / degrees too), iadd 1.0 against 0.08, popc 1.0 / 1.9, fbh 2.1 / 3.0, local array
+  read 0.65 / 10.8 (vs 15.5), write 42 / 171 (vs 184), static const array 13.5 / 59 (vs 58). Derivatives (ps): ddx /
+  ddy and the coarse forms 6.0, the fine forms 2.0, fwidth 9.9, clip 0.6: on Turing fine derivatives are 3x cheaper
+  than coarse (and than plain ddx). Everything else within noise of compute.
+  Owner's UHD 620 (101.2145, GPU Blueprint 0.7.9, drift 29-35%): first StageBench ps / vs reports (docs/stagebench).
+  Gen9 like Turing: a multiply by a uniform before an fma, radians, degrees cost 0.02 in cs, 1.0 in ps / vs; also
+  higher in ps: step 1.05 -> 1.87, div 2.9 -> 3.7, fmod / modf +1, fbh +1, ftou +0.5; isnan 1.8 in cs, 0 in ps; fp16:
+  mad16v3 -1.18 in cs (packed gain) but +0.25 in ps, mul16 0.19 -> 0.74 (Gen9's fp16 gain is a compute effect: check
+  before fp16 variants for effects). vs = ps except arrays (constarray 23 / 51, arrayread 6.2 / 9.0) and branchdiv
+  30 / 13. fxc pairs: no free scale on Gen9 either way; the rest within the 35% drift. TexBench stopped after the
+  formats section again (lat "RGBA32I random", 378 rows: the third Gen9 run there). Suspect: released 4096^2
+  RGBA32 textures (256 MB) piling up in shared memory (D3D11 destroys late, TexBench never flushed). 0.7.10:
+  Flush after every test; fail() appends "# stopped: <reason> (while measuring ...)" to the report (gReportPath).
+  GPU Blueprint 0.7.8 (owner's go): with two cards the menu names
+  them on keys 2 / 3 (OpBench / TexBench --adapters print "index name", (R) / (TM) dropped); after "send" (Y) the
+  reports move to Reports\Sent, so the next zip holds only new ones; report_intake.py skips reports already saved.
+  TexBench 0.7.8: topt's wishlist (docs/notes/topt-requests.md) in the normal run (owner: numbers wanted from every
+  card), Stage::Blur (one runner: chain draws / dispatches of a shader, ms per unit, CSV config "pass" with the base and
+  the cost per read / lookup in units_vs_base): P1 pass chains, P3 reads per pixel, P4 target size, P5 quad exchange,
+  P6 noise sources, P7 fetch order, P8 branches, P9 dispatch chains; P10 bands (vertex shader / stencil / discard, 25%)
+  in Pass states. Not done: P2 (Test Host), P9's groupshared float4 rate. First GTX 1660 run (92 tests, ~20 s):
+  one more pass ~3.4 us at 1/64, ~1.6 us at 1/256; dispatches ~2.3 us each; reads per pixel 1-4 flat (0.42-0.45 ms),
+  then ~0.06 ms per read; target size 1/4 0.26, 1/16 0.23 (source reads at stride 4 bound), 1/64 0.10, 1/256 0.026,
+  1/1024 0.011 ms; quad exchange 6.3 fma (float3), 4 reads + 12 exchanges 0.64 ms against 16 reads 1.14; noise x1 all
+  free (the R8 pass is fill bound at 0.11 ms), x8 per lookup: textures 10.5-11.8 fma at every size 4^2-512^2 (R8 / RG8),
+  RGBA8 / two 4-bit / Load ~15, table[16] 74 (an indexed constant array), IGN 5, R2 2, Hoskins hash22 26; fetch order
+  within 2% except 81 random +7%; loop uniform n 16 1.01 ms < unrolled 1.15, n 8 0.87, per-pixel n (avg 8) 0.95;
+  bands: vertex 0.407 = stencil 0.409, discard 0.491 ms.
   Owner's go (2026-10-06): cost model `intel-gen12` (kIntelGen12, search order, SweetOpt.bat key K, site Xe-LP + MODEL_RULES
   "Iris Xe | UHD Graphics 7xx", expected.hpp family regenerated): gen9's row with math unit / exp / log / div 11, pow 25,
   step 7, sign 18, imul 8. Targeted searches (ff/, 15 s): sign 18 -> 9 (mad_sat form); round / floor / frac / ceil / lerp /

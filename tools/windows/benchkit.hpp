@@ -16,6 +16,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <functional>
 #include <stdexcept>
@@ -41,6 +42,9 @@ inline const char* gProgram = "bench";
 // The test being measured, named in error messages (a GPU that stops responding names its test), and the GPU
 // (both in the window title).
 inline std::string gCurrent;
+// The report being written: a run that stops with an error appends "# stopped: ..." to it, so the report says why
+// (owner, 2026-10-16: TexBench stopped early on Gen9 cards and the reason was only on screen).
+inline std::string gReportPath;
 inline std::string gGpu;
 
 // Everything printed with print() (all but the progress bar), saved for the user by saveScreen (owner, 2026-10-12: a
@@ -154,6 +158,11 @@ inline thread_local bool gWorker = false;
   setTitle("stopped (error)");
   std::fprintf(stderr, "\n%s: %s\n", gProgram, what.c_str());
   if (!gCurrent.empty()) std::fprintf(stderr, "%s: while measuring \"%s\"\n", gProgram, gCurrent.c_str());
+  if (!gReportPath.empty())
+    if (FILE* f = std::fopen(gReportPath.c_str(), "ab")) {
+      std::fprintf(f, "# stopped: %s (while measuring \"%s\")\n", what.c_str(), gCurrent.c_str());
+      std::fclose(f);
+    }
   std::exit(1);
 }
 
@@ -640,7 +649,11 @@ inline void printUniqueAdapters() {
               e.DedicatedVideoMemory == d.DedicatedVideoMemory);
     if (dup) continue;
     seen.push_back(d);
-    print("%u\n", k);
+    // The name too, without (R) / (TM): the menu offers each card by name (owner, 2026-10-16).
+    std::string name = narrow(d.Description);
+    for (const char* mark : {"(R)", "(TM)"})
+      for (size_t at; (at = name.find(mark)) != std::string::npos;) name.erase(at, std::strlen(mark));
+    print("%u %s\n", k, name.c_str());
   }
   factory->Release();
 }

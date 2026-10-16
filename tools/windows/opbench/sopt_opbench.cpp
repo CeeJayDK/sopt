@@ -77,6 +77,8 @@ struct Test {
   // pairCount > 0 lets the last pairCount chains run pairStep instead of the odd ones (4 fma + 1 rcp: VLIW's t slot).
   int chains = 0;
   int pairCount = 0;
+  // Compiled without fxc's optimizer (/Od, D3DCOMPILE_SKIP_OPTIMIZATION): an "-od" twin of a test (see kOdPairs).
+  bool od = false;
 };
 enum { kGroupshared = 1, kLocalArray = 2, kPixelOnly = 4 };  // kPixelOnly: derivatives / clip (StageBench's pixel run)
 
@@ -465,6 +467,35 @@ const Test kTests[] = {
     {"clip", "clip(x + 2.0); x = mad(x, c.x, c.y);", 0.5f, 0.5f, 0.0f, 0.0f, "mad", "clip that never discards", "float", kPixelOnly},
 };
 
+// fxc's rewrites (owner, 2026-10-16: data for a separate fxc fix-up project, docs/notes/fxc-fixup-brief.md): these
+// tests also run as "<name>-od", the same step compiled without fxc's optimizer, so the driver sees the step as
+// written. fxc writes x * 2 as add x, x / dp2 (the GTX 1660 then loses its free x2), sign as lt, lt, iadd, itof, clamp
+// as max + min, and expands lerp / smoothstep / fmod / atan2 its own way. A twin's base is the base's twin when the
+// base is in the list too.
+const char* const kOdPairs[] = {"sqmax", "scale2", "scale4", "sign", "clamp", "lerp", "smoothstep", "fmod", "atan2"};
+
+// kTests and the -od twins.
+const std::vector<Test>& allTests() {
+  static const std::vector<Test> all = [] {
+    static std::vector<std::string> names;  // the twins' names and bases (Test holds const char*)
+    names.reserve(2 * std::size(kOdPairs));
+    std::vector<Test> v(std::begin(kTests), std::end(kTests));
+    for (const char* n : kOdPairs)
+      for (const Test& t : kTests)
+        if (std::strcmp(t.name, n) == 0) {
+          Test u = t;
+          u.name = names.emplace_back(std::string(n) + "-od").c_str();
+          if (t.base && std::find_if(std::begin(kOdPairs), std::end(kOdPairs), [&](const char* b) { return std::strcmp(b, t.base) == 0; }) != std::end(kOdPairs))
+            u.base = names.emplace_back(std::string(t.base) + "-od").c_str();
+          u.note = "fxc /Od: the step as written";
+          u.od = true;
+          v.push_back(u);
+        }
+    return v;
+  }();
+  return all;
+}
+
 constexpr int kUnroll = 16;          // steps per loop iteration, each with its own constants
 constexpr UINT kGroupSize = 64;
 constexpr UINT kGroupsFull = 16384;  // 1M threads
@@ -560,8 +591,9 @@ std::string shaderSource(const Test& t, int chains) {
     s += "    }\n";
   }
   s += "  }\n";
-  // The chains' sum: written to the buffer, returned as the pixel, or as an off-screen point's position.
-  s += gStage == Stage::Pixel ? "  return float4(0.0" : gStage == Stage::Vertex ? "  return float4(4.0 + 1e-30 * (0.0" : "  O[id.x] = 0.0";
+  // The chains' sum: written to the buffer, returned as the pixel, or as an off-screen point's position (x = 4 + |sum|;
+  // 4 + 1e-30 * sum let fxc fold bounded sums, the integer chains' float(x & 1023u), into a constant: StageBench 0.7.8).
+  s += gStage == Stage::Pixel ? "  return float4(0.0" : gStage == Stage::Vertex ? "  return float4(4.0 + abs(0.0" : "  O[id.x] = 0.0";
   for (int k = 0; k < chains; ++k) {
     const std::string x = "x" + std::to_string(k);
     const std::string type = typeOf(k);
@@ -727,6 +759,9 @@ const char* const kDisplayOrder[] = {
     "fma+minmax", "fma+cvt", "fma+rcp", "fma+half", "fma4+rcp",
     "#Parallel issue: how many fmas at once (Cost per fma with 1 to 6 independent chains per thread; the same as 8 = scalar)",
     "ilp1", "ilp2", "ilp3", "ilp4", "ilp5", "ilp6",
+    "#fxc's rewrites: as fxc -O3 writes the step, then as written (-od: compiled without fxc's optimizer)",
+    "sqmax", "sqmax-od", "scale2", "scale2-od", "scale4", "scale4-od", "sign", "sign-od", "clamp", "clamp-od", "lerp",
+    "lerp-od", "smoothstep", "smoothstep-od", "fmod", "fmod-od", "atan2", "atan2-od",
     "#Pixel shaders only", "ddx", "ddy", "ddx_coarse", "ddy_coarse", "ddx_fine", "ddy_fine", "fwidth", "clip"};
 
 // What other cards of this card's family measure (expected.hpp, from the reports in docs/opbench; owner,
@@ -747,7 +782,7 @@ FamilyCosts familyOf(const std::string& gpuName, unsigned deviceId) {
     if (!model && std::regex_search(name, std::regex(r.pattern))) model = r.model;
   if (!model) return fc;
   for (const expected::Family& f : expected::kFamilies)
-    if (std::strcmp(f.model, model) == 0) fc.family = &f;
+    if (std::strcmp(f.model, model) == 0 && std::strcmp(f.stage, stageName()) == 0) fc.family = &f;
   if (!fc.family) return fc;
   std::istringstream in(fc.family->costs);
   std::string test;
@@ -895,13 +930,14 @@ int main(int argc, char** argv) {
   for (char& ch : prefix) ch = char(std::tolower((unsigned char)ch));
   if (gStage != Stage::Compute) prefix += std::string("-") + stageName();
   if (outPath.empty()) outPath = (reports / (prefix + "-" + safeName + ".csv")).string();
+  gReportPath = outPath;
   const std::filesystem::path dxbcDir =
       reports / "Shaders" / (std::string(kTool) + (gStage == Stage::Compute ? "" : std::string("-") + stageName()));
   std::filesystem::create_directories(dxbcDir);
 
   // Compile every test for every configuration (chains differ).
   std::vector<const Test*> tests;
-  for (const Test& t : kTests)
+  for (const Test& t : allTests())
     if (runsHere(t) && (filter.empty() || std::string(t.name).find(filter) != std::string::npos || !t.base ||
                         std::strcmp(t.name, "mad") == 0))
       tests.push_back(&t);
@@ -910,7 +946,7 @@ int main(int argc, char** argv) {
     added = false;
     for (const Test* t : std::vector<const Test*>(tests))
       if (t->base && std::none_of(tests.begin(), tests.end(), [&](const Test* u) { return std::strcmp(u->name, t->base) == 0; }))
-        for (const Test& u : kTests)
+        for (const Test& u : allTests())
           if (std::strcmp(u.name, t->base) == 0) {
             tests.push_back(&u);
             added = true;
@@ -930,14 +966,14 @@ int main(int argc, char** argv) {
       ID3DBlob* err = nullptr;
       const char* profile = gStage == Stage::Pixel ? "ps_5_0" : gStage == Stage::Vertex ? "vs_5_0" : "cs_5_0";
       if (FAILED(D3DCompile(src.data(), src.size(), t->name, nullptr, nullptr, "main", profile,
-                            D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err)))
+                            t->od ? D3DCOMPILE_SKIP_OPTIMIZATION : D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err)))
         fail(std::string("cannot compile test ") + t->name + ":\n" + (err ? (const char*)err->GetBufferPointer() : ""));
       if (std::strcmp(c.name, "tput") == 0) {  // disassembly of the throughput version
         ID3DBlob* dis = nullptr;
         if (SUCCEEDED(D3DDisassemble(code->GetBufferPointer(), code->GetBufferSize(), 0, nullptr, &dis))) {
           if (FILE* f = std::fopen((dxbcDir / (std::string(t->name) + ".txt")).string().c_str(), "wb")) {
             std::fwrite(src.data(), 1, src.size(), f);
-            std::fputs("\n// ---- DXBC (D3DCompile -O3) ----\n", f);
+            std::fputs(t->od ? "\n// ---- DXBC (D3DCompile /Od) ----\n" : "\n// ---- DXBC (D3DCompile -O3) ----\n", f);
             std::fwrite(dis->GetBufferPointer(), 1, dis->GetBufferSize() - 1, f);
             std::fclose(f);
           }

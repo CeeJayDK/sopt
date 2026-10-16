@@ -155,9 +155,10 @@ const char* const kMatrixCols[] = {"Load", "point", "bilinear", "gather", "trili
 
 // Pass state tests (full-screen passes into 3840 x 2160, ms per pass).
 enum { kPassTargets = 1, kPassClear, kPassMips, kPassHeavy, kPassStencil, kPassDiscardTiles, kPassDiscardPixels,
-       kPassCopySample, kPassCopyLoad, kPassDownBilinear, kPassDownLoad };
+       kPassCopySample, kPassCopyLoad, kPassDownBilinear, kPassDownLoad, kPassBands, kPassStencilBands,
+       kPassDiscardBands };
 
-enum class Stage { Compute, Pixel, Write, Blend, Pass };
+enum class Stage { Compute, Pixel, Write, Blend, Pass, Blur };
 // Plain / Mipped: 2D size x size; Lut1D: 2D size x 1; Lut3D: 3D size^3; Tex1D: a real 1D texture;
 // Vol: 3D size x size x depth; Lut2D: 2D (size * size) x size (a 3D LUT as slices side by side).
 // Storage: a 2D size x size texture written by the compute shader (storage / RWTexture2D at u1).
@@ -193,6 +194,16 @@ struct Test {
   int count = 1;             // pass state test: render targets
   bool skipDep = false;      // runs in tput and lat only (dep equals tput for reads: see runsIn)
   bool psPixel = false;      // pixel shader: P is the pixel's own texel (1:1), scale is free for the step
+  // Blur building blocks (Stage::Blur): one unit = chain draws of the shader src into tw x th targets. chainMode
+  // 0: each draw reads the 3840 x 2160 image, 1: draw k reads target k (chain + 1 targets), 2: two targets in
+  // turn, 3: the same with compute dispatches. base / count / per: the cost per read or lookup over base.
+  std::string src;
+  UINT tw = 0, th = 0;
+  int chain = 1, chainMode = 0;
+  const Format* noiseFormat = nullptr;  // t1: a noise texture noiseSize x noiseSize (point, wrap at s1)
+  UINT noiseSize = 0;
+  float uz = 0.0f;                      // U[0].z (the branch tests' n)
+  const char* per = nullptr;
   std::string note;
 };
 
@@ -225,6 +236,178 @@ const char* const kUseBase = "x = (uv.x + uv.y) * c.z + c.w;";
 const char* const kUseInt = "float4 t = float4(tu & 1023u); x = (t.x + t.y) * (c.z * 0.0009765625) + c.w;";
 const char* const kIntBase = "uint4 tu = asuint(uv.xyxy);";
 const char* const kUseIntRandom = "float t = float(tu.x & 1023u); x = t * (c.z * 0.0009765625) + (uv.y * c.z + c.w);";
+
+// Blur building blocks (wishlist of the topt blur optimizer, owner 2026-10-16: numbers wanted from every card).
+// Pixel shaders over the 3840 x 2160 image T (t0) or the previous target, ms per unit of chain draws.
+const char* const kBlurHeader =
+    "cbuffer C : register(b0) { float4 U[16]; };\n"  // U[0].xy: 1 / source size, z: n, w: 1 / noise size
+    "Texture2D<float4> T : register(t0);\n"
+    "Texture2D<float4> N : register(t1);\n"
+    "SamplerState L : register(s0);\n"   // bilinear, clamp
+    "SamplerState W : register(s1);\n";  // point, wrap
+
+std::string fmt2(double x, double y) {
+  char b[64];
+  std::snprintf(b, sizeof(b), "float2(%.4f, %.4f)", x, y);
+  return b;
+}
+
+void makeBlurTests(std::vector<Test>& v) {
+  auto blur = [&](std::string name, std::string section, const char* fn, UINT div, int chain, int mode, std::string body,
+                  std::string note, std::string prefix = "") -> Test& {
+    Test t;
+    t.name = std::move(name);
+    t.section = std::move(section);
+    t.stage = Stage::Blur;
+    t.format = formatByName(fn);
+    t.tw = kRtW / div, t.th = kRtH / div;
+    t.chain = chain, t.chainMode = mode;
+    t.src = std::string(kBlurHeader) + prefix + "float4 main(float4 pos : SV_Position) : SV_Target {\n" + body + "}\n";
+    t.note = std::move(note);
+    v.push_back(std::move(t));
+    return v.back();
+  };
+  const char* const uv = " * U[0].xy";
+
+  // P1 per-pass overhead: chains of dependent passes into small targets (1 read + write each); the slope is the cost
+  // of one more pass. Distinct targets, and two targets in turn.
+  const std::string p1 = "Pass overhead: chains of dependent passes (1 read + write, RGBA8)";
+  for (UINT div : {8u, 16u})
+    for (int k : {1, 2, 4, 8, 16, 32})
+      blur((div == 8 ? "1/64, " : "1/256, ") + std::to_string(k) + (k == 1 ? " pass" : " passes"), p1, "RGBA8", div, k, 1,
+           "  return T.Load(int3(pos.xy, 0));\n",
+           std::string(div == 8 ? "480 x 270" : "240 x 135") + ", each pass reads the one before");
+  for (int k : {1, 2, 4, 8, 16, 32})
+    blur("1/64 ping-pong, " + std::to_string(k), p1, "RGBA8", 8, k, 2, "  return T.Load(int3(pos.xy, 0));\n",
+         "480 x 270, two targets in turn (A -> B -> A)");
+
+  // P3 "free" fetches: N bilinear reads at fractional offsets within +-3 texels (R2 sequence), full size.
+  const std::string p3 = "Bilinear reads per pixel: RGBA8 3840 x 2160 into RGBA8";
+  for (int n : {1, 2, 3, 4, 6, 8, 10, 12, 16, 24}) {
+    std::string b = "  float4 s = 0.0;\n";
+    for (int k = 0; k < n; ++k) {
+      const double ox = -3.0 + 6.0 * std::fmod(0.5 + k * 0.7548777, 1.0), oy = -3.0 + 6.0 * std::fmod(0.5 + k * 0.5698403, 1.0);
+      b += "  s += T.Sample(L, (pos.xy + " + fmt2(ox, oy) + ")" + uv + ");\n";
+    }
+    blur(std::to_string(n) + (n == 1 ? " read" : " reads"), p3, "RGBA8", 1, 1, 0, b + "  return s * " + std::to_string(1.0 / n) + ";\n",
+         "fractional offsets within +-3 texels");
+  }
+
+  // P4 pass time against target size: a 2 x 2 average (one bilinear read) at the matching stride.
+  const std::string p4 = "Target size: 2 x 2 average (1 bilinear read) from 3840 x 2160, RGBA8";
+  for (UINT div : {2u, 4u, 8u, 16u, 32u}) {
+    char name[40];
+    std::snprintf(name, sizeof(name), "1/%u (%u x %u)", div * div, kRtW / div, kRtH / div);
+    blur(name, p4, "RGBA8", div, 1, 0, "  return T.Sample(L, pos.xy * " + std::to_string(div) + ".0" + uv + ");\n",
+         "of the screen's pixels");
+  }
+
+  // P5 quad exchange: 3 of every 4 reads replaced by the 2 x 2 quad's neighbours (ddx_fine / ddy_fine).
+  const std::string p5 = "Quad exchange: reads against ddx_fine / ddy_fine (float3), 3840 x 2160";
+  auto taps = [&](int n, bool exchange) {
+    std::string b = "  float sx = (uint(pos.x) & 1u) ? -1.0 : 1.0, sy = (uint(pos.y) & 1u) ? -1.0 : 1.0;\n  float3 s = 0.0;\n";
+    for (int k = 0; k < n; ++k) {
+      const std::string read = "T.Sample(L, (pos.xy + " + fmt2(-3.0 + 2.0 * (k % 4) + 0.5, -3.0 + 2.0 * (k / 4 % 4) + 0.5) + ")" + uv + ").rgb";
+      b += exchange ? "  { float3 v = " + read + "; float3 vx = v + sx * ddx_fine(v); float3 vy = v + sy * ddy_fine(v);\n"
+                      "    float3 vxy = vx + sy * ddy_fine(vx); s += v + vx + vy + vxy; }\n"
+                    : "  s += " + read + ";\n";
+    }
+    return b + "  return float4(s * 0.0625, 1.0);\n";
+  };
+  blur("4 reads", p5, "RGBA8", 1, 1, 0, taps(4, false), "the base");
+  blur("16 reads", p5, "RGBA8", 1, 1, 0, taps(16, false), "16 bilinear reads");
+  Test& ex = blur("4 reads + 12 exchanges", p5, "RGBA8", 1, 1, 0, taps(4, true), "each read gives the quad's 3 neighbours");
+  ex.base = "4 reads", ex.count = 12, ex.per = "exchange";
+
+  // P6 noise sources, 1 and 8 per pixel, into R8 (little to write): textures (point, wrap), a table, ALU hashes.
+  const std::string p6 = "Noise sources: per pixel into R8 3840 x 2160 (fma per lookup over none)";
+  blur("none", p6, "R8", 1, 1, 0, "  float s = frac(pos.x * 0.001);\n  return s;\n", "the base");
+  auto noise = [&](std::string name, std::string look, const char* tex, UINT size, std::string prefix = "") {
+    for (int n : {1, 8}) {
+      std::string b = "  float s = frac(pos.x * 0.001);\n";
+      for (int k = 0; k < n; ++k) {
+        std::string l = look;
+        for (size_t at; (at = l.find("OFF")) != std::string::npos;) l.replace(at, 3, fmt2(17.0 * k, 29.0 * k));
+        for (size_t at; (at = l.find("K")) != std::string::npos;) l.replace(at, 1, std::to_string(k) + "u");
+        b += "  " + l + "\n";
+      }
+      Test& t = blur(name + " x" + std::to_string(n), p6, "R8", 1, 1, 0, b + "  return s;\n", "", prefix);
+      if (tex) t.noiseFormat = formatByName(tex), t.noiseSize = size;
+      t.base = "none", t.count = n, t.per = "lookup";
+    }
+  };
+  const std::string at = "N.Sample(W, (pos.xy + OFF) * U[0].w)";
+  for (UINT size : {4u, 8u, 16u, 32u, 64u, 128u, 256u, 512u})
+    noise("RG8 " + std::to_string(size) + "^2", "s += dot(" + at + ".rg, 1.0);", "RG8", size);
+  noise("R8 64^2", "s += " + at + ".r;", "R8", 64);
+  noise("RGBA8 64^2", "s += dot(" + at + ", 1.0);", "RGBA8", 64);
+  noise("R8 64^2 two 4-bit", "{ float b = " + at + ".r * 255.0; float h = floor(b * 0.0625); s += h + (b - h * 16.0); }", "R8", 64);
+  noise("RG8 64^2 Load", "s += dot(N.Load(int3(uint2(pos.xy + OFF) & 63u, 0)).rg, 1.0);", "RG8", 64);
+  std::string table = "static const float2 kTable[16] = {";
+  for (int k = 0; k < 16; ++k) table += (k ? ", " : "") + fmt2(std::fmod(0.5 + k * 0.7548777, 1.0), std::fmod(0.5 + k * 0.5698403, 1.0));
+  noise("table[16]", "s += dot(kTable[((uint(pos.x) + K) & 3u) + 4u * ((uint(pos.y) + 3u * K) & 3u)], 1.0);", nullptr, 0, table + "};\n");
+  noise("IGN", "s += frac(52.9829189 * frac(dot(pos.xy + OFF, float2(0.06711056, 0.00583715))));", nullptr, 0);
+  noise("R2", "s += frac(dot(pos.xy + OFF, float2(0.7548777, 0.5698403)));", nullptr, 0);
+  noise("hash22 (Hoskins)", "{ float3 p3 = frac((pos.xyx + OFF.xyx) * float3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33);"
+                            " s += dot(frac((p3.xx + p3.yz) * p3.zy), 1.0); }", nullptr, 0);
+
+  // P7 fetch order: 25 taps 2 texels apart (full size) and 81 taps over 18 x 18 texels (1/16 size, x16 downsample).
+  const std::string p7 = "Fetch order: 25 taps (5 x 5) full size, 81 taps (9 x 9) into 1/16";
+  for (int grid : {5, 9}) {
+    std::vector<std::pair<int, int>> cells;
+    for (int y = 0; y < grid; ++y)
+      for (int x = 0; x < grid; ++x) cells.push_back({x, y});
+    auto morton = [](int x, int y) {
+      int m = 0;
+      for (int b = 0; b < 4; ++b) m |= ((x >> b) & 1) << (2 * b) | ((y >> b) & 1) << (2 * b + 1);
+      return m;
+    };
+    const int c = grid / 2;
+    std::vector<std::pair<std::string, std::vector<std::pair<int, int>>>> orders;
+    orders.push_back({"row", cells});
+    auto serp = cells;
+    for (int y = 1; y < grid; y += 2) std::reverse(serp.begin() + y * grid, serp.begin() + (y + 1) * grid);
+    orders.push_back({"serpentine", serp});
+    auto mort = cells;
+    std::stable_sort(mort.begin(), mort.end(), [&](auto a, auto b) { return morton(a.first, a.second) < morton(b.first, b.second); });
+    orders.push_back({"Morton", mort});
+    auto spiral = cells;
+    std::stable_sort(spiral.begin(), spiral.end(), [&](auto a, auto b) {
+      const int ra = std::max(std::abs(a.first - c), std::abs(a.second - c)), rb = std::max(std::abs(b.first - c), std::abs(b.second - c));
+      return ra != rb ? ra < rb : std::atan2(a.second - c, a.first - c) < std::atan2(b.second - c, b.first - c);
+    });
+    orders.push_back({"spiral", spiral});
+    auto rnd = cells;
+    std::shuffle(rnd.begin(), rnd.end(), std::mt19937(7));
+    orders.push_back({"random", rnd});
+    for (const auto& [oname, list] : orders) {
+      std::string b = "  float4 s = 0.0;\n";
+      for (const auto& [x, y] : list)
+        b += grid == 5 ? "  s += T.Sample(L, (pos.xy + " + fmt2(2.0 * x - 3.5, 2.0 * y - 3.5) + ")" + uv + ");\n"
+                       : "  s += T.Sample(L, (pos.xy * 16.0 + " + fmt2(2.0 * x - 8.0, 2.0 * y - 8.0) + ")" + uv + ");\n";
+      blur(std::to_string(grid * grid) + " taps " + oname, p7, "RGBA8", grid == 5 ? 1 : 16, 1, 0,
+           b + "  return s * " + std::to_string(1.0 / (grid * grid)) + ";\n", grid == 5 ? "3840 x 2160" : "240 x 135, x16 downsample");
+    }
+  }
+
+  // P8 branches: a 16-tap loop with [branch] if (k < n), n uniform or per pixel, against the loop unrolled.
+  const std::string p8 = "Branches: a 16-tap loop, 3840 x 2160 RGBA8";
+  const std::string tap = "s += T.SampleLevel(L, (pos.xy + float2(k * 1.5 - 11.0, 0.25))" + std::string(uv) + ", 0.0);";
+  blur("16 taps unrolled", p8, "RGBA8", 1, 1, 0, "  float4 s = 0.0;\n  [unroll] for (int k = 0; k < 16; ++k) " + tap + "\n  return s * 0.0625;\n", "no branch");
+  const std::string loop = "  [loop] for (int k = 0; k < 16; ++k) { [branch] if (k < n) " + tap + " }\n  return s * 0.0625;\n";
+  blur("loop, uniform n 16", p8, "RGBA8", 1, 1, 0, "  float4 s = 0.0;\n  int n = int(U[0].z);\n" + loop, "n from a uniform").uz = 16.0f;
+  blur("loop, uniform n 8", p8, "RGBA8", 1, 1, 0, "  float4 s = 0.0;\n  int n = int(U[0].z);\n" + loop, "n from a uniform").uz = 8.0f;
+  blur("loop, per-pixel n", p8, "RGBA8", 1, 1, 0, "  float4 s = 0.0;\n  int n = int((uint(pos.x) * 7u + uint(pos.y) * 3u) % 17u);\n" + loop,
+       "n 0 to 16 from the pixel (8 on average): divergent");
+
+  // P9 compute: chains of small dependent dispatches (each reads the target the one before wrote).
+  const std::string p9 = "Compute: chains of dispatches into 240 x 135 RGBA8";
+  for (int k : {1, 2, 4, 8, 16, 32}) {
+    Test& t = blur(std::to_string(k) + (k == 1 ? " dispatch" : " dispatches"), p9, "RGBA8", 16, k, 3, "", "two targets in turn, 8 x 8 threads per group");
+    t.src = "Texture2D<float4> T : register(t0);\nRWTexture2D<unorm float4> O : register(u1);\n"
+            "[numthreads(8, 8, 1)] void main(uint3 id : SV_DispatchThreadID) { O[id.xy] = T.Load(int3(id.xy, 0)) * 0.99 + 0.001; }\n";
+  }
+}
 
 std::vector<Test> makeTests() {
   std::vector<Test> v;
@@ -667,6 +850,11 @@ std::vector<Test> makeTests() {
   passTest("heavy, stencil 50%", kPassStencil, "RGBA8", 1, "half the pixels (8 x 8 tiles) fail the stencil test");
   passTest("heavy, discard 50% tiles", kPassDiscardTiles, "RGBA8", 1, "discard first in half the 8 x 8 tiles");
   passTest("heavy, discard 50% pixels", kPassDiscardPixels, "RGBA8", 1, "discard first in every other pixel");
+  // Partial-screen draws (topt, owner 2026-10-16): two bands, 25% of the screen, drawn alone by a vertex shader
+  // against the full screen masked by the stencil test or by discard.
+  passTest("heavy, bands 25% (vertex)", kPassBands, "RGBA8", 1, "a vertex shader draws only the two bands (top, bottom)");
+  passTest("heavy, stencil 25% bands", kPassStencilBands, "RGBA8", 1, "full screen, the stencil test passes the bands");
+  passTest("heavy, discard 25% bands", kPassDiscardBands, "RGBA8", 1, "full screen, discard outside the bands");
   // Copy and downsample passes (owner, 2026-10-05: ReShade's internal copy shader now uses Load instead of
   // Sample; where does it win, and the half-size downsample as one bilinear read against 4 Loads).
   for (const char* fn : {"RGBA8", "RGB10A2", "RGBA16F", "RGBA32F"}) {
@@ -679,6 +867,7 @@ std::vector<Test> makeTests() {
     cp(std::string("half bilinear ") + fn, kPassDownBilinear, "1920 x 1080 average of 2 x 2: one bilinear read");
     cp(std::string("half 4 Load ") + fn, kPassDownLoad, "1920 x 1080 average of 2 x 2: 4 Loads + math");
   }
+  makeBlurTests(v);
   return v;
 }
 
@@ -822,10 +1011,20 @@ std::string passSource(const Test& t) {
   s = std::string("cbuffer C : register(b0) { float4 U[16]; };\n") + s + "float4 main(float4 pos : SV_Position) : SV_Target {\n";
   if (t.pass == kPassDiscardTiles) s += "  if (((uint(pos.x) >> 3) ^ (uint(pos.y) >> 3)) & 1u) discard;\n";
   if (t.pass == kPassDiscardPixels) s += "  if ((uint(pos.x) ^ uint(pos.y)) & 1u) discard;\n";
+  if (t.pass == kPassDiscardBands) s += "  if (abs(pos.y * (1.0 / 2160.0) - 0.5) < 0.375) discard;\n";
   // Constants from the constant buffer: with literals fxc folds the whole loop into one constant.
   return s + "  float4 v = noise(pos);\n  [unroll] for (int k = 0; k < 32; ++k) v = sin(v * U[k & 15].x + U[k & 15].y);\n"
              "  return v;\n}\n";
 }
+
+// The bands: 12.5% of the screen at the top and at the bottom, 6 vertices each (Draw(12)).
+const char* const kBandsVertexShader =
+    "float4 main(uint id : SV_VertexID) : SV_Position {\n"
+    "  uint v = id % 6u;\n"
+    "  float2 c = float2(v == 1u || v == 2u || v == 4u ? 1.0 : 0.0, v == 2u || v == 4u || v == 5u ? 1.0 : 0.0);\n"
+    "  return float4(c.x * 2.0 - 1.0, (id < 6u ? 1.0 : -0.75) - c.y * 0.25, 0.0, 1.0);\n}\n";
+const char* const kStencilMarkBands =
+    "void main(float4 pos : SV_Position) { if (abs(pos.y * (1.0 / 2160.0) - 0.5) < 0.375) discard; }\n";
 
 // Stencil test: marks half the pixels (8 x 8 tiles) in the stencil buffer.
 const char* const kStencilMark =
@@ -1609,6 +1808,7 @@ int main(int argc, char** argv) {
   for (char& ch : safeName)
     if (!isalnum((unsigned char)ch)) ch = '_';
   if (outPath.empty()) outPath = (reports / ("texbench-" + safeName + ".csv")).string();
+  gReportPath = outPath;
   const std::filesystem::path dxbcDir = reports / "Shaders" / "TexBench";
   std::filesystem::create_directories(dxbcDir);
 
@@ -1667,7 +1867,7 @@ int main(int argc, char** argv) {
   std::map<std::string, std::map<std::string, Kernel>> kernels;  // test -> config -> kernel
   std::vector<std::function<void()>> jobList;
   for (const Test* t : tests) {
-    if (t->stage == Stage::Write || t->stage == Stage::Blend || t->stage == Stage::Pass) {
+    if (t->stage == Stage::Write || t->stage == Stage::Blend || t->stage == Stage::Pass || t->stage == Stage::Blur) {
       jobList.push_back([] {});
       continue;
     }
@@ -1898,16 +2098,25 @@ int main(int argc, char** argv) {
     }
     print("%*s%s(lower is better)%s\n", 2 + 10 + 1, "", st.c("\x1b[90m"), st.reset());
   };
+  // A blur test's cost per read / lookup over its base in fma units (the reference mad's ns), or -1e10.
+  auto perEach = [&](const Test* t) {
+    if (!t->per || !passMs.count(t->name) || !passMs.count(t->base) || refs.empty()) return -1e10;
+    return (passMs[t->name].value - passMs[t->base].value) * 1e6 / (double(t->tw) * t->th * t->count) / median(refs);
+  };
   auto printPass = [&](const std::string& sec) {
     double maxP = 0.0;
     for (const Test* t : tests)
-      if (t->stage == Stage::Pass && t->section == sec) maxP = std::max(maxP, passMs[t->name].value);
+      if (t->section == sec) maxP = std::max(maxP, passMs[t->name].value);
     print("\n  %s%s%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"), sec.c_str(),
                 st.reset(), st.c("\x1b[90m"), "Test", "ms/pass", kBarWidth, "", st.reset());
     for (const Test* t : tests)
-      if (t->stage == Stage::Pass && t->section == sec)
-        print("  %-26s %8.3f  %s\n", t->name.c_str(), passMs[t->name].value,
-                    bar(passMs[t->name].value, maxP, kBarWidth, st, kCyan).c_str());
+      if (t->section == sec) {
+        const double each = perEach(t);
+        char extra[48] = "";
+        if (each > -1e9) std::snprintf(extra, sizeof(extra), "  %5.1f fma per %s", each, t->per);
+        print("  %-26s %8.3f  %s%s\n", t->name.c_str(), passMs[t->name].value,
+                    bar(passMs[t->name].value, maxP, kBarWidth, st, kCyan).c_str(), extra);
+      }
     print("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
   };
   auto printSection = [&](const std::string& sec) {
@@ -1917,7 +2126,7 @@ int main(int argc, char** argv) {
     if (first->matrix >= 0) printMatrix(sec);
     else if (first->stage == Stage::Write) printWrites();
     else if (first->stage == Stage::Blend) printBlend();
-    else if (first->stage == Stage::Pass) printPass(sec);
+    else if (first->stage == Stage::Pass || first->stage == Stage::Blur) printPass(sec);
     else printTable(sec);
   };
   // Tests left per section: the section is shown when its count reaches 0.
@@ -2002,6 +2211,17 @@ int main(int argc, char** argv) {
                    passMs[t->name].ok ? "yes" : "no", readingsText(passReadings[t->name]).c_str(), kRtW, kRtH, t->note.c_str(),
                    seconds[t->name]);
   for (const Test* t : tests)
+    if (t->stage == Stage::Blur && passMs.count(t->name)) {
+      const double each = perEach(t);
+      char eachText[32] = "";
+      if (each > -1e9) std::snprintf(eachText, sizeof(eachText), "%.3f", each);
+      std::fprintf(csv, "pass,\"%s\",\"%s\",%s,%d,%.4f,,%.4f,%s,%zu,%s,%s,\"ms per %s, %u x %u\",\"%s\",%.2f\n", t->name.c_str(),
+                   t->section.c_str(), t->per ? t->base.c_str() : "", t->chain, passMs[t->name].value, passMs[t->name].value,
+                   eachText, passReadings[t->name].size(), passMs[t->name].ok ? "yes" : "no",
+                   readingsText(passReadings[t->name]).c_str(), t->chainMode == 3 ? "chain" : t->chain > 1 ? "chain" : "pass",
+                   t->tw, t->th, t->note.c_str(), seconds[t->name]);
+    }
+  for (const Test* t : tests)
     if (t->stage == Stage::Blend && blendMs.count(t->name))
       std::fprintf(csv, "blend,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"\",%.2f\n", t->name.c_str(),
                    t->section.c_str(), blendMs[t->name].value, blendMs[t->name].value, blendReadings[t->name].size(),
@@ -2026,7 +2246,144 @@ int main(int argc, char** argv) {
   }
   std::fclose(csv);
   };
+  // Pass and blur tests: units (k = 0, 1, ...) per timing until one timing takes >= 2 ms, then readings until
+  // they agree; ms per unit.
+  auto timeUnits = [&](const Test* t, const std::function<void(UINT)>& unit) {
+    auto timed = [&](UINT n) {
+      return g.timer.time(g.ctx, [&] {
+        for (UINT k = 0; k < n; ++k) unit(k);
+      });
+    };
+    UINT n = 1;
+    while (n < 4096 && [&] { const double m = timed(n); return m >= 0.0 && m < 2.0; }()) n *= 2;
+    std::vector<double>& rd = passReadings[t->name];
+    for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
+      std::vector<double> runs;
+      for (int k = 0; k < reps * 3 && int(runs.size()) < reps; ++k)
+        if (const double m = timed(n); m > 0.0) runs.push_back(m / n);
+      rd.push_back(median(runs));
+      progress.step();
+    }
+    passMs[t->name] = consensus(rd, 0.0);
+  };
+  ID3D11ShaderResourceView* blurImage = nullptr;  // the 3840 x 2160 RGBA8 image blur tests read, made once
   auto measure = [&](const Test* t) {
+    if (t->stage == Stage::Blur) {
+      const bool cs = t->chainMode == 3;
+      if (!blurImage) {
+        D3D11_TEXTURE2D_DESC td = {};
+        td.Width = kRtW;
+        td.Height = kRtH;
+        td.MipLevels = td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_IMMUTABLE;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        const auto data = texelData(*formatByName("RGBA8"), size_t(kRtW) * kRtH, rng);
+        D3D11_SUBRESOURCE_DATA init = {data.data(), kRtW * 4, 0};
+        ID3D11Texture2D* tex = nullptr;
+        if (FAILED(g.dev->CreateTexture2D(&td, &init, &tex)) || FAILED(g.dev->CreateShaderResourceView(tex, nullptr, &blurImage)))
+          fail("cannot create the image for " + t->name);
+        tex->Release();
+      }
+      // Targets: mode 1 one per pass plus the first source, else two (in turn).
+      const int nTex = t->chainMode == 1 ? t->chain + 1 : 2;
+      std::vector<ID3D11Texture2D*> tex(size_t(nTex), nullptr);
+      std::vector<ID3D11ShaderResourceView*> srv(size_t(nTex), nullptr);
+      std::vector<ID3D11RenderTargetView*> rtv(size_t(nTex), nullptr);
+      std::vector<ID3D11UnorderedAccessView*> uavs(size_t(nTex), nullptr);
+      for (size_t k = 0; k < size_t(nTex); ++k) {
+        D3D11_TEXTURE2D_DESC td = {};
+        td.Width = t->tw;
+        td.Height = t->th;
+        td.MipLevels = td.ArraySize = 1;
+        td.Format = t->format->dxgi;
+        td.SampleDesc.Count = 1;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE | (cs ? D3D11_BIND_UNORDERED_ACCESS : D3D11_BIND_RENDER_TARGET);
+        if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &tex[k])) || FAILED(g.dev->CreateShaderResourceView(tex[k], nullptr, &srv[k])) ||
+            (cs ? FAILED(g.dev->CreateUnorderedAccessView(tex[k], nullptr, &uavs[k]))
+                : FAILED(g.dev->CreateRenderTargetView(tex[k], nullptr, &rtv[k]))))
+          fail("cannot create the targets for " + t->name);
+      }
+      ID3D11ShaderResourceView* noiseView = nullptr;
+      if (t->noiseFormat) {
+        D3D11_TEXTURE2D_DESC td = {};
+        td.Width = td.Height = t->noiseSize;
+        td.MipLevels = td.ArraySize = 1;
+        td.Format = t->noiseFormat->dxgi;
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_IMMUTABLE;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        const auto data = texelData(*t->noiseFormat, size_t(t->noiseSize) * t->noiseSize, rng);
+        D3D11_SUBRESOURCE_DATA init = {data.data(), t->noiseSize * UINT(t->noiseFormat->bytes), 0};
+        ID3D11Texture2D* nt = nullptr;
+        if (FAILED(g.dev->CreateTexture2D(&td, &init, &nt)) || FAILED(g.dev->CreateShaderResourceView(nt, nullptr, &noiseView)))
+          fail("cannot create the noise texture for " + t->name);
+        nt->Release();
+        g.ctx->PSSetShaderResources(1, 1, &noiseView);
+      }
+      ID3D11SamplerState* samplers[2] = {nullptr, nullptr};
+      for (int k = 0; k < 2; ++k) {
+        D3D11_SAMPLER_DESC sd = {};
+        sd.Filter = k == 0 ? D3D11_FILTER_MIN_MAG_MIP_LINEAR : D3D11_FILTER_MIN_MAG_MIP_POINT;
+        sd.AddressU = sd.AddressV = sd.AddressW = k == 0 ? D3D11_TEXTURE_ADDRESS_CLAMP : D3D11_TEXTURE_ADDRESS_WRAP;
+        sd.MaxLOD = D3D11_FLOAT32_MAX;
+        if (FAILED(g.dev->CreateSamplerState(&sd, &samplers[k]))) fail("cannot create the samplers for " + t->name);
+      }
+      g.ctx->PSSetSamplers(0, 2, samplers);
+      {
+        CbData cd = {};
+        const bool fromImage = t->chainMode == 0;
+        cd.U[0][0] = 1.0f / float(fromImage ? kRtW : t->tw);
+        cd.U[0][1] = 1.0f / float(fromImage ? kRtH : t->th);
+        cd.U[0][2] = t->uz;
+        cd.U[0][3] = t->noiseSize ? 1.0f / float(t->noiseSize) : 0.0f;
+        g.ctx->UpdateSubresource(g.cb, 0, nullptr, &cd, 0, 0);
+      }
+      ID3DBlob* code = compile(t->src, t->name.c_str(), cs ? "cs_5_0" : "ps_5_0");
+      ID3D11PixelShader* ps = nullptr;
+      ID3D11ComputeShader* csh = nullptr;
+      if (cs ? FAILED(g.dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &csh))
+             : FAILED(g.dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &ps)))
+        fail("cannot create " + t->name);
+      code->Release();
+      if (cs) g.ctx->CSSetShader(csh, nullptr, 0);
+      else g.ctx->PSSetShader(ps, nullptr, 0);
+      D3D11_VIEWPORT vp = {0.0f, 0.0f, float(t->tw), float(t->th), 0.0f, 1.0f};
+      g.ctx->RSSetViewports(1, &vp);
+      // The output first: it unbinds the view the draw before read from, then the input (no longer an output).
+      timeUnits(t, [&](UINT k) {
+        for (int d = 0; d < t->chain; ++d) {
+          const int from = t->chainMode == 1 ? d : t->chainMode == 0 ? -1 : (d & 1);
+          const int to = t->chainMode == 1 ? d + 1 : t->chainMode == 0 ? int(k & 1) : 1 - (d & 1);
+          ID3D11ShaderResourceView* in = from < 0 ? blurImage : srv[size_t(from)];
+          if (cs) {
+            g.ctx->CSSetUnorderedAccessViews(1, 1, &uavs[size_t(to)], nullptr);
+            g.ctx->CSSetShaderResources(0, 1, &in);
+            g.ctx->Dispatch((t->tw + 7) / 8, (t->th + 7) / 8, 1);
+          } else {
+            g.ctx->OMSetRenderTargets(1, &rtv[size_t(to)], nullptr);
+            g.ctx->PSSetShaderResources(0, 1, &in);
+            g.ctx->Draw(3, 0);
+          }
+        }
+      });
+      ID3D11ShaderResourceView* nullViews[2] = {nullptr, nullptr};
+      ID3D11UnorderedAccessView* nullUav = nullptr;
+      g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
+      g.ctx->PSSetShaderResources(0, 2, nullViews);
+      g.ctx->CSSetShaderResources(0, 1, nullViews);
+      g.ctx->CSSetUnorderedAccessViews(1, 1, &nullUav, nullptr);
+      release(ps);
+      release(csh);
+      release(noiseView);
+      for (auto*& x : samplers) release(x);
+      for (auto*& x : uavs) release(x);
+      for (auto*& x : rtv) release(x);
+      for (auto*& x : srv) release(x);
+      for (auto*& x : tex) release(x);
+      return;
+    }
     if (t->stage == Stage::Pass) {
       std::vector<ID3D11Texture2D*> rts;
       std::vector<ID3D11RenderTargetView*> rtvs;
@@ -2093,7 +2450,7 @@ int main(int argc, char** argv) {
         g.ctx->PSSetShaderResources(0, 1, &sourceView);
         g.ctx->PSSetSamplers(0, 1, &sampler);
       }
-      if (t->pass == kPassStencil) {
+      if (t->pass == kPassStencil || t->pass == kPassStencilBands) {
         // The stencil buffer: 1 in half the 8 x 8 tiles, drawn once; the heavy pass then runs where it is 1.
         D3D11_TEXTURE2D_DESC td = {};
         td.Width = kRtW;
@@ -2115,7 +2472,7 @@ int main(int argc, char** argv) {
         dd.FrontFace = {D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_KEEP, D3D11_COMPARISON_EQUAL};
         dd.BackFace = dd.FrontFace;
         if (FAILED(g.dev->CreateDepthStencilState(&dd, &dsTest))) fail("cannot create a stencil state");
-        makePs(kStencilMark, &psMark);
+        makePs(t->pass == kPassStencilBands ? kStencilMarkBands : kStencilMark, &psMark);
         g.ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_STENCIL, 1.0f, 0);
         g.ctx->OMSetRenderTargets(0, nullptr, dsv);
         g.ctx->OMSetDepthStencilState(dsMark, 1);
@@ -2124,6 +2481,14 @@ int main(int argc, char** argv) {
         g.ctx->OMSetDepthStencilState(dsTest, 1);
       }
       if (ps) g.ctx->PSSetShader(ps, nullptr, 0);
+      ID3D11VertexShader* bandsVs = nullptr;
+      if (t->pass == kPassBands) {
+        ID3DBlob* code = compile(kBandsVertexShader, "bands", "vs_5_0");
+        if (FAILED(g.dev->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &bandsVs)))
+          fail("cannot create the bands' vertex shader");
+        code->Release();
+        g.ctx->VSSetShader(bandsVs, nullptr, 0);
+      }
       {
         // The heavy shader's constants (from the constant buffer, so fxc cannot fold the loop).
         CbData cd = {};
@@ -2136,25 +2501,12 @@ int main(int argc, char** argv) {
         else if (t->pass == kPassMips) g.ctx->GenerateMips(srv);
         else {
           g.ctx->OMSetRenderTargets(UINT(count), &rtvs[size_t((k & 1) * count)], dsv);
-          g.ctx->Draw(3, 0);
+          g.ctx->Draw(bandsVs ? 12 : 3, 0);
         }
       };
-      auto timeUnits = [&](UINT n) {
-        return g.timer.time(g.ctx, [&] {
-          for (UINT k = 0; k < n; ++k) unit(k);
-        });
-      };
-      UINT n = 1;
-      while (n < 4096 && [&] { const double m = timeUnits(n); return m >= 0.0 && m < 2.0; }()) n *= 2;
-      std::vector<double>& rd = passReadings[t->name];
-      for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
-        std::vector<double> runs;
-        for (int k = 0; k < reps * 3 && int(runs.size()) < reps; ++k)
-          if (const double m = timeUnits(n); m > 0.0) runs.push_back(m / n);
-        rd.push_back(median(runs));
-        progress.step();
-      }
-      passMs[t->name] = consensus(rd, 0.0);
+      timeUnits(t, unit);
+      if (bandsVs) g.ctx->VSSetShader(g.vs, nullptr, 0);
+      release(bandsVs);
       g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
       g.ctx->OMSetDepthStencilState(nullptr, 0);
       if (copyPass) {
@@ -2330,6 +2682,9 @@ int main(int argc, char** argv) {
     gCurrent = t->name;
     compiling.wait(jobOf(t));
     measure(t);
+    // Released textures leave video memory only after a flush (D3D11 destroys them late): without it the 256 MB
+    // textures of the formats tests piled up on integrated GPUs, which share system memory.
+    g.ctx->Flush();
     // Costs over the bases (bases come first, so they are known).
     for (auto& [cname, byTest] : results)
       if (byTest.count(t->name)) {

@@ -43,6 +43,16 @@
   </section>
 
   <section>
+    <h2>Every OpBench test</h2>
+    <p class="note">Everything OpBench measures, per architecture, in fma units on top of the test's base (lower is better,
+      0 = free): the middle value of its cards' newest reports. Hover a test for the code it times, an architecture for
+      its cards. A dash: not measured yet (a newer test, or an architecture without a recent report).</p>
+    <label class="select">section <select id="allsec"></select></label>
+    <div class="tablewrap cmpwrap"><table id="alltable" class="cmp"></table></div>
+    <div id="allscale" class="scale"></div>
+  </section>
+
+  <section>
     <h2>Coverage</h2>
     <p class="note" id="covnote"></p>
     <div id="coverage"></div>

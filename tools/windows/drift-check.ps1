@@ -2,9 +2,9 @@
 # GPU-Blueprint.bat's send screen (owner, 2026-10-11: tell people their drift before they send).
 param([string]$Root = (Split-Path -Parent $PSScriptRoot))
 $ErrorActionPreference = "SilentlyContinue"
-foreach ($f in Get-ChildItem -LiteralPath (Join-Path $Root "Reports") -File | Where-Object { $_.Name -match '^(opbench|texbench)-.+\.csv$' }) {
-  $program = if ($f.Name -like "opbench-*") { "OpBench" } else { "TexBench" }
-  $gpu = $f.BaseName.Substring(9)
+foreach ($f in Get-ChildItem -LiteralPath (Join-Path $Root "Reports") -File | Where-Object { $_.Name -match '^(opbench|texbench|stagebench-(ps|vs))-.+\.csv$' }) {
+  $program = if ($f.Name -like "opbench-*") { "OpBench" } elseif ($f.Name -like "texbench-*") { "TexBench" } else { "StageBench-" + $f.Name.Substring(11, 2) }
+  $gpu = $f.BaseName
   $drift = -1.0
   foreach ($line in Get-Content -LiteralPath $f.FullName -TotalCount 40) {
     if ($line -match '^# gpu: (.+)$') { $gpu = $Matches[1].Trim() }

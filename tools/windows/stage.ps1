@@ -3,7 +3,7 @@
 # the other pages, the stylesheet and the licenses in Docs\.
 #   SweetOpt\       SweetOpt.bat, README.html; bin\ sopt.exe, sopt-fx.exe, sopt-fxc.exe (for sopt-fx --backends);
 #                   Docs\ style.css, LICENSE.txt
-#   GPU-Blueprint\  GPU-Blueprint.bat, README.html; bin\ OpBench.exe, StageBench.exe (not in the menu yet), TexBench.exe, ShaderInfo.exe, zip-reports.ps1, drift-check.ps1;
+#   GPU-Blueprint\  GPU-Blueprint.bat, README.html; bin\ OpBench.exe, StageBench.exe, TexBench.exe, ShaderInfo.exe, zip-reports.ps1, drift-check.ps1;
 #                   Docs\ OpBench.html, TexBench.html, ShaderInfo.html, style.css, LICENSE.txt
 #   Test-Host\      Test-Host.bat, README.html; bin\ sopt-host.exe, sopt-timer.addon64 / .addon32,
 #                   common.ps1, run-test.ps1, run-bench.ps1, timings.py, ReShade64.dll; Effects\ the test effects
