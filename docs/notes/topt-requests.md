@@ -29,5 +29,5 @@ at 3840x2160 unless stated, ms per pass (median of several runs).
 - P10 Partial-screen draws (lower): 25% of the screen (two bands) with a heavy shader: custom vertex shader drawing only
   the bands vs full-screen + stencil vs full-screen + discard.
 
-Also open (owner's go 2026-10-16): a site table of all OpBench tests per family (rows = tests in kDisplayOrder's
+Done (PR opbench-table): a site table of all OpBench tests per family (rows = tests in kDisplayOrder's
 sections, columns = families, family medians of the newest clean report per card, heat colors like the group table).

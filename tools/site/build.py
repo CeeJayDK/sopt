@@ -206,7 +206,7 @@ def opbench_extras():
         model = model_of(name)
         lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
         rows = [r for r in csv.DictReader(l for l in lines if l and not l.startswith("#")) if r.get("config") == "tput"]
-        vals, units = {}, {}
+        vals, units, steps = {}, {}, {}
         for r in rows:
             if not reading_valid(info.get("version", "0"), r.get("test", "")):
                 continue
@@ -214,6 +214,7 @@ def opbench_extras():
                 units[r["test"]] = float(r["units"])
                 if r.get("consensus") == "yes":
                     vals[r["test"]] = float(r["units_vs_base"])
+                    steps[r["test"]] = r.get("step", "")
             except (KeyError, ValueError):
                 pass
         if not model or abs(vals.get("neg", 9.0)) > 0.3:
@@ -224,7 +225,8 @@ def opbench_extras():
         reps.append({"name": name, "model": model, "vendor": info.get("vendor", ""), "key": key,
                      "drv": tuple(int(x) for x in info["driver"].split(".") if x.isdigit()),
                      "label": driver_label(info["driver"], info.get("vendor", "")),
-                     "vals": {t: v for t, v in vals.items() if not NOT_MATH.match(t)}, "units": units, "half": half})
+                     "vals": {t: v for t, v in vals.items() if not NOT_MATH.match(t)}, "all": vals, "steps": steps,
+                     "units": units, "half": half})
 
     # Driver splits: in one family, a test whose readings fall into a low and a high group that the driver version
     # separates (all reports of one driver alike; every older driver on one side). Splits with the same drivers on
@@ -284,7 +286,44 @@ def opbench_extras():
         f["native"] = all(f["native"])
         f["speedup"] = {k: round(statistics.median(v), 2) for k, v in f.pop("ratios").items()}
         f["cards"].sort()
-    return {"drivers": drivers, "fp16": sorted(fp16.values(), key=lambda f: f["model"])}
+    return {"drivers": drivers, "fp16": sorted(fp16.values(), key=lambda f: f["model"]), "alltests": all_tests(reps)}
+
+
+def display_order():
+    """OpBench's summary sections and test order: kDisplayOrder in sopt_opbench.cpp ("#" entries start a section)."""
+    with open(os.path.join(ROOT, "tools", "windows", "opbench", "sopt_opbench.cpp"), encoding="utf-8") as f:
+        body = f.read().split("kDisplayOrder[] = {", 1)[1].split("};", 1)[0]
+    sections = []
+    for name in re.findall(r'"([^"]*)"', re.sub(r"//.*", "", body)):
+        if name.startswith("#"):
+            sections.append({"title": name[1:], "tests": []})
+        else:
+            sections[-1]["tests"].append(name)
+    return sections
+
+
+def all_tests(reps):
+    """Every OpBench test per family (owner, 2026-10-16): the family median of each card's newest clean reading, in fma
+    units over the test's base, rows in OpBench's own order."""
+    latest, steps = {}, {}  # (card, test) -> (model, value)
+    for r in sorted(reps, key=lambda r: r["key"]):
+        for t, v in r["all"].items():
+            latest[(r["name"], t)] = (r["model"], v)
+            steps[t] = r["steps"][t]
+    per = {}
+    for (card, t), (model, v) in latest.items():
+        per.setdefault(t, {}).setdefault(model, []).append(v)
+    sections = []
+    for s in display_order():
+        rows = [{"test": t, "step": steps[t], "v": {m: round(statistics.median(v) / 4, 2) for m, v in per[t].items()}}
+                for t in s["tests"] if t in per]
+        if rows:
+            sections.append({"title": s["title"], "rows": rows})
+    cards = {}
+    for (card, _), (model, _) in latest.items():
+        cards.setdefault(model, set()).add(card)
+    families = [{"model": m, "cards": sorted(cards[m])} for m in dict.fromkeys(m for _, m in MODEL_RULES) if m in cards]
+    return {"families": families, "sections": sections}
 
 
 def texbench_data(out):
