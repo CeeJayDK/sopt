@@ -1697,7 +1697,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   Reports\, not only the run's): skipped.
   Owner (2026-10-16): fxc writing every x * 2.0 as x + x (D3D never gets NVIDIA's free x2 / AMD's omod x2) is worth a
   bug report, but fxc (d3dcompiler_47) is frozen (DXC replaced it); the realistic route is the drivers (fold an add
-  x + x right after a multiply into its post-scale). GPU Blueprint 0.7.8 (owner's go): with two cards the menu names
+  x + x right after a multiply into its post-scale). Checked with fxc -O3 (2026-10-16): x * 2.0 -> add x, x;
+  a * b * 2.0 -> dp2 (a * b + a * b, also with a uniform); float4 a * b * 2.0 -> mul + add; rcp(x) * 2.0 -> add; * 4.0
+  stays a mul. Only `precise` keeps mul l(2.0), but a trial on the GTX 1660 (scale2p / scale4p through a precise
+  helper, not kept) cost 0.95 for both: precise stops the driver's free scales altogether (x4 too), so it cannot show
+  the hardware x2 (nouveau says FMUL has it). GPU Blueprint 0.7.8 (owner's go): with two cards the menu names
   them on keys 2 / 3 (OpBench / TexBench --adapters print "index name", (R) / (TM) dropped); after "send" (Y) the
   reports move to Reports\Sent, so the next zip holds only new ones; report_intake.py skips reports already saved.
   TexBench 0.7.8: topt's wishlist (docs/notes/topt-requests.md) in the normal run (owner: numbers wanted from every
