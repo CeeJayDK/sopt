@@ -48,6 +48,15 @@ def test_members():
     assert ri.members("dir/r.csv", b"d") == [("r.csv", b"d")]
 
 
+
+def test_known():
+    path = sorted(glob.glob(os.path.join(ri.ROOT, "docs", "opbench", "*-2.csv")))[0]
+    lines = open(path, encoding="utf-8").read().splitlines()
+    assert ri.known("docs/opbench", "\n".join(lines))
+    assert ri.known("docs/opbench", "\r\n".join(lines) + "\r\n")
+    assert not ri.known("docs/opbench", "\n".join(lines) + "x")
+
+
 if __name__ == "__main__":
     for name, f in list(globals().items()):
         if name.startswith("test_"):

@@ -267,4 +267,30 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
       el("td", { class: "num", text: String(f.cards.length), title: f.cards.join(", ") }),
       ...["fma", "vec3", "add", "rcp"].map((k) => el("td", { class: "num", text: f.native ? times(f.speedup[k]) : "1.0×" })),
       el("td", { text: VERDICT(f) })))));
+
+  // Every OpBench test (owner, 2026-10-16): tests as rows in OpBench's own order, architectures as columns.
+  const at = data.alltests;
+  const secSel = document.getElementById("allsec");
+  at.sections.forEach((s, k) => secSel.append(el("option", { value: String(k), text: s.title })));
+  const renderAll = () => {
+    const sec = at.sections[Number(secSel.value)];
+    const shown = sec.rows.flatMap((r) => Object.values(r.v)).filter((v) => v >= 0.25);  // below a quarter fma: noise, no colour
+    const lo = Math.min(...shown), hi = Math.max(...shown);
+    const head = el("tr", {}, el("th", { class: "arch", text: "Test" }), ...at.families.map((f) => {
+      const m = byName[f.model];
+      return el("th", { class: "o", style: m ? `color:${VENDOR_COLOR[m.vendor]}` : null, title: f.cards.join(", "), text: m ? m.title : f.model });
+    }));
+    const body = sec.rows.map((r) => el("tr", {}, el("th", { class: "arch", title: r.step, text: r.test }),
+      ...at.families.map((f) => {
+        const v = r.v[f.model];
+        if (v == null) return el("td", { class: "c free", text: "–" });
+        if (v < 0.25) return el("td", { class: "c free", text: num(Math.max(0, v)) });
+        const h = heatColor(v, lo, hi);
+        return el("td", { class: "c hot", style: `background:${h.bg};color:${h.fg}${h.fg === "#fff" ? "" : ";text-shadow:none"}`, text: num(v) });
+      })));
+    document.getElementById("alltable").replaceChildren(el("thead", {}, head), el("tbody", {}, ...body));
+    document.getElementById("allscale").replaceChildren(...(hi > lo ? [...heatScale(lo, hi, "fma units").children] : []));
+  };
+  secSel.addEventListener("change", renderAll);
+  renderAll();
 });

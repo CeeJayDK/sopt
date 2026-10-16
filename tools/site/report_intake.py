@@ -147,6 +147,16 @@ def members(name, data):
     return [(os.path.basename(name), data)]
 
 
+def known(folder, text):
+    """Whether this exact report is already saved: the zip holds every report in the tester's Reports folder, so a
+    second run resends the earlier ones unchanged (owner, 2026-10-16)."""
+    d = os.path.join(ROOT, folder)
+    lines = text.splitlines()  # line ends differ between the upload and a Windows checkout
+    return any(f.endswith((".csv", ".txt")) and
+               open(os.path.join(d, f), encoding="utf-8", errors="replace").read().splitlines() == lines
+               for f in os.listdir(d))
+
+
 def fetch(work):
     tok = token()
     listed = list_files(tok)
@@ -157,7 +167,7 @@ def fetch(work):
     if not uploads:
         print("nothing uploaded")
         return
-    saved, junk, log = [], 0, []
+    saved, junk, resent, log = [], 0, 0, []
     for k, (path, size) in enumerate(listed, 1):
         if size > MAX_BYTES:
             junk += 1
@@ -186,6 +196,12 @@ def fetch(work):
                     vid, dev = int(h.get("vendor", "0"), 16), int(h.get("device", "0"), 16)
                     version = text.split("\n", 1)[0][2:]
                 folder = "docs/" + kind
+                if known(folder, text):
+                    resent += 1
+                    stem = os.path.splitext(name)[0]
+                    for suffix in ("-order.png", "-order-zoom.png"):
+                        pngs.pop(stem + suffix, None)
+                    continue
                 base = free_name(folder, slug(gpu, vid, dev), ".txt" if kind == "shaderinfo" else ".csv")
                 ext = ".txt" if kind == "shaderinfo" else ".csv"
                 out = [os.path.join(folder, base + ext)]
@@ -216,7 +232,7 @@ def fetch(work):
                 f.write("# Report intake log\n\nWritten by tools/site/report_intake.py (the report-intake workflow): what "
                         "came in, by hardware and driver only. Notes and analysis go to docs/notes/history.md.\n")
             f.write("\n## %s\n" % stamp + "\n".join(log) + "\n")
-    print("%d upload(s), %d file(s) saved, %d junk file(s)" % (len(uploads), len(saved), junk))
+    print("%d upload(s), %d file(s) saved, %d resent report(s) skipped, %d junk file(s)" % (len(uploads), len(saved), resent, junk))
     print("\n".join(log))
     with open(os.path.join(work, "saved.txt"), "w") as f:
         f.write("\n".join(saved))
