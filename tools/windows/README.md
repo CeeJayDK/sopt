@@ -41,7 +41,7 @@ three for CI and the release). This one (CI artifact `Test-Host`, release `Test-
 |---|---|
 | `Test-Host.bat` | the menu |
 | `README.html` | the guide (source: `tools/windows/docs/TestHost.html`) |
-| `Effects\` | the test effects (`sopt_IEEE754.fx`, `sopt_MipTest.fx`); users add their own |
+| `Effects\` | the test effects (`sopt_IEEE754.fx`, `sopt_MipTest.fx`, `sopt_x2.fx`); users add their own |
 | `bin\sopt-host.exe` | the test window: fixed image, synthetic depth, vsync off, `--api dx9\|dx10\|dx11\|dx12\|vulkan\|gl` |
 | `bin\sopt-timer.addon64` / `.addon32` | the ReShade add-on: technique timings, the benchmark, the test screenshots |
 | `bin\run-test.ps1`, `bin\run-bench.ps1`, `bin\common.ps1` | the scripts behind the menu |

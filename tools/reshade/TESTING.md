@@ -86,3 +86,11 @@ red on levels 6-8 with the unchanged DLL, none with the sopt-d3d12 DLL).
 D3D9 and Vulkan run the same code as before (D3D12 uses copy_ps only for multisampled or X8 back
 buffers, which flip-model swap chains cannot have). Start one game per API with the sopt DLL and
 check that effects and the overlay work.
+
+## 6. What ReShade hands the driver (sopt_x2.fx)
+
+`sopt_x2.fx` computes `max(a * b * k, a)` for k = 2, 4 and 3. In the Test Host:
+`bin\run-test.ps1 -Apis vulkan,dx11 -Effect sopt_x2.fx -Frames 10`, then ReShade's cache (`%TEMP%\ReShade`,
+`reshade-sopt_x2-<renderer>-...-SoptX2PS.cso` / `.asm`) holds the code each driver got. Expected (GTX 1660, 2026-10-17):
+Vulkan SPIR-V `OpFMul ... 2.0` (a multiply, free on NVIDIA as the post-scale); Direct3D 11 `add r0.z, r0.y, r0.y`
+(fxc's rewrite of x * 2, costs NVIDIA one instruction); x4 and x3 stay multiplies on both.
