@@ -106,6 +106,9 @@ const Test kTests[] = {
     {"add", "mad(x + c.z, c.x, c.y)", 0.5f, 0.5f, 0.1f, 0.0f, "mad", ""},
     {"sub", "mad(c.z - x, c.x, c.y)", 0.5f, 1.0f, 2.0f, 0.0f, "mad", ""},
     {"mul", "mad(x * c.z, c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.0f, "mad", "~0 where the driver merges it: x * (c.z * c.x)"},
+    // The same with the uniforms multiplied first (owner, 2026-10-16: why do pixel shaders pay for mul when compute
+    // does not? fxc's code is identical, the drivers merge only in compute): does uniform-only math cost in a pixel shader?
+    {"mulpre", "mad(x, c.z * c.x, c.y)", 0.5f, 0.5f, 0.9f, 0.0f, "mad", "the uniforms multiplied first: x * (c.z * c.x)"},
     // One fma with a single constant (x stays near the fixed point -0.37): the fp32 score's rate on GPUs where
     // the reference's two constants cost a second instruction (GCN's constant bus: an extra v_mov).
     {"fma1", "mad(x, x, c.x)", -0.5f, 0.0f, 0.0f, 0.0f, nullptr, "one fma, one constant: the fp32 score where it is faster"},
@@ -732,7 +735,7 @@ struct Measured {
 // most GPUs measure it, the same on every GPU so results can be compared line by line.
 const char* const kDisplayOrder[] = {
     // One section for the few, fast basics (owner, 2026-10-10: like the web page's group).
-    "#Modifiers and basic arithmetic", "neg", "abs", "negabs", "saturate", "satmad", "mul", "mulxx", "sqmax", "scale2", "scalehalf",
+    "#Modifiers and basic arithmetic", "neg", "abs", "negabs", "saturate", "satmad", "mul", "mulpre", "mulxx", "sqmax", "scale2", "scalehalf",
     "scale4", "scale8", "scale0.25", "scale0.125", "scale3", "scale16", "scale0.0625", "scaleneg4", "scaleneg0.5", "scaleneg8",
     "fmamax", "fmascale4", "fmascale0.25", "fmascale3", "addmax", "addscale4", "addscale3", "min", "max", "step", "add", "sub", "fma1", "madsatu", "madlit", "madlit1", "madinl", "mad2", "contract", "max3", "minmax", "clamp", "select",
     "lerp",
