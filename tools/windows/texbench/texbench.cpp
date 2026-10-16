@@ -36,6 +36,7 @@
 #include <d3dcompiler.h>
 #include <wincodec.h>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -400,12 +401,61 @@ void makeBlurTests(std::vector<Test>& v) {
   blur("loop, per-pixel n", p8, "RGBA8", 1, 1, 0, "  float4 s = 0.0;\n  int n = int((uint(pos.x) * 7u + uint(pos.y) * 3u) % 17u);\n" + loop,
        "n 0 to 16 from the pixel (8 on average): divergent");
 
+  // Uniform math per pixel (owner, 2026-10-16: turn uniforms into constants, group uniform math): in a pass, with no
+  // loop for fxc to lift it out of, is math on uniforms alone precomputed per draw (free) or paid per pixel? 32 fmas on
+  // a value from the pixel, each multiplier a product of two uniforms written first, written in the usual order, or a
+  // constant picked by a uniform; against plain fmas. Cost in fma per pixel over the plain chain.
+  const std::string pu = "Uniform math per pixel: 32 fmas, R8 3840 x 2160 (fma per pixel over plain)";
+  auto uniChain = [&](const char* step) {
+    std::string b = "  float v = pos.x * 0.001;\n";
+    for (int k = 0; k < 32; ++k) {
+      std::string st = step;
+      for (size_t at; (at = st.find("J")) != std::string::npos;) st.replace(at, 1, std::to_string(k & 15));
+      for (size_t at; (at = st.find("K")) != std::string::npos;) st.replace(at, 1, std::to_string(k));
+      b += "  v = " + st + ";\n";
+    }
+    return b + "  return v;\n";
+  };
+  std::string tableK = "static const float kPick[16] = {";
+  for (int k = 0; k < 16; ++k) tableK += (k ? ", " : "") + std::to_string(0.5 + 0.01 * k);
+  tableK += "};\n";
+  blur("chain: plain", pu, "R8", 1, 1, 0, uniChain("mad(v, U[J].x, U[J].z)"), "the base: v * a + c");
+  for (const auto& [name, step, note, prefix] : std::vector<std::array<std::string, 4>>{
+           {"chain: uniforms first", "mad(v, U[J].x * U[J].y, U[J].z)", "v * (a * b) + c: a * b on uniforms alone", ""},
+           {"chain: usual order", "mad(v * U[J].x, U[J].y, U[J].z)", "(v * a) * b + c", ""},
+           {"chain: table pick", "mad(v, kPick[(uint(U[0].w) + K) & 15u], U[J].z)", "a constant from a table, the index a uniform", tableK},
+           {"chain: select pick", "mad(v, U[0].w < 1.0 ? 0.51 : U[0].w < 2.0 ? 0.52 : U[0].w < 3.0 ? 0.53 : 0.54 + K * 0.001, U[J].z)",
+            "one of 4 constants picked by comparing a uniform", ""}}) {
+    Test& t = blur(name, pu, "R8", 1, 1, 0, uniChain(step.c_str()), note, prefix);
+    t.base = "chain: plain", t.count = 1, t.per = "pixel", t.uz = 2.0f;
+  }
+
   // P9 compute: chains of small dependent dispatches (each reads the target the one before wrote).
   const std::string p9 = "Compute: chains of dispatches into 240 x 135 RGBA8";
   for (int k : {1, 2, 4, 8, 16, 32}) {
     Test& t = blur(std::to_string(k) + (k == 1 ? " dispatch" : " dispatches"), p9, "RGBA8", 16, k, 3, "", "two targets in turn, 8 x 8 threads per group");
     t.src = "Texture2D<float4> T : register(t0);\nRWTexture2D<unorm float4> O : register(u1);\n"
             "[numthreads(8, 8, 1)] void main(uint3 id : SV_DispatchThreadID) { O[id.xy] = T.Load(int3(id.xy, 0)) * 0.99 + 0.001; }\n";
+  }
+}
+
+// The memory a test's largest resources take (its texture, or its render targets), to leave out tests that do not
+// fit a small card (owner, 2026-10-16: an HD 6450 has 512 MB or 1 GB; paging to system memory is very slow).
+double testBytes(const Test& t) {
+  const double b = t.format ? t.format->bytes : 4.0, s = t.size, screen = double(kRtW) * kRtH;
+  switch (t.stage) {
+    case Stage::Write: return 2.0 * (t.tw ? double(t.tw) * t.th : screen) * b;
+    case Stage::Blend: return 3.0 * screen * b;
+    case Stage::Pass: return (2.0 * t.count + (t.pass >= kPassCopySample ? 1.0 : 0.0)) * screen * b;
+    case Stage::Blur: return screen * 4.0 + (t.chainMode == 1 ? t.chain + 1.0 : 2.0) * double(t.tw) * t.th * b;
+    default: break;
+  }
+  switch (t.tex) {
+    case Tex::Plain: case Tex::Storage: return s * s * b;
+    case Tex::Mipped: return s * s * b * 4.0 / 3.0;
+    case Tex::Lut3D: case Tex::Lut2D: return s * s * s * b;
+    case Tex::Vol: return s * s * t.depth * b;
+    default: return s * b;
   }
 }
 
@@ -1248,8 +1298,11 @@ void bind(Gpu& g, const Test& t, const Bound& b, const Kernel& k) {
   }
 }
 
+// Compute: groups thread groups; pixel shader: the top groups rows of the kPsSize x kPsSize target.
 double run(Gpu& g, const Kernel& k, UINT groups) {
   if (k.cs) return g.timer.time(g.ctx, [&] { g.ctx->Dispatch(groups, 1, 1); });
+  const D3D11_VIEWPORT vp = {0.0f, 0.0f, float(kPsSize), float(std::min(groups, kPsSize)), 0.0f, 1.0f};
+  g.ctx->RSSetViewports(1, &vp);
   return g.timer.time(g.ctx, [&] { g.ctx->Draw(3, 0); });
 }
 
@@ -1265,17 +1318,20 @@ struct Plan {
   UINT groups = 1;
 };
 
-// A run of >= 2 ms. Slow tests on slow GPUs (random reads on an iGPU) took far longer than that even at one
-// iteration, and every reading repeats the run: then fewer thread groups, down to kMinGroups (64K threads,
-// still enough to fill a GPU).
+// A run of >= 2 ms (up to 8 ms by size first). It starts small (kMinGroups thread groups, kMinRows pixel rows: 64K / 16K threads, still enough
+// to fill a GPU) and grows (more groups or rows, then more iterations), so no run is much longer than needed: a
+// full-size first run of a slow test took seconds on slow GPUs (random reads on an iGPU; RGBA32F aniso 16x on an
+// HD 6450 stopped TexBench, owner 2026-10-16: Windows resets a GPU that is busy for about 2 seconds).
 constexpr UINT kMinGroups = 1024;
+constexpr UINT kMinRows = 16;
 Plan calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
   Plan p;
-  p.groups = groups;
+  const UINT most = k.cs ? groups : kPsSize;
+  p.groups = std::min(most, k.cs ? kMinGroups : kMinRows);
   setConstants(g, t, p.iters, t.size);
   double ms = run(g, k, p.groups);
-  while (k.cs && ms > 8.0 && p.groups > kMinGroups) {
-    p.groups = std::max(kMinGroups, p.groups / 2);
+  while (ms >= 0.0 && ms < 8.0 && p.groups < most) {  // size up to an 8 ms run (fills big GPUs), then iterations
+    p.groups = std::min(most, p.groups * 2);
     ms = run(g, k, p.groups);
   }
   // ms < 0: no valid reading (disjoint every time); keep the run length rather than doubling it blindly.
@@ -1296,7 +1352,7 @@ Result measureAt(Gpu& g, const Test& t, const Kernel& k, const Config& c, const 
   Result r;
   r.iters = iters;
   r.ms = median(runs);
-  const double threads = k.cs ? double(p.groups) * kGroupSize : double(kPsSize) * kPsSize;
+  const double threads = k.cs ? double(p.groups) * kGroupSize : double(kPsSize) * std::min(p.groups, kPsSize);
   r.nsPerStep = r.ms * 1e6 / (double(iters) * kUnroll * threads * c.chains);
   return r;
 }
@@ -1312,8 +1368,9 @@ struct Measured {
 // takes >= 2 ms. The draws alternate between two targets: NVIDIA (and other tiling GPUs) keep back to
 // back full-screen draws into one target in an on-chip tile cache, so only the last one reached memory
 // (measured above the GTX 1660's memory bandwidth).
-double writePass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader* ps, int reps, UINT& draws) {
-  D3D11_VIEWPORT vp = {0.0f, 0.0f, float(kRtW), float(kRtH), 0.0f, 1.0f};
+double writePass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader* ps, int reps, UINT& draws, UINT w = kRtW,
+                 UINT h = kRtH) {
+  D3D11_VIEWPORT vp = {0.0f, 0.0f, float(w), float(h), 0.0f, 1.0f};
   g.ctx->RSSetViewports(1, &vp);
   g.ctx->PSSetShader(ps, nullptr, 0);
   auto timeDraws = [&](UINT n) {
@@ -1813,7 +1870,7 @@ int main(int argc, char** argv) {
   std::filesystem::create_directories(dxbcDir);
 
   // The selected tests and the bases they need.
-  const std::vector<Test> all = makeTests();
+  std::vector<Test> all = makeTests();
   std::vector<const Test*> tests;
   auto byName = [&](const std::string& n) -> const Test* {
     for (const Test& t : all)
@@ -1830,11 +1887,42 @@ int main(int argc, char** argv) {
     unsupported += std::string(unsupported.empty() ? "" : ", ") + t.name;
     return false;
   };
+  // Memory: the card's own, plus shared system memory where the GPU uses that (integrated GPUs: unified memory).
+  D3D11_FEATURE_DATA_D3D11_OPTIONS2 o2 = {};
+  const bool uma = SUCCEEDED(g.dev->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS2, &o2, sizeof(o2))) && o2.UnifiedMemoryArchitecture;
+  // TEXBENCH_MEMORY_MB pretends a card's memory size (to check the scaling below on a big card).
+  const char* fake = std::getenv("TEXBENCH_MEMORY_MB");
+  const double memory = fake ? std::atof(fake) * 1048576.0
+                             : double(ad.desc.DedicatedVideoMemory) + (uma ? double(ad.desc.SharedSystemMemory) : 0.0);
+  // Too big for this card's memory (owner, 2026-10-16: 512 MB cards such as the HD 6450 and NVS 310): textures half
+  // their size (still far beyond any cache), writes a smaller target (they report GB/s); noted in the CSV. Tests whose
+  // size is what they measure (cache sizes, texture sizes) and the rest are left out below.
+  for (Test& t : all) {
+    const bool sizeIsTheTest = t.section.rfind("Cache sizes", 0) == 0 || t.name.find("^2") != std::string::npos;
+    const bool texture = (t.stage == Stage::Compute || t.stage == Stage::Pixel) && t.tex != Tex::None && t.size >= 512;
+    if (memory <= 0.0 || sizeIsTheTest || testBytes(t) <= memory / 2.0) continue;
+    if (texture) {
+      while (testBytes(t) > memory / 2.0 && t.size > 512) t.size /= 2;
+      t.note += (t.note.empty() ? "" : "; ") + std::string("scaled to ") + std::to_string(t.size) + " for the card's memory";
+    } else if (t.stage == Stage::Write) {
+      t.tw = kRtW, t.th = kRtH;
+      while (testBytes(t) > memory / 2.0 && t.th > 270) t.tw /= 2, t.th /= 2;
+      t.note = "scaled to " + std::to_string(t.tw) + " x " + std::to_string(t.th) + " for the card's memory";
+    }
+  }
+  std::string tooBig;
+  auto fits = [&](const Test& t) {
+    if (memory <= 0.0 || testBytes(t) <= memory / 2.0) return true;
+    tooBig += std::string(tooBig.empty() ? "" : ", ") + t.name;
+    return false;
+  };
   for (const Test& t : all)
     if ((filter.empty() || t.name.find(filter) != std::string::npos || t.name == "mad" || t.name == "ps.mad") &&
-        storageOk(t))
+        storageOk(t) && fits(t))
       tests.push_back(&t);
   if (!unsupported.empty()) print("Not supported by this GPU, left out: %s\n", unsupported.c_str());
+  if (!tooBig.empty())
+    print("Need more than half of the GPU's %.0f MB of memory, left out: %s\n", memory / 1048576.0, tooBig.c_str());
   for (bool added = true; added;) {
     added = false;
     for (const Test* t : std::vector<const Test*>(tests))
@@ -2105,8 +2193,12 @@ int main(int argc, char** argv) {
   };
   auto printPass = [&](const std::string& sec) {
     double maxP = 0.0;
+    int barW = kBarWidth;
     for (const Test* t : tests)
-      if (t->section == sec) maxP = std::max(maxP, passMs[t->name].value);
+      if (t->section == sec) {
+        maxP = std::max(maxP, passMs[t->name].value);
+        if (t->per) barW = std::max(8, kBarWidth - 22);  // room for "  12.3 fma per exchange"
+      }
     print("\n  %s%s%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"), sec.c_str(),
                 st.reset(), st.c("\x1b[90m"), "Test", "ms/pass", kBarWidth, "", st.reset());
     for (const Test* t : tests)
@@ -2115,7 +2207,7 @@ int main(int argc, char** argv) {
         char extra[48] = "";
         if (each > -1e9) std::snprintf(extra, sizeof(extra), "  %5.1f fma per %s", each, t->per);
         print("  %-26s %8.3f  %s%s\n", t->name.c_str(), passMs[t->name].value,
-                    bar(passMs[t->name].value, maxP, kBarWidth, st, kCyan).c_str(), extra);
+                    bar(passMs[t->name].value, maxP, barW, st, kCyan).c_str(), extra);
       }
     print("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
   };
@@ -2200,10 +2292,10 @@ int main(int argc, char** argv) {
     }
   for (const Test* t : tests)
     if (t->stage == Stage::Write && writeUnits.count(t->name))
-      std::fprintf(csv, "write,\"%s\",\"%s\",,,%.4f,,%.3f,,%zu,%s,%s,\"GB/s, %u x %u\",\"\",%.2f\n", t->name.c_str(),
+      std::fprintf(csv, "write,\"%s\",\"%s\",,,%.4f,,%.3f,,%zu,%s,%s,\"GB/s, %u x %u\",\"%s\",%.2f\n", t->name.c_str(),
                    t->section.c_str(), writeMs[t->name], writeUnits[t->name].value, writeReadings[t->name].size(),
-                   writeUnits[t->name].ok ? "yes" : "no", readingsText(writeReadings[t->name]).c_str(), kRtW, kRtH,
-                   seconds[t->name]);
+                   writeUnits[t->name].ok ? "yes" : "no", readingsText(writeReadings[t->name]).c_str(), t->tw ? t->tw : kRtW,
+                   t->th ? t->th : kRtH, t->note.c_str(), seconds[t->name]);
   for (const Test* t : tests)
     if (t->stage == Stage::Pass && passMs.count(t->name))
       std::fprintf(csv, "pass,\"%s\",\"%s\",,,%.4f,,%.4f,,%zu,%s,%s,\"ms per pass, %u x %u\",\"%s\",%.2f\n", t->name.c_str(),
@@ -2594,10 +2686,11 @@ int main(int argc, char** argv) {
       return;
     }
     if (t->stage == Stage::Write) {
-      // Two 3840 x 2160 targets of the format (see writePass); GB/s from the pass time.
+      // Two 3840 x 2160 targets of the format (see writePass; smaller on a card short of memory); GB/s from the pass time.
+      const UINT w = t->tw ? t->tw : kRtW, h = t->th ? t->th : kRtH;
       D3D11_TEXTURE2D_DESC td = {};
-      td.Width = kRtW;
-      td.Height = kRtH;
+      td.Width = w;
+      td.Height = h;
       td.MipLevels = td.ArraySize = 1;
       td.Format = t->format->dxgi;
       td.SampleDesc.Count = 1;
@@ -2617,8 +2710,8 @@ int main(int argc, char** argv) {
       UINT draws = 0;
       std::vector<double>& rd = writeReadings[t->name];
       for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
-        const double ms = writePass(g, rtv, ps, reps, draws);
-        rd.push_back(double(kRtW) * kRtH * t->format->bytes / (ms * 1e6));  // GB/s
+        const double ms = writePass(g, rtv, ps, reps, draws, w, h);
+        rd.push_back(double(w) * h * t->format->bytes / (ms * 1e6));  // GB/s
         progress.step();
       }
       writeUnits[t->name] = consensus(rd, 0.0);

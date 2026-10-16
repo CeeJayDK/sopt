@@ -1713,6 +1713,29 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   read 0.65 / 10.8 (vs 15.5), write 42 / 171 (vs 184), static const array 13.5 / 59 (vs 58). Derivatives (ps): ddx /
   ddy and the coarse forms 6.0, the fine forms 2.0, fwidth 9.9, clip 0.6: on Turing fine derivatives are 3x cheaper
   than coarse (and than plain ddx). Everything else within noise of compute.
+  Compute vs pixel (owner, 2026-10-16: find out why stages differ): the mul test's DXBC is identical in cs and ps
+  (fxc is not the cause); NVIDIA and Intel drivers merge (x * c.z) * c.x into x * (c.z * c.x) only in compute shaders.
+  HD 6450 (owner, 2026-10-16): TexBench stopped at "RGBA32F aniso 16x" (one run too long). calibrate() ran the first
+  run at full size (pixel tests always 1024 x 1024; compute only shrank after a full-size run): now it starts at
+  kMinGroups / kMinRows (16 rows of 1024) and grows the size up to an 8 ms run, then the iterations up to 2 ms; run()
+  draws pixel tests into the top rows. GTX 1660 RGBA32F tests before / after within the usual 5%. Owner: small cards
+  may also run out of memory (paging = very slow): testBytes() (texture or render targets) > half the memory leaves
+  the test out, listed on screen; memory = dedicated + shared where D3D11_OPTIONS2 says unified memory (iGPUs). On
+  512 MB: RGBA32F blends / copies at 3840 x 2160 go (writes 253 MB and 256 MB textures fit). Owner: scale instead of
+  cutting where possible: textures halve (min 512) and writes take a smaller target (GB/s) until they fit, noted in the
+  CSV ("scaled to ..."); cache / texture size sweeps (the size is the test) and blends / passes (ms at 4K) are left out.
+  TEXBENCH_MEMORY_MB pretends a memory size. GTX 1660 as 256 MB: RGBA32F random at 2048 6790 against 7388 at 4096
+  (-8%: more cache hits), writes at 1920 x 1080 169 GB/s = full size.
+  Uniform math per pixel (TexBench pass, no loop: OpBench's loop let fxc lift uniform-only math out of it, so its
+  mulpre / constuni / selectuni read ~0 for that reason and were removed). 32 fmas on a pixel value, fma per pixel
+  over the plain chain, GTX 1660 / UHD 630: multipliers a * b written first (16 distinct products, each used twice)
+  15.2 / 6.4, usual order (v * a) * b 31.0 / 29.7, a constant from a static const table indexed by a uniform (32
+  picks) 94.3 / 23.0, a 4-way select on a uniform 64.6 / 45.3. So uniform-only math is paid per pixel (~1 fma per
+  product on the 1660, ~0.4 on Gen9), not precomputed per draw; grouping uniforms wins where a product is reused
+  (and a little on Intel); picking constants by a uniform costs ~3 (table) / ~2 (select) fma per pick on the 1660:
+  turning uniforms into constant sets only pays where the constant saves more than that (folds, free scales).
+  Owner's principle (2026-10-16): group math on values of the same class (constant / uniform / per vertex / per
+  pixel) so more can be precomputed, and move values to a cheaper class where it pays.
   Owner's 0.7.11 run (GTX 1660, UHD 630; all complete): fxc pairs, compute / pixel the same: 1660 scale2 0.96 -> 0.00
   (cs) / 1.01 -> 0.02 (ps), irot 2.0 -> 1.0 (both); UHD 630 irot 4.0 -> 2.7 (cs), 3.6 -> 2.7 (ps), scale2 0.9 both
   (no free scales), shladd5 0.9 both ways (Gen9 imul = shl + add). Rotates are a measured fxc loss on both vendors.

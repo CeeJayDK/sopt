@@ -22,7 +22,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Fewer instructions at equal measured speed are still better (less power; faster once the bottleneck moves).
 - When asking the owner to test or download something, repeat the links in that message (CI run / artifact links).
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
-  testers (now 0.7.11, test build; 0.7.0 released); the next test build is 0.7.12.
+  testers (now 0.7.12, test build; 0.7.0 released); the next test build is 0.7.13.
 - CHANGELOG.md: one `## <version>` section per release, add to the top section as things land (release.yml copies it).
   Changelog, release notes and README.md are for laymen (owner, 2026-10-10): plain English, short, what changes for the
   user, no option names or internals (those go in docs/notes/history.md, docs/technical.md).
@@ -145,6 +145,9 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 6. Planned / parked: `--poly` approximation mode; test package from the full corpus run; M5 rest (probe effect, facts
    database, `__DEVICE__` paths); M4 harness results merged into reports; Layer.fx 2.0 (questions asked); noise mode;
    GCN 4 model; driver-statistics (ShaderInfo) as a measured source (wait for reports); pruning sopt options (later).
+10. Stage-aware costs (owner, 2026-10-16): pixel shader costs for pixel shaders, compute for compute (StageBench,
+   docs/stagebench); investigate every cs / ps / vs difference (fxc or driver?) before modelling it (history: mulpre).
+   Owner's go, waiting on data: once an AMD report has the shladd5 pair, cost (x << k) + x as fxc's imul in HLSL mode.
 9. Flags --library-regroup / --fp-coincidence (2026-10-11): off; the bench shows no difference (no || chains in it).
    Add bench problems with any() / all() if they should earn the default.
 7. sign() fast forms (owner, 2026-10-10): one (mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0), 2.25 on every model so far)
