@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Fetch the survey's video card page
         run: |
           curl -sSL --retry 3 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -H "Accept-Language: en-US" \
@@ -33,7 +33,7 @@ jobs:
           python3 tools/site/steam_share.py videocard.html data/steam-gpu-share.txt || {
             echo "--- parse failed; page excerpt:"; grep -n -m 40 -i "substats\|VIDEO CARDS\|Survey:" videocard.html | cut -c1-300; exit 1; }
           cat data/steam-gpu-share.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: steam-survey

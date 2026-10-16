@@ -142,3 +142,8 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: shaderinfo, NVIDIA GeForce GTX 1660 (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-gtx-1660-8.txt`
 - upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-8.csv`, `docs/texbench/intel-uhd-630-8-order.png`, `docs/texbench/intel-uhd-630-8-order-zoom.png` (TexBench 0.7.5)
 - upload 1: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/texbench/nvidia-gtx-1660-7.csv`, `docs/texbench/nvidia-gtx-1660-7-order.png`, `docs/texbench/nvidia-gtx-1660-7-order-zoom.png` (TexBench 0.7.5)
+
+## 2026-10-16 11:36 UTC
+- upload 1: opbench, AMD Radeon RX 7900 XTX (driver 32.0.31041.1004): `docs/opbench/amd-radeon-rx-7900-xtx.csv` (OpBench 0.7.0)
+- upload 1: shaderinfo, AMD Radeon RX 7900 XTX (driver AMD proprietary driver 26.8.1 (LLPC) (2.0.395)): `docs/shaderinfo/amd-radeon-rx-7900-xtx.txt`
+- upload 1: texbench, AMD Radeon RX 7900 XTX (driver 32.0.31041.1004): `docs/texbench/amd-radeon-rx-7900-xtx.csv`, `docs/texbench/amd-radeon-rx-7900-xtx-order.png`, `docs/texbench/amd-radeon-rx-7900-xtx-order-zoom.png` (TexBench 0.7.0)
