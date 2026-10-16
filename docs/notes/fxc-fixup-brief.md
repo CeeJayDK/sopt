@@ -29,7 +29,11 @@ the untouched form. A rewrite ships for a GPU family only where it measured fast
 
 References: Microsoft's tokenized program format (`d3d11TokenizedProgramFormat.hpp`, Windows Driver Kit); DXBC readers
 and writers in DXVK (dxbc), vkd3d-shader (Wine, LGPL, also writes DXBC and SM1-3) and DXC's dxilconv (DXBC -> DXIL,
-MIT); the DXBC checksum (a modified MD5, reimplemented in those projects).
+MIT); the DXBC checksum (a modified MD5, reimplemented in those projects). Prior art for patching bytecode after fxc:
+Aras Pranckevicius, "Solving DX9 Half-Pixel Offset" (aras-p.info, 2016): Unity rewrote compiled vs_3_0 bytecode
+(oPos writes redirected to a free temp, then mad / mov into oPos with a constant in c255). D3D9 bytecode has no
+checksum (format: MSDN "Direct3D Shader Codes"); the limits he names apply here too: a free temp, a free constant,
+free instruction slots (SM3: 512).
 
 ## Evidence (from sopt / GPU Blueprint; details in docs/notes/history.md)
 

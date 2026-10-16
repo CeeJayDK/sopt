@@ -1713,6 +1713,18 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   read 0.65 / 10.8 (vs 15.5), write 42 / 171 (vs 184), static const array 13.5 / 59 (vs 58). Derivatives (ps): ddx /
   ddy and the coarse forms 6.0, the fine forms 2.0, fwidth 9.9, clip 0.6: on Turing fine derivatives are 3x cheaper
   than coarse (and than plain ddx). Everything else within noise of compute.
+  Owner's 0.7.10 run (2026-10-16): GTX 1660 (OpBench drift 68%, TexBench 46%) and UHD 630 (OpBench 1.5%, TexBench 9%,
+  191 s): TexBench ran through on the UHD 630 (the flush). StageBench ps / vs for both (the 1660's 0.7.10 ps run has
+  neg 0.32, unclean; its 0.7.8 ps run is kept as nvidia-gtx-1660-ps-2, valid there). Blur tests, 1660 / UHD 630 (ms):
+  32 passes into 1/64 0.115 / 0.589 (~3.5 / ~18 us per pass), into 1/256 0.052 / 0.228; ping-pong alike; 32 dispatches
+  0.073 / 0.400. Reads per pixel 1-4 flat on both (630: 2.34 -> 2.58), then ~0.05 / ~0.55 ms per read. Quad exchange
+  4.6 / 8.8 fma; 4 reads + exchange 0.53 / 6.49 against 16 reads 1.00 / 8.99. Noise x8 per lookup: textures 11.4 /
+  12.5 at every size, table[16] 59 / 12.5 (only NVIDIA pays for the indexed constant table), IGN 4.0 / 6.0, R2 1.6 /
+  4.0, hash22 20.6 / 22.1. Fetch order: no effect on the 1660; UHD 630 81 taps Morton 4.66, row 5.18, random 5.80 (order
+  matters on Gen9, 11-24%). Branches: 1660 uniform loop n 16 = unrolled (1.15), UHD 630 loop 14.96 against unrolled
+  9.65 (+55%), per-pixel n (avg 8) 14.10 = the full 16 (a divergent loop pays for the longest pixel). Bands: vertex
+  shader 4.62 < stencil 4.84 < discard 5.35 (630). NVIDIA PTX docs (lop3, suggested by another session): nothing new;
+  OpBench xor3 / or3 / andor / bitsel / maj3 on the 1660 = 1.85-2.2 fma = the two shifts, the logic in one LOP3.
   Owner's UHD 620 (101.2145, GPU Blueprint 0.7.9, drift 29-35%): first StageBench ps / vs reports (docs/stagebench).
   Gen9 like Turing: a multiply by a uniform before an fma, radians, degrees cost 0.02 in cs, 1.0 in ps / vs; also
   higher in ps: step 1.05 -> 1.87, div 2.9 -> 3.7, fmod / modf +1, fbh +1, ftou +0.5; isnan 1.8 in cs, 0 in ps; fp16:
