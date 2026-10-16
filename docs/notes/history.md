@@ -1715,6 +1715,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   than coarse (and than plain ddx). Everything else within noise of compute.
   Compute vs pixel (owner, 2026-10-16: find out why stages differ): the mul test's DXBC is identical in cs and ps
   (fxc is not the cause); NVIDIA and Intel drivers merge (x * c.z) * c.x into x * (c.z * c.x) only in compute shaders.
+  Owner's NVS 310 (Fermi GF119, sm_21, device 0x107D, driver 10.18.13.5362 = 353.62; GPU Blueprint 0.7.11), the
+  first Fermi report: OpBench and TexBench stopped at once ("# stopped: the GPU has not finished a measurement in 60
+  seconds", OpBench while warming up, TexBench at its compute mad reference): compute timing hangs on this card /
+  driver; StageBench ps (drift 0.9%) and vs (drift 94%: unreliable) ran through (docs/stagebench). Pixel shaders: an
+  extra independent mul / add ~0.5 fma (mulxx 0.49, scale3 0.49, add 0.06 merged), ilp1 1.19 / ilp2 0.48: GF119
+  needs instruction-level parallelism (48 cores per SM, dual issue); no free scales (scale4 0.47 = scale3); rcp /
+  exp2 / sin 3.1, sqrt 7.1, sign 3.1 (signmad 1.5), ddx 3.6 / ddx_fine 1.7, fwidth 5.6, arrays 5.2-5.6, udiv 11.4,
+  min16float runs at 32 bits; fxc pairs: irot 3.0 = irot-od, shladd5 0.9 / 1.05. No cost model yet (Fermi).
   HD 6450 (owner, 2026-10-16): TexBench stopped at "RGBA32F aniso 16x" (one run too long). calibrate() ran the first
   run at full size (pixel tests always 1024 x 1024; compute only shrank after a full-size run): now it starts at
   kMinGroups / kMinRows (16 rows of 1024) and grows the size up to an 8 ms run, then the iterations up to 2 ms; run()
