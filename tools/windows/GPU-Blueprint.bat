@@ -48,12 +48,22 @@ goto menuQuit
 echo   %E%[5;1;92m9%E%[0m  %E%[5;1;92mSend the reports to CeeJay%E%[0m %E%[92m(new reports are ready)%E%[0m
 :menuQuit
 echo   %E%[1;93m0%E%[0m  Quit
+rem The programs need Microsoft's Visual C++ runtime (not bundled: antivirus programs flagged packages that bundle
+rem it, owner 2026-10-16). Without it Windows reports a missing VCRUNTIME140 / MSVCP140 dll; key V opens the download.
+set "VCMISSING="
+for %%d in (vcruntime140.dll vcruntime140_1.dll msvcp140.dll) do if not exist "%SystemRoot%\System32\%%d" set "VCMISSING=1"
+if not defined VCMISSING goto menuVcOk
+echo.
+echo   %E%[1;91mThe Microsoft Visual C++ runtime is missing: the tests will not start without it.%E%[0m
+echo   %E%[1;93mV%E%[0m  Open Microsoft's download page %E%[90m(install "X64", then run this menu again)%E%[0m
+:menuVcOk
 echo.
 echo   %E%[90mClose games and other GPU-heavy programs first. When a run is done, it offers to send the reports.%E%[0m
 echo.
-choice /c 1234567890 /n /m "  Press a number: "
+choice /c 1234567890V /n /m "  Press a number: "
 set "n=%errorlevel%"
 if "%n%"=="10" goto :eof
+if "%n%"=="11" start "" "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist"
 if "%n%"=="1" call :every
 if "%n%"=="2" if "%cards%"=="2" (call :run %cardIdx1% all) else (call :run "" all)
 if "%n%"=="3" if "%cards%"=="2" (call :run %cardIdx2% all) else (call :pick)
