@@ -50,6 +50,7 @@ echo   %E%[1;93m6%E%[0m  ShaderInfo only  %E%[90mwhat the driver reports about c
 echo.
 echo   %E%[1;93m7%E%[0m  Open the Reports folder
 echo   %E%[1;93m8%E%[0m  Open the guide %E%[90m(README.html)%E%[0m
+echo   %E%[1;93mR%E%[0m  See the results again %E%[90m(opens them in your browser)%E%[0m
 rem New reports not sent yet (the zip without the hidden marker Reports\.sent): key 9 blinks (owner, 2026-10-05).
 if defined ZIP if not exist "Reports\.sent" goto menuNew
 echo   %E%[1;93m9%E%[0m  Send the reports to CeeJay %E%[90m(opens an upload page in your browser)%E%[0m
@@ -70,7 +71,7 @@ echo   %E%[1;93mV%E%[0m  Open Microsoft's download page %E%[90m(install "X64", t
 echo.
 echo   %E%[90mClose games and other GPU-heavy programs first. When a run is done, it offers to send the reports.%E%[0m
 echo.
-choice /c 1234567890V /n /m "  Press a number: "
+choice /c 1234567890VR /n /m "  Press a number: "
 set "n=%errorlevel%"
 if "%n%"=="10" goto :eof
 if "%n%"=="11" start "" "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist"
@@ -81,6 +82,7 @@ if "%n%"=="4" call :run "" opbench
 if "%n%"=="5" call :run "" texbench
 if "%n%"=="6" call :run "" shaderinfo
 if "%n%"=="7" call :reports
+if "%n%"=="12" call :results
 if "%n%"=="8" start "" "%~dp0README.html"
 if "%n%"=="9" call :send
 goto menu
@@ -90,6 +92,18 @@ rem :addCard <adapter number> "<name>" (from OpBench --adapters)
 set /a cards+=1
 set "cardIdx%cards%=%~1"
 set "cardName%cards%=%~2"
+exit /b
+
+rem R: the pages the tests save of what they showed (Reports\Results, owner 2026-10-16: see the results again).
+:results
+if exist "Reports\Results\*.html" goto resultsOpen
+echo.
+echo   %E%[91mNo results yet.%E%[0m Run a test first (1 to 6).
+echo.
+pause
+exit /b
+:resultsOpen
+for %%f in ("Reports\Results\*.html") do start "" "%%~ff"
 exit /b
 
 :reports
