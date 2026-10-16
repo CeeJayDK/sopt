@@ -334,25 +334,27 @@ inline const Family kFamilies[] = {
      "signsel 12.1 signsel2 0.1 sin 12.0 sincos 24.1 sinh 28.1 smoothstep 20.1 sqmax 4.4 sqrt 12.0 "
      "sqrt16 16.2 sqrtnr0 0.6 step 0.7 sub 4.0 tan 43.6 tanh 44.1 trunc 12.0 udiv 61.2 umod 67.0 unitf 4.0 "
      "utof 8.0 xor3 8.1 "},
-    {"rdna3", "RDNA 3", 1,
-     "aAdd 14.5 aAdd1 900.4 aAnd 14.3 aAnd1 904.0 aCmpXchg 29.3 aCmpXchg1 896.2 aMax 14.9 aMax1 902.5 "
-     "aMin 14.3 aMin1 900.4 aOr 14.6 aOr1 900.6 aXchg 15.3 aXchg1 903.6 aXor 14.8 aXor1 901.9 abs -0.0 "
-     "acos 54.4 add 3.7 add16 3.7 arraybase 31.3 arrayread 381.0 arraywrite 626.7 asin 58.7 atan 87.4 "
-     "atan2 102.9 atombase 11.5 barrier 1.5 bitcast 0.1 bitor 7.9 branchdiv 239.3 branchuni 117.6 ceil 7.8 "
-     "clamp 7.8 constarray 10.4 contract 3.9 cos 28.4 cosh 59.6 cross 27.6 cvt1 7.6 det3 34.6 "
-     "distance 55.8 div 25.8 divxy 25.0 dot2 8.8 dot3 13.9 dot4 20.5 exp 28.5 exp2 26.8 exp2_16 25.5 "
-     "f16round 3.3 faceforward 42.4 floor 7.8 flooradd 22.2 fma+cvt -4.1 fma+fma 0.0 fma+half 1.3 "
-     "fma+int -1.8 fma+minmax -1.7 fma+rcp -14.0 fma1 3.7 fmod 29.9 frac 7.8 fracadd 22.0 frexp 55.0 "
-     "ftoitof 25.6 groupbarrier -0.3 gsbase 30.4 gsbase32 30.8 gsread 7.6 gsread32 358.2 gswrite 25.2 "
-     "gswrite32 429.1 gswriteread 33.8 half1 0.0 int 3.3 isinf 18.0 isnan 10.9 ixmul 32.3 ldexp 23.2 "
-     "length 38.2 lerp 9.6 log 27.4 log10 27.2 log2 26.7 mad 4.0 mad16 0.2 mad2 3.9 mad2v 3.9 mad3v 8.0 "
-     "mad4v 11.7 matmul4 65.8 max 4.6 max3 3.0 membarrier -0.1 min 4.7 minmax 3.2 minmax1 3.2 modf 15.1 "
-     "mul 0.3 mul16 1.8 neg 0.0 negabs -0.0 normalize 31.1 omod0.125 2.4 omod0.25 2.5 omod2 -0.1 omod3 2.4 "
-     "omod4 -0.1 omod8 2.4 omodhalf -0.1 pow 57.1 radians 3.3 rcp 26.8 rcp1 25.4 rcp16 25.7 rcpmax 29.4 "
-     "reflect 23.5 refract 71.0 round 7.8 roundadd 10.4 rsqrt 27.3 satmad -0.0 saturate 1.2 select 10.9 "
-     "selectboth 234.4 sign 35.5 signbits 14.2 signclamp 11.0 signmad 7.2 signsat 9.9 signsel 23.3 "
-     "signsel2 10.8 sin 28.6 sincos 51.1 sinh 59.6 smoothstep 18.1 sqrt 26.9 sqrt16 26.1 step 12.1 sub 4.5 "
-     "tan 85.9 tanh 95.3 trunc 7.9 "},
+    {"rdna3", "RDNA 3", 2,
+     "aAdd 14.5 aAdd1 885.1 aAnd 14.2 aAnd1 892.8 aCmpXchg 29.2 aCmpXchg1 851.3 aMax 15.0 aMax1 898.0 "
+     "aMin 14.6 aMin1 893.9 aOr 14.9 aOr1 893.0 aXchg 15.6 aXchg1 861.4 aXor 15.3 aXor1 892.8 abs -0.0 "
+     "acos 55.7 acos1 44.1 acos4 57.5 add 3.7 add16 3.7 arraybase 31.5 arrayread 383.0 arraywrite 623.6 "
+     "asin 59.8 atan 88.4 atan2 102.7 atan2q 42.1 atan4 23.8 atan5a 55.7 atombase 11.8 barrier 1.8 "
+     "bitcast 0.1 bitor 7.8 branchdiv 236.5 branchuni 116.1 ceil 7.7 clamp 7.7 constarray 10.1 "
+     "contract 3.9 cos 28.0 cosh 59.2 cross 26.4 cvt1 7.5 det3 35.6 distance 56.5 div 25.5 divxy 25.1 "
+     "dot2 9.1 dot3 14.2 dot4 21.2 exp 28.0 exp2 26.3 exp2_16 25.1 exp2ceil 56.6 exp2floor 57.0 "
+     "f16round 3.2 faceforward 43.5 floor 7.6 flooradd 22.4 fma+cvt -3.9 fma+fma 0.0 fma+half 1.4 "
+     "fma+int -1.6 fma+minmax -1.5 fma+rcp -13.5 fma1 3.7 fmod 29.9 frac 7.7 fracadd 22.2 frexp 54.7 "
+     "ftoitof 25.3 groupbarrier -0.2 gsbase 30.4 gsbase32 30.9 gsread 8.0 gsread32 337.8 gswrite 25.8 "
+     "gswrite32 417.1 gswriteread 34.4 half1 0.0 int 3.2 isinf 17.9 isnan 10.8 ixmul 32.2 ldexp 23.5 "
+     "length 39.0 lerp 9.6 log 27.3 log10 26.4 log2 26.2 log2_16 24.8 mad 4.0 mad16 0.1 mad16v3 0.5 "
+     "mad2 4.0 mad2v 3.8 mad3v 7.9 mad4v 11.7 matmul4 69.4 max 4.6 max16 4.1 max3 3.0 membarrier -0.3 "
+     "min 4.7 minmax 3.1 minmax1 3.1 mix16 9.3 modf 15.1 mul 0.3 mul16 1.8 neg 0.0 negabs 0.0 "
+     "normalize 31.5 omod0.125 2.5 omod0.25 2.4 omod2 0.0 omod3 2.6 omod4 -0.1 omod8 2.4 omodhalf 0.0 "
+     "pow 56.3 pow2ceil 15.1 pow2floor 7.6 radians 3.4 rcp 26.5 rcp1 24.8 rcp16 25.2 rcpmax 28.9 "
+     "rcpnr0 7.6 rcpnr1 15.5 reflect 23.5 refract 73.7 round 7.7 roundadd 10.3 rsqrt 26.6 rsqrtnr0 14.7 "
+     "rsqrtnr1 29.5 satmad -0.1 saturate 1.2 select 11.0 selectboth 229.8 sign 35.5 signbits 13.8 "
+     "signclamp 10.7 signmad 7.2 signsat 10.6 signsel 23.0 signsel2 10.8 sin 28.2 sincos 50.9 sinh 58.9 "
+     "smoothstep 18.2 sqrt 26.2 sqrt16 25.3 sqrtnr0 14.6 step 11.9 sub 4.5 tan 85.7 tanh 93.0 trunc 7.7 "},
 };
 
 // Card name (without (R) / (TM)) -> family, first match wins (ECMAScript regex search).
