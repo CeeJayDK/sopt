@@ -2105,8 +2105,12 @@ int main(int argc, char** argv) {
   };
   auto printPass = [&](const std::string& sec) {
     double maxP = 0.0;
+    int barW = kBarWidth;
     for (const Test* t : tests)
-      if (t->section == sec) maxP = std::max(maxP, passMs[t->name].value);
+      if (t->section == sec) {
+        maxP = std::max(maxP, passMs[t->name].value);
+        if (t->per) barW = std::max(8, kBarWidth - 22);  // room for "  12.3 fma per exchange"
+      }
     print("\n  %s%s%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"), sec.c_str(),
                 st.reset(), st.c("\x1b[90m"), "Test", "ms/pass", kBarWidth, "", st.reset());
     for (const Test* t : tests)
@@ -2115,7 +2119,7 @@ int main(int argc, char** argv) {
         char extra[48] = "";
         if (each > -1e9) std::snprintf(extra, sizeof(extra), "  %5.1f fma per %s", each, t->per);
         print("  %-26s %8.3f  %s%s\n", t->name.c_str(), passMs[t->name].value,
-                    bar(passMs[t->name].value, maxP, kBarWidth, st, kCyan).c_str(), extra);
+                    bar(passMs[t->name].value, maxP, barW, st, kCyan).c_str(), extra);
       }
     print("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
   };

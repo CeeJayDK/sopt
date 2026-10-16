@@ -513,11 +513,11 @@ struct Config {
 };
 Config kConfigs[] = {
     {"tput", 8, kGroupsFull, "Cost, many in parallel",
-     "how many of each instruction the GPU finishes per second (the number sopt's cost models use)"},
+     "how many the GPU finishes per second (what sopt's cost models use)"},
 #ifndef SOPT_STAGEBENCH
     {"dep", 1, kGroupsFull, "Cost, one dependent chain",
-     "every step waits for the one before it; the GPU hides the wait by switching between threads"},
-    {"lat", 1, 1, "Latency, one at a time", "how long one step takes until its result is ready (one group of threads, nothing to hide it)"},
+     "each step waits for the one before; other threads hide the wait"},
+    {"lat", 1, 1, "Latency, one at a time", "how long one step takes, with nothing to hide the wait"},
 #endif
 };
 
@@ -1051,12 +1051,12 @@ int main(int argc, char** argv) {
   BackgroundJobs compiling(std::move(jobList));
   compiling.wait(0);  // the reference, for the warm-up
 
-  print("%zu tests, each measured in three ways:\n", tests.size());
+  print(std::size(kConfigs) == 1 ? "%zu tests:\n" : "%zu tests, each measured in three ways:\n", tests.size());
   for (const Config& c : kConfigs)
     print("  %s%-26s%s %s\n", st.c("\x1b[1;96m"), c.title, st.reset(), c.what);
-  print("Each is measured twice (forward, then backward through its section) and more often when its two\n"
-              "readings disagree. Only the first is shown (lower is better); the CSV has all three. The results appear section\n"
-              "by section while the rest is measured.\n"
+  print("Each is measured twice (forward, then backward through its section), more often when the two\n"
+              "readings disagree. Lower is better; the CSV has every reading. Results appear section by\n"
+              "section while the rest is measured.\n"
               "Warming up the GPU for 2 seconds so its clock settles ...");
   {
     bindShader(g, shaders["tput"]["mad"]);
@@ -1308,7 +1308,7 @@ int main(int argc, char** argv) {
               "  Ops     Operations: the cost counted in multiply-adds.\n"
               "          2.0 means \"takes as long as two multiply-adds\".\n"
               "  Graph   Longer bar = slower. Free operations have no bar; a full bar is 25 multiply-adds or more.\n"
-              "  usually The cost other cards of the same family measured, where this card differs by more than 25%%.\n"
+              "  usually What other cards of this family measured, where this card differs by over 25%%.\n"
               "\n"
               "  The numbers show how fast the GPU is when it is fully busy (as in a game).\n"
               "  Docs\\OpBench.html (README.html next to this program) explains every test in plain words.\n",
