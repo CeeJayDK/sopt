@@ -1701,7 +1701,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   a * b * 2.0 -> dp2 (a * b + a * b, also with a uniform); float4 a * b * 2.0 -> mul + add; rcp(x) * 2.0 -> add; * 4.0
   stays a mul. Only `precise` keeps mul l(2.0), but a trial on the GTX 1660 (scale2p / scale4p through a precise
   helper, not kept) cost 0.95 for both: precise stops the driver's free scales altogether (x4 too), so it cannot show
-  the hardware x2 (nouveau says FMUL has it). GPU Blueprint 0.7.8 (owner's go): with two cards the menu names
+  the hardware x2 (nouveau says FMUL has it). fxc options (SDK fxc.exe): /O0-/O3, /Gpp, /Gfp: add / dp2; /Gis: precise
+  mul; only /Od (no optimization) keeps a plain mul l(2.0). OpBench scale tests compiled with /Od (trial build, not
+  kept) on the GTX 1660: scale2 0.00 like x4 / x8 / x0.5 / x0.25 / x0.125; x3, x16, x1/16 and negatives ~1: the
+  driver does give x2 for free when the DXBC has the multiply. fxc's x + x / dp2 rewrite alone costs it on D3D.
+  GPU Blueprint 0.7.8 (owner's go): with two cards the menu names
   them on keys 2 / 3 (OpBench / TexBench --adapters print "index name", (R) / (TM) dropped); after "send" (Y) the
   reports move to Reports\Sent, so the next zip holds only new ones; report_intake.py skips reports already saved.
   TexBench 0.7.8: topt's wishlist (docs/notes/topt-requests.md) in the normal run (owner: numbers wanted from every
