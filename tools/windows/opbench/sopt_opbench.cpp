@@ -328,6 +328,9 @@ const Test kTests[] = {
      "int", "majority (3 ands, 2 ors): LOP3", "uint"},
     {"iadd3", "((x + (x >> 7) + (x << 11)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "2 shifts + 2 adds: IADD3, v_add3", "uint"},
     {"lshladd", "(((x << 3) + (x >> 7)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "shl + add: LEA, v_lshl_add", "uint"},
+    // fxc writes (x << 2) + x as imul x, 5 (Emil Persson, "Low-level Shader Optimization for Next-Gen and DX11",
+    // slides 53-55): an integer multiply is quarter rate on AMD, shl + add one v_lshl_add (see shladd5-od).
+    {"shladd5", "(((x << 2) + x) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "fxc: imul x, 5", "uint"},
     {"addlshl", "(((x + (x >> 7)) << 3) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "add + shl: v_add_lshl", "uint"},
     {"imad", "((x * asuint(c.z) + (x >> 7)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "imul + add: IMAD", "uint"},
     {"icmpsel", "((x > asuint(c.z) ? x : ~x) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "ult, not, movc", "uint"},
@@ -472,7 +475,8 @@ const Test kTests[] = {
 // written. fxc writes x * 2 as add x, x / dp2 (the GTX 1660 then loses its free x2), sign as lt, lt, iadd, itof, clamp
 // as max + min, and expands lerp / smoothstep / fmod / atan2 its own way. A twin's base is the base's twin when the
 // base is in the list too.
-const char* const kOdPairs[] = {"sqmax", "scale2", "scale4", "sign", "clamp", "lerp", "smoothstep", "fmod", "atan2"};
+const char* const kOdPairs[] = {"sqmax", "scale2", "scale4", "sign", "clamp", "lerp", "smoothstep", "fmod", "atan2",
+                                 "shladd5", "irot"};
 
 // kTests and the -od twins.
 const std::vector<Test>& allTests() {
@@ -761,7 +765,8 @@ const char* const kDisplayOrder[] = {
     "ilp1", "ilp2", "ilp3", "ilp4", "ilp5", "ilp6",
     "#fxc's rewrites: as fxc -O3 writes the step, then as written (-od: compiled without fxc's optimizer)",
     "sqmax", "sqmax-od", "scale2", "scale2-od", "scale4", "scale4-od", "sign", "sign-od", "clamp", "clamp-od", "lerp",
-    "lerp-od", "smoothstep", "smoothstep-od", "fmod", "fmod-od", "atan2", "atan2-od",
+    "lerp-od", "smoothstep", "smoothstep-od", "fmod", "fmod-od", "atan2", "atan2-od", "shladd5", "shladd5-od", "irot",
+    "irot-od",
     "#Pixel shaders only", "ddx", "ddy", "ddx_coarse", "ddy_coarse", "ddx_fine", "ddy_fine", "fwidth", "clip"};
 
 // What other cards of this card's family measure (expected.hpp, from the reports in docs/opbench; owner,
