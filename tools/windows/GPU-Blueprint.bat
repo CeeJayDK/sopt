@@ -11,9 +11,15 @@ set "BIN=%~dp0bin\"
 rem ESC for colors (Windows 10 and later; older consoles show the codes as text); BEL (a raw 0x07 byte below) beeps.
 for /f %%e in ('echo prompt $E^| cmd') do set "E=%%e"
 set "BEL="
-rem The cards by name, once (owner, 2026-10-16: a PC rarely has more than two; with two, keys 2 and 3 name them).
+rem The cards by name, once (owner, 2026-10-16: a PC rarely has more than two; one or two cards are named on keys 2
+rem and 3, with one card key 3 is not shown; more cards keep "main card" and "pick a card").
 set "cards=0"
 if exist "%BIN%OpBench.exe" for /f "usebackq tokens=1,*" %%a in (`call "%BIN%OpBench.exe" --adapters`) do call :addCard %%a "%%b"
+set "run2="
+set "run3="
+if "%cards%"=="1" set "run2=%cardIdx1%"
+if "%cards%"=="2" set "run2=%cardIdx1%"
+if "%cards%"=="2" set "run3=%cardIdx2%"
 :menu
 set "ZIP="
 for %%z in (Reports*.zip) do set "ZIP=%%~nxz"
@@ -26,8 +32,12 @@ echo   %E%[96m=====================================================%E%[0m
 echo.
 echo   %E%[1;93m1%E%[0m  %E%[1;92mEvery graphics card in this PC: ShaderInfo, OpBench, StageBench and TexBench%E%[0m %E%[90m(10-25 min per card)%E%[0m %E%[92m^<- recommended%E%[0m
 if "%cards%"=="2" goto menuCards
+if "%cards%"=="1" goto menuOne
 echo   %E%[1;93m2%E%[0m  Main graphics card only
 echo   %E%[1;93m3%E%[0m  Another graphics card: you pick the card
+goto menuTools
+:menuOne
+echo   %E%[1;93m2%E%[0m  Only the %cardName1%
 goto menuTools
 :menuCards
 echo   %E%[1;93m2%E%[0m  Only the %cardName1%
@@ -40,6 +50,7 @@ echo   %E%[1;93m6%E%[0m  ShaderInfo only  %E%[90mwhat the driver reports about c
 echo.
 echo   %E%[1;93m7%E%[0m  Open the Reports folder
 echo   %E%[1;93m8%E%[0m  Open the guide %E%[90m(README.html)%E%[0m
+echo   %E%[1;93mR%E%[0m  See the results again %E%[90m(opens them in your browser)%E%[0m
 rem New reports not sent yet (the zip without the hidden marker Reports\.sent): key 9 blinks (owner, 2026-10-05).
 if defined ZIP if not exist "Reports\.sent" goto menuNew
 echo   %E%[1;93m9%E%[0m  Send the reports to CeeJay %E%[90m(opens an upload page in your browser)%E%[0m
@@ -60,17 +71,18 @@ echo   %E%[1;93mV%E%[0m  Open Microsoft's download page %E%[90m(install "X64", t
 echo.
 echo   %E%[90mClose games and other GPU-heavy programs first. When a run is done, it offers to send the reports.%E%[0m
 echo.
-choice /c 1234567890V /n /m "  Press a number: "
+choice /c 1234567890VR /n /m "  Press a number: "
 set "n=%errorlevel%"
 if "%n%"=="10" goto :eof
 if "%n%"=="11" start "" "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist"
 if "%n%"=="1" call :every
-if "%n%"=="2" if "%cards%"=="2" (call :run %cardIdx1% all) else (call :run "" all)
-if "%n%"=="3" if "%cards%"=="2" (call :run %cardIdx2% all) else (call :pick)
+if "%n%"=="2" if defined run2 (call :run %run2% all) else (call :run "" all)
+if "%n%"=="3" if defined run3 (call :run %run3% all) else if not "%cards%"=="1" call :pick
 if "%n%"=="4" call :run "" opbench
 if "%n%"=="5" call :run "" texbench
 if "%n%"=="6" call :run "" shaderinfo
 if "%n%"=="7" call :reports
+if "%n%"=="12" call :results
 if "%n%"=="8" start "" "%~dp0README.html"
 if "%n%"=="9" call :send
 goto menu
@@ -80,6 +92,18 @@ rem :addCard <adapter number> "<name>" (from OpBench --adapters)
 set /a cards+=1
 set "cardIdx%cards%=%~1"
 set "cardName%cards%=%~2"
+exit /b
+
+rem R: the pages the tests save of what they showed (Reports\Results, owner 2026-10-16: see the results again).
+:results
+if exist "Reports\Results\*.html" goto resultsOpen
+echo.
+echo   %E%[91mNo results yet.%E%[0m Run a test first (1 to 6).
+echo.
+pause
+exit /b
+:resultsOpen
+for %%f in ("Reports\Results\*.html") do start "" "%%~ff"
 exit /b
 
 :reports
