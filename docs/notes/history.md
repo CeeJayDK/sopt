@@ -1715,6 +1715,13 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   than coarse (and than plain ddx). Everything else within noise of compute.
   Compute vs pixel (owner, 2026-10-16: find out why stages differ): the mul test's DXBC is identical in cs and ps
   (fxc is not the cause); NVIDIA and Intel drivers merge (x * c.z) * c.x into x * (c.z * c.x) only in compute shaders.
+  Constant tables per pixel (owner, 2026-10-17: check sopt's table rewrite beyond AMD). TexBench pass, R8 3840 x 2160,
+  16 constants, 8 reads at indices from the pixel, fma per pixel over the same pass without a table, GTX 1660 / UHD
+  630 (three runs, within ~10%): local array (built per pixel, what effects write) 431-479 / 52-64, static const
+  (sopt's rewrite) 417-482 / 253-313, static const + a uniform entry (i == 3 ? u : t[i]) alike, a select tree on the
+  index's bits (15 selects per read) 55 / 125. So the rewrite (measured only on AMD with RGA, where it removed scratch:
+  Monochrome 58 -> 15 VALU) is neutral on NVIDIA and ~5x slower on Intel Gen9; NVIDIA's best is a select tree (~8x
+  faster than any table), Intel's the local array. No form wins everywhere: a per-vendor form (__VENDOR__) would.
   Table rewrite per vendor (owner's go, 2026-10-17; measurements: TexBench constant tables, PR #36): name[i] ->
   sopt_<fn>_<name>_at(i), defined before the shader: NVIDIA (D3D10+, GL, Vulkan; up to 32 entries) a select tree on i's
   bits, else the static const table; every edit has && __VENDOR__ != 0x8086 (Intel keeps the array). fxc keeps an
