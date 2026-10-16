@@ -930,6 +930,7 @@ int main(int argc, char** argv) {
   for (char& ch : prefix) ch = char(std::tolower((unsigned char)ch));
   if (gStage != Stage::Compute) prefix += std::string("-") + stageName();
   if (outPath.empty()) outPath = (reports / (prefix + "-" + safeName + ".csv")).string();
+  gReportPath = outPath;
   const std::filesystem::path dxbcDir =
       reports / "Shaders" / (std::string(kTool) + (gStage == Stage::Compute ? "" : std::string("-") + stageName()));
   std::filesystem::create_directories(dxbcDir);

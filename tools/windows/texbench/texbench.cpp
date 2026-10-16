@@ -1808,6 +1808,7 @@ int main(int argc, char** argv) {
   for (char& ch : safeName)
     if (!isalnum((unsigned char)ch)) ch = '_';
   if (outPath.empty()) outPath = (reports / ("texbench-" + safeName + ".csv")).string();
+  gReportPath = outPath;
   const std::filesystem::path dxbcDir = reports / "Shaders" / "TexBench";
   std::filesystem::create_directories(dxbcDir);
 
@@ -2681,6 +2682,9 @@ int main(int argc, char** argv) {
     gCurrent = t->name;
     compiling.wait(jobOf(t));
     measure(t);
+    // Released textures leave video memory only after a flush (D3D11 destroys them late): without it the 256 MB
+    // textures of the formats tests piled up on integrated GPUs, which share system memory.
+    g.ctx->Flush();
     // Costs over the bases (bases come first, so they are known).
     for (auto& [cname, byTest] : results)
       if (byTest.count(t->name)) {

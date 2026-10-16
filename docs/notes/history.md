@@ -1713,6 +1713,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   read 0.65 / 10.8 (vs 15.5), write 42 / 171 (vs 184), static const array 13.5 / 59 (vs 58). Derivatives (ps): ddx /
   ddy and the coarse forms 6.0, the fine forms 2.0, fwidth 9.9, clip 0.6: on Turing fine derivatives are 3x cheaper
   than coarse (and than plain ddx). Everything else within noise of compute.
+  Owner's UHD 620 (101.2145, GPU Blueprint 0.7.9, drift 29-35%): first StageBench ps / vs reports (docs/stagebench).
+  Gen9 like Turing: a multiply by a uniform before an fma, radians, degrees cost 0.02 in cs, 1.0 in ps / vs; also
+  higher in ps: step 1.05 -> 1.87, div 2.9 -> 3.7, fmod / modf +1, fbh +1, ftou +0.5; isnan 1.8 in cs, 0 in ps; fp16:
+  mad16v3 -1.18 in cs (packed gain) but +0.25 in ps, mul16 0.19 -> 0.74 (Gen9's fp16 gain is a compute effect: check
+  before fp16 variants for effects). vs = ps except arrays (constarray 23 / 51, arrayread 6.2 / 9.0) and branchdiv
+  30 / 13. fxc pairs: no free scale on Gen9 either way; the rest within the 35% drift. TexBench stopped after the
+  formats section again (lat "RGBA32I random", 378 rows: the third Gen9 run there). Suspect: released 4096^2
+  RGBA32 textures (256 MB) piling up in shared memory (D3D11 destroys late, TexBench never flushed). 0.7.10:
+  Flush after every test; fail() appends "# stopped: <reason> (while measuring ...)" to the report (gReportPath).
   GPU Blueprint 0.7.8 (owner's go): with two cards the menu names
   them on keys 2 / 3 (OpBench / TexBench --adapters print "index name", (R) / (TM) dropped); after "send" (Y) the
   reports move to Reports\Sent, so the next zip holds only new ones; report_intake.py skips reports already saved.
