@@ -36,6 +36,7 @@
 #include <d3dcompiler.h>
 #include <wincodec.h>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -399,6 +400,35 @@ void makeBlurTests(std::vector<Test>& v) {
   blur("loop, uniform n 8", p8, "RGBA8", 1, 1, 0, "  float4 s = 0.0;\n  int n = int(U[0].z);\n" + loop, "n from a uniform").uz = 8.0f;
   blur("loop, per-pixel n", p8, "RGBA8", 1, 1, 0, "  float4 s = 0.0;\n  int n = int((uint(pos.x) * 7u + uint(pos.y) * 3u) % 17u);\n" + loop,
        "n 0 to 16 from the pixel (8 on average): divergent");
+
+  // Uniform math per pixel (owner, 2026-10-16: turn uniforms into constants, group uniform math): in a pass, with no
+  // loop for fxc to lift it out of, is math on uniforms alone precomputed per draw (free) or paid per pixel? 32 fmas on
+  // a value from the pixel, each multiplier a product of two uniforms written first, written in the usual order, or a
+  // constant picked by a uniform; against plain fmas. Cost in fma per pixel over the plain chain.
+  const std::string pu = "Uniform math per pixel: 32 fmas, R8 3840 x 2160 (fma per pixel over plain)";
+  auto uniChain = [&](const char* step) {
+    std::string b = "  float v = pos.x * 0.001;\n";
+    for (int k = 0; k < 32; ++k) {
+      std::string st = step;
+      for (size_t at; (at = st.find("J")) != std::string::npos;) st.replace(at, 1, std::to_string(k & 15));
+      for (size_t at; (at = st.find("K")) != std::string::npos;) st.replace(at, 1, std::to_string(k));
+      b += "  v = " + st + ";\n";
+    }
+    return b + "  return v;\n";
+  };
+  std::string tableK = "static const float kPick[16] = {";
+  for (int k = 0; k < 16; ++k) tableK += (k ? ", " : "") + std::to_string(0.5 + 0.01 * k);
+  tableK += "};\n";
+  blur("chain: plain", pu, "R8", 1, 1, 0, uniChain("mad(v, U[J].x, U[J].z)"), "the base: v * a + c");
+  for (const auto& [name, step, note, prefix] : std::vector<std::array<std::string, 4>>{
+           {"chain: uniforms first", "mad(v, U[J].x * U[J].y, U[J].z)", "v * (a * b) + c: a * b on uniforms alone", ""},
+           {"chain: usual order", "mad(v * U[J].x, U[J].y, U[J].z)", "(v * a) * b + c", ""},
+           {"chain: table pick", "mad(v, kPick[(uint(U[0].w) + K) & 15u], U[J].z)", "a constant from a table, the index a uniform", tableK},
+           {"chain: select pick", "mad(v, U[0].w < 1.0 ? 0.51 : U[0].w < 2.0 ? 0.52 : U[0].w < 3.0 ? 0.53 : 0.54 + K * 0.001, U[J].z)",
+            "one of 4 constants picked by comparing a uniform", ""}}) {
+    Test& t = blur(name, pu, "R8", 1, 1, 0, uniChain(step.c_str()), note, prefix);
+    t.base = "chain: plain", t.count = 1, t.per = "pixel", t.uz = 2.0f;
+  }
 
   // P9 compute: chains of small dependent dispatches (each reads the target the one before wrote).
   const std::string p9 = "Compute: chains of dispatches into 240 x 135 RGBA8";

@@ -1715,10 +1715,16 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   than coarse (and than plain ddx). Everything else within noise of compute.
   Compute vs pixel (owner, 2026-10-16: find out why stages differ): the mul test's DXBC is identical in cs and ps
   (fxc is not the cause); NVIDIA and Intel drivers merge (x * c.z) * c.x into x * (c.z * c.x) only in compute shaders.
-  New OpBench test mulpre = mad(x, c.z * c.x, c.y): 1660 cs -0.04 / ps 0.00, UHD 630 0.01 / 0.01: uniform-only math is
-  free in pixel shaders, so writing the uniforms' product first saves an fma per pixel (mul in ps 0.86 / 0.99). Not
-  bit-exact (one rounding moves): only within a tolerance budget. sopt already treats uniform-only nodes as folded
-  (InputDecl Uniform -> perfFolded) and charges mul = 1, so it can find the form; not yet checked with sopt-fx.
+  Uniform math per pixel (TexBench pass, no loop: OpBench's loop let fxc lift uniform-only math out of it, so its
+  mulpre / constuni / selectuni read ~0 for that reason and were removed). 32 fmas on a pixel value, fma per pixel
+  over the plain chain, GTX 1660 / UHD 630: multipliers a * b written first (16 distinct products, each used twice)
+  15.2 / 6.4, usual order (v * a) * b 31.0 / 29.7, a constant from a static const table indexed by a uniform (32
+  picks) 94.3 / 23.0, a 4-way select on a uniform 64.6 / 45.3. So uniform-only math is paid per pixel (~1 fma per
+  product on the 1660, ~0.4 on Gen9), not precomputed per draw; grouping uniforms wins where a product is reused
+  (and a little on Intel); picking constants by a uniform costs ~3 (table) / ~2 (select) fma per pick on the 1660:
+  turning uniforms into constant sets only pays where the constant saves more than that (folds, free scales).
+  Owner's principle (2026-10-16): group math on values of the same class (constant / uniform / per vertex / per
+  pixel) so more can be precomputed, and move values to a cheaper class where it pays.
   Owner's 0.7.11 run (GTX 1660, UHD 630; all complete): fxc pairs, compute / pixel the same: 1660 scale2 0.96 -> 0.00
   (cs) / 1.01 -> 0.02 (ps), irot 2.0 -> 1.0 (both); UHD 630 irot 4.0 -> 2.7 (cs), 3.6 -> 2.7 (ps), scale2 0.9 both
   (no free scales), shladd5 0.9 both ways (Gen9 imul = shl + add). Rotates are a measured fxc loss on both vendors.
