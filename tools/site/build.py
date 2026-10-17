@@ -61,6 +61,7 @@ UNRELIABLE = {
     "nvidia-rtx-4090-c.csv",  # 158% drift, fp32 40 of 83 TFLOPS: throttled (costs still = the first 4090)
     "nvidia-rtx-3090.csv",  # 178% drift, ~30% low on most tests (clock, not chip)
     "nvidia-rtx-3050-laptop-gpu.csv",  # 157% drift, many tests off the family
+    "nvidia-gtx-1660-11.csv",  # 84-115% drift, 60+ tests off the family, fp32 4.1 of 5.0 TFLOPS (owner's second run, 2026-10-17)
 }
 
 # Card name -> cost model, first match wins.

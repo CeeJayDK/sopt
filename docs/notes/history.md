@@ -1850,6 +1850,13 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   irot 16.0 / 12.0; UHD 630 irot 24.0 / 18.9, fmod 19.5 / 23.3; the rest equal. TexBench tables (fma per pixel, local /
   static / select tree): 1660 470 / 471 / 56, UHD 630 64 / 312 / 126; chains (uniforms first / usual / table / select):
   1660 15 / 31 / 95 / 65, UHD 630 7 / 30 / 23 / 46. Run time 178 s / 151 s, no stops.
+  Owner's second 0.7.14 runs the same day: UHD 630 again clean (drift ~2.5%, nothing differs; TexBench 155 s). GTX 1660
+  OpBench noisy (drift 84-115%, 60+ tests off the family, fp32 4.1 of 5.0 TFLOPS: something else used the GPU or the
+  clock moved): in UNRELIABLE, so expected.hpp keeps the earlier run. Its StageBench / TexBench (192 s) saved as usual.
+  NVS 310 (same day, 0.7.14): OpBench, StageBench ps and TexBench all stopped at their first GPU work (OpBench / StageBench
+  in the 2 s warm-up, TexBench at the compute mad reference), "not finished in 60 seconds"; the CSVs held only the
+  "# stopped:" line (no header: the header is written with the results), so junk. StageBench ps ran on 0.7.11 on this
+  card and its code has not changed since: the card or driver state, not the tool.
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
