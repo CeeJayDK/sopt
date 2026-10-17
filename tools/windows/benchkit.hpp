@@ -631,13 +631,15 @@ struct Adapter {
 
 // Starts the report with the GPU's header lines (replacing an older report), so a run that stops before its first
 // results still says which card and driver it ran on (owner, 2026-10-17: the NVS 310's reports held only "# stopped").
-inline void startReport(const std::string& path, const char* tool, const char* stage, const Adapter& ad) {
+inline void startReport(const std::string& path, const char* tool, const char* stage, const Adapter& ad,
+                        const char* timing = nullptr) {
   gReportPath = path;
   if (FILE* f = std::fopen(path.c_str(), "wb")) {
     std::fprintf(f, "# %s %s\n", tool, SOPT_VERSION);
     if (*stage) std::fprintf(f, "# stage: %s\n", stage);
     std::fprintf(f, "# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", ad.name.c_str(), ad.desc.VendorId,
                  ad.desc.DeviceId, ad.driver.c_str());
+    if (timing) std::fprintf(f, "# timing: %s\n", timing);
     std::fclose(f);
   }
 }
@@ -745,25 +747,31 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
   return a;
 }
 
-// GPU timestamps around a piece of work: returns milliseconds, or a negative value when the
-// timestamps were disjoint (the clock changed in between).
+// GPU timestamps around work, or CPU elapsed time through GPU event completion for the NVS 310.
+// Returns milliseconds, or a negative value when GPU timestamps were disjoint (the clock changed).
 struct Timer {
   ID3D11Query* disjoint = nullptr;
   ID3D11Query* t0 = nullptr;
   ID3D11Query* t1 = nullptr;
   ID3D11Query* completed = nullptr;
-  bool syncBoundaries = false;
-  void create(ID3D11Device* dev, bool sync = false) {
-    syncBoundaries = sync;
+  bool eventTiming = false;
+  LARGE_INTEGER cpuFrequency = {};
+  const char* timingNote() const {
+    return eventTiming ? "CPU elapsed time with GPU event completion (NVS 310 timestamp workaround)" : nullptr;
+  }
+  void create(ID3D11Device* dev, bool useEventTiming = false) {
+    eventTiming = useEventTiming;
+    if (eventTiming) {
+      D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
+      if (FAILED(dev->CreateQuery(&qd, &completed))) fail("cannot create the GPU completion query");
+      QueryPerformanceFrequency(&cpuFrequency);
+      return;
+    }
     D3D11_QUERY_DESC qd = {D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
     dev->CreateQuery(&qd, &disjoint);
     qd.Query = D3D11_QUERY_TIMESTAMP;
     dev->CreateQuery(&qd, &t0);
     dev->CreateQuery(&qd, &t1);
-    if (syncBoundaries) {
-      qd.Query = D3D11_QUERY_EVENT;
-      dev->CreateQuery(&qd, &completed);
-    }
   }
   // The work's GPU time in ms. A disjoint reading (the GPU clock or power state changed during it: Intel
   // iGPUs do this) is run again, up to 4 times in all; -1 when every try was disjoint.
@@ -801,24 +809,28 @@ struct Timer {
         Sleep(0);
       }
     };
+    if (eventTiming) {
+      // NVS 310 timestamps can under-report completed work or never complete. Do not issue them.
+      // Drain earlier uploads first, then measure CPU elapsed time until this work's EVENT completes.
+      // Calibration primes the shader and uses longer samples to reduce submission / polling overhead.
+      auto finish = [&] {
+        ctx->End(completed);
+        ctx->Flush();
+        BOOL done = FALSE;
+        wait(completed, &done, sizeof(done));
+      };
+      finish();
+      LARGE_INTEGER a, b;
+      QueryPerformanceCounter(&a);
+      work();
+      finish();
+      QueryPerformanceCounter(&b);
+      return double(b.QuadPart - a.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
+    }
     UINT64 a = 0, b = 0;
     ctx->Begin(disjoint);
     ctx->End(t0);
-    // On the NVS 310, compute timings can collapse to 32-64 ns even with Disjoint == FALSE.
-    // Calibration then grows the work until Windows resets the GPU.
-    // Complete the start timestamp before submitting work on this card; other cards keep the same commands.
-    if (syncBoundaries) {
-      ctx->Flush();
-      wait(t0, &a, sizeof(a));
-    }
     work();
-    if (syncBoundaries) {
-      // A start wait alone still allowed invalid readings in later calibration; fence the work too.
-      ctx->End(completed);
-      ctx->Flush();
-      BOOL done = FALSE;
-      wait(completed, &done, sizeof(done));
-    }
     ctx->End(t1);
     ctx->End(disjoint);
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;

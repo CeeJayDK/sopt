@@ -1359,7 +1359,8 @@ struct Plan {
   UINT groups = 1;
 };
 
-// A run of >= 2 ms (up to 8 ms by size first). It starts small (kMinGroups thread groups, kMinRows pixel rows: 64K / 16K threads, still enough
+// A run of >= 2 ms (20 ms with NVS 310 event timing; up to 8 ms by size first).
+// It starts small (kMinGroups thread groups, kMinRows pixel rows: 64K / 16K threads, still enough
 // to fill a GPU) and grows (more groups or rows, then more iterations), so no run is much longer than needed: a
 // full-size first run of a slow test took seconds on slow GPUs (random reads on an iGPU; RGBA32F aniso 16x on an
 // HD 6450 stopped TexBench, owner 2026-10-16: Windows resets a GPU that is busy for about 2 seconds).
@@ -1370,8 +1371,8 @@ Plan calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
   const UINT most = k.cs ? groups : kPsSize;
   p.groups = std::min(most, k.cs ? kMinGroups : kMinRows);
   setConstants(g, t, p.iters, t.size);
-  const double targetMs = g.timer.syncBoundaries ? 20.0 : 2.0;
-  if (g.timer.syncBoundaries) run(g, k, p.groups);  // discard first-dispatch driver work on the NVS 310
+  const double targetMs = g.timer.eventTiming ? 20.0 : 2.0;
+  if (g.timer.eventTiming) run(g, k, p.groups);  // discard first-dispatch driver work on the NVS 310
   double ms = run(g, k, p.groups);
   while (ms >= 0.0 && ms < 8.0 && p.groups < most) {  // size up to an 8 ms run (fills big GPUs), then iterations
     p.groups = std::min(most, p.groups * 2);
@@ -1908,7 +1909,8 @@ int main(int argc, char** argv) {
   for (char& ch : safeName)
     if (!isalnum((unsigned char)ch)) ch = '_';
   if (outPath.empty()) outPath = (reports / ("texbench-" + safeName + ".csv")).string();
-  startReport(outPath, "TexBench", "", ad);
+  startReport(outPath, "TexBench", "", ad, g.timer.timingNote());
+  if (const char* timing = g.timer.timingNote()) print("Timing: %s\n\n", timing);
   const std::filesystem::path dxbcDir = reports / "Shaders" / "TexBench";
   std::filesystem::create_directories(dxbcDir);
 
@@ -2315,6 +2317,7 @@ int main(int argc, char** argv) {
   if (!csv) return;
   std::fprintf(csv, "# TexBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n# reference drift: %.2f%%\n# run time: %.0f s\n",
                SOPT_VERSION, ad.name.c_str(), ad.desc.VendorId, ad.desc.DeviceId, ad.driver.c_str(), drift, runSeconds);
+  if (const char* timing = g.timer.timingNote()) std::fprintf(csv, "# timing: %s\n", timing);
   const Score sc = score();
   std::fprintf(csv, "# texture rate: %.1f GTexels/s\n# pixel fill rate: %.1f GPixels/s\n# memory bandwidth (writes): %.1f GB/s\n",
                sc.texRate, sc.fill, sc.bandwidth);

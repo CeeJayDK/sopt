@@ -690,14 +690,14 @@ struct Result {
 // Chains per thread of a test in a configuration (a test's own count applies to the throughput run).
 int chainsOf(const Test& t, const Config& c) { return t.chains && std::strcmp(c.name, "tput") == 0 ? t.chains : c.chains; }
 
-// Doubles the iteration count until a dispatch takes >= 2 ms.
+// Doubles iterations until a dispatch takes >= 2 ms (20 ms with NVS 310 event timing).
 UINT calibrate(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c) {
   bindShader(g, cs);
   UINT iters = 2;
-  // The NVS 310's synchronized interval includes first-dispatch driver work. Discard it, then
+  // The NVS 310's CPU interval includes first-dispatch driver work. Discard it, then
   // use longer samples so the CPU / submission gaps at the timing boundaries are a small fraction.
-  const double targetMs = g.timer.syncBoundaries ? 20.0 : 2.0;
-  if (g.timer.syncBoundaries) {
+  const double targetMs = g.timer.eventTiming ? 20.0 : 2.0;
+  if (g.timer.eventTiming) {
     setConstants(g, t, iters);
     timeDispatch(g, c.groups);
   }
@@ -942,7 +942,8 @@ int main(int argc, char** argv) {
   for (char& ch : prefix) ch = char(std::tolower((unsigned char)ch));
   if (gStage != Stage::Compute) prefix += std::string("-") + stageName();
   if (outPath.empty()) outPath = (reports / (prefix + "-" + safeName + ".csv")).string();
-  startReport(outPath, kTool, gStage == Stage::Compute ? "" : stageName(), ad);
+  startReport(outPath, kTool, gStage == Stage::Compute ? "" : stageName(), ad, g.timer.timingNote());
+  if (const char* timing = g.timer.timingNote()) print("Timing: %s\n\n", timing);
   const std::filesystem::path dxbcDir =
       reports / "Shaders" / (std::string(kTool) + (gStage == Stage::Compute ? "" : std::string("-") + stageName()));
   std::filesystem::create_directories(dxbcDir);
@@ -1194,6 +1195,7 @@ int main(int argc, char** argv) {
   if (gStage != Stage::Compute) std::fprintf(csv, "# stage: %s\n", stageName());
   std::fprintf(csv, "# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", gpuName.c_str(), desc.VendorId,
                desc.DeviceId, driver.c_str());
+  if (const char* timing = g.timer.timingNote()) std::fprintf(csv, "# timing: %s\n", timing);
   std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
   for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, driftOf(c.name));
   const Score sc = score();

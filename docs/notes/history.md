@@ -1861,34 +1861,23 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   TexBench 174 / 169 s). NVS 310 on driver 392.68 (23.21.13.9268): OpBench and StageBench ps stopped in the 2 s warm-up,
   TexBench at its compute mad reference (docs/stopped, the first reports with card and driver): the newest Fermi driver
   hangs on the first timed work, where 353.62 still ran StageBench ps (0.7.11).
-  NVS 310 investigation (2026-10-18, driver 392.68): 0.7.17 OpBench with --filter mad --groups 64 and StageBench ps
-  at full size both stopped in warm-up with device removed reason 0x887A0006 (driver reset). OpBench with one group
-  reached later tests, but returned bogus ~0.0001 ms timings at 1,048,576 iterations, then reset at madlit (lat).
-  ShaderInfo found no Vulkan GPU; this does not test Direct3D. A standalone Direct3D 11 probe verified compute
-  output by staging-buffer readback. Event queries finished; timestamps also finished, but two timestamps around
-  compute were only 32-64 ns apart, even with Disjoint == FALSE. Calibration trusted these readings and doubled
-  the work until Windows reset the driver: the earlier claim that this was only card / driver state was incomplete.
-  Compiling all shaders before timing did not help (0.7.18: mad calibration grew to 262,144 iterations, then reset).
-  Flushing after dispatch, a GPU copy, and waiting for an event after dispatch did not repair the timestamp pair.
-  Waiting for the START timestamp before submitting work did: at 16,384 groups, two mad iterations measured
-  8.32-8.41 ms; sixteen measured 55.77-56.17 ms, versus 55-69 ms for independent event completion (same output).
-  The exact driver-internal ordering fault is not established; the measured failure is an invalid timestamp interval.
-  Start-only synchronization (0.7.19) passed warm-up but still reset during later OpBench calibration, including
-  with background compilation disabled. StageBench ps / vs completed, but the ps run had 172% drift; these are not
-  reference reports. TexBench --filter mad selects no measurements (it removes a references-only selection), so use
-  --filter "RGBA8 Load" to exercise its compute reference and texture work.
-  Timer now explicitly flushes and waits for the start timestamp, then for an EVENT after work before taking the
-  end timestamp, only for NVIDIA device 0x107D (NVS 310), in all three tools / stages. It still returns GPU timestamps,
-  with CPU / submission gaps at the boundaries on this card; no cost model is inferred from these diagnostic runs.
-  0.7.20: --filter mad with default repetitions / groups completed all 17 tests in OpBench (all three configurations)
-  and StageBench ps / vs; TexBench --filter "RGBA8 Load" also completed real texture measurements. No resets.
-  OpBench mad: tput 8.254 ms / 2 iterations, dep 2.847 ms / 2, lat 2.629 ms / 8192; score 0.08 TFLOPS, drift 14%.
-  StageBench drift ps 276% / vs 3%, TexBench 6%: ps is unreliable. Another problem became visible: OpBench lat mad3v
-  calibrated to two iterations on a slow first dispatch, then measured 0.279 ms, giving a bogus cost ~1697.
-  On this card only, calibration now discards the first dispatch (driver setup inside the synchronized interval),
-  and aims for 20 ms instead of 2 ms to reduce the timing-boundary overhead. Other cards keep 2 ms and no priming.
-  GTX 1660 / UHD 630 keep the original timestamp command sequence and shader / workload / scoring code; neither
-  card is present on this PC, so no new on-card comparison was possible. No driver or system settings changed.
+  NVS 310 investigation (2026-10-18, driver 392.68): 0.7.17 OpBench --filter mad --groups 64 and full-size StageBench
+  ps reset in warm-up (device removed reason 0x887A0006). One-group compute returned ~0.0001 ms at 1,048,576 iterations,
+  then reset later. ShaderInfo found no Vulkan GPU; a standalone Direct3D 11 probe verified compute output by readback.
+  Events completed, but timestamps around compute were only 32-64 ns apart even with Disjoint == FALSE. Calibration
+  trusted them and doubled the work until Windows reset the driver: the earlier card / driver-state-only claim was
+  incomplete. The exact driver-internal fault is unknown. Serial shader compilation, a post-dispatch flush / copy /
+  event, and start-only synchronization (0.7.19) did not fix all cases. With synchronized boundaries, 16 mad iterations
+  at 16,384 groups took 55.77-56.17 ms, agreeing with independent event completion (55-69 ms, same output).
+  Only on NVIDIA device 0x107D, Timer now flushes / waits for the start timestamp and an EVENT after work before the
+  end timestamp. It still returns GPU timestamps, including CPU / submission gaps at these boundaries. 0.7.20 completed
+  all 17 --filter mad tests in OpBench (three configurations) and StageBench ps / vs, and TexBench --filter "RGBA8 Load"
+  (no resets; --filter mad selects no TexBench measurements). OpBench mad tput 8.254 ms / 2 iterations, score 0.08 TFLOPS,
+  drift 14%; StageBench ps / vs drift 276% / 3%, TexBench 6%. The ps run is unreliable; no reference reports / model added.
+  A slow first dispatch also left lat mad3v calibrated at two iterations (later 0.279 ms, bogus cost ~1697). 0.7.21
+  discards the first calibration dispatch and targets 20 ms to reduce boundary overhead, on this card only. Other GPUs
+  keep their timestamp commands, 2 ms target, no priming, and unchanged shaders / scoring. GTX 1660 / UHD 630 are not
+  present, so no new on-card comparison was possible. No driver or system settings changed.
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
