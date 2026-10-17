@@ -152,3 +152,13 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: opbench, AMD Radeon HD 6450 (driver 8.17.10.1404): `docs/opbench/amd-radeon-hd-6450.csv` (OpBench 0.7.11)
 - upload 1: stagebench, AMD Radeon HD 6450 (driver 8.17.10.1404): `docs/stagebench/amd-radeon-hd-6450-ps.csv` (StageBench 0.7.11)
 - upload 1: stagebench, AMD Radeon HD 6450 (driver 8.17.10.1404): `docs/stagebench/amd-radeon-hd-6450-vs.csv` (StageBench 0.7.11)
+
+## 2026-10-17 13:11 UTC
+- upload 1: opbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/opbench/intel-uhd-630-13.csv` (OpBench 0.7.14)
+- upload 1: opbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/opbench/nvidia-gtx-1660-10.csv` (OpBench 0.7.14)
+- upload 1: stagebench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-630-ps-3.csv` (StageBench 0.7.14)
+- upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/stagebench/nvidia-gtx-1660-ps-4.csv` (StageBench 0.7.14)
+- upload 1: stagebench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-630-vs-3.csv` (StageBench 0.7.14)
+- upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/stagebench/nvidia-gtx-1660-vs-3.csv` (StageBench 0.7.14)
+- upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-13.csv`, `docs/texbench/intel-uhd-630-13-order.png`, `docs/texbench/intel-uhd-630-13-order-zoom.png` (TexBench 0.7.14)
+- upload 1: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/texbench/nvidia-gtx-1660-11.csv`, `docs/texbench/nvidia-gtx-1660-11-order.png`, `docs/texbench/nvidia-gtx-1660-11-order-zoom.png` (TexBench 0.7.14)

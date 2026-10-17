@@ -1844,6 +1844,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   `expected` column (last). Checked against every report in docs/opbench: clean in-family runs flag 0-2 tests (the
   GTX 1660's iand on the old driver, Maxwell's sqrt driver split, Iris 540 / UHD 630 groupbarrier), the clock-distorted
   runs 15-33. Driver recommendations (owner's idea) need more data first.
+  Owner's 0.7.14 runs (2026-10-17), UHD 630 (101.2145) + GTX 1660 (617.42), full set (OpBench, StageBench ps / vs,
+  TexBench; ShaderInfo resent): repeats of the 0.7.13 numbers. Families match (gen9 / turing, nothing differs); OpBench
+  drift 1660 30-47% (usual for it), UHD 630 ~2%. fxc pairs (tput, plain / -od): 1660 scale2 12.5 / 8.0, scale4 8.7 / 8.0,
+  irot 16.0 / 12.0; UHD 630 irot 24.0 / 18.9, fmod 19.5 / 23.3; the rest equal. TexBench tables (fma per pixel, local /
+  static / select tree): 1660 470 / 471 / 56, UHD 630 64 / 312 / 126; chains (uniforms first / usual / table / select):
+  1660 15 / 31 / 95 / 65, UHD 630 7 / 30 / 23 / 46. Run time 178 s / 151 s, no stops.
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
