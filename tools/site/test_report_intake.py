@@ -31,6 +31,10 @@ def test_classify():
     stage = b"# StageBench 0.7.9\n# stage: ps\n# gpu: Foo\nconfig,test\n" + b"tput,a,1.0\n" * 30
     assert ri.classify("stagebench-ps-Foo.csv", stage)[0] == "stagebench"
     assert ri.classify("x.csv", stage.replace(b"# stage: ps\n", b""))[0] is None
+    stopped = b"# OpBench 0.7.15\n# gpu: Foo\n# driver: 1\n# stopped: the GPU has not finished (while measuring \"x\")\n"
+    assert ri.classify("x.csv", stopped)[0] == "stopped"
+    assert ri.classify("x.csv", b"# stopped: no header\n") == (None, None)  # 0.7.14 and older: no card, junk
+    assert ri.classify("x.csv", stage + b"# stopped: late\n")[0] == "stagebench"  # a long stopped run stays a report
     assert ri.classify("x.png", b"\x89PNG\r\n\x1a\nrest")[0] == "png"
     assert ri.classify("x.png", b"<html>") == (None, None)
 

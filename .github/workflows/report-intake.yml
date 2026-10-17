@@ -1,6 +1,6 @@
 # GPU Blueprint report intake (owner, 2026-10-09: as an Action, it costs no tokens). Every 6 hours and by hand:
 # tools/site/report_intake.py downloads the uploads in the Dropbox folder, keeps the valid OpBench / TexBench / ShaderInfo
-# reports (docs/opbench, docs/texbench + order PNGs, docs/shaderinfo; never overwrites), logs them in
+# reports (docs/opbench, docs/texbench + order PNGs, docs/shaderinfo, docs/stopped = runs stopped before their results; never overwrites), logs them in
 # docs/notes/intake-log.md (hardware and driver only, never the uploader's name: the log is public), regenerates
 # tools/windows/expected.hpp when OpBench reports came in, commits to main, and only after the push deletes every upload
 # (junk too). Secrets: DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN (setup: tools/site/report_intake.py).

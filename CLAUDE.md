@@ -59,7 +59,8 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 2. Per zip: Dropbox download_link (single use, never preview) + curl, unzip in a fresh folder. Fallback: Dropbox fetch
    (text files concatenated, each after a line with its name; no PNGs).
 3. Valid: OpBench / TexBench / StageBench CSVs with "# OpBench <v>" / "# TexBench <v>" / "# StageBench <v>" (+ "# stage: ps|vs") headers and numeric rows; ShaderInfo .txt
-   starting with "GPU: "; TexBench order PNGs next to a valid TexBench CSV. Everything else is junk.
+   starting with "GPU: "; TexBench order PNGs next to a valid TexBench CSV; a tool header + "# stopped:" with fewer rows
+   goes to docs/stopped/<tool>-<gpu>[-stage] (which cards / drivers fail, and where). Everything else is junk.
 4. Save to docs/opbench, docs/texbench (+ PNGs), docs/stagebench (`<gpu>-ps|vs`), docs/shaderinfo as `<vendor>-<gpu>.csv|.txt|-order*.png` (never
    overwrite: -2, -3 ...), a short note per GPU in docs/notes/history.md (family match, drift, consensus, new / odd;
    TexBench time and scores), gen_expected.py if OpBench reports came in, commit, push.
