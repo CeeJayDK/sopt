@@ -658,11 +658,11 @@ std::vector<Test> makeTests() {
       }
   }
 
-  // Do this, not that (owner, 2026-10-05: the same result read different ways, to decide between them): a 2 x 2
+  // Recommendation (until 0.7.14 "Do this, not that"; owner, 2026-10-05: the same result read different ways): a 2 x 2
   // average as one bilinear read at the texels' shared corner, 4 Loads or 4 point samples + math, or 3 gathers
   // (RGB only); and the 4 texels each on their own (here their maximum: a min / max / median filter) as 4
   // Loads, 4 point samples or 3 gathers (RGB only).
-  const char* dtnt = "Do this, not that: 2 x 2 texels read different ways, 1024 x 1024";
+  const char* dtnt = "Recommendation: 2 x 2 texels read different ways, 1024 x 1024";
   const std::string load4 =
       "int2 p = int2(uv * size); float4 a = T.Load(int3(p, 0)), b = T.Load(int3(p, 0), int2(1, 0)), "
       "d = T.Load(int3(p, 0), int2(0, 1)), e = T.Load(int3(p, 0), int2(1, 1));";
@@ -2027,7 +2027,7 @@ int main(int argc, char** argv) {
   BackgroundJobs compiling(std::move(jobList));
   auto jobOf = [&](const Test* t) { return size_t(std::find(tests.begin(), tests.end(), t) - tests.begin()); };
   if (!tests.empty()) {
-    print("Warming up the GPU for 2 seconds ...");
+    std::printf("Warming up the GPU for 2 seconds ...");  // on screen only, not in the results page
     // Warm up with the compute reference.
     gCurrent = "the 2-second warm-up (mad)";  // where a stop happened (the report's "# stopped:" line)
     compiling.wait(jobOf(byName("mad")));
@@ -2038,7 +2038,7 @@ int main(int argc, char** argv) {
     const ULONGLONG start = GetTickCount64();
     while (GetTickCount64() - start < 2000) run(g, k, kConfigs[0].groups);
     none.free();
-    print(" done\n");
+    std::printf(" done\n");
   }
   Progress progress{&st, int(planned)};
 
