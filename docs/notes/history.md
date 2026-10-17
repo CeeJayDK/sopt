@@ -1873,7 +1873,20 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   Waiting for the START timestamp before submitting work did: at 16,384 groups, two mad iterations measured
   8.32-8.41 ms; sixteen measured 55.77-56.17 ms, versus 55-69 ms for independent event completion (same output).
   The exact driver-internal ordering fault is not established; the measured failure is an invalid timestamp interval.
-  Timer now waits for the start timestamp only for NVIDIA device 0x107D (NVS 310), in all three tools / stages.
+  Start-only synchronization (0.7.19) passed warm-up but still reset during later OpBench calibration, including
+  with background compilation disabled. StageBench ps / vs completed, but the ps run had 172% drift; these are not
+  reference reports. TexBench --filter mad selects no measurements (it removes a references-only selection), so use
+  --filter "RGBA8 Load" to exercise its compute reference and texture work.
+  Timer now explicitly flushes and waits for the start timestamp, then for an EVENT after work before taking the
+  end timestamp, only for NVIDIA device 0x107D (NVS 310), in all three tools / stages. It still returns GPU timestamps,
+  with CPU / submission gaps at the boundaries on this card; no cost model is inferred from these diagnostic runs.
+  0.7.20: --filter mad with default repetitions / groups completed all 17 tests in OpBench (all three configurations)
+  and StageBench ps / vs; TexBench --filter "RGBA8 Load" also completed real texture measurements. No resets.
+  OpBench mad: tput 8.254 ms / 2 iterations, dep 2.847 ms / 2, lat 2.629 ms / 8192; score 0.08 TFLOPS, drift 14%.
+  StageBench drift ps 276% / vs 3%, TexBench 6%: ps is unreliable. Another problem became visible: OpBench lat mad3v
+  calibrated to two iterations on a slow first dispatch, then measured 0.279 ms, giving a bogus cost ~1697.
+  On this card only, calibration now discards the first dispatch (driver setup inside the synchronized interval),
+  and aims for 20 ms instead of 2 ms to reduce the timing-boundary overhead. Other cards keep 2 ms and no priming.
   GTX 1660 / UHD 630 keep the original timestamp command sequence and shader / workload / scoring code; neither
   card is present on this PC, so no new on-card comparison was possible. No driver or system settings changed.
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /

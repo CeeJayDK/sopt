@@ -694,10 +694,17 @@ int chainsOf(const Test& t, const Config& c) { return t.chains && std::strcmp(c.
 UINT calibrate(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c) {
   bindShader(g, cs);
   UINT iters = 2;
+  // The NVS 310's synchronized interval includes first-dispatch driver work. Discard it, then
+  // use longer samples so the CPU / submission gaps at the timing boundaries are a small fraction.
+  const double targetMs = g.timer.syncBoundaries ? 20.0 : 2.0;
+  if (g.timer.syncBoundaries) {
+    setConstants(g, t, iters);
+    timeDispatch(g, c.groups);
+  }
   for (;;) {
     setConstants(g, t, iters);
     const double ms = timeDispatch(g, c.groups);  // < 0: no valid reading, keep the run length
-    if (ms < 0.0 || ms >= 2.0 || iters >= (1u << 20)) return iters;
+    if (ms < 0.0 || ms >= targetMs || iters >= (1u << 20)) return iters;
     iters *= 2;
   }
 }

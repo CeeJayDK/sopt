@@ -752,15 +752,15 @@ struct Timer {
   ID3D11Query* t0 = nullptr;
   ID3D11Query* t1 = nullptr;
   ID3D11Query* completed = nullptr;
-  bool waitForStart = false;
-  void create(ID3D11Device* dev, bool syncStart = false) {
-    waitForStart = syncStart;
+  bool syncBoundaries = false;
+  void create(ID3D11Device* dev, bool sync = false) {
+    syncBoundaries = sync;
     D3D11_QUERY_DESC qd = {D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
     dev->CreateQuery(&qd, &disjoint);
     qd.Query = D3D11_QUERY_TIMESTAMP;
     dev->CreateQuery(&qd, &t0);
     dev->CreateQuery(&qd, &t1);
-    if (waitForStart) {
+    if (syncBoundaries) {
       qd.Query = D3D11_QUERY_EVENT;
       dev->CreateQuery(&qd, &completed);
     }
@@ -807,12 +807,13 @@ struct Timer {
     // On the NVS 310, compute timings can collapse to 32-64 ns even with Disjoint == FALSE.
     // Calibration then grows the work until Windows resets the GPU.
     // Complete the start timestamp before submitting work on this card; other cards keep the same commands.
-    if (waitForStart) {
+    if (syncBoundaries) {
       ctx->Flush();
       wait(t0, &a, sizeof(a));
     }
     work();
-    if (waitForStart) {
+    if (syncBoundaries) {
+      // A start wait alone still allowed invalid readings in later calibration; fence the work too.
       ctx->End(completed);
       ctx->Flush();
       BOOL done = FALSE;

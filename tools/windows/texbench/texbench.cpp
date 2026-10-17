@@ -1370,13 +1370,15 @@ Plan calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
   const UINT most = k.cs ? groups : kPsSize;
   p.groups = std::min(most, k.cs ? kMinGroups : kMinRows);
   setConstants(g, t, p.iters, t.size);
+  const double targetMs = g.timer.syncBoundaries ? 20.0 : 2.0;
+  if (g.timer.syncBoundaries) run(g, k, p.groups);  // discard first-dispatch driver work on the NVS 310
   double ms = run(g, k, p.groups);
   while (ms >= 0.0 && ms < 8.0 && p.groups < most) {  // size up to an 8 ms run (fills big GPUs), then iterations
     p.groups = std::min(most, p.groups * 2);
     ms = run(g, k, p.groups);
   }
   // ms < 0: no valid reading (disjoint every time); keep the run length rather than doubling it blindly.
-  while (ms >= 0.0 && ms < 2.0 && p.iters < (1u << 20)) {
+  while (ms >= 0.0 && ms < targetMs && p.iters < (1u << 20)) {
     p.iters *= 2;
     setConstants(g, t, p.iters, t.size);
     ms = run(g, k, p.groups);
