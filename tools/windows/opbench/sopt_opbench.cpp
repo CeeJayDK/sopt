@@ -1056,8 +1056,8 @@ int main(int argc, char** argv) {
     print("  %s%-26s%s %s\n", st.c("\x1b[1;96m"), c.title, st.reset(), c.what);
   print("Each is measured twice (forward, then backward through its section), more often when the two\n"
               "readings disagree. Lower is better; the CSV has every reading. Results appear section by\n"
-              "section while the rest is measured.\n"
-              "Warming up the GPU for 2 seconds so its clock settles ...");
+              "section while the rest is measured.\n");
+  std::printf("Warming up the GPU for 2 seconds so its clock settles ...");  // on screen only, not in the results page
   {
     gCurrent = "the 2-second warm-up (mad)";  // where a stop happened (the report's "# stopped:" line)
     bindShader(g, shaders["tput"]["mad"]);
@@ -1065,7 +1065,7 @@ int main(int argc, char** argv) {
     const ULONGLONG start = GetTickCount64();
     while (GetTickCount64() - start < 2000) timeDispatch(g, kConfigs[0].groups);
   }
-  print(" done\n");
+  std::printf(" done\n");
 
   // Section tables: throughput costs, graphs on one fixed scale (sections appear before the largest
   // cost is known): 100 = 25 mads, longer costs fill the graph.

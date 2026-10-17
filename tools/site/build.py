@@ -354,7 +354,7 @@ def texbench_data(out):
         for r in rows[1:]:
             if len(r) < len(rows[0]) - 1:
                 continue
-            cfg, test, sec = r[0], TB_RENAMES.get(r[1], r[1]), r[2]
+            cfg, test, sec = r[0], TB_RENAMES.get(r[1], r[1]), r[2].replace("Do this, not that:", "Recommendation:")  # name until 0.7.14
             if test.endswith(" write smooth") and version < (0, 7, 7):
                 continue  # alpha was a gradient until 0.7.6 (now 1, what effects write)
             if cfg in TB_SKIP_CONFIGS or not sec:

@@ -73,9 +73,10 @@ inline void saveScreen(const std::filesystem::path& file) {
                                            "#61d6d6", "#f2f2f2"};
   // The colors as classes defined once (f0..f15 text, b0..b15 background, B bold), and a span only where the style
   // changes (owner, 2026-10-16: a span with the whole style on almost every character made the page needlessly big).
+  // 16px lines and -0.5px spacing: Consolas 14px blocks (17 x 7.7 px) overlap, no seams in bars (owner's pick, 2026-10-17).
   std::string out = "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>" + std::string(gProgram) + " - " + gGpu +
-                    "</title>\n<style>body{background:#0c0c0c;color:#cccccc;margin:16px}pre{font:14px/1.25 Consolas,"
-                    "'Cascadia Mono',monospace}.B{font-weight:bold}";
+                    "</title>\n<style>body{background:#0c0c0c;color:#cccccc;margin:16px}pre{font:14px/16px Consolas,"
+                    "'Cascadia Mono',monospace;letter-spacing:-0.5px}.B{font-weight:bold}";
   for (int k = 0; k < 16; ++k)
     out += ".f" + std::to_string(k) + "{color:" + kPalette[k] + "}.b" + std::to_string(k) + "{background:" + kPalette[k] + "}";
   out += "</style></head>\n<body><pre>";
