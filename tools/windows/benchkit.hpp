@@ -751,7 +751,9 @@ struct Timer {
   ID3D11Query* disjoint = nullptr;
   ID3D11Query* t0 = nullptr;
   ID3D11Query* t1 = nullptr;
-  void create(ID3D11Device* dev) {
+  bool waitForStart = false;
+  void create(ID3D11Device* dev, bool syncStart = false) {
+    waitForStart = syncStart;
     D3D11_QUERY_DESC qd = {D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
     dev->CreateQuery(&qd, &disjoint);
     qd.Query = D3D11_QUERY_TIMESTAMP;
@@ -770,12 +772,6 @@ struct Timer {
   double timeOnce(ID3D11DeviceContext* ctx, Work work) {
     const bool trace = std::getenv("SOPT_GPU_TRACE") != nullptr;
     if (trace) { std::fprintf(stderr, "timer begin: %s\n", gCurrent.c_str()); std::fflush(stderr); }
-    ctx->Begin(disjoint);
-    ctx->End(t0);
-    work();
-    ctx->End(t1);
-    ctx->End(disjoint);
-    if (trace) { std::fprintf(stderr, "timer submitted\n"); std::fflush(stderr); }
     // Waits for a query; a GPU that stopped responding (driver reset: the device is removed, every query fails)
     // or a measurement still unfinished after 60 seconds ends the program with a message instead of hanging.
     const ULONGLONG start = GetTickCount64();
@@ -802,10 +798,20 @@ struct Timer {
         Sleep(0);
       }
     };
+    UINT64 a = 0, b = 0;
+    ctx->Begin(disjoint);
+    ctx->End(t0);
+    // The NVS 310 driver can execute both timestamps after the compute work (32-64 ns apart),
+    // even with Disjoint == FALSE. Calibration then grows the work until Windows resets the GPU.
+    // Complete the start timestamp before submitting work on this card; other cards keep the same commands.
+    if (waitForStart) wait(t0, &a, sizeof(a));
+    work();
+    ctx->End(t1);
+    ctx->End(disjoint);
+    if (trace) { std::fprintf(stderr, "timer submitted\n"); std::fflush(stderr); }
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
     wait(disjoint, &dj, sizeof(dj));
     if (trace) { std::fprintf(stderr, "disjoint ready\n"); std::fflush(stderr); }
-    UINT64 a = 0, b = 0;
     wait(t0, &a, sizeof(a));
     wait(t1, &b, sizeof(b));
     if (dj.Disjoint || dj.Frequency == 0) return -1.0;

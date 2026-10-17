@@ -1858,7 +1858,7 @@ int main(int argc, char** argv) {
     ob.StructureByteStride = 4;
     if (FAILED(g.dev->CreateBuffer(&ob, nullptr, &g.out))) fail("cannot create the output buffer");
     if (FAILED(g.dev->CreateUnorderedAccessView(g.out, nullptr, &g.uav))) fail("cannot create the output view");
-    g.timer.create(g.dev);
+    g.timer.create(g.dev, ad.desc.VendorId == 0x10DE && ad.desc.DeviceId == 0x107D);
     g.ctx->CSSetConstantBuffers(0, 1, &g.cb);
     g.ctx->PSSetConstantBuffers(0, 1, &g.cb);
     g.ctx->CSSetUnorderedAccessViews(0, 1, &g.uav, nullptr);
