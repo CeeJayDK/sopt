@@ -64,22 +64,28 @@ jobs:
         if: matrix.name == 'msvc'
         shell: pwsh
         run: tools/windows/stage.ps1 -Out stage
+      - name: Version
+        # In the download names, as in the release zips (owner, 2026-10-17).
+        id: version
+        if: matrix.name == 'msvc'
+        shell: bash
+        run: echo "version=$(sed -n 's/^project(sopt VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)" >> "$GITHUB_OUTPUT"
       - name: Upload GPU Blueprint
         if: matrix.name == 'msvc'
         uses: actions/upload-artifact@v7
         with:
-          name: GPU-Blueprint
+          name: GPU-Blueprint-${{ steps.version.outputs.version }}
           path: stage/GPU-Blueprint/
       - name: Upload SweetOpt for Windows
         if: matrix.name == 'msvc'
         uses: actions/upload-artifact@v7
         with:
-          name: SweetOpt-windows
+          name: SweetOpt-${{ steps.version.outputs.version }}-windows-x64
           path: stage/SweetOpt/
       - name: Upload Test Host
         # Test-Host.bat (menu), sopt-host (every API), sopt-timer, the test effects, ReShade64.dll
         if: matrix.name == 'msvc'
         uses: actions/upload-artifact@v7
         with:
-          name: Test-Host
+          name: Test-Host-${{ steps.version.outputs.version }}
           path: stage/Test-Host/
