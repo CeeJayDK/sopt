@@ -773,7 +773,7 @@ struct Timer {
     dev->CreateQuery(&qd, &t0);
     dev->CreateQuery(&qd, &t1);
   }
-  // The work's GPU time in ms. A disjoint reading (the GPU clock or power state changed during it: Intel
+  // The work's measured time in ms. A disjoint reading (the GPU clock or power state changed during it: Intel
   // iGPUs do this) is run again, up to 4 times in all; -1 when every try was disjoint.
   template <class Work>
   double time(ID3D11DeviceContext* ctx, Work work) {

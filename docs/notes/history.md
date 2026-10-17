@@ -1866,18 +1866,26 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   then reset later. ShaderInfo found no Vulkan GPU; a standalone Direct3D 11 probe verified compute output by readback.
   Events completed, but timestamps around compute were only 32-64 ns apart even with Disjoint == FALSE. Calibration
   trusted them and doubled the work until Windows reset the driver: the earlier card / driver-state-only claim was
-  incomplete. The exact driver-internal fault is unknown. Serial shader compilation, a post-dispatch flush / copy /
-  event, and start-only synchronization (0.7.19) did not fix all cases. With synchronized boundaries, 16 mad iterations
-  at 16,384 groups took 55.77-56.17 ms, agreeing with independent event completion (55-69 ms, same output).
-  Only on NVIDIA device 0x107D, Timer now flushes / waits for the start timestamp and an EVENT after work before the
-  end timestamp. It still returns GPU timestamps, including CPU / submission gaps at these boundaries. 0.7.20 completed
-  all 17 --filter mad tests in OpBench (three configurations) and StageBench ps / vs, and TexBench --filter "RGBA8 Load"
-  (no resets; --filter mad selects no TexBench measurements). OpBench mad tput 8.254 ms / 2 iterations, score 0.08 TFLOPS,
-  drift 14%; StageBench ps / vs drift 276% / 3%, TexBench 6%. The ps run is unreliable; no reference reports / model added.
-  A slow first dispatch also left lat mad3v calibrated at two iterations (later 0.279 ms, bogus cost ~1697). 0.7.21
-  discards the first calibration dispatch and targets 20 ms to reduce boundary overhead, on this card only. Other GPUs
-  keep their timestamp commands, 2 ms target, no priming, and unchanged shaders / scoring. GTX 1660 / UHD 630 are not
-  present, so no new on-card comparison was possible. No driver or system settings changed.
+  incomplete (Windows Display event 4101 confirms nvlddmkm recovery). The exact driver-internal fault is unknown.
+  Serial compilation, post-dispatch flush / copy / event, and start-only synchronization (0.7.19) did not fix all cases.
+  Synchronizing both timestamp boundaries (0.7.20) completed the narrow runs, but 0.7.21 still timed out in OpBench
+  (reported madlit, latency), with device removed reason 0x00000000: an outstanding query without a driver reset.
+  Timestamp workarounds are therefore unreliable. The standalone probe's full-size 16-iteration mad took 55.77-56.17 ms
+  with synchronized timestamps, agreeing with independent event completion (55-69 ms, same output).
+  0.7.22 uses NO timestamp queries on NVIDIA device 0x107D: drain earlier uploads with an EVENT, then time CPU elapsed
+  until the work's EVENT completes. Console / HTML / CSV explicitly label CPU/event timing, including stopped reports.
+  This includes submission / polling overhead: discard first-dispatch driver setup and calibrate to 20 ms on this card
+  (the shorter synchronized run once calibrated lat mad3v at two iterations, giving bogus cost ~1697). Independent
+  CPU/event probe: full-size single-chain mad 32 / 128 iterations 23.18 / 88.41 ms; one-group 131072 iterations 39.63 ms.
+  Other GPUs keep their timestamp commands, 2 ms target, no priming, and unchanged shaders / scoring. GTX 1660 / UHD 630
+  are not present, so no new on-card comparison was possible. No reference reports / model added; no settings changed.
+  Validation filters: OpBench / StageBench --filter mad; TexBench --filter "RGBA8 Load" (--filter mad selects no work).
+  0.7.22 on-card validation (default groups / five repetitions): all four runs exited 0 (17 OpBench tests in three
+  configurations, 17 StageBench tests each in ps / vs, TexBench texture test plus references). CPU/event labels are
+  present in CSV and HTML. OpBench mad tput / dep / lat: 28.55 / 23.20 / 37.82 ms at 8 / 32 / 131072 iterations.
+  Cold runs were noisy (OpBench drift 70%, ps 245%); repeated OpBench / ps both exited 0, drift 0.64 / 0.37 / 0.26%
+  (tput / dep / lat) and 0.40% (ps), scores 0.090 / 0.092 TFLOPS. Lat mad3v now uses 65536 iterations, 27.52 ms,
+  cost 5.82 instead of ~1697. Vertex / TexBench initial drift 31 / 4%; no further resets or query timeouts.
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
