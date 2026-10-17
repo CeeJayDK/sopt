@@ -23,6 +23,7 @@ docs/notes/history.md.
 - **NVIDIA GTX 750 and early Maxwell laptop chips:** they get their own settings: unlike the GTX 900 cards, they have no fast square root.
 
 ### GPU Blueprint
+- **Slow and old graphics cards:** the warm-up now adjusts to the card, so very slow cards (for example an NVIDIA NVS 310) no longer make Windows restart the graphics driver at the start. StageBench can now be run on its own from the menu (key S).
 - **Stopped runs tell more:** when a test run stops early, its report now still names the graphics card and driver, and says where it stopped (also when that was during the warm-up).
 - **Cleaner results pages:** bars and big numbers no longer show thin lines between the blocks, the warm-up line is left out, and the TexBench section that compares ways to read the same texels is now called "Recommendation".
 - **New TexBench tests for blur effects:** what one more pass costs, how many texture reads a pass gets almost for free, small targets, sharing reads between neighboring pixels, noise and dither sources, the order of reads, loops with branches, chains of compute passes, and drawing only part of the screen. They run for everyone, about half a minute more.

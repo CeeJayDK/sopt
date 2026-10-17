@@ -45,6 +45,7 @@ echo   %E%[1;93m3%E%[0m  Only the %cardName2%
 :menuTools
 echo.
 echo   %E%[1;93m4%E%[0m  OpBench only     %E%[90mwhat math instructions cost%E%[0m
+echo   %E%[1;93mS%E%[0m  StageBench only  %E%[90mwhat math costs in pixel and vertex shaders%E%[0m
 echo   %E%[1;93m5%E%[0m  TexBench only    %E%[90mwhat texture reads, writes and blending cost%E%[0m
 echo   %E%[1;93m6%E%[0m  ShaderInfo only  %E%[90mwhat the driver reports about compiled shaders (seconds)%E%[0m
 echo.
@@ -71,7 +72,7 @@ echo   %E%[1;93mV%E%[0m  Open Microsoft's download page %E%[90m(install "X64", t
 echo.
 echo   %E%[90mClose games and other GPU-heavy programs first. When a run is done, it offers to send the reports.%E%[0m
 echo.
-choice /c 1234567890VR /n /m "  Press a number: "
+choice /c 1234567890VRS /n /m "  Press a number: "
 set "n=%errorlevel%"
 if "%n%"=="10" goto :eof
 if "%n%"=="11" start "" "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist"
@@ -83,6 +84,7 @@ if "%n%"=="5" call :run "" texbench
 if "%n%"=="6" call :run "" shaderinfo
 if "%n%"=="7" call :reports
 if "%n%"=="12" call :results
+if "%n%"=="13" call :run "" stagebench
 if "%n%"=="8" start "" "%~dp0README.html"
 if "%n%"=="9" call :send
 goto menu
@@ -98,7 +100,7 @@ rem R: the pages the tests save of what they showed (Reports\Results, owner 2026
 :results
 if exist "Reports\Results\*.html" goto resultsOpen
 echo.
-echo   %E%[91mNo results yet.%E%[0m Run a test first (1 to 6).
+echo   %E%[91mNo results yet.%E%[0m Run a test first (1 to 6 or S).
 echo.
 pause
 exit /b
@@ -117,7 +119,7 @@ rem the user drags it onto the page (file requests take uploads through the web 
 cls
 echo.
 if defined ZIP goto sendAsk
-echo   %E%[91mNo reports yet.%E%[0m Run a test first (1 to 6); the reports are zipped when it is done.
+echo   %E%[91mNo reports yet.%E%[0m Run a test first (1 to 6 or S); the reports are zipped when it is done.
 echo.
 pause
 exit /b
@@ -164,7 +166,7 @@ echo   %E%[93mA rerun can help: close other programs, plug in a laptop, and set 
 echo   %E%[93m(NVIDIA Control Panel) or the "High performance" power plan in Windows.%E%[0m
 exit /b
 
-rem :run "<adapter number or empty>" all|opbench|texbench|shaderinfo
+rem :run "<adapter number or empty>" all|opbench|stagebench|texbench|shaderinfo
 :run
 set "adapter="
 if not "%~1"=="" set "adapter=--adapter %~1"
@@ -173,6 +175,7 @@ if /i "%~2"=="all" call :one OpBench.exe "%adapter%"
 if /i "%~2"=="all" call :one StageBench.exe "%adapter%"
 if /i "%~2"=="all" call :one TexBench.exe "%adapter%"
 if /i "%~2"=="opbench" call :one OpBench.exe "%adapter%"
+if /i "%~2"=="stagebench" call :one StageBench.exe "%adapter%"
 if /i "%~2"=="texbench" call :one TexBench.exe "%adapter%"
 if /i "%~2"=="shaderinfo" call :one ShaderInfo.exe ""
 goto :finish
