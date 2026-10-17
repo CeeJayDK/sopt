@@ -643,6 +643,7 @@ struct CbData {
 };
 
 void setConstants(Gpu& g, const Test& t, UINT iters) {
+  if (std::getenv("SOPT_GPU_TRACE")) { std::fprintf(stderr, "constants: %s, %u iterations\n", t.name, iters); std::fflush(stderr); }
   CbData d = {};
   const bool bits = std::strcmp(t.type, "uint") == 0;
   for (int r = 0; r < 16; ++r) {
@@ -1049,6 +1050,7 @@ int main(int argc, char** argv) {
     });
   print("\n");
   BackgroundJobs compiling(std::move(jobList));
+  if (std::getenv("SOPT_GPU_SERIAL")) compiling.wait(compiling.size() - 1);
   compiling.wait(0);  // the reference, for the warm-up
 
   print(std::size(kConfigs) == 1 ? "%zu tests:\n" : "%zu tests, each measured in three ways:\n", tests.size());

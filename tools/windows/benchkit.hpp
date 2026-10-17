@@ -768,11 +768,14 @@ struct Timer {
   }
   template <class Work>
   double timeOnce(ID3D11DeviceContext* ctx, Work work) {
+    const bool trace = std::getenv("SOPT_GPU_TRACE") != nullptr;
+    if (trace) { std::fprintf(stderr, "timer begin: %s\n", gCurrent.c_str()); std::fflush(stderr); }
     ctx->Begin(disjoint);
     ctx->End(t0);
     work();
     ctx->End(t1);
     ctx->End(disjoint);
+    if (trace) { std::fprintf(stderr, "timer submitted\n"); std::fflush(stderr); }
     // Waits for a query; a GPU that stopped responding (driver reset: the device is removed, every query fails)
     // or a measurement still unfinished after 60 seconds ends the program with a message instead of hanging.
     const ULONGLONG start = GetTickCount64();
@@ -801,6 +804,7 @@ struct Timer {
     };
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
     wait(disjoint, &dj, sizeof(dj));
+    if (trace) { std::fprintf(stderr, "disjoint ready\n"); std::fflush(stderr); }
     UINT64 a = 0, b = 0;
     wait(t0, &a, sizeof(a));
     wait(t1, &b, sizeof(b));
