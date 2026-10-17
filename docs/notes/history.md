@@ -1861,6 +1861,21 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   TexBench 174 / 169 s). NVS 310 on driver 392.68 (23.21.13.9268): OpBench and StageBench ps stopped in the 2 s warm-up,
   TexBench at its compute mad reference (docs/stopped, the first reports with card and driver): the newest Fermi driver
   hangs on the first timed work, where 353.62 still ran StageBench ps (0.7.11).
+  NVS 310 investigation (2026-10-18, driver 392.68): 0.7.17 OpBench with --filter mad --groups 64 and StageBench ps
+  at full size both stopped in warm-up with device removed reason 0x887A0006 (driver reset). OpBench with one group
+  reached later tests, but returned bogus ~0.0001 ms timings at 1,048,576 iterations, then reset at madlit (lat).
+  ShaderInfo found no Vulkan GPU; this does not test Direct3D. A standalone Direct3D 11 probe verified compute
+  output by staging-buffer readback. Event queries finished; timestamps also finished, but two timestamps around
+  compute were only 32-64 ns apart, even with Disjoint == FALSE. Calibration trusted these readings and doubled
+  the work until Windows reset the driver: the earlier claim that this was only card / driver state was incomplete.
+  Compiling all shaders before timing did not help (0.7.18: mad calibration grew to 262,144 iterations, then reset).
+  Flushing after dispatch, a GPU copy, and waiting for an event after dispatch did not repair the timestamp pair.
+  Waiting for the START timestamp before submitting work did: at 16,384 groups, two mad iterations measured
+  8.32-8.41 ms; sixteen measured 55.77-56.17 ms, versus 55-69 ms for independent event completion (same output).
+  The exact driver-internal ordering fault is not established; the measured failure is an invalid timestamp interval.
+  Timer now waits for the start timestamp only for NVIDIA device 0x107D (NVS 310), in all three tools / stages.
+  GTX 1660 / UHD 630 keep the original timestamp command sequence and shader / workload / scoring code; neither
+  card is present on this PC, so no new on-card comparison was possible. No driver or system settings changed.
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"

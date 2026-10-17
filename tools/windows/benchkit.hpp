@@ -751,6 +751,7 @@ struct Timer {
   ID3D11Query* disjoint = nullptr;
   ID3D11Query* t0 = nullptr;
   ID3D11Query* t1 = nullptr;
+  ID3D11Query* completed = nullptr;
   bool waitForStart = false;
   void create(ID3D11Device* dev, bool syncStart = false) {
     waitForStart = syncStart;
@@ -759,6 +760,10 @@ struct Timer {
     qd.Query = D3D11_QUERY_TIMESTAMP;
     dev->CreateQuery(&qd, &t0);
     dev->CreateQuery(&qd, &t1);
+    if (waitForStart) {
+      qd.Query = D3D11_QUERY_EVENT;
+      dev->CreateQuery(&qd, &completed);
+    }
   }
   // The work's GPU time in ms. A disjoint reading (the GPU clock or power state changed during it: Intel
   // iGPUs do this) is run again, up to 4 times in all; -1 when every try was disjoint.
@@ -770,8 +775,6 @@ struct Timer {
   }
   template <class Work>
   double timeOnce(ID3D11DeviceContext* ctx, Work work) {
-    const bool trace = std::getenv("SOPT_GPU_TRACE") != nullptr;
-    if (trace) { std::fprintf(stderr, "timer begin: %s\n", gCurrent.c_str()); std::fflush(stderr); }
     // Waits for a query; a GPU that stopped responding (driver reset: the device is removed, every query fails)
     // or a measurement still unfinished after 60 seconds ends the program with a message instead of hanging.
     const ULONGLONG start = GetTickCount64();
@@ -801,17 +804,24 @@ struct Timer {
     UINT64 a = 0, b = 0;
     ctx->Begin(disjoint);
     ctx->End(t0);
-    // The NVS 310 driver can execute both timestamps after the compute work (32-64 ns apart),
-    // even with Disjoint == FALSE. Calibration then grows the work until Windows resets the GPU.
+    // On the NVS 310, compute timings can collapse to 32-64 ns even with Disjoint == FALSE.
+    // Calibration then grows the work until Windows resets the GPU.
     // Complete the start timestamp before submitting work on this card; other cards keep the same commands.
-    if (waitForStart) wait(t0, &a, sizeof(a));
+    if (waitForStart) {
+      ctx->Flush();
+      wait(t0, &a, sizeof(a));
+    }
     work();
+    if (waitForStart) {
+      ctx->End(completed);
+      ctx->Flush();
+      BOOL done = FALSE;
+      wait(completed, &done, sizeof(done));
+    }
     ctx->End(t1);
     ctx->End(disjoint);
-    if (trace) { std::fprintf(stderr, "timer submitted\n"); std::fflush(stderr); }
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
     wait(disjoint, &dj, sizeof(dj));
-    if (trace) { std::fprintf(stderr, "disjoint ready\n"); std::fflush(stderr); }
     wait(t0, &a, sizeof(a));
     wait(t1, &b, sizeof(b));
     if (dj.Disjoint || dj.Frequency == 0) return -1.0;
