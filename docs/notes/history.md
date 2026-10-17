@@ -1857,6 +1857,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   in the 2 s warm-up, TexBench at the compute mad reference), "not finished in 60 seconds"; the CSVs held only the
   "# stopped:" line (no header: the header is written with the results), so junk. StageBench ps ran on 0.7.11 on this
   card and its code has not changed since: the card or driver state, not the tool.
+  0.7.16 runs (owner, 2026-10-17): UHD 630 + GTX 1660 clean (nothing differs; 1660 drift 32-49%, fp32 4.7 TFLOPS;
+  TexBench 174 / 169 s). NVS 310 on driver 392.68 (23.21.13.9268): OpBench and StageBench ps stopped in the 2 s warm-up,
+  TexBench at its compute mad reference (docs/stopped, the first reports with card and driver): the newest Fermi driver
+  hangs on the first timed work, where 353.62 still ran StageBench ps (0.7.11).
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"

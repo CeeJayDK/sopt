@@ -1,0 +1,7 @@
+# StageBench 0.7.16
+# stage: ps
+# gpu: NVIDIA NVS 310
+# vendor: 0x10DE
+# device: 0x107D
+# driver: 23.21.13.9268
+# stopped: the GPU has not finished a measurement in 60 seconds (while measuring "the 2-second warm-up (mad)")
