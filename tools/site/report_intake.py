@@ -208,14 +208,14 @@ def fetch(work):
                 stem = slug(gpu, vid, dev) + ("-" + h["stage"] if kind == "stagebench" else "")
                 base = free_name(folder, stem, ".txt" if kind == "shaderinfo" else ".csv")
                 ext = ".txt" if kind == "shaderinfo" else ".csv"
-                out = [os.path.join(folder, base + ext)]
+                out = [folder + "/" + base + ext]  # forward slashes on Windows too (log, saved.txt)
                 with open(os.path.join(ROOT, out[0]), "w", encoding="utf-8", newline="\n") as f:
                     f.write(text)
                 if kind == "texbench":  # its pixel order pictures: <csv stem>-order.png / -order-zoom.png
                     stem = os.path.splitext(name)[0]
                     for suffix in ("-order.png", "-order-zoom.png"):
                         if stem + suffix in pngs:
-                            p = os.path.join(folder, base + suffix)
+                            p = folder + "/" + base + suffix
                             with open(os.path.join(ROOT, p), "wb") as f:
                                 f.write(pngs.pop(stem + suffix))
                             out.append(p)
