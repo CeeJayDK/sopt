@@ -1,0 +1,4 @@
+# Batch files keep their CRLF line ends exactly as stored (cmd misreads labels and goto in LF files;
+# git autocrlf once stored GPU-Blueprint.bat with LF, 2026-10-17).
+*.bat -text
+*.cmd -text

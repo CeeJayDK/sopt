@@ -1060,8 +1060,10 @@ int main(int argc, char** argv) {
   std::printf("Warming up the GPU for 2 seconds so its clock settles ...");  // on screen only, not in the results page
   {
     gCurrent = "the 2-second warm-up (mad)";  // where a stop happened (the report's "# stopped:" line)
-    bindShader(g, shaders["tput"]["mad"]);
-    setConstants(g, *madTest, 256);
+    // Batches sized to the card (~8 calibrated runs, at most 256 iterations): 256 took ~1 s on an NVS 310, and
+    // Windows reset its driver (owner, 2026-10-17: the screen went blank in the warm-up).
+    const UINT warm = std::min(256u, calibrate(g, shaders["tput"]["mad"], *madTest, kConfigs[0]) * 8);
+    setConstants(g, *madTest, warm);
     const ULONGLONG start = GetTickCount64();
     while (GetTickCount64() - start < 2000) timeDispatch(g, kConfigs[0].groups);
   }

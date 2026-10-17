@@ -2034,9 +2034,12 @@ int main(int argc, char** argv) {
     Bound none = bindResources(g, *byName("mad"), rng);
     const Kernel& k = kernels["mad"]["tput"];
     bind(g, *byName("mad"), none, k);
-    setConstants(g, *byName("mad"), 256, 0);
+    // Batches sized to the card (~8 calibrated runs, at most 256 iterations): 256 took ~1 s on an NVS 310, and
+    // Windows reset its driver (owner, 2026-10-17: the screen went blank in the warm-up).
+    const Plan warm = calibrate(g, *byName("mad"), k, kConfigs[0].groups);
+    setConstants(g, *byName("mad"), std::min(256u, warm.iters * 8), 0);
     const ULONGLONG start = GetTickCount64();
-    while (GetTickCount64() - start < 2000) run(g, k, kConfigs[0].groups);
+    while (GetTickCount64() - start < 2000) run(g, k, warm.groups);
     none.free();
     std::printf(" done\n");
   }

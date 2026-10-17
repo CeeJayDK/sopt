@@ -788,7 +788,14 @@ struct Timer {
                         static_cast<unsigned long>(hr), dev ? static_cast<unsigned long>(dev->GetDeviceRemovedReason()) : 0ul);
           fail(buf);
         }
-        if (GetTickCount64() - start > 60000) fail("the GPU has not finished a measurement in 60 seconds");
+        if (GetTickCount64() - start > 60000) {  // the removed reason tells whether Windows reset the driver
+          ID3D11Device* dev = nullptr;
+          ctx->GetDevice(&dev);
+          char buf[160];
+          std::snprintf(buf, sizeof(buf), "the GPU has not finished a measurement in 60 seconds (device removed reason 0x%08lX)",
+                        dev ? static_cast<unsigned long>(dev->GetDeviceRemovedReason()) : 0ul);
+          fail(buf);
+        }
         Sleep(0);
       }
     };
