@@ -116,7 +116,7 @@ def numeric_rows(text, minimum):
 
 
 def classify(name, data):
-    """('opbench' | 'texbench' | 'stagebench' | 'shaderinfo' | 'png' | None, text or None)."""
+    """('opbench' | 'texbench' | 'stagebench' | 'stopped' | 'shaderinfo' | 'png' | None, text or None)."""
     low = name.lower()
     if low.endswith(".png"):
         return ("png", None) if data[:8] == b"\x89PNG\r\n\x1a\n" else (None, None)
@@ -134,6 +134,10 @@ def classify(name, data):
         return "stagebench", text
     if text.startswith("GPU: ") and low.endswith(".txt"):
         return "shaderinfo", text
+    # A run that stopped before 20 results (header + "# stopped: why"): kept apart from the reports, to see
+    # which cards and drivers fail and where (owner, 2026-10-17). Longer stopped runs are reports as before.
+    if re.match(r"# (OpBench|TexBench|StageBench) \d", text) and "# gpu:" in text and re.search(r"^# stopped: ", text, re.M):
+        return "stopped", text
     return None, None
 
 
@@ -205,7 +209,10 @@ def fetch(work):
                     for suffix in ("-order.png", "-order-zoom.png"):
                         pngs.pop(stem + suffix, None)
                     continue
-                stem = slug(gpu, vid, dev) + ("-" + h["stage"] if kind == "stagebench" else "")
+                stem = slug(gpu, vid, dev) + ("-" + h["stage"] if kind == "stagebench" or "stage" in h else "")
+                if kind == "stopped":  # docs/stopped/<tool>-<gpu>[-stage], the reason in the log
+                    stem = text[2:].split()[0].lower() + "-" + stem
+                    version += ", " + re.search(r"^# (stopped: .*)$", text, re.M).group(1)
                 base = free_name(folder, stem, ".txt" if kind == "shaderinfo" else ".csv")
                 ext = ".txt" if kind == "shaderinfo" else ".csv"
                 out = [folder + "/" + base + ext]  # forward slashes on Windows too (log, saved.txt)
