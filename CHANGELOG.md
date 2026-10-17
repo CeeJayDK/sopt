@@ -23,6 +23,7 @@ docs/notes/history.md.
 - **NVIDIA GTX 750 and early Maxwell laptop chips:** they get their own settings: unlike the GTX 900 cards, they have no fast square root.
 
 ### GPU Blueprint
+- **Stopped runs tell more:** when a test run stops early, its report now still names the graphics card and driver, and says where it stopped (also when that was during the warm-up).
 - **New TexBench tests for blur effects:** what one more pass costs, how many texture reads a pass gets almost for free, small targets, sharing reads between neighboring pixels, noise and dither sources, the order of reads, loops with branches, chains of compute passes, and drawing only part of the screen. They run for everyone, about half a minute more.
 - **New OpBench tests:** they show where Microsoft's shader compiler, which ReShade uses for Direct3D, makes some math slower than written, for a future project that undoes it.
 - **Fixed: TexBench on slow graphics cards:** a very slow test (like 16x anisotropic filtering on an AMD Radeon HD 6450) could stop the run. Each test now starts small and only grows as far as needed, and on cards with little memory (512 MB) the big texture and write tests run smaller instead of crawling; the few that cannot are left out and listed.
