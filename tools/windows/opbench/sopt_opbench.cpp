@@ -935,7 +935,7 @@ int main(int argc, char** argv) {
   for (char& ch : prefix) ch = char(std::tolower((unsigned char)ch));
   if (gStage != Stage::Compute) prefix += std::string("-") + stageName();
   if (outPath.empty()) outPath = (reports / (prefix + "-" + safeName + ".csv")).string();
-  gReportPath = outPath;
+  startReport(outPath, kTool, gStage == Stage::Compute ? "" : stageName(), ad);
   const std::filesystem::path dxbcDir =
       reports / "Shaders" / (std::string(kTool) + (gStage == Stage::Compute ? "" : std::string("-") + stageName()));
   std::filesystem::create_directories(dxbcDir);
@@ -1059,6 +1059,7 @@ int main(int argc, char** argv) {
               "section while the rest is measured.\n"
               "Warming up the GPU for 2 seconds so its clock settles ...");
   {
+    gCurrent = "the 2-second warm-up (mad)";  // where a stop happened (the report's "# stopped:" line)
     bindShader(g, shaders["tput"]["mad"]);
     setConstants(g, *madTest, 256);
     const ULONGLONG start = GetTickCount64();

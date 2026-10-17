@@ -628,6 +628,19 @@ struct Adapter {
   std::string name, driver = "unknown";
 };
 
+// Starts the report with the GPU's header lines (replacing an older report), so a run that stops before its first
+// results still says which card and driver it ran on (owner, 2026-10-17: the NVS 310's reports held only "# stopped").
+inline void startReport(const std::string& path, const char* tool, const char* stage, const Adapter& ad) {
+  gReportPath = path;
+  if (FILE* f = std::fopen(path.c_str(), "wb")) {
+    std::fprintf(f, "# %s %s\n", tool, SOPT_VERSION);
+    if (*stage) std::fprintf(f, "# stage: %s\n", stage);
+    std::fprintf(f, "# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", ad.name.c_str(), ad.desc.VendorId,
+                 ad.desc.DeviceId, ad.driver.c_str());
+    std::fclose(f);
+  }
+}
+
 // A GPU name in its vendor's logo color (owner): NVIDIA bright green, AMD bright red, Intel bright blue.
 inline const char* vendorColor(const Style& st, UINT vendor) {
   return st.c(vendor == 0x10DE ? "\x1b[1;92m" : vendor == 0x1002 || vendor == 0x1022 ? "\x1b[1;91m"

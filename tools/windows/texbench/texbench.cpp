@@ -1906,7 +1906,7 @@ int main(int argc, char** argv) {
   for (char& ch : safeName)
     if (!isalnum((unsigned char)ch)) ch = '_';
   if (outPath.empty()) outPath = (reports / ("texbench-" + safeName + ".csv")).string();
-  gReportPath = outPath;
+  startReport(outPath, "TexBench", "", ad);
   const std::filesystem::path dxbcDir = reports / "Shaders" / "TexBench";
   std::filesystem::create_directories(dxbcDir);
 
@@ -2029,6 +2029,7 @@ int main(int argc, char** argv) {
   if (!tests.empty()) {
     print("Warming up the GPU for 2 seconds ...");
     // Warm up with the compute reference.
+    gCurrent = "the 2-second warm-up (mad)";  // where a stop happened (the report's "# stopped:" line)
     compiling.wait(jobOf(byName("mad")));
     Bound none = bindResources(g, *byName("mad"), rng);
     const Kernel& k = kernels["mad"]["tput"];
