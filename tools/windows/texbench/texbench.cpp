@@ -1372,6 +1372,7 @@ Plan calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
   const UINT most = k.cs ? groups : kPsSize;
   p.groups = std::min(most, k.cs ? kMinGroups : kMinRows);
   setConstants(g, t, p.iters, t.size);
+  const bool cpuAtStart = g.timer.eventTiming;
   const double targetMs = g.timer.eventTiming ? 20.0 : 2.0;
   if (g.timer.eventTiming) run(g, k, p.groups);  // discard first-dispatch driver work (CPU timing)
   double ms = run(g, k, p.groups);
@@ -1385,6 +1386,7 @@ Plan calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
     setConstants(g, t, p.iters, t.size);
     ms = run(g, k, p.groups);
   }
+  if (g.timer.eventTiming != cpuAtStart) return calibrate(g, t, k, groups);  // switched to CPU time: its target, priming
   return p;
 }
 

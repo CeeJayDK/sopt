@@ -754,9 +754,9 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
 // timestamps never arrived. Two guards:
 //   checkTimestamps  at the start: a run sized by CPU time (honest, so never long), at two lengths, three readings
 //                    each way; the timestamps must cover a quarter of the CPU time and grow with the work.
-//   every reading    CPU time from submission to the last timestamp: two readings in a row under a quarter of it
-//                    (at >= 5 ms), or a timestamp still missing after 5 s (no healthy GPU runs that long: Windows
-//                    resets it at ~2 s), switch to CPU time for the rest of the run.
+//   every reading    CPU time from submission to an EVENT after the work: a reading under a quarter of it (at
+//                    >= 5 ms), or a timestamp still missing after 5 s (no healthy GPU runs that long: Windows resets
+//                    it at ~2 s), switches to CPU time for the rest of the run; calibration then starts over.
 // A switch is noted on screen and in the report ("# timing:"); the check's numbers always go into the report.
 struct Timer {
   ID3D11Query* disjoint = nullptr;
@@ -764,7 +764,6 @@ struct Timer {
   ID3D11Query* t1 = nullptr;
   ID3D11Query* completed = nullptr;
   bool eventTiming = false;
-  int lowReadings = 0;  // timestamp readings in a row far under the CPU time
   LARGE_INTEGER cpuFrequency = {};
   char note[240] = "";   // why CPU time is used
   char check[240] = "";  // checkTimestamps' numbers
@@ -814,7 +813,12 @@ struct Timer {
         c.push_back(timeN(n << k));
         eventTiming = false;
         if (const double ms = timeN(n << k); ms >= 0.0) g.push_back(ms);
-        if (eventTiming) return;  // the reading guard switched (wrong or missing timestamps): noted there
+        if (eventTiming) {  // the reading guard switched (wrong or missing timestamps): its reason is in "# timing"
+          std::snprintf(check, sizeof(check), "%u units: CPU %.2f ms (reading %d), GPU timestamps: switched to CPU time",
+                        n << k, c.back(), r + 1);
+          appendReport("timestamp check", check);
+          return;
+        }
       }
       cpu[k] = median(c);
       gpu[k] = g.empty() ? -1.0 : median(g);
@@ -866,15 +870,15 @@ struct Timer {
       }
     };
     LARGE_INTEGER c0, c1;
+    auto finish = [&] {
+      ctx->End(completed);
+      ctx->Flush();
+      BOOL done = FALSE;
+      wait(completed, &done, sizeof(done));
+    };
     if (eventTiming) {
       // No timestamps are issued. Drain earlier uploads first, then measure CPU elapsed time until this work's EVENT
       // completes. Calibration primes the shader and uses longer samples to reduce submission / polling overhead.
-      auto finish = [&] {
-        ctx->End(completed);
-        ctx->Flush();
-        BOOL done = FALSE;
-        wait(completed, &done, sizeof(done));
-      };
       finish();
       QueryPerformanceCounter(&c0);
       work();
@@ -882,24 +886,29 @@ struct Timer {
       QueryPerformanceCounter(&c1);
       return double(c1.QuadPart - c0.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
     }
+    // The guard's CPU time ends at an EVENT after the timestamps, not at the timestamps themselves: on the NVS 310
+    // they arrived before the work was done, so a CPU time read from them was as short as they were (agent, 0.7.24
+    // test). Earlier uploads are drained first so they do not count. Both lie outside the timestamp pair.
     UINT64 a = 0, b = 0;
+    finish();
     QueryPerformanceCounter(&c0);
     ctx->Begin(disjoint);
     ctx->End(t0);
     work();
     ctx->End(t1);
     ctx->End(disjoint);
+    finish();
+    QueryPerformanceCounter(&c1);
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
     if (!wait(disjoint, &dj, sizeof(dj)) || !wait(t0, &a, sizeof(a)) || !wait(t1, &b, sizeof(b))) {
       useCpu("the driver's GPU timestamps did not arrive");
       return -1.0;
     }
-    QueryPerformanceCounter(&c1);
     if (dj.Disjoint || dj.Frequency == 0) return -1.0;
     const double ms = double(b - a) * 1000.0 / double(dj.Frequency);
     const double cpu = double(c1.QuadPart - c0.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
-    lowReadings = cpu >= 5.0 && ms < 0.25 * cpu ? lowReadings + 1 : 0;
-    if (lowReadings >= 2) {
+    // One reading is enough: calibration doubles the work after it, so waiting for a second let it grow too far.
+    if (cpu >= 5.0 && ms < 0.25 * cpu) {
       char why[120];
       std::snprintf(why, sizeof(why), "the driver's GPU timestamps are wrong: %.3f ms for %.1f ms of work", ms, cpu);
       useCpu(why);

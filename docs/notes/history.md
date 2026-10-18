@@ -1899,6 +1899,13 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   under 25% at >= 5 ms, or a timestamp missing after 5 s, switch to CPU time for the rest of the run, noted with
   where). Not adopted from the comment: disjoint-only means CPU (Intel iGPUs report disjoint at clock changes; the
   reading guard covers them), restarting the run after a late switch (the switch is noted with where instead).
+  0.7.24 on the NVS 310 (agent): OpBench / TexBench switched in the check; StageBench ps / vs passed the check
+  (CPU 6.33 / 11.08 ms, timestamps 4.74 / 9.36; vs 8.89 / 16.97 against 8.13 / 16.26), then "timestamps did not
+  arrive" and reset (ps in the warm-up, vs at mad16v3 after results). The guard's CPU time ended when the
+  timestamps arrived, and they arrive before the work is done on this driver, so it was short too. 0.7.25: the
+  CPU time ends at an EVENT after the timestamp pair (uploads drained before it), one low reading switches (two
+  let calibration double once more), calibration starts over after a switch (CPU target and priming), the
+  check's line is written on every exit. Results measured before a late switch keep their GPU timing (noted).
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /
