@@ -699,37 +699,53 @@ struct Result {
 // Chains per thread of a test in a configuration (a test's own count applies to the throughput run).
 int chainsOf(const Test& t, const Config& c) { return t.chains && std::strcmp(c.name, "tput") == 0 ? t.chains : c.chains; }
 
-// Doubles iterations until a dispatch takes >= 2 ms (20 ms with CPU timing: Timer::checkTimestamps).
-UINT calibrate(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c) {
-  bindShader(g, cs);
+// How long one timed run is: iterations of the loop, and thread groups.
+struct Plan {
   UINT iters = 2;
+  UINT groups = 0;
+};
+
+// A run of >= 2 ms (20 ms with CPU timing: Timer::checkTimestamps). It starts small, as TexBench does (1024 groups, 64K
+// threads: still enough to fill a GPU), and doubles the groups up to the configuration's size while the doubled run
+// stays under ~250 ms, then the iterations. A test whose smallest full-size run is too long for the card stays smaller:
+// on a GT 530 (Fermi: shared memory atomics are lock loops) gswrite32 took 347 ms at 2 iterations over 1M threads and
+// the atomics after it reset the driver (owner, 2026-10-18). Cards whose full-size runs stay under ~250 ms get the same
+// full-size runs as before.
+Plan calibrate(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c) {
+  gCurrent = std::string(t.name) + " (" + c.name + ", calibrating)";  // a stop here names this test
+  bindShader(g, cs);
+  Plan p;
+  p.groups = std::min(c.groups, 1024u);
   // A CPU interval includes first-dispatch driver work. Discard it, then
   // use longer samples so the CPU / submission gaps at the timing boundaries are a small fraction.
   const double targetMs = g.timer.eventTiming ? 20.0 : 2.0;
-  if (g.timer.eventTiming) {
-    setConstants(g, t, iters);
-    timeDispatch(g, c.groups);
+  setConstants(g, t, p.iters);
+  if (g.timer.eventTiming) timeDispatch(g, p.groups);
+  double ms = timeDispatch(g, p.groups);  // < 0: no valid reading, keep the run length
+  while (ms >= 0.0 && ms < 125.0 && p.groups < c.groups) {
+    p.groups = std::min(c.groups, p.groups * 2);
+    ms = timeDispatch(g, p.groups);
   }
-  for (;;) {
-    setConstants(g, t, iters);
-    const double ms = timeDispatch(g, c.groups);  // < 0: no valid reading, keep the run length
-    if (g.timer.eventTiming && targetMs < 20.0) return calibrate(g, cs, t, c);  // switched to CPU time: its target, priming
-    if (ms < 0.0 || ms >= targetMs || iters >= (1u << 20)) return iters;
-    iters *= 2;
+  while (ms >= 0.0 && ms < targetMs && p.iters < (1u << 20)) {
+    p.iters *= 2;
+    setConstants(g, t, p.iters);
+    ms = timeDispatch(g, p.groups);
   }
+  if (g.timer.eventTiming && targetMs < 20.0) return calibrate(g, cs, t, c);  // switched to CPU time: its target, priming
+  return p;
 }
 
 // The median of reps runs at a known iteration count.
-Result measureAt(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c, UINT iters, int reps) {
+Result measureAt(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c, const Plan& p, int reps) {
   bindShader(g, cs);
-  setConstants(g, t, iters);
+  setConstants(g, t, p.iters);
   std::vector<double> runs;
   for (int k = 0; k < reps * 3 && int(runs.size()) < reps; ++k)
-    if (const double m = timeDispatch(g, c.groups); m > 0.0) runs.push_back(m);
+    if (const double m = timeDispatch(g, p.groups); m > 0.0) runs.push_back(m);
   Result r;
-  r.iters = iters;
+  r.iters = p.iters;
   r.ms = median(runs);
-  const double steps = double(iters) * kUnroll * double(c.groups) * kGroupSize * chainsOf(t, c);
+  const double steps = double(p.iters) * kUnroll * double(p.groups) * kGroupSize * chainsOf(t, c);
   r.nsPerStep = r.ms * 1e6 / steps;
   return r;
 }
@@ -1081,13 +1097,13 @@ int main(int argc, char** argv) {
   g.timer.checkTimestamps([&](UINT n) { return timeDispatch(g, kConfigs[0].groups, n); });
   std::printf("Warming up the GPU for 2 seconds so its clock settles ...");  // on screen only, not in the results page
   {
-    gCurrent = "the 2-second warm-up (mad)";  // where a stop happened (the report's "# stopped:" line)
     // Batches sized to the card (~8 calibrated runs, at most 256 iterations): 256 took ~1 s on an NVS 310, and
     // Windows reset its driver (owner, 2026-10-17: the screen went blank in the warm-up).
-    const UINT warm = std::min(256u, calibrate(g, shaders["tput"]["mad"], *madTest, kConfigs[0]) * 8);
-    setConstants(g, *madTest, warm);
+    const Plan warm = calibrate(g, shaders["tput"]["mad"], *madTest, kConfigs[0]);
+    gCurrent = "the 2-second warm-up (mad)";  // where a stop happened (the report's "# stopped:" line)
+    setConstants(g, *madTest, std::min(256u, warm.iters * 8));
     const ULONGLONG start = GetTickCount64();
-    while (GetTickCount64() - start < 2000) timeDispatch(g, kConfigs[0].groups);
+    while (GetTickCount64() - start < 2000) timeDispatch(g, warm.groups);
   }
   std::printf(" done\n");
 
@@ -1165,7 +1181,7 @@ int main(int argc, char** argv) {
   std::map<std::string, double> madDrift;                     // config -> spread of the reference
   std::map<std::string, double> madNs;                        // config -> mean reference time
   std::map<std::string, std::vector<double>> mads;            // config -> reference readings
-  std::map<std::string, std::map<std::string, UINT>> iters;   // config -> test -> run length
+  std::map<std::string, std::map<std::string, Plan>> iters;   // config -> test -> run length
   std::map<std::string, std::map<std::string, Result>> sums;  // config -> test -> summed readings
   // Score (owner: a number to show others, in the units GPU spec lists use): fp32 TFLOPS from the reference
   // fma or the one-constant fma1, whichever is faster, fp16 TFLOPS from mad16 (min16float; 0 when the driver runs it at 32 bits), special functions from
@@ -1256,7 +1272,7 @@ int main(int argc, char** argv) {
     const Group& gr = groups[gi];
     compiling.wait(gi + 1);
     for (const Config& c : kConfigs) {
-      std::map<std::string, UINT>& it = iters[c.name];
+      std::map<std::string, Plan>& it = iters[c.name];
       if (!it.count("mad")) it["mad"] = calibrate(g, shaders[c.name]["mad"], *madTest, c);
       for (const Test* t : gr.run)
         if (!it.count(t->name)) it[t->name] = calibrate(g, shaders[c.name][t->name], *t, c);
