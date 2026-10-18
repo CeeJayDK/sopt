@@ -1925,6 +1925,18 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   29 / 32 s, vs 28 / 32 s, TexBench 140 s (1660), ShaderInfo < 1 s. UHD 630 TexBench stopped at tex2Dsize after the
   formats section (0x887A0005, device hung 0x887A0006; 378 rows, saved as -17), where the UHD 620 stopped in 0.7.9;
   0.7.25 ran through on the same card: likely the intermittent Gen9 hang near the big RGBA32 textures (unconfirmed).
+  0.7.29 runs (owner, 2026-10-18): GTX 1660 / UHD 630 all clean on GPU timestamps; UHD 630 TexBench ran through this
+  time (176 s; 1660 149 s). StageBench drift UHD 630 ps 45% / vs 24%, 1660 ps 24%. Compute layouts (TexBench, % against
+  the pixel shader): 3 x 3 bilinear taps best as compute 256x1 rows, 1660 -6% / UHD 630 -8% (8x8 rows +2 / +6%); the
+  17-texel blurs through groupshared lose to the 9-bilinear-read pixel shader everywhere: best 1660 x +60% (16x16
+  rows) / y +69% (16x16 rows strips), UHD 630 x +201% (8x8 rows strips) / y +194% (16x4 rows); 64x1 / 8x32 worst.
+  So for blurs the bilinear pixel shader is the answer on both; compute pays off only for plain taps, and little.
+  GT 530 (Fermi GF108, driver 391.35 = 23.21.13.9135; owner's test PC, replaces the NVS 310): the same timestamp bug.
+  OpBench / TexBench switched to CPU timing in the check (0.000 ms for 7.3 ms), StageBench ps in the warm-up (3.19 for
+  15.6 ms), vs at acos1 (2.77 for 11.5). Noisy: drift OpBench 54 / 32 / 35%, ps 1998%, vs 443%, TexBench 58%; run
+  time OpBench 426 s, ps 186 s, vs 116 s, TexBench 718 s. OpBench stopped at gsbase (lat): the event not done in 60 s,
+  device hung (0x887A0006), on CPU timing. fp32 0.239 (cs) / 0.163 (ps) / 0.194 (vs) TFLOPS (GF108 peak ~0.27).
+  Compute layouts: every compute form slower than the pixel shader (taps +39% at best, blurs +304 / +309%).
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /
