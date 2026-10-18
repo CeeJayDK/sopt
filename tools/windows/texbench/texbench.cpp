@@ -201,6 +201,7 @@ struct Test {
   std::string src;
   UINT tw = 0, th = 0;
   int chain = 1, chainMode = 0;
+  UINT gx = 0, gy = 0;                  // compute (chainMode 0): the thread group size; 0 = pixel shader (mode 3: 8 x 8)
   const Format* noiseFormat = nullptr;  // t1: a noise texture noiseSize x noiseSize (point, wrap at s1)
   UINT noiseSize = 0;
   float uz = 0.0f;                      // U[0].z (the branch tests' n)
@@ -477,6 +478,74 @@ void makeBlurTests(std::vector<Test>& v) {
     Test& t = blur(std::to_string(k) + (k == 1 ? " dispatch" : " dispatches"), p9, "RGBA8", 16, k, 3, "", "two targets in turn, 8 x 8 threads per group");
     t.src = "Texture2D<float4> T : register(t0);\nRWTexture2D<unorm float4> O : register(u1);\n"
             "[numthreads(8, 8, 1)] void main(uint3 id : SV_DispatchThreadID) { O[id.xy] = T.Load(int3(id.xy, 0)) * 0.99 + 0.001; }\n";
+  }
+
+  // Compute layouts (owner, 2026-10-18: which group size and order is best on this card, and does compute beat a pixel
+  // shader at all?): two post-processing jobs over the 3840 x 2160 image into RGBA8, as a pixel shader (the base) and
+  // as compute shaders in 8 group sizes, pixels in a group in rows or in Morton order (2 x 2 quads, then 4 x 4 ...,
+  // like the rasterizer), groups across the screen in rows or in 128-pixel strips (texture cache locality: "thread
+  // group ID swizzling", NVIDIA 2020). Percent: time against the pixel shader (lower is better).
+  const std::string taps9 = "  float4 s = 0.0;\n"
+                            "  [unroll] for (int y = -1; y <= 1; ++y) [unroll] for (int x = -1; x <= 1; ++x)\n"
+                            "    s += T.SampleLevel(L, (c + float2(x, y) * 1.5) * U[0].xy, 0.0);\n"
+                            "  return s / 9.0;\n";
+  // A 17-texel box blur along x: 9 bilinear reads in a pixel shader (pairs of texels in one read), groupshared in compute.
+  std::string blur9 = "  float4 s = T.SampleLevel(L, c * U[0].xy, 0.0);\n";
+  for (double o : {1.5, 3.5, 5.5, 7.5})
+    blur9 += "  s += 2.0 * (T.SampleLevel(L, (c + float2(" + std::to_string(o) + ", 0.0)) * U[0].xy, 0.0) + T.SampleLevel(L, (c - float2(" +
+             std::to_string(o) + ", 0.0)) * U[0].xy, 0.0));\n";
+  blur9 += "  return s / 17.0;\n";
+  for (const auto& [job, sec, psBody] : std::vector<std::array<std::string, 3>>{
+           {"taps", "Compute layouts: 9 bilinear reads (3 x 3), RGBA8 3840 x 2160", taps9},
+           {"blur", "Compute layouts: 17-texel blur along x (groupshared), RGBA8 3840 x 2160", blur9}}) {
+    const std::string psName = job + " pixel shader";
+    blur(psName, sec, "RGBA8", 1, 1, 0, "  return filt(pos.xy);\n", job == "taps" ? "the base" : "the base: 9 bilinear reads (texel pairs)",
+         "float4 filt(float2 c) {\n" + psBody + "}\n");
+    for (const auto& [gx, gy] : std::vector<std::pair<UINT, UINT>>{{8, 8}, {16, 16}, {32, 8}, {8, 32}, {16, 4}, {64, 1}, {128, 1}, {256, 1}}) {
+      const UINT kx = UINT(std::log2(gx)), ky = UINT(std::log2(gy)), m = std::min(kx, ky);
+      const UINT nx = (kRtW + gx - 1) / gx, ny = (kRtH + gy - 1) / gy, w = std::max(1u, 128u / gx);
+      for (bool morton : {false, true}) {
+        if (morton && m == 0) continue;  // one row: Morton order = rows
+        // Pixel of thread i in its group: Morton interleaves the low 2m bits, the rest extend the longer side.
+        std::string lx = "0u", ly = "0u";
+        if (!morton) lx = "i % " + std::to_string(gx) + "u", ly = "i / " + std::to_string(gx) + "u";
+        else
+          for (UINT b = 0; b < kx + ky; ++b) {
+            const bool toX = b < 2 * m ? b % 2 == 0 : kx > ky;
+            const UINT at = b < 2 * m ? b / 2 : m + (b - 2 * m);
+            (toX ? lx : ly) += " | ((i >> " + std::to_string(b) + "u) & 1u) << " + std::to_string(at) + "u";
+          }
+        for (bool strips : {false, true}) {
+          std::string head = std::string(kBlurHeader) + "RWTexture2D<unorm float4> O : register(u1);\n";
+          std::string sizes = "[numthreads(" + std::to_string(gx) + ", " + std::to_string(gy) + ", 1)] void main(uint3 gid : SV_GroupID, uint i : SV_GroupIndex) {\n"
+                              "  const uint2 l = uint2(" + lx + ", " + ly + ");\n";
+          sizes += strips ? "  const uint f = gid.y * " + std::to_string(nx) + "u + gid.x, st = f / " + std::to_string(w * ny) + "u, r = f % " +
+                                std::to_string(w * ny) + "u;\n  const uint2 g = uint2(st * " + std::to_string(w) + "u + r % " + std::to_string(w) +
+                                "u, r / " + std::to_string(w) + "u);\n"
+                          : "  const uint2 g = gid.xy;\n";
+          sizes += "  const uint2 p = g * uint2(" + std::to_string(gx) + ", " + std::to_string(gy) + ") + l;\n";
+          const std::string inside = "p.x < " + std::to_string(kRtW) + "u && p.y < " + std::to_string(kRtH) + "u";
+          std::string src;
+          if (job == "taps")
+            src = head + "float4 filt(float2 c) {\n" + taps9 + "}\n" + sizes + "  if (" + inside + ") O[p] = filt(float2(p) + 0.5);\n}\n";
+          else {
+            // The group's rows plus 8 texels each side into groupshared memory (all threads, in rows), then 17 sums.
+            const std::string rw = std::to_string(gx + 16), all = std::to_string((gx + 16) * gy);
+            src = head + "groupshared float4 S[" + all + "];\n" + sizes +
+                  "  for (uint k = i; k < " + all + "u; k += " + std::to_string(gx * gy) + "u) {\n"
+                  "    const int2 q = int2(g * uint2(" + std::to_string(gx) + ", " + std::to_string(gy) + ")) + int2(k % " + rw + "u, k / " + rw + "u) - int2(8, 0);\n"
+                  "    S[k] = T.Load(int3(clamp(q, int2(0, 0), int2(" + std::to_string(kRtW - 1) + ", " + std::to_string(kRtH - 1) + ")), 0));\n  }\n"
+                  "  GroupMemoryBarrierWithGroupSync();\n  float4 s = 0.0;\n"
+                  "  [unroll] for (uint j = 0; j < 17; ++j) s += S[l.y * " + rw + "u + l.x + j];\n"
+                  "  if (" + inside + ") O[p] = s / 17.0;\n}\n";
+          }
+          char name[40];
+          std::snprintf(name, sizeof(name), "%s %ux%u %s%s", job.c_str(), gx, gy, morton ? "Morton" : "rows", strips ? " strips" : "");
+          Test& t = blur(name, sec, "RGBA8", 1, 1, 0, "", strips ? std::to_string(w * gx) + "-pixel strips" : "");
+          t.src = src, t.gx = gx, t.gy = gy, t.base = psName;
+        }
+      }
+    }
   }
 }
 
@@ -2236,6 +2305,11 @@ int main(int argc, char** argv) {
     if (!t->per || !passMs.count(t->name) || !passMs.count(t->base) || refs.empty()) return -1e10;
     return (passMs[t->name].value - passMs[t->base].value) * 1e6 / (double(t->tw) * t->th * t->count) / median(refs);
   };
+  // A compute layout's time against its pixel shader in percent (+ slower, - faster), or -1e10.
+  auto vsPs = [&](const Test* t) {
+    if (t->per || t->base.empty() || !passMs.count(t->name) || !passMs.count(t->base) || passMs[t->base].value <= 0.0) return -1e10;
+    return 100.0 * (passMs[t->name].value / passMs[t->base].value - 1.0);
+  };
   auto printPass = [&](const std::string& sec) {
     double maxP = 0.0;
     int barW = kBarWidth;
@@ -2251,10 +2325,15 @@ int main(int argc, char** argv) {
         const double each = perEach(t);
         char extra[48] = "";
         if (each > -1e9) std::snprintf(extra, sizeof(extra), "  %5.1f fma per %s", each, t->per);
+        if (const double pc = vsPs(t); pc > -1e9) std::snprintf(extra, sizeof(extra), "  %+4.0f%%", pc);
         print("  %-26s %8.3f  %s%s\n", t->name.c_str(), passMs[t->name].value,
                     bar(passMs[t->name].value, maxP, barW, st, kCyan).c_str(), extra);
       }
     print("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
+    const Test* best = nullptr;  // compute layouts: the fastest, against the pixel shader
+    for (const Test* t : tests)
+      if (t->section == sec && vsPs(t) > -1e9 && (!best || passMs[t->name].value < passMs[best->name].value)) best = t;
+    if (best) print("  Best: %s, %+.0f%% against the pixel shader\n", best->name.c_str(), vsPs(best));
   };
   auto printSection = [&](const std::string& sec) {
     const Test* first = nullptr;
@@ -2349,11 +2428,11 @@ int main(int argc, char** argv) {
                    seconds[t->name]);
   for (const Test* t : tests)
     if (t->stage == Stage::Blur && passMs.count(t->name)) {
-      const double each = perEach(t);
+      const double each = t->per ? perEach(t) : vsPs(t);  // compute layouts: percent against the pixel shader
       char eachText[32] = "";
       if (each > -1e9) std::snprintf(eachText, sizeof(eachText), "%.3f", each);
       std::fprintf(csv, "pass,\"%s\",\"%s\",%s,%d,%.4f,,%.4f,%s,%zu,%s,%s,\"ms per %s, %u x %u\",\"%s\",%.2f\n", t->name.c_str(),
-                   t->section.c_str(), t->per ? t->base.c_str() : "", t->chain, passMs[t->name].value, passMs[t->name].value,
+                   t->section.c_str(), t->base.c_str(), t->chain, passMs[t->name].value, passMs[t->name].value,
                    eachText, passReadings[t->name].size(), passMs[t->name].ok ? "yes" : "no",
                    readingsText(passReadings[t->name]).c_str(), t->chainMode == 3 ? "chain" : t->chain > 1 ? "chain" : "pass",
                    t->tw, t->th, t->note.c_str(), seconds[t->name]);
@@ -2406,7 +2485,7 @@ int main(int argc, char** argv) {
   ID3D11ShaderResourceView* blurImage = nullptr;  // the 3840 x 2160 RGBA8 image blur tests read, made once
   auto measure = [&](const Test* t) {
     if (t->stage == Stage::Blur) {
-      const bool cs = t->chainMode == 3;
+      const bool cs = t->chainMode == 3 || t->gx;
       if (!blurImage) {
         D3D11_TEXTURE2D_DESC td = {};
         td.Width = kRtW;
@@ -2468,6 +2547,7 @@ int main(int argc, char** argv) {
         if (FAILED(g.dev->CreateSamplerState(&sd, &samplers[k]))) fail("cannot create the samplers for " + t->name);
       }
       g.ctx->PSSetSamplers(0, 2, samplers);
+      g.ctx->CSSetSamplers(0, 2, samplers);
       {
         CbData cd = {};
         const bool fromImage = t->chainMode == 0;
@@ -2497,7 +2577,8 @@ int main(int argc, char** argv) {
           if (cs) {
             g.ctx->CSSetUnorderedAccessViews(1, 1, &uavs[size_t(to)], nullptr);
             g.ctx->CSSetShaderResources(0, 1, &in);
-            g.ctx->Dispatch((t->tw + 7) / 8, (t->th + 7) / 8, 1);
+            const UINT gx = t->gx ? t->gx : 8, gy = t->gx ? t->gy : 8;
+            g.ctx->Dispatch((t->tw + gx - 1) / gx, (t->th + gy - 1) / gy, 1);
           } else {
             g.ctx->OMSetRenderTargets(1, &rtv[size_t(to)], nullptr);
             g.ctx->PSSetShaderResources(0, 1, &in);
