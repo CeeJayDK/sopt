@@ -2320,7 +2320,7 @@ int main(int argc, char** argv) {
   if (!csv) return;
   std::fprintf(csv, "# TexBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n# reference drift: %.2f%%\n# run time: %.0f s\n",
                SOPT_VERSION, ad.name.c_str(), ad.desc.VendorId, ad.desc.DeviceId, ad.driver.c_str(), drift, runSeconds);
-  if (const char* timing = g.timer.timingNote()) std::fprintf(csv, "# timing: %s\n", timing);
+  g.timer.reportLines(csv);
   const Score sc = score();
   std::fprintf(csv, "# texture rate: %.1f GTexels/s\n# pixel fill rate: %.1f GPixels/s\n# memory bandwidth (writes): %.1f GB/s\n",
                sc.texRate, sc.fill, sc.bandwidth);

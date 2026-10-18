@@ -1891,6 +1891,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   with timestamps: under 25% of the CPU time, or no timestamp in 5 s, switches to CPU / event timing (the 0.7.22
   path) with a note on screen (results page) and "# timing:" in the report (stopped ones too). Disjoint keeps the
   timestamps. Not yet run on any card.
+  0.7.23 on the NVS 310 (agent's PR comment): OpBench / TexBench switched to CPU and completed; StageBench ps / vs
+  passed the one-reading check and reset in the warm-up (0x887A0006), and a timed-out probe left a flag set that
+  skipped later event waits. 0.7.24: the check takes 3 readings each way at n and 2n units (medians; the
+  timestamps must reach 25% of the CPU time and grow >= 1.3x with the work), its numbers always go into the report
+  ("# timestamp check:"); every timestamp reading is also guarded (CPU time from submission: two readings in a row
+  under 25% at >= 5 ms, or a timestamp missing after 5 s, switch to CPU time for the rest of the run, noted with
+  where). Not adopted from the comment: disjoint-only means CPU (Intel iGPUs report disjoint at clock changes; the
+  reading guard covers them), restarting the run after a late switch (the switch is noted with where instead).
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /

@@ -1198,7 +1198,7 @@ int main(int argc, char** argv) {
   if (gStage != Stage::Compute) std::fprintf(csv, "# stage: %s\n", stageName());
   std::fprintf(csv, "# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", gpuName.c_str(), desc.VendorId,
                desc.DeviceId, driver.c_str());
-  if (const char* timing = g.timer.timingNote()) std::fprintf(csv, "# timing: %s\n", timing);
+  g.timer.reportLines(csv);
   std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
   for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, driftOf(c.name));
   const Score sc = score();

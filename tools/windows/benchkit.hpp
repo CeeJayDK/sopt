@@ -746,17 +746,28 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
 }
 
 // GPU timestamps around work, or CPU elapsed time through GPU event completion where the driver's timestamps are
-// wrong (checkTimestamps). Returns milliseconds, or a negative value when GPU timestamps were disjoint (the clock changed).
+// wrong. Returns milliseconds, or a negative value when GPU timestamps were disjoint (the clock changed) or turned
+// out wrong (the timer has then switched to CPU time: the caller's retry measures again).
+//
+// Can a driver's timestamps be trusted (owner, 2026-10-18: for every card)? The NVS 310 on driver 392.68 reported
+// 32-64 ns for milliseconds of work (calibration then grew the work until Windows reset the driver), and some
+// timestamps never arrived. Two guards:
+//   checkTimestamps  at the start: a run sized by CPU time (honest, so never long), at two lengths, three readings
+//                    each way; the timestamps must cover a quarter of the CPU time and grow with the work.
+//   every reading    CPU time from submission to the last timestamp: two readings in a row under a quarter of it
+//                    (at >= 5 ms), or a timestamp still missing after 5 s (no healthy GPU runs that long: Windows
+//                    resets it at ~2 s), switch to CPU time for the rest of the run.
+// A switch is noted on screen and in the report ("# timing:"); the check's numbers always go into the report.
 struct Timer {
   ID3D11Query* disjoint = nullptr;
   ID3D11Query* t0 = nullptr;
   ID3D11Query* t1 = nullptr;
   ID3D11Query* completed = nullptr;
   bool eventTiming = false;
-  bool probing = false, probeTimedOut = false;  // checkTimestamps: a timestamp that never arrives is an answer too
+  int lowReadings = 0;  // timestamp readings in a row far under the CPU time
   LARGE_INTEGER cpuFrequency = {};
-  char note[200] = "";
-  const char* timingNote() const { return eventTiming ? note : nullptr; }
+  char note[240] = "";   // why CPU time is used
+  char check[240] = "";  // checkTimestamps' numbers
   void create(ID3D11Device* dev) {
     D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
     if (FAILED(dev->CreateQuery(&qd, &completed))) fail("cannot create the GPU completion query");
@@ -767,56 +778,73 @@ struct Timer {
     dev->CreateQuery(&qd, &t0);
     dev->CreateQuery(&qd, &t1);
   }
-  // Can the driver's GPU timestamps be trusted (owner, 2026-10-18: for every card)? The NVS 310 on driver 392.68
-  // reported 32-64 ns for milliseconds of work, so calibration grew the work until Windows reset the driver. timeN(n)
-  // times n units of work with this timer. The size comes from CPU time with event completion (honest, and so never
-  // long): n doubles until a run takes >= 5 ms. The same run is then timed with timestamps: under a quarter of the CPU
-  // time, or no timestamp within 5 s, switches every later measurement to CPU time (noted on screen and in the report).
-  // Disjoint readings (clock changes) say nothing either way: the timestamps stay.
+  // The report's timing lines (rewritten reports write them again).
+  void reportLines(FILE* f) const {
+    if (*check) std::fprintf(f, "# timestamp check: %s\n", check);
+    if (eventTiming) std::fprintf(f, "# timing: %s\n", note);
+  }
+  void appendReport(const char* key, const char* text) const {
+    if (!gReportPath.empty())
+      if (FILE* f = std::fopen(gReportPath.c_str(), "ab")) {
+        std::fprintf(f, "# %s: %s\n", key, text);
+        std::fclose(f);
+      }
+  }
+  // CPU time from here on (once).
+  void useCpu(const char* why) {
+    if (eventTiming) return;
+    eventTiming = true;
+    std::snprintf(note, sizeof(note), "CPU time (%s; from %s on)", why, gCurrent.empty() ? "the start" : gCurrent.c_str());
+    print("\nTiming: %s.\nThis is less precise than GPU timestamps, so results from this card may be noisier.\n\n", note);
+    appendReport("timing", note);
+  }
+  // timeN(n) times n units of work with this timer (the tool's reference, one iteration per unit).
   template <class TimeN>
   void checkTimestamps(TimeN timeN) {
     eventTiming = true;
     timeN(1u);  // first-use driver work
-    double cpu = 0.0;
+    double cpu1 = 0.0;
     UINT n = 1;
-    for (; n < 65536u && (cpu = timeN(n)) < 5.0; n *= 2) {}
-    eventTiming = false;
-    probing = true;
-    const double ts = timeN(n);
-    probing = false;
-    if (ts == -1.0 || (ts != -2.0 && ts >= 0.25 * cpu)) return;
-    eventTiming = true;
-    if (ts == -2.0) std::snprintf(note, sizeof(note), "CPU time (the driver's GPU timestamps did not arrive)");
-    else std::snprintf(note, sizeof(note), "CPU time (the driver's GPU timestamps are wrong: %.4f ms for %.1f ms of work)", ts, cpu);
-    print("Timing: %s.\nThis is less precise than GPU timestamps, so results from this card may be noisier.\n\n", note);
-    if (!gReportPath.empty())
-      if (FILE* f = std::fopen(gReportPath.c_str(), "ab")) {
-        std::fprintf(f, "# timing: %s\n", note);
-        std::fclose(f);
+    for (; n < 65536u && (cpu1 = timeN(n)) < 5.0; n *= 2) {}
+    double cpu[2] = {}, gpu[2] = {};
+    for (int k = 0; k < 2; ++k) {
+      std::vector<double> c, g;
+      for (int r = 0; r < 3; ++r) {
+        eventTiming = true;
+        c.push_back(timeN(n << k));
+        eventTiming = false;
+        if (const double ms = timeN(n << k); ms >= 0.0) g.push_back(ms);
+        if (eventTiming) return;  // the reading guard switched (wrong or missing timestamps): noted there
       }
+      cpu[k] = median(c);
+      gpu[k] = g.empty() ? -1.0 : median(g);
+    }
+    // Disjoint only (no answer): the timestamps stay, the reading guard still watches them.
+    const bool known = gpu[0] > 0.0 && gpu[1] > 0.0;
+    const bool ok = !known || (gpu[1] >= 0.25 * cpu[1] && gpu[1] >= 1.3 * gpu[0]);
+    std::snprintf(check, sizeof(check), "%u / %u units: CPU %.2f / %.2f ms, GPU timestamps %.3f / %.3f ms: %s", n, n * 2, cpu[0],
+                  cpu[1], gpu[0], gpu[1], !known ? "no answer (disjoint), timestamps kept" : ok ? "timestamps kept" : "wrong");
+    appendReport("timestamp check", check);
+    if (!ok) useCpu("the driver's GPU timestamps are wrong, see the timestamp check");
   }
   // The work's measured time in ms. A disjoint reading (the GPU clock or power state changed during it: Intel
   // iGPUs do this) is run again, up to 4 times in all; -1 when every try was disjoint.
   template <class Work>
   double time(ID3D11DeviceContext* ctx, Work work) {
     for (int attempt = 0; attempt < 4; ++attempt)
-      if (const double ms = timeOnce(ctx, work); ms >= 0.0 || ms == -2.0) return ms;  // -2: checkTimestamps timed out
+      if (const double ms = timeOnce(ctx, work); ms >= 0.0) return ms;
     return -1.0;
   }
   template <class Work>
   double timeOnce(ID3D11DeviceContext* ctx, Work work) {
     // Waits for a query; a GPU that stopped responding (driver reset: the device is removed, every query fails)
     // or a measurement still unfinished after 60 seconds ends the program with a message instead of hanging.
+    // A timestamp missing after 5 s returns false (the caller switches to CPU time).
     const ULONGLONG start = GetTickCount64();
     auto wait = [&](ID3D11Query* q, void* data, UINT size) {
       for (;;) {
-        if (probeTimedOut) return;
-        if (probing && GetTickCount64() - start > 5000) {
-          probeTimedOut = true;
-          return;
-        }
         const HRESULT hr = ctx->GetData(q, data, size, 0);
-        if (hr == S_OK) return;
+        if (hr == S_OK) return true;
         if (FAILED(hr)) {
           ID3D11Device* dev = nullptr;
           ctx->GetDevice(&dev);
@@ -825,6 +853,7 @@ struct Timer {
                         static_cast<unsigned long>(hr), dev ? static_cast<unsigned long>(dev->GetDeviceRemovedReason()) : 0ul);
           fail(buf);
         }
+        if (q != completed && GetTickCount64() - start > 5000) return false;
         if (GetTickCount64() - start > 60000) {  // the removed reason tells whether Windows reset the driver
           ID3D11Device* dev = nullptr;
           ctx->GetDevice(&dev);
@@ -836,10 +865,10 @@ struct Timer {
         Sleep(0);
       }
     };
+    LARGE_INTEGER c0, c1;
     if (eventTiming) {
-      // Timestamps that under-report completed work or never complete (the NVS 310): none are issued.
-      // Drain earlier uploads first, then measure CPU elapsed time until this work's EVENT completes.
-      // Calibration primes the shader and uses longer samples to reduce submission / polling overhead.
+      // No timestamps are issued. Drain earlier uploads first, then measure CPU elapsed time until this work's EVENT
+      // completes. Calibration primes the shader and uses longer samples to reduce submission / polling overhead.
       auto finish = [&] {
         ctx->End(completed);
         ctx->Flush();
@@ -847,26 +876,36 @@ struct Timer {
         wait(completed, &done, sizeof(done));
       };
       finish();
-      LARGE_INTEGER a, b;
-      QueryPerformanceCounter(&a);
+      QueryPerformanceCounter(&c0);
       work();
       finish();
-      QueryPerformanceCounter(&b);
-      return double(b.QuadPart - a.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
+      QueryPerformanceCounter(&c1);
+      return double(c1.QuadPart - c0.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
     }
     UINT64 a = 0, b = 0;
+    QueryPerformanceCounter(&c0);
     ctx->Begin(disjoint);
     ctx->End(t0);
     work();
     ctx->End(t1);
     ctx->End(disjoint);
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
-    wait(disjoint, &dj, sizeof(dj));
-    wait(t0, &a, sizeof(a));
-    wait(t1, &b, sizeof(b));
-    if (probeTimedOut) return -2.0;
+    if (!wait(disjoint, &dj, sizeof(dj)) || !wait(t0, &a, sizeof(a)) || !wait(t1, &b, sizeof(b))) {
+      useCpu("the driver's GPU timestamps did not arrive");
+      return -1.0;
+    }
+    QueryPerformanceCounter(&c1);
     if (dj.Disjoint || dj.Frequency == 0) return -1.0;
-    return double(b - a) * 1000.0 / double(dj.Frequency);
+    const double ms = double(b - a) * 1000.0 / double(dj.Frequency);
+    const double cpu = double(c1.QuadPart - c0.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
+    lowReadings = cpu >= 5.0 && ms < 0.25 * cpu ? lowReadings + 1 : 0;
+    if (lowReadings >= 2) {
+      char why[120];
+      std::snprintf(why, sizeof(why), "the driver's GPU timestamps are wrong: %.3f ms for %.1f ms of work", ms, cpu);
+      useCpu(why);
+      return -1.0;
+    }
+    return ms;
   }
 };
 
