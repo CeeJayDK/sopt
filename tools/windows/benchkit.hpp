@@ -795,7 +795,9 @@ struct Timer {
     if (eventTiming) return;
     eventTiming = true;
     std::snprintf(note, sizeof(note), "CPU time (%s; from %s on)", why, gCurrent.empty() ? "the start" : gCurrent.c_str());
-    print("\nTiming: %s.\nThis is less precise than GPU timestamps, so results from this card may be noisier.\n\n", note);
+    // Lines under 80 columns (owner: the default console width).
+    print("\nTiming: CPU time from %s on, because\n  %s.\n  Less precise than GPU timestamps: results may be noisier.\n\n",
+          gCurrent.empty() ? "the start" : gCurrent.c_str(), why);
     appendReport("timing", note);
   }
   // timeN(n) times n units of work with this timer (the tool's reference, one iteration per unit).
@@ -830,7 +832,7 @@ struct Timer {
     std::snprintf(check, sizeof(check), "%u / %u units: CPU %.2f / %.2f ms, GPU timestamps %.3f / %.3f ms: %s", n, n * 2, cpu[0],
                   cpu[1], gpu[0], gpu[1], !known ? "no answer (disjoint), timestamps kept" : ok ? "timestamps kept" : "wrong");
     appendReport("timestamp check", check);
-    if (!ok) useCpu("the driver's GPU timestamps are wrong, see the timestamp check");
+    if (!ok) useCpu("the driver's GPU timestamps are wrong (see the timestamp check)");
   }
   // The work's measured time in ms. A disjoint reading (the GPU clock or power state changed during it: Intel
   // iGPUs do this) is run again, up to 4 times in all; -1 when every try was disjoint.
@@ -918,7 +920,7 @@ struct Timer {
       }
       suspect = false;
       char why[120];
-      std::snprintf(why, sizeof(why), "the driver's GPU timestamps are wrong: %.3f ms for %.1f ms of work", ms, cpu);
+      std::snprintf(why, sizeof(why), "the driver's GPU timestamps are wrong (%.3f ms for %.1f ms of work)", ms, cpu);
       useCpu(why);
       return -1.0;
     }
