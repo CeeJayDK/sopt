@@ -1937,6 +1937,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   time OpBench 426 s, ps 186 s, vs 116 s, TexBench 718 s. OpBench stopped at gsbase (lat): the event not done in 60 s,
   device hung (0x887A0006), on CPU timing. fp32 0.239 (cs) / 0.163 (ps) / 0.194 (vs) TFLOPS (GF108 peak ~0.27).
   Compute layouts: every compute form slower than the pixel shader (taps +39% at best, blurs +304 / +309%).
+  GT 530 OpBench stop (2026-10-18): gsbase (lat) had finished in all three configs; gCurrent was set only in the
+  measuring loop, so the stop line named the last test measured, not the one being calibrated: the groupshared
+  atomics (tput, next section). gswrite32 took 347 ms at the minimum (2 iterations x 1M threads; UHD 630 18,
+  GTX 1050 31); aAdd1 costs 1-5x gswrite32 elsewhere, and Fermi has no native shared memory atomics (lock /
+  update / unlock loops, native from Maxwell): a single minimum run likely passed ~2 s, Windows reset the driver
+  (0x887A0006; unconfirmed on the card). 0.7.30: OpBench / StageBench calibrate as TexBench, 1024 groups first,
+  doubled up to the config's size while the doubled run stays under ~250 ms (cards whose full-size minimum runs
+  stay under that keep their old run sizes), then iterations; calibrate sets gCurrent ("<test> (<config>,
+  calibrating)").
   0.7.30 runs (owner, 2026-10-18, PR 47 build): GT 530 OpBench ran through (748 rows, was stopped at the atomics),
   CPU timing, drift 2.0 / 4.4 / 1.1% (0.7.29: 54 / 32 / 35%), 556 s, fp32 0.252 TFLOPS; StageBench ps / vs switched
   to CPU timing mid-run (ps at lshladd tput calibrating, 0.82 ms for 14.6; vs at mad tput calibrating, 0.18 for 9.9),
