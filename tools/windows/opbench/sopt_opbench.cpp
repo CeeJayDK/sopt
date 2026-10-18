@@ -812,6 +812,7 @@ bool differs(double measured, double expected) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  const ULONGLONG programStart = GetTickCount64();  // the run time: start to end, as the user waits (owner, 2026-10-18)
   gProgram = kTool;
   std::setvbuf(stdout, nullptr, _IONBF, 0);  // progress shows while it runs
   const Style st = initConsole();
@@ -1157,6 +1158,7 @@ int main(int argc, char** argv) {
   std::map<std::string, std::vector<double>> mads;            // config -> reference readings
   std::map<std::string, std::map<std::string, UINT>> iters;   // config -> test -> run length
   std::map<std::string, std::map<std::string, Result>> sums;  // config -> test -> summed readings
+  std::map<std::string, std::map<std::string, double>> seconds;  // config -> test -> calibration + readings (s)
   // Score (owner: a number to show others, in the units GPU spec lists use): fp32 TFLOPS from the reference
   // fma or the one-constant fma1, whichever is faster, fp16 TFLOPS from mad16 (min16float; 0 when the driver runs it at 32 bits), special functions from
   // the rcp step's time (one rcp per step; the fma beside it runs in parallel where the GPU can).
@@ -1202,6 +1204,7 @@ int main(int argc, char** argv) {
   g.timer.reportLines(csv);
   std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
   for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, driftOf(c.name));
+  std::fprintf(csv, "# run time: %.0f s\n", (GetTickCount64() - programStart) / 1000.0);
   const Score sc = score();
   if (fam.family) {
     std::fprintf(csv, "# family: %s (%s, %d card%s)\n", fam.family->model, fam.family->label, fam.family->cards,
@@ -1215,7 +1218,7 @@ int main(int argc, char** argv) {
                sc.fp16, sc.special);
   std::fprintf(csv,
                "config,test,base,iters,ms,ns_per_step,units,units_vs_base,vs_base_fwd,vs_base_bwd,passes,consensus,readings,"
-               "step,note,expected\n");
+               "step,note,expected,seconds\n");
   for (const Config& c : kConfigs)
     for (const Test* t : tests) {
       if (!results[c.name].count(t->name) || results[c.name][t->name].readings.empty()) continue;
@@ -1232,10 +1235,10 @@ int main(int argc, char** argv) {
         std::snprintf(buf, sizeof(buf), "%.1f", e->second);
         expect = buf;
       }
-      std::fprintf(csv, "%s,%s,%s,%u,%.4f,%.6f,%.3f,%.3f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\",%s\n", c.name, t->name,
+      std::fprintf(csv, "%s,%s,%s,%u,%.4f,%.6f,%.3f,%.3f,%.3f,%.3f,%zu,%s,%s,\"%s\",\"%s\",%s,%.2f\n", c.name, t->name,
                    t->base ? t->base : "", x.r.iters, x.r.ms, x.r.nsPerStep, x.units.value, x.vsBase, x.vsBasePass[0],
                    x.vsBasePass[1], x.readings.size(), x.units.ok ? "yes" : "no", readings.c_str(), t->step,
-                   t->note ? t->note : "", expect.c_str());
+                   t->note ? t->note : "", expect.c_str(), seconds[c.name][t->name]);
     }
   std::fclose(csv);
   };
@@ -1248,7 +1251,11 @@ int main(int argc, char** argv) {
       std::map<std::string, UINT>& it = iters[c.name];
       if (!it.count("mad")) it["mad"] = calibrate(g, shaders[c.name]["mad"], *madTest, c);
       for (const Test* t : gr.run)
-        if (!it.count(t->name)) it[t->name] = calibrate(g, shaders[c.name][t->name], *t, c);
+        if (!it.count(t->name)) {
+          const ULONGLONG s0 = GetTickCount64();
+          it[t->name] = calibrate(g, shaders[c.name][t->name], *t, c);
+          seconds[c.name][t->name] += (GetTickCount64() - s0) / 1000.0;
+        }
       // Passes 1 and 2 measure every test of the section (forward, then backward); later passes only the
       // tests whose readings have no majority yet, alternating the direction.
       for (int pass = 0; pass < kMaxPasses; ++pass) {
@@ -1260,8 +1267,10 @@ int main(int argc, char** argv) {
         for (const Test* t : order) {
           gCurrent = std::string(t->name) + " (" + c.name + ")";
           // A fresh reference right before the test: a clock change moves both.
+          const ULONGLONG s0 = GetTickCount64();
           const Result m = measureAt(g, shaders[c.name]["mad"], *madTest, c, it["mad"], reps);
           const Result r = t == madTest ? m : measureAt(g, shaders[c.name][t->name], *t, c, it[t->name], reps);
+          seconds[c.name][t->name] += (GetTickCount64() - s0) / 1000.0;
           mads[c.name].push_back(m.nsPerStep);
           results[c.name][t->name].readings.push_back(4.0 * r.nsPerStep / m.nsPerStep);
           Result& acc = sums[c.name][t->name];

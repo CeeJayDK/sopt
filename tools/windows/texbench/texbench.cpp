@@ -1807,6 +1807,7 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
 }  // namespace
 
 int main(int argc, char** argv) {
+  const ULONGLONG programStart = GetTickCount64();  // the run time: start to end, as the user waits (owner, 2026-10-18)
   gProgram = "TexBench";
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   const Style st = initConsole();
@@ -2315,7 +2316,7 @@ int main(int argc, char** argv) {
   // so a run stopped early still leaves its results.
   OrderResult order;
   auto writeCsv = [&] {
-    const double runSeconds = std::chrono::duration<double>(Clock::now() - runStart).count();
+    const double runSeconds = (GetTickCount64() - programStart) / 1000.0;
     double drift = 0.0;
     if (!refs.empty()) {
       const auto [lo, hi] = std::minmax_element(refs.begin(), refs.end());
@@ -2853,7 +2854,7 @@ int main(int argc, char** argv) {
   }
   lap(nullptr);
   if (planned) progress.pause();  // the tests are done: the bar is not needed any more (owner, 2026-10-12)
-  const double runSeconds = std::chrono::duration<double>(Clock::now() - runStart).count();
+  const double runSeconds = (GetTickCount64() - programStart) / 1000.0;
   const auto [lo, hi] = std::minmax_element(refs.begin(), refs.end());
   const double drift = refs.empty() ? 0.0 : 100.0 * (*hi - *lo) / median(refs);
   print("\n   reference drift %.1f%%\n", drift);
