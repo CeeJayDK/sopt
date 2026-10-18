@@ -1126,7 +1126,7 @@ int main(int argc, char** argv) {
   std::vector<Difference> different;  // tests where this card differs from its family
   int compared = 0;                   // tests compared with the family
   auto printSection = [&](const Group& gr) {
-    print("\n  %s%s%s\n  %s%-*s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1;96m"), gr.title, st.reset(), st.c("\x1b[90m"),
+    print("\n  %s%s%s\n  %s%-*s %6s  %-*s  %5s  %s%s\n", st.c("\x1b[1;96m"), (gr.title + sectionWhy(st, gr.title)).c_str(), st.reset(), st.c("\x1b[90m"),
                 nameW, "Test", "Cost", kBarWidth, "Graph", "Ops", "Comment", st.reset());
     for (const char* name : gr.shown) {
       const Measured& x = results["tput"][name];

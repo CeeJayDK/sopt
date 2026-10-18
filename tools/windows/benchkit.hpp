@@ -609,6 +609,79 @@ inline void printDrift(const Style& st, double drift) {
         st.c("\x1b[1;93m"), drift, st.reset(), st.c("\x1b[1;93m"), st.reset(), st.c("\x1b[1;93m"), st.reset());
 }
 
+// One plain sentence under a section's title on what it helps us learn (owner, 2026-10-18: for the testers who run
+// these out of curiosity and kindness), wrapped to the console width; "" when the title has none. Keys are title
+// beginnings, the longest match wins.
+inline std::string sectionWhy(const Style& st, const std::string& title) {
+  static const std::pair<const char*, const char*> kWhy[] = {
+      // OpBench / StageBench
+      {"Modifiers and basic arithmetic", "The math every effect uses: its cost next to one fma shows SweetOpt the cheapest way to write a formula on your card."},
+      {"Rounding and sign", "floor, round, frac, sign and the like: some cards do them in one step, others need several."},
+      {"Division and transcendentals", "Division, square roots, exp, log, sin and the like run on slower units on most cards: this shows how much slower on yours."},
+      {"Fast approximations", "Cheaper stand-ins for the slow functions: they only help where they really beat the real thing."},
+      {"Vector", "Math on float2 / float3 / float4: whether your card works on all parts at once or one at a time."},
+      {"Written out by fxc", "Functions Microsoft's compiler (Direct3D) turns into many steps: their real cost on your card."},
+      {"More intrinsics", "More built-in functions effects use, so SweetOpt knows what they really cost."},
+      {"Integer and conversions", "Integer math and conversions between integers and floats, used by hashes, noise and bit tricks."},
+      {"Half precision", "16-bit math (min16float): whether your card runs it faster than 32-bit, and what the conversions cost."},
+      {"Compute: groupshared memory", "Fast memory that a group of threads shares, and threads waiting for each other: the parts of a compute blur."},
+      {"Compute: groupshared atomics", "Threads updating one value safely (counters, histograms): what it costs, also when they collide."},
+      {"Compute: local arrays", "Arrays inside a shader and if / else: some cards keep them fast, others fall back to slow memory."},
+      {"Parallel issue: an fma and X", "Whether your card runs an fma and another instruction at the same time: if so, mixing them is almost free."},
+      {"Parallel issue: how many fmas", "How much independent work your card needs to stay busy."},
+      {"fxc's rewrites", "Where Microsoft's compiler (fxc) makes math slower than written: the gap is what a fix could win back."},
+      {"Pixel shaders only", "Things only pixel shaders can do (derivatives, discard), measured in a real pixel shader."},
+      // TexBench
+      {"Formats and filtering", "Every texture format with each kind of filtering: which are cheap to read on your card."},
+      {"Formats: random reads", "Reads that jump around a big texture: what memory speed costs when the cache cannot help."},
+      {"Texture functions", "Offsets, gathers, gradients and the other ways to read a texture: which are free and which cost extra."},
+      {"Trilinear vs anisotropic", "Two ways to filter the same area: which one your card does faster."},
+      {"Recommendation", "The same 2 x 2 texels read in different ways: the fastest is what we recommend to effect authors."},
+      {"Color lookup tables", "Color grading tables (LUTs) as a 3D texture or as 2D slices: which layout is faster."},
+      {"Lookup tables and texture size", "When a lookup table beats math, and how its size changes that."},
+      {"Cache sizes", "How big a texture can get before reads slow down: shows the sizes of your card's caches."},
+      {"Cache use: RGBA8", "How close together reads must be to share the cache (compute shaders)."},
+      {"Cache use: texel size", "How the size of one texel changes the cost of random reads."},
+      {"Cache use, pixel shader", "How close together reads must be to share the cache (pixel shaders)."},
+      {"Compute: storage writes", "Writing textures from compute shaders, near each pixel and scattered."},
+      {"Compute: storage atomics", "Threads updating texture values safely (counters, histograms), also when they collide."},
+      {"Pixel shader: derivatives", "ddx / ddy and automatic mip selection, which only pixel shaders have."},
+      {"Render target writes", "Whole screens written in each format: your card's memory speed, and whether it compresses what it writes. The three Gain columns: NoiseRGB, Smooth and Flat speed divided by Noise (which cannot be compressed); above 1x, compression helps."},
+      {"Pass states", "More render targets, clears, mipmaps, stencil and discard: what each adds to a pass."},
+      {"Copy and downsample", "Copying and shrinking the screen, as multi-pass effects do."},
+      {"Pass overhead", "What one more pass costs on its own: helps decide when to merge passes."},
+      {"Bilinear reads per pixel", "How many texture reads a pass gets almost for free while it waits on memory."},
+      {"Target size", "How much smaller targets speed up a pass, and where that stops."},
+      {"Quad exchange", "Taking values from neighbouring pixels instead of reading them again."},
+      {"Noise sources", "Noise from textures, tables or math: which is cheapest on your card."},
+      {"Fetch order", "Whether the order of a blur's reads changes its speed."},
+      {"Branches", "Loops that skip work: whether skipping saves time on your card."},
+      {"Uniform math per pixel", "Whether math on an effect's settings is done once or paid again in every pixel."},
+      {"Constant tables per pixel", "Small tables of numbers inside a shader: cheap or slow on your card."},
+      {"Compute: chains of dispatches", "What one more compute pass costs on its own."},
+      {"Compute layouts", "The same effect as a pixel shader and as compute shaders in many layouts: which way is fastest on your card."},
+      {"Blending", "Your card's blending hardware against the same math done in the shader."},
+      {"Pixel shader order", "The order your card shades pixels in (the pictures next to the report): helps arrange reads for its cache."},
+  };
+  const char* best = nullptr;
+  size_t bestLen = 0;
+  for (const auto& [key, text] : kWhy)
+    if (const size_t n = std::strlen(key); n > bestLen && title.compare(0, n, key) == 0) best = text, bestLen = n;
+  if (!best) return "";
+  std::string out = std::string(st.reset()) + st.c("\x1b[90m");
+  size_t col = 80;  // a new line before the first word
+  for (const char* p = best; *p;) {
+    const char* e = std::strchr(p, ' ');
+    const size_t n = e ? size_t(e - p) : std::strlen(p);
+    if (col + 1 + n > 78) out += "\n  ", col = 2;
+    else out += ' ', ++col;
+    out.append(p, n);
+    col += n;
+    p += n + (e ? 1 : 0);
+  }
+  return out;
+}
+
 // The last lines of a run: the drift, and the copy of the screen in Reports\Results (not sent with the reports).
 inline void finishRun(const Style& st, double drift, const std::filesystem::path& csv) {
   printDrift(st, drift);
