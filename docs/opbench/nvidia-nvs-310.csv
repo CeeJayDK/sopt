@@ -1,0 +1,67 @@
+# OpBench 0.7.25
+# gpu: NVIDIA NVS 310
+# vendor: 0x10DE
+# device: 0x107D
+# driver: 23.21.13.9268
+# timestamp check: 2 units: CPU 9.59 ms (reading 1), GPU timestamps: switched to CPU time
+# timing: CPU time (the driver's GPU timestamps are wrong: 0.000 ms for 9.6 ms of work; from the timestamp check (mad) on)
+# min16float: 32-bit (no 16-bit min precision reported)
+# reference drift tput: 7.06%
+# reference drift dep: 0.87%
+# reference drift lat: 0.28%
+# family: none yet
+# fp32: 0.090 TFLOPS
+# fp16 (min16float): 0.000 TFLOPS
+# special functions (rcp): 0.0 Gops/s
+config,test,base,iters,ms,ns_per_step,units,units_vs_base,vs_base_fwd,vs_base_bwd,passes,consensus,readings,step,note,expected
+tput,mad,,8,28.3557,0.026408,4.000,4.000,4.000,4.000,2,yes,4.000;4.000,"mad(x, c.x, c.y)","reference: one fma per step",
+tput,fma1,,8,23.8535,0.022215,3.360,3.360,3.357,3.362,2,yes,3.357;3.362,"mad(x, x, c.x)","one fma, one constant: the fp32 score where it is faster",
+tput,madsatu,mad,8,28.3909,0.026441,4.007,0.007,0.011,0.003,2,yes,4.011;4.003,"saturate(mad(x, c.x, c.y))","base for the literal tests: two uniforms",
+tput,madlit,madsatu,8,27.1178,0.025255,3.827,-0.180,-0.187,-0.174,2,yes,3.825;3.829,"saturate(mad(x, k + 1.5, -0.5 - k * 0.1))","two literals: a v_mov on GCN?",
+tput,madlit1,madsatu,8,28.0201,0.026096,3.955,-0.052,-0.053,-0.050,2,yes,3.958;3.953,"saturate(mad(x, k + 1.5, c.y))","a literal and a uniform",
+tput,madinl,madsatu,8,25.8354,0.024061,3.640,-0.367,-0.357,-0.376,2,yes,3.654;3.627,"saturate(mad(x, 2.0, -0.5))","inline constants: free to encode on AMD",
+tput,mad2,mad,4,26.9867,0.050267,7.616,3.616,3.619,3.613,2,yes,7.619;7.613,"mad(mad(x, c.z, c.w), c.x, c.y)","a second mad",
+tput,satmad,mad2,4,26.9385,0.050177,7.335,-0.281,-0.058,-0.504,2,yes,7.561;7.109,"mad(saturate(mad(x, c.z, c.w)), c.x, c.y)","saturate as output modifier, ~0",
+tput,signmad,sub,2,25.3300,0.094362,14.299,7.414,7.424,7.404,2,yes,14.305;14.294,"mad(mad(saturate(mad(x - c.z, 1e38, 0.5)), 2.0, -1.0), c.x, c.y)","exact sign: mad_sat + mad",
+tput,mad2v,mad,4,29.1540,0.054303,8.231,4.231,4.227,4.235,2,yes,8.227;8.235,"mad(x, c.x, c.y)","2 fmas (float2)",
+tput,mad3v,mad,2,23.2070,0.086453,13.074,9.074,9.017,9.131,2,yes,13.017;13.131,"mad(x, c.x, c.y)","3 fmas (float3)",
+tput,mad4v,mad,2,30.6489,0.114176,17.305,13.305,13.325,13.285,2,yes,17.325;17.285,"mad(x, c.x, c.y)","4 fmas (float4)",
+tput,imad,int,2,22.9415,0.085464,12.955,6.571,6.593,6.549,2,yes,12.969;12.940,"((x * asuint(c.z) + (x >> 7)) ^ asuint(c.y)) + asuint(c.x)","imul + add: IMAD",
+tput,mad16,mad,8,28.3584,0.026411,4.003,0.003,0.006,0.000,2,yes,4.006;4.000,"mad(x, (min16float)c.x, (min16float)c.y)","fp16 fma",
+tput,mad16v3,mad3v,2,23.2046,0.086444,13.095,0.021,0.070,-0.029,2,yes,13.087;13.102,"mad(x, (min16float)c.x, (min16float)c.y)","3 fp16 fmas (min16float3)",
+tput,sub,mad,4,24.4278,0.045500,6.885,2.885,2.881,2.889,2,yes,6.881;6.889,"mad(c.z - x, c.x, c.y)","",
+tput,int,mad,4,22.6354,0.042162,6.384,2.384,2.376,2.391,2,yes,6.376;6.391,"(x ^ asuint(c.y)) + asuint(c.x)","integer xor + add, alone",
+dep,mad,,32,23.1998,0.043213,4.000,4.000,4.000,4.000,2,yes,4.000;4.000,"mad(x, c.x, c.y)","reference: one fma per step",
+dep,fma1,,32,22.4318,0.041782,3.867,3.867,3.864,3.871,2,yes,3.864;3.871,"mad(x, x, c.x)","one fma, one constant: the fp32 score where it is faster",
+dep,madsatu,mad,32,23.2016,0.043216,4.000,-0.000,-0.000,0.000,2,yes,4.000;4.000,"saturate(mad(x, c.x, c.y))","base for the literal tests: two uniforms",
+dep,madlit,madsatu,32,22.2871,0.041513,3.842,-0.158,-0.158,-0.158,2,yes,3.842;3.842,"saturate(mad(x, k + 1.5, -0.5 - k * 0.1))","two literals: a v_mov on GCN?",
+dep,madlit1,madsatu,32,22.3203,0.041575,3.848,-0.152,-0.152,-0.152,2,yes,3.847;3.848,"saturate(mad(x, k + 1.5, c.y))","a literal and a uniform",
+dep,madinl,madsatu,32,21.9944,0.040968,3.790,-0.209,-0.211,-0.208,2,yes,3.789;3.792,"saturate(mad(x, 2.0, -0.5))","inline constants: free to encode on AMD",
+dep,mad2,mad,16,28.0438,0.104471,9.659,5.659,5.662,5.656,2,yes,9.662;9.656,"mad(mad(x, c.z, c.w), c.x, c.y)","a second mad",
+dep,satmad,mad2,16,28.0608,0.104535,9.673,0.014,0.018,0.010,2,yes,9.680;9.666,"mad(saturate(mad(x, c.z, c.w)), c.x, c.y)","saturate as output modifier, ~0",
+dep,signmad,sub,8,20.3980,0.151977,14.067,6.993,6.987,6.999,2,yes,14.060;14.074,"mad(mad(saturate(mad(x - c.z, 1e38, 0.5)), 2.0, -1.0), c.x, c.y)","exact sign: mad_sat + mad",
+dep,mad2v,mad,32,32.3884,0.060328,5.583,1.583,1.583,1.584,2,yes,5.583;5.584,"mad(x, c.x, c.y)","2 fmas (float2)",
+dep,mad3v,mad,16,23.9196,0.089108,8.246,4.246,4.248,4.244,2,yes,8.248;8.244,"mad(x, c.x, c.y)","3 fmas (float3)",
+dep,mad4v,mad,16,29.0986,0.108401,9.990,5.990,5.981,5.998,2,yes,9.981;9.998,"mad(x, c.x, c.y)","4 fmas (float4)",
+dep,imad,int,8,20.6062,0.153529,14.181,7.749,7.721,7.776,2,yes,14.155;14.207,"((x * asuint(c.z) + (x >> 7)) ^ asuint(c.y)) + asuint(c.x)","imul + add: IMAD",
+dep,mad16,mad,32,23.2178,0.043246,3.986,-0.014,0.000,-0.029,2,yes,4.000;3.971,"mad(x, (min16float)c.x, (min16float)c.y)","fp16 fma",
+dep,mad16v3,mad3v,16,23.9216,0.089115,8.247,0.001,-0.003,0.004,2,yes,8.245;8.248,"mad(x, (min16float)c.x, (min16float)c.y)","3 fp16 fmas (min16float3)",
+dep,sub,mad,16,20.5170,0.076432,7.074,3.074,3.073,3.075,2,yes,7.073;7.075,"mad(c.z - x, c.x, c.y)","",
+dep,int,mad,32,37.3116,0.069498,6.432,2.432,2.434,2.430,2,yes,6.434;6.430,"(x ^ asuint(c.y)) + asuint(c.x)","integer xor + add, alone",
+lat,mad,,131072,37.8194,0.281776,4.000,4.000,4.000,4.000,2,yes,4.000;4.000,"mad(x, c.x, c.y)","reference: one fma per step",
+lat,fma1,,131072,38.8475,0.289436,4.109,4.109,4.112,4.107,2,yes,4.112;4.107,"mad(x, x, c.x)","one fma, one constant: the fp32 score where it is faster",
+lat,madsatu,mad,131072,37.8627,0.282099,4.003,0.003,-0.000,0.006,2,yes,4.000;4.006,"saturate(mad(x, c.x, c.y))","base for the literal tests: two uniforms",
+lat,madlit,madsatu,131072,37.3153,0.278021,3.947,-0.056,-0.052,-0.059,2,yes,3.947;3.946,"saturate(mad(x, k + 1.5, -0.5 - k * 0.1))","two literals: a v_mov on GCN?",
+lat,madlit1,madsatu,131072,37.3136,0.278008,3.947,-0.056,-0.054,-0.059,2,yes,3.946;3.947,"saturate(mad(x, k + 1.5, c.y))","a literal and a uniform",
+lat,madinl,madsatu,131072,36.8165,0.274304,3.893,-0.110,-0.108,-0.111,2,yes,3.891;3.894,"saturate(mad(x, 2.0, -0.5))","inline constants: free to encode on AMD",
+lat,mad2,mad,32768,22.2832,0.664091,9.428,5.428,5.427,5.428,2,yes,9.427;9.428,"mad(mad(x, c.z, c.w), c.x, c.y)","a second mad",
+lat,satmad,mad2,32768,22.2857,0.664164,9.418,-0.009,0.003,-0.022,2,yes,9.431;9.406,"mad(saturate(mad(x, c.z, c.w)), c.x, c.y)","saturate as output modifier, ~0",
+lat,signmad,sub,32768,34.5588,1.029932,14.621,7.362,7.360,7.364,2,yes,14.620;14.622,"mad(mad(saturate(mad(x - c.z, 1e38, 0.5)), 2.0, -1.0), c.x, c.y)","exact sign: mad_sat + mad",
+lat,mad2v,mad,65536,24.7857,0.369336,5.243,1.243,1.243,1.244,2,yes,5.243;5.244,"mad(x, c.x, c.y)","2 fmas (float2)",
+lat,mad3v,mad,65536,27.5816,0.410997,5.828,1.828,1.829,1.828,2,yes,5.829;5.828,"mad(x, c.x, c.y)","3 fmas (float3)",
+lat,mad4v,mad,65536,29.2999,0.436603,6.198,2.198,2.199,2.198,2,yes,6.199;6.198,"mad(x, c.x, c.y)","4 fmas (float4)",
+lat,imad,int,32768,35.9408,1.071121,15.206,8.113,8.099,8.127,2,yes,15.205;15.206,"((x * asuint(c.z) + (x >> 7)) ^ asuint(c.y)) + asuint(c.x)","imul + add: IMAD",
+lat,mad16,mad,65536,19.0217,0.283445,4.024,0.024,0.023,0.025,2,yes,4.023;4.025,"mad(x, (min16float)c.x, (min16float)c.y)","fp16 fma",
+lat,mad16v3,mad3v,65536,27.5411,0.410394,5.827,-0.002,-0.002,-0.001,2,yes,5.827;5.827,"mad(x, (min16float)c.x, (min16float)c.y)","3 fp16 fmas (min16float3)",
+lat,sub,mad,65536,34.3133,0.511308,7.259,3.259,3.259,3.259,2,yes,7.259;7.259,"mad(c.z - x, c.x, c.y)","",
+lat,int,mad,65536,33.5716,0.500257,7.093,3.093,3.106,3.080,2,yes,7.106;7.080,"(x ^ asuint(c.y)) + asuint(c.x)","integer xor + add, alone",
