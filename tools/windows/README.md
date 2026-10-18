@@ -52,7 +52,7 @@ three for CI and the release). This one (CI artifact `Test-Host`, release `Test-
 GPU Blueprint (OpBench, TexBench, ShaderInfo, `GPU-Blueprint.bat`) is its own download (CI artifact `GPU-Blueprint`,
 release `GPU-Blueprint-<version>.zip`): `GPU-Blueprint.bat`, `README.html`, `bin\` with the three programs (their
 `Reports\` goes next to the batch file: benchkit `reportsDir` steps out of a folder named bin), `Docs\` with one
-page per program. SweetOpt (CI artifact `SweetOpt-windows`, release `SweetOpt-<version>-windows-x64.zip`):
+page per program. SweetOpt (CI artifact `SweetOpt-<version>-windows-x64`, release `SweetOpt-<version>-windows-x64.zip`):
 `SweetOpt.bat`, `README.html` (docs/sweetopt/README.html), `bin\sopt.exe`, `bin\sopt-fx.exe` (and the menu's
 `SweetOpt.ini`), `Docs\`.
 

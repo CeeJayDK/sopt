@@ -44,7 +44,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Windows tools cross-build with mingw for Wine checks; the real Windows builds come from CI (MSVC).
 
 ## Releases and CI
-- CI (ci.yml) on every push: Linux/MSVC builds, tests, artifacts SweetOpt-windows, GPU-Blueprint, Test-Host.
+- CI (ci.yml) on every push: Linux/MSVC builds, tests, artifacts SweetOpt-<v>-windows-x64, GPU-Blueprint-<v>, Test-Host-<v>.
 - Release: PR to main (check for a PR template), owner merges, run release.yml manually on main = draft release, owner
   publishes (this session cannot push tags). Run the steam-survey workflow on main before each release.
 - pages.yml builds the site (tools/site/build.py) from docs/opbench / texbench; optimize-pngs.yml compresses report PNGs.
