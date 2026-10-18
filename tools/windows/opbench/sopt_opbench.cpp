@@ -80,7 +80,7 @@ struct Test {
   // Compiled without fxc's optimizer (/Od, D3DCOMPILE_SKIP_OPTIMIZATION): an "-od" twin of a test (see kOdPairs).
   bool od = false;
 };
-enum { kGroupshared = 1, kLocalArray = 2, kPixelOnly = 4 };  // kPixelOnly: derivatives / clip (StageBench's pixel run)
+enum { kGroupshared = 1, kLocalArray = 2, kPixelOnly = 4, kGroupshared4 = 8 };  // kGroupshared4: also float4 GS4[512]  // kPixelOnly: derivatives / clip (StageBench's pixel run)
 
 // StageBench (owner, 2026-10-13: GPU Blueprint researches GPU architectures, not only what ReShade uses): this file
 // built with SOPT_STAGEBENCH runs the same tests in a pixel shader (one thread per pixel of a 1024 x 1024 target) or a
@@ -380,6 +380,11 @@ const Test kTests[] = {
      0.3f, "gsbase", "groupshared read, neighbouring lanes in neighbouring words", "float", kGroupshared},
     {"gsread32", "uint gi = (l * 32u + uint(x * 64.0)) & 2047u; float v = GS[gi]; x = mad(x, c.x, c.y + v * 0.01);", 0.5f, 0.25f,
      0.7f, 0.3f, "gsbase32", "lanes 32 words apart: bank conflicts", "float", kGroupshared},
+    // float4 reads (topt, 2026-10-16: the groupshared float4 read rate of a compute blur).
+    {"gsbase4", "uint gi = (l + uint(x * 64.0)) & 511u; float4 v = asfloat(((gi + uint4(0, 1, 2, 3)) & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + dot(v, 0.01));",
+     0.5f, 0.25f, 0.7f, 0.3f, "mad", "base: float4 index, a stand-in value", "float", kGroupshared | kGroupshared4},
+    {"gsread4", "uint gi = (l + uint(x * 64.0)) & 511u; float4 v = GS4[gi]; x = mad(x, c.x, c.y + dot(v, 0.01));", 0.5f, 0.25f, 0.7f,
+     0.3f, "gsbase4", "groupshared float4 read, neighbouring lanes in neighbouring float4s", "float", kGroupshared | kGroupshared4},
     {"gswrite", "uint gi = (l + uint(x * 64.0)) & 2047u; GS[gi] = x; float v = asfloat((gi & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
      0.5f, 0.25f, 0.7f, 0.3f, "gsbase", "groupshared write", "float", kGroupshared},
     {"gswrite32", "uint gi = (l * 32u + uint(x * 64.0)) & 2047u; GS[gi] = x; float v = asfloat((gi & 1023u) | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);",
@@ -544,6 +549,7 @@ std::string shaderSource(const Test& t, int chains) {
       "float fracAdd(float v) { precise float d = v - ((v + 12582912.0) - 12582912.0); precise float f = d + saturate(d * -1e38); return f; }\n"
       "static const float K[16] = {0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.59, 0.60, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66};\n";
   if (t.setup & kGroupshared) s += "groupshared float GS[2048];\ngroupshared uint GSI[64];\n";
+  if (t.setup & kGroupshared4) s += "groupshared float4 GS4[512];\n";
   if (gStage == Stage::Pixel)  // one thread per pixel of the 1024-wide target
     s += "float4 main(float4 pos : SV_Position) : SV_Target\n{\n"
          "  const uint3 id = uint3(uint(pos.x) + uint(pos.y) * 1024u, 0u, 0u);\n";
@@ -556,7 +562,9 @@ std::string shaderSource(const Test& t, int chains) {
   s += "  const uint g = id.x / 64u, l = id.x % 64u;\n";
   if (t.setup & kGroupshared)
     s += "  for (uint k = l; k < 2048u; k += 64u) GS[k] = 0.5 + float(k) * 1e-4 + seed;\n"
-         "  GSI[l] = l;\n  GroupMemoryBarrierWithGroupSync();\n";
+         "  GSI[l] = l;\n";
+  if (t.setup & kGroupshared4) s += "  for (uint k = l; k < 512u; k += 64u) GS4[k] = 0.5 + float4(k, k + 1u, k + 2u, k + 3u) * 1e-4 + seed;\n";
+  if (t.setup & kGroupshared) s += "  GroupMemoryBarrierWithGroupSync();\n";
   if (t.setup & kLocalArray) s += "  float A[16];\n  [unroll] for (uint k = 0; k < 16u; ++k) A[k] = 0.5 + float(k) * 0.01 + seed;\n";
   // The type and step of chain k (pair tests: the odd chains run the pair step, or the last pairCount of them).
   auto paired = [&](int k) { return t.pairStep && (t.pairCount && chains > t.pairCount ? k >= chains - t.pairCount : (k & 1)); };
@@ -607,6 +615,7 @@ std::string shaderSource(const Test& t, int chains) {
     else s += " + dot(" + x + ", 1.0)";
   }
   if (t.setup & kGroupshared) s += " + GS[(l * 7u) & 2047u] + float(GSI[l] & 1u)";  // keeps the writes
+  if (t.setup & kGroupshared4) s += " + GS4[(l * 7u) & 511u].w";
   s += gStage == Stage::Pixel ? ", 0.0, 0.0, 1.0);\n}\n" : gStage == Stage::Vertex ? "), 4.0, 0.5, 1.0);\n}\n" : ";\n}\n";
   return s;
 }
@@ -753,7 +762,7 @@ const char* const kDisplayOrder[] = {
     "lshladd", "addlshl", "imad", "icmpsel", "unitf", "utof", "itof", "ftou", "ftoitof", "udiv", "umod", "idiv", "imod",
     "#Half precision (min16float)", "mad16", "add16", "mul16", "max16", "rcp16", "sqrt16", "exp2_16", "log2_16",
     "mad16v3", "mix16",
-    "#Compute: groupshared memory and barriers", "gsread", "gswrite", "gswriteread", "gsread32", "gswrite32", "barrier",
+    "#Compute: groupshared memory and barriers", "gsread", "gsread4", "gswrite", "gswriteread", "gsread32", "gswrite32", "barrier",
     "groupbarrier", "membarrier",
     "#Compute: groupshared atomics (aAdd = atomicAdd ...; 1 = 64 threads on one address)", "aAdd", "aAnd", "aOr", "aXor",
     "aMin", "aMax", "aXchg", "aCmpXchg", "aAdd1", "aAnd1", "aOr1", "aXor1", "aMin1", "aMax1",

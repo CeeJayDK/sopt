@@ -481,7 +481,7 @@ void makeBlurTests(std::vector<Test>& v) {
   }
 
   // Compute layouts (owner, 2026-10-18: which group size and order is best on this card, and does compute beat a pixel
-  // shader at all?): two post-processing jobs over the 3840 x 2160 image into RGBA8, as a pixel shader (the base) and
+  // shader at all?): three post-processing jobs over the 3840 x 2160 image into RGBA8, as a pixel shader (the base) and
   // as compute shaders in 8 group sizes, pixels in a group in rows or in Morton order (2 x 2 quads, then 4 x 4 ...,
   // like the rasterizer), groups across the screen in rows or in 128-pixel strips (texture cache locality: "thread
   // group ID swizzling", NVIDIA 2020). Percent: time against the pixel shader (lower is better).
@@ -489,21 +489,29 @@ void makeBlurTests(std::vector<Test>& v) {
                             "  [unroll] for (int y = -1; y <= 1; ++y) [unroll] for (int x = -1; x <= 1; ++x)\n"
                             "    s += T.SampleLevel(L, (c + float2(x, y) * 1.5) * U[0].xy, 0.0);\n"
                             "  return s / 9.0;\n";
-  // A 17-texel box blur along x: 9 bilinear reads in a pixel shader (pairs of texels in one read), groupshared in compute.
-  std::string blur9 = "  float4 s = T.SampleLevel(L, c * U[0].xy, 0.0);\n";
-  for (double o : {1.5, 3.5, 5.5, 7.5})
-    blur9 += "  s += 2.0 * (T.SampleLevel(L, (c + float2(" + std::to_string(o) + ", 0.0)) * U[0].xy, 0.0) + T.SampleLevel(L, (c - float2(" +
-             std::to_string(o) + ", 0.0)) * U[0].xy, 0.0));\n";
-  blur9 += "  return s / 17.0;\n";
+  // A 17-texel box blur along x or y (topt: separable blurs do both; a y blur loads columns): 9 bilinear reads in a pixel
+  // shader (pairs of texels in one read), groupshared in compute.
+  auto blur9 = [](char axis) {
+    std::string b = "  float4 s = T.SampleLevel(L, c * U[0].xy, 0.0);\n";
+    for (const char* o : {"1.5", "3.5", "5.5", "7.5"}) {
+      const std::string d = "float2(" + (axis == 'x' ? std::string(o) + ", 0.0)" : std::string("0.0, ") + o + ")");
+      b += "  s += 2.0 * (T.SampleLevel(L, (c + " + d + ") * U[0].xy, 0.0) + T.SampleLevel(L, (c - " + d + ") * U[0].xy, 0.0));\n";
+    }
+    return b + "  return s / 17.0;\n";
+  };
   for (const auto& [job, sec, psBody] : std::vector<std::array<std::string, 3>>{
            {"taps", "Compute layouts: 9 bilinear reads (3 x 3), RGBA8 3840 x 2160", taps9},
-           {"blur", "Compute layouts: 17-texel blur along x (groupshared), RGBA8 3840 x 2160", blur9}}) {
+           {"blurx", "Compute layouts: 17-texel blur along x (groupshared), RGBA8 3840 x 2160", blur9('x')},
+           {"blury", "Compute layouts: 17-texel blur along y (groupshared), RGBA8 3840 x 2160", blur9('y')}}) {
     const std::string psName = job + " pixel shader";
     blur(psName, sec, "RGBA8", 1, 1, 0, "  return filt(pos.xy);\n", job == "taps" ? "the base" : "the base: 9 bilinear reads (texel pairs)",
          "float4 filt(float2 c) {\n" + psBody + "}\n");
     for (const auto& [gx, gy] : std::vector<std::pair<UINT, UINT>>{{8, 8}, {16, 16}, {32, 8}, {8, 32}, {16, 4}, {64, 1}, {128, 1}, {256, 1}}) {
       const UINT kx = UINT(std::log2(gx)), ky = UINT(std::log2(gy)), m = std::min(kx, ky);
       const UINT nx = (kRtW + gx - 1) / gx, ny = (kRtH + gy - 1) / gy, w = std::max(1u, 128u / gx);
+      // Blurs: the group's tile plus 8 texels each side along the axis; left out past D3D11's 32 KB of groupshared memory.
+      const UINT ex = job == "blurx" ? 16 : 0, ey = job == "blury" ? 16 : 0;
+      if (job != "taps" && (gx + ex) * (gy + ey) * 16 > 32768) continue;
       for (bool morton : {false, true}) {
         if (morton && m == 0) continue;  // one row: Morton order = rows
         // Pixel of thread i in its group: Morton interleaves the low 2m bits, the rest extend the longer side.
@@ -529,14 +537,14 @@ void makeBlurTests(std::vector<Test>& v) {
           if (job == "taps")
             src = head + "float4 filt(float2 c) {\n" + taps9 + "}\n" + sizes + "  if (" + inside + ") O[p] = filt(float2(p) + 0.5);\n}\n";
           else {
-            // The group's rows plus 8 texels each side into groupshared memory (all threads, in rows), then 17 sums.
-            const std::string rw = std::to_string(gx + 16), all = std::to_string((gx + 16) * gy);
+            // The tile into groupshared memory (all threads, in rows), then 17 sums along the axis.
+            const std::string rw = std::to_string(gx + ex), all = std::to_string((gx + ex) * (gy + ey));
             src = head + "groupshared float4 S[" + all + "];\n" + sizes +
                   "  for (uint k = i; k < " + all + "u; k += " + std::to_string(gx * gy) + "u) {\n"
-                  "    const int2 q = int2(g * uint2(" + std::to_string(gx) + ", " + std::to_string(gy) + ")) + int2(k % " + rw + "u, k / " + rw + "u) - int2(8, 0);\n"
+                  "    const int2 q = int2(g * uint2(" + std::to_string(gx) + ", " + std::to_string(gy) + ")) + int2(k % " + rw + "u, k / " + rw + "u) - int2(" + std::to_string(ex / 2) + ", " + std::to_string(ey / 2) + ");\n"
                   "    S[k] = T.Load(int3(clamp(q, int2(0, 0), int2(" + std::to_string(kRtW - 1) + ", " + std::to_string(kRtH - 1) + ")), 0));\n  }\n"
                   "  GroupMemoryBarrierWithGroupSync();\n  float4 s = 0.0;\n"
-                  "  [unroll] for (uint j = 0; j < 17; ++j) s += S[l.y * " + rw + "u + l.x + j];\n"
+                  "  [unroll] for (uint j = 0; j < 17; ++j) s += S[" + (ex ? "l.y * " + rw + "u + l.x + j" : "(l.y + j) * " + rw + "u + l.x") + "];\n"
                   "  if (" + inside + ") O[p] = s / 17.0;\n}\n";
           }
           char name[40];
