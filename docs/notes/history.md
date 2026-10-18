@@ -1914,6 +1914,17 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   33.3), UHD 630 ps at scaleneg4 (4.51 for 24.9): first readings of a new shader / texture (likely driver work on the CPU
   at first use). Those four reports are mixed (GPU, then CPU timing) and were not saved. 0.7.26: a low reading is
   measured again on the same work and switches only when it repeats.
+  0.7.25 runs (2026-10-18, timestamp-guard test builds, PR 45): NVS 310 on 392.68 OpBench --filter mad on CPU timing
+  (docs/opbench/nvidia-nvs-310.csv: the first compute numbers from this card, fp32 0.090 TFLOPS; its 18-row StageBench
+  ps / vs and 11-row TexBench filter runs not saved). Owner's GTX 1660 OpBench (-13, drift 23 / 3 / 6%, family match) and
+  vs (-vs-6), UHD 630 vs (-vs-6) and TexBench (-16, 151 s, 15.4 GTexels/s, drift 5.7%) on GPU timestamps saved; the
+  1660 ps / TexBench and UHD 630 OpBench / ps were switched to CPU timing mid-run by the 0.7.25 guard (fixed in
+  0.7.26) and left out (mixed timing).
+  0.7.27 runs (owner, 2026-10-18, PR 45 build): GTX 1660 / UHD 630 keep GPU timestamps in every report (check within
+  1-8% of CPU time, no guard switch: the repeat-on-same-work fix holds). Run times: OpBench 60 / 71 s, StageBench ps
+  29 / 32 s, vs 28 / 32 s, TexBench 140 s (1660), ShaderInfo < 1 s. UHD 630 TexBench stopped at tex2Dsize after the
+  formats section (0x887A0005, device hung 0x887A0006; 378 rows, saved as -17), where the UHD 620 stopped in 0.7.9;
+  0.7.25 ran through on the same card: likely the intermittent Gen9 hang near the big RGBA32 textures (unconfirmed).
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /
