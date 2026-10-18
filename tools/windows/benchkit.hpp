@@ -755,7 +755,7 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
 //   checkTimestamps  at the start: a run sized by CPU time (honest, so never long), at two lengths, three readings
 //                    each way; the timestamps must cover a quarter of the CPU time and grow with the work.
 //   every reading    CPU time from submission to an EVENT after the work: a reading under a quarter of it (at
-//                    >= 5 ms), or a timestamp still missing after 5 s (no healthy GPU runs that long: Windows resets
+//                    >= 5 ms) twice on the same work, or a timestamp still missing after 5 s (no healthy GPU runs that long: Windows resets
 //                    it at ~2 s), switches to CPU time for the rest of the run; calibration then starts over.
 // A switch is noted on screen and in the report ("# timing:"); the check's numbers always go into the report.
 struct Timer {
@@ -767,6 +767,7 @@ struct Timer {
   LARGE_INTEGER cpuFrequency = {};
   char note[240] = "";   // why CPU time is used
   char check[240] = "";  // checkTimestamps' numbers
+  bool suspect = false;  // the last reading was far under the CPU time: the next one decides
   void create(ID3D11Device* dev) {
     D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
     if (FAILED(dev->CreateQuery(&qd, &completed))) fail("cannot create the GPU completion query");
@@ -907,13 +908,21 @@ struct Timer {
     if (dj.Disjoint || dj.Frequency == 0) return -1.0;
     const double ms = double(b - a) * 1000.0 / double(dj.Frequency);
     const double cpu = double(c1.QuadPart - c0.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
-    // One reading is enough: calibration doubles the work after it, so waiting for a second let it grow too far.
+    // A low reading is measured again with the same work (time() retries a negative reading): a first use of a shader
+    // or texture likely costs the CPU tens of ms the GPU never sees (GTX 1660 / UHD 630, 0.7.25: 1.7-4.5 ms for 15-33 ms
+    // switched healthy cards). The same work, not the next calibration step's double, so the work cannot grow first.
     if (cpu >= 5.0 && ms < 0.25 * cpu) {
+      if (!suspect) {
+        suspect = true;
+        return -1.0;
+      }
+      suspect = false;
       char why[120];
       std::snprintf(why, sizeof(why), "the driver's GPU timestamps are wrong: %.3f ms for %.1f ms of work", ms, cpu);
       useCpu(why);
       return -1.0;
     }
+    suspect = false;
     return ms;
   }
 };

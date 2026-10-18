@@ -1906,6 +1906,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   CPU time ends at an EVENT after the timestamp pair (uploads drained before it), one low reading switches (two
   let calibration double once more), calibration starts over after a switch (CPU target and priming), the
   check's line is written on every exit. Results measured before a late switch keep their GPU timing (noted).
+  0.7.25 runs (2026-10-18): NVS 310 (agent, --filter mad / "RGBA8 Load"): all four exit 0; OpBench / TexBench switch
+  in the check (0.000 ms for 9.6 / 9.5 ms), StageBench ps / vs keep timestamps (CPU 6.35 / 9.56 against 4.71 / 9.46
+  ms; vs 9.08 / 18.59 against 8.13 / 16.26) and finish: fp32 0.090 (cs) / 0.081 (ps) / 0.066 (vs) TFLOPS. The owner's
+  GTX 1660 / UHD 630 runs pass the check everywhere, but the reading guard switched healthy cards mid-run: 1660 ps at
+  min (3.25 ms for 31.9), 1660 TexBench at RGBA16F aniso 16x (1.66 for 15.0), UHD 630 OpBench at aOr dep (2.55 for
+  33.3), UHD 630 ps at scaleneg4 (4.51 for 24.9): first readings of a new shader / texture (likely driver work on the CPU
+  at first use). Those four reports are mixed (GPU, then CPU timing) and were not saved. 0.7.26: a low reading is
+  measured again on the same work and switches only when it repeats.
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /
