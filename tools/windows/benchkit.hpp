@@ -134,6 +134,36 @@ inline void saveScreen(const std::filesystem::path& file) {
     std::fwrite(out.data(), 1, out.size(), f);
     std::fclose(f);
   }
+  // Reports\Results\index.html: one page linking every results page (owner, 2026-10-18: the menu's R opened only one
+  // of them), rewritten whenever a page is saved. Each link is the page's title (tool and card) and its stage.
+  std::vector<std::string> items;
+  for (const auto& e : std::filesystem::directory_iterator(file.parent_path(), ec)) {
+    const std::filesystem::path p = e.path();
+    if (p.extension() != ".html" || p.filename() == "index.html") continue;
+    const std::string name = p.filename().string(), stem = p.stem().string();
+    std::string title = stem;
+    if (FILE* f = _wfopen(p.c_str(), L"rb")) {
+      char buf[1024] = {};
+      std::fread(buf, 1, sizeof(buf) - 1, f);
+      std::fclose(f);
+      const char* a = std::strstr(buf, "<title>");
+      const char* b = a ? std::strstr(a, "</title>") : nullptr;
+      if (a && b) title.assign(a + 7, b);
+    }
+    if (stem.find("-ps-") != std::string::npos) title += " (pixel shaders)";
+    if (stem.find("-vs-") != std::string::npos) title += " (vertex shaders)";
+    items.push_back("<li><a href=\"" + name + "\">" + title + "</a></li>\n");
+  }
+  std::sort(items.begin(), items.end());
+  std::string index = "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>GPU Blueprint results</title>\n"
+                      "<style>body{background:#0c0c0c;color:#cccccc;margin:16px;font:16px/1.6 'Segoe UI',sans-serif}"
+                      "a{color:#61d6d6}h1{font-size:22px;color:#f2f2f2}</style></head>\n<body><h1>GPU Blueprint results</h1>\n<ul>\n";
+  for (const std::string& i : items) index += i;
+  index += "</ul></body></html>\n";
+  if (FILE* f = _wfopen((file.parent_path() / "index.html").c_str(), L"wb")) {
+    std::fwrite(index.data(), 1, index.size(), f);
+    std::fclose(f);
+  }
 }
 
 // The window title: "<program> - <GPU> - <state>" (owner: the GPU in the title; "done" at the end).

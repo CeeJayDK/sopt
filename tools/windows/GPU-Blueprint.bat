@@ -105,6 +105,11 @@ echo.
 pause
 exit /b
 :resultsOpen
+rem The hub page that links every results page (written by the tools since 0.7.27); older folders: every page.
+if exist "Reports\Results\index.html" (
+  start "" "%~dp0Reports\Results\index.html"
+  exit /b
+)
 for %%f in ("Reports\Results\*.html") do start "" "%%~ff"
 exit /b
 
