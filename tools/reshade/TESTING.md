@@ -94,3 +94,11 @@ check that effects and the overlay work.
 `reshade-sopt_x2-<renderer>-...-SoptX2PS.cso` / `.asm`) holds the code each driver got. Expected (GTX 1660, 2026-10-17):
 Vulkan SPIR-V `OpFMul ... 2.0` (a multiply, free on NVIDIA as the post-scale); Direct3D 11 `add r0.z, r0.y, r0.y`
 (fxc's rewrite of x * 2, costs NVIDIA one instruction); x4 and x3 stay multiplies on both.
+
+## 7. Which pixels ddx / ddy read (sopt_Derivatives.fx)
+
+topt's question P2: coarse or fine derivatives per API. In the Test Host: `bin\run-test.ps1 -Effect sopt_Derivatives.fx
+-Frames 10` (every API). Six bands, left to right: `ddx`, `ddy`, `ddx_coarse`, `ddy_coarse`, `ddx_fine`, `ddy_fine`. A solid
+green band is fine (each pixel's own row / column); green and red (or yellow) one-pixel stripes are coarse (the quad's top
+row / left column, or the other one); blue is anything else. ReShade writes `ddx_fine` as `ddx` below shader model 5
+(Direct3D 9 / 10), as `dFdxFine` on OpenGL and `OpDPdxFine` on Vulkan.
