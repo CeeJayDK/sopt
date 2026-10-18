@@ -23,7 +23,7 @@ docs/notes/history.md.
 - **NVIDIA GTX 750 and early Maxwell laptop chips:** they get their own settings: unlike the GTX 900 cards, they have no fast square root.
 
 ### GPU Blueprint
-- **NVIDIA NVS 310:** fixed a timing error that could make tests grow far too long and restart the graphics driver.
+- **Graphics drivers with a wrong timer:** GPU Blueprint now checks whether the graphics driver's own timer can be trusted. Where it cannot (for example on an NVIDIA NVS 310), it times on the computer's clock instead and says so on screen and in the report, instead of letting tests grow far too long and restart the graphics driver.
 - **Slow and old graphics cards:** the warm-up now adjusts to the card, so very slow cards (for example an NVIDIA NVS 310) no longer make Windows restart the graphics driver at the start. StageBench can now be run on its own from the menu (key S).
 - **Stopped runs tell more:** when a test run stops early, its report now still names the graphics card and driver, and says where it stopped (also when that was during the warm-up).
 - **Cleaner results pages:** bars and big numbers no longer show thin lines between the blocks, the warm-up line is left out, and the TexBench section that compares ways to read the same texels is now called "Recommendation".

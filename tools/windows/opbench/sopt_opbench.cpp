@@ -669,16 +669,16 @@ void setConstants(Gpu& g, const Test& t, UINT iters) {
   g.ctx->UpdateSubresource(g.cb, 0, nullptr, &d, 0, 0);
 }
 
-// One timed dispatch in milliseconds (negative if the timestamps were disjoint).
-double timeDispatch(Gpu& g, UINT groups) {
+// One timed dispatch in milliseconds (negative if the timestamps were disjoint); repeat: that many back to back.
+double timeDispatch(Gpu& g, UINT groups, UINT repeat = 1) {
   const UINT threads = groups * 64u;
   if (gStage == Stage::Pixel) {  // the same threads as pixels: 1024 wide (fewer: one row)
     D3D11_VIEWPORT vp = {0.0f, 0.0f, float(std::min(threads, 1024u)), float(std::max(1u, threads / 1024u)), 0.0f, 1.0f};
     g.ctx->RSSetViewports(1, &vp);
-    return g.timer.time(g.ctx, [&] { g.ctx->Draw(3, 0); });
+    return g.timer.time(g.ctx, [&] { for (UINT k = 0; k < repeat; ++k) g.ctx->Draw(3, 0); });
   }
-  if (gStage == Stage::Vertex) return g.timer.time(g.ctx, [&] { g.ctx->Draw(threads, 0); });
-  return g.timer.time(g.ctx, [&] { g.ctx->Dispatch(groups, 1, 1); });
+  if (gStage == Stage::Vertex) return g.timer.time(g.ctx, [&] { for (UINT k = 0; k < repeat; ++k) g.ctx->Draw(threads, 0); });
+  return g.timer.time(g.ctx, [&] { for (UINT k = 0; k < repeat; ++k) g.ctx->Dispatch(groups, 1, 1); });
 }
 
 struct Result {
@@ -690,11 +690,11 @@ struct Result {
 // Chains per thread of a test in a configuration (a test's own count applies to the throughput run).
 int chainsOf(const Test& t, const Config& c) { return t.chains && std::strcmp(c.name, "tput") == 0 ? t.chains : c.chains; }
 
-// Doubles iterations until a dispatch takes >= 2 ms (20 ms with NVS 310 event timing).
+// Doubles iterations until a dispatch takes >= 2 ms (20 ms with CPU timing: Timer::checkTimestamps).
 UINT calibrate(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c) {
   bindShader(g, cs);
   UINT iters = 2;
-  // The NVS 310's CPU interval includes first-dispatch driver work. Discard it, then
+  // A CPU interval includes first-dispatch driver work. Discard it, then
   // use longer samples so the CPU / submission gaps at the timing boundaries are a small fraction.
   const double targetMs = g.timer.eventTiming ? 20.0 : 2.0;
   if (g.timer.eventTiming) {
@@ -905,7 +905,7 @@ int main(int argc, char** argv) {
     ob.StructureByteStride = 4;
     if (FAILED(g.dev->CreateBuffer(&ob, nullptr, &g.out))) fail("cannot create the output buffer");
     if (FAILED(g.dev->CreateUnorderedAccessView(g.out, nullptr, &g.uav))) fail("cannot create the output view");
-    g.timer.create(g.dev, desc.VendorId == 0x10DE && desc.DeviceId == 0x107D);
+    g.timer.create(g.dev);
     g.ctx->CSSetConstantBuffers(0, 1, &g.cb);
     g.ctx->CSSetUnorderedAccessViews(0, 1, &g.uav, nullptr);
     if (gStage != Stage::Compute) {
@@ -942,8 +942,7 @@ int main(int argc, char** argv) {
   for (char& ch : prefix) ch = char(std::tolower((unsigned char)ch));
   if (gStage != Stage::Compute) prefix += std::string("-") + stageName();
   if (outPath.empty()) outPath = (reports / (prefix + "-" + safeName + ".csv")).string();
-  startReport(outPath, kTool, gStage == Stage::Compute ? "" : stageName(), ad, g.timer.timingNote());
-  if (const char* timing = g.timer.timingNote()) print("Timing: %s\n\n", timing);
+  startReport(outPath, kTool, gStage == Stage::Compute ? "" : stageName(), ad);
   const std::filesystem::path dxbcDir =
       reports / "Shaders" / (std::string(kTool) + (gStage == Stage::Compute ? "" : std::string("-") + stageName()));
   std::filesystem::create_directories(dxbcDir);
@@ -1065,6 +1064,10 @@ int main(int argc, char** argv) {
   print("Each is measured twice (forward, then backward through its section), more often when the two\n"
               "readings disagree. Lower is better; the CSV has every reading. Results appear section by\n"
               "section while the rest is measured.\n");
+  gCurrent = "the timestamp check (mad)";
+  bindShader(g, shaders["tput"]["mad"]);
+  setConstants(g, *madTest, 1);
+  g.timer.checkTimestamps([&](UINT n) { return timeDispatch(g, kConfigs[0].groups, n); });
   std::printf("Warming up the GPU for 2 seconds so its clock settles ...");  // on screen only, not in the results page
   {
     gCurrent = "the 2-second warm-up (mad)";  // where a stop happened (the report's "# stopped:" line)

@@ -631,15 +631,13 @@ struct Adapter {
 
 // Starts the report with the GPU's header lines (replacing an older report), so a run that stops before its first
 // results still says which card and driver it ran on (owner, 2026-10-17: the NVS 310's reports held only "# stopped").
-inline void startReport(const std::string& path, const char* tool, const char* stage, const Adapter& ad,
-                        const char* timing = nullptr) {
+inline void startReport(const std::string& path, const char* tool, const char* stage, const Adapter& ad) {
   gReportPath = path;
   if (FILE* f = std::fopen(path.c_str(), "wb")) {
     std::fprintf(f, "# %s %s\n", tool, SOPT_VERSION);
     if (*stage) std::fprintf(f, "# stage: %s\n", stage);
     std::fprintf(f, "# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", ad.name.c_str(), ad.desc.VendorId,
                  ad.desc.DeviceId, ad.driver.c_str());
-    if (timing) std::fprintf(f, "# timing: %s\n", timing);
     std::fclose(f);
   }
 }
@@ -747,38 +745,62 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
   return a;
 }
 
-// GPU timestamps around work, or CPU elapsed time through GPU event completion for the NVS 310.
-// Returns milliseconds, or a negative value when GPU timestamps were disjoint (the clock changed).
+// GPU timestamps around work, or CPU elapsed time through GPU event completion where the driver's timestamps are
+// wrong (checkTimestamps). Returns milliseconds, or a negative value when GPU timestamps were disjoint (the clock changed).
 struct Timer {
   ID3D11Query* disjoint = nullptr;
   ID3D11Query* t0 = nullptr;
   ID3D11Query* t1 = nullptr;
   ID3D11Query* completed = nullptr;
   bool eventTiming = false;
+  bool probing = false, probeTimedOut = false;  // checkTimestamps: a timestamp that never arrives is an answer too
   LARGE_INTEGER cpuFrequency = {};
-  const char* timingNote() const {
-    return eventTiming ? "CPU elapsed time with GPU event completion (NVS 310 timestamp workaround)" : nullptr;
-  }
-  void create(ID3D11Device* dev, bool useEventTiming = false) {
-    eventTiming = useEventTiming;
-    if (eventTiming) {
-      D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
-      if (FAILED(dev->CreateQuery(&qd, &completed))) fail("cannot create the GPU completion query");
-      QueryPerformanceFrequency(&cpuFrequency);
-      return;
-    }
-    D3D11_QUERY_DESC qd = {D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
+  char note[200] = "";
+  const char* timingNote() const { return eventTiming ? note : nullptr; }
+  void create(ID3D11Device* dev) {
+    D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
+    if (FAILED(dev->CreateQuery(&qd, &completed))) fail("cannot create the GPU completion query");
+    QueryPerformanceFrequency(&cpuFrequency);
+    qd.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
     dev->CreateQuery(&qd, &disjoint);
     qd.Query = D3D11_QUERY_TIMESTAMP;
     dev->CreateQuery(&qd, &t0);
     dev->CreateQuery(&qd, &t1);
+  }
+  // Can the driver's GPU timestamps be trusted (owner, 2026-10-18: for every card)? The NVS 310 on driver 392.68
+  // reported 32-64 ns for milliseconds of work, so calibration grew the work until Windows reset the driver. timeN(n)
+  // times n units of work with this timer. The size comes from CPU time with event completion (honest, and so never
+  // long): n doubles until a run takes >= 5 ms. The same run is then timed with timestamps: under a quarter of the CPU
+  // time, or no timestamp within 5 s, switches every later measurement to CPU time (noted on screen and in the report).
+  // Disjoint readings (clock changes) say nothing either way: the timestamps stay.
+  template <class TimeN>
+  void checkTimestamps(TimeN timeN) {
+    eventTiming = true;
+    timeN(1u);  // first-use driver work
+    double cpu = 0.0;
+    UINT n = 1;
+    for (; n < 65536u && (cpu = timeN(n)) < 5.0; n *= 2) {}
+    eventTiming = false;
+    probing = true;
+    const double ts = timeN(n);
+    probing = false;
+    if (ts == -1.0 || (ts != -2.0 && ts >= 0.25 * cpu)) return;
+    eventTiming = true;
+    if (ts == -2.0) std::snprintf(note, sizeof(note), "CPU time (the driver's GPU timestamps did not arrive)");
+    else std::snprintf(note, sizeof(note), "CPU time (the driver's GPU timestamps are wrong: %.4f ms for %.1f ms of work)", ts, cpu);
+    print("Timing: %s.\nThis is less precise than GPU timestamps, so results from this card may be noisier.\n\n", note);
+    if (!gReportPath.empty())
+      if (FILE* f = std::fopen(gReportPath.c_str(), "ab")) {
+        std::fprintf(f, "# timing: %s\n", note);
+        std::fclose(f);
+      }
   }
   // The work's measured time in ms. A disjoint reading (the GPU clock or power state changed during it: Intel
   // iGPUs do this) is run again, up to 4 times in all; -1 when every try was disjoint.
   template <class Work>
   double time(ID3D11DeviceContext* ctx, Work work) {
     for (int attempt = 0; attempt < 4; ++attempt)
-      if (const double ms = timeOnce(ctx, work); ms >= 0.0) return ms;
+      if (const double ms = timeOnce(ctx, work); ms >= 0.0 || ms == -2.0) return ms;  // -2: checkTimestamps timed out
     return -1.0;
   }
   template <class Work>
@@ -788,6 +810,11 @@ struct Timer {
     const ULONGLONG start = GetTickCount64();
     auto wait = [&](ID3D11Query* q, void* data, UINT size) {
       for (;;) {
+        if (probeTimedOut) return;
+        if (probing && GetTickCount64() - start > 5000) {
+          probeTimedOut = true;
+          return;
+        }
         const HRESULT hr = ctx->GetData(q, data, size, 0);
         if (hr == S_OK) return;
         if (FAILED(hr)) {
@@ -810,7 +837,7 @@ struct Timer {
       }
     };
     if (eventTiming) {
-      // NVS 310 timestamps can under-report completed work or never complete. Do not issue them.
+      // Timestamps that under-report completed work or never complete (the NVS 310): none are issued.
       // Drain earlier uploads first, then measure CPU elapsed time until this work's EVENT completes.
       // Calibration primes the shader and uses longer samples to reduce submission / polling overhead.
       auto finish = [&] {
@@ -837,6 +864,7 @@ struct Timer {
     wait(disjoint, &dj, sizeof(dj));
     wait(t0, &a, sizeof(a));
     wait(t1, &b, sizeof(b));
+    if (probeTimedOut) return -2.0;
     if (dj.Disjoint || dj.Frequency == 0) return -1.0;
     return double(b - a) * 1000.0 / double(dj.Frequency);
   }

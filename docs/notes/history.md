@@ -1886,6 +1886,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   Cold runs were noisy (OpBench drift 70%, ps 245%); repeated OpBench / ps both exited 0, drift 0.64 / 0.37 / 0.26%
   (tput / dep / lat) and 0.40% (ps), scores 0.090 / 0.092 TFLOPS. Lat mad3v now uses 65536 iterations, 27.52 ms,
   cost 5.82 instead of ~1697. Vertex / TexBench initial drift 31 / 4%; no further resets or query timeouts.
+  0.7.23 (owner, 2026-10-18: for every card, not one device id): Timer::checkTimestamps before the warm-up. n units of
+  the mad reference (1 iteration) double until CPU / event time >= 5 ms (honest, so never long), then the same run
+  with timestamps: under 25% of the CPU time, or no timestamp in 5 s, switches to CPU / event timing (the 0.7.22
+  path) with a note on screen (results page) and "# timing:" in the report (stopped ones too). Disjoint keeps the
+  timestamps. Not yet run on any card.
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /

@@ -1339,12 +1339,13 @@ void bind(Gpu& g, const Test& t, const Bound& b, const Kernel& k) {
   }
 }
 
-// Compute: groups thread groups; pixel shader: the top groups rows of the kPsSize x kPsSize target.
-double run(Gpu& g, const Kernel& k, UINT groups) {
-  if (k.cs) return g.timer.time(g.ctx, [&] { g.ctx->Dispatch(groups, 1, 1); });
+// Compute: groups thread groups; pixel shader: the top groups rows of the kPsSize x kPsSize target. repeat: that many
+// back to back.
+double run(Gpu& g, const Kernel& k, UINT groups, UINT repeat = 1) {
+  if (k.cs) return g.timer.time(g.ctx, [&] { for (UINT r = 0; r < repeat; ++r) g.ctx->Dispatch(groups, 1, 1); });
   const D3D11_VIEWPORT vp = {0.0f, 0.0f, float(kPsSize), float(std::min(groups, kPsSize)), 0.0f, 1.0f};
   g.ctx->RSSetViewports(1, &vp);
-  return g.timer.time(g.ctx, [&] { g.ctx->Draw(3, 0); });
+  return g.timer.time(g.ctx, [&] { for (UINT r = 0; r < repeat; ++r) g.ctx->Draw(3, 0); });
 }
 
 struct Result {
@@ -1359,7 +1360,7 @@ struct Plan {
   UINT groups = 1;
 };
 
-// A run of >= 2 ms (20 ms with NVS 310 event timing; up to 8 ms by size first).
+// A run of >= 2 ms (20 ms with CPU timing: Timer::checkTimestamps; up to 8 ms by size first).
 // It starts small (kMinGroups thread groups, kMinRows pixel rows: 64K / 16K threads, still enough
 // to fill a GPU) and grows (more groups or rows, then more iterations), so no run is much longer than needed: a
 // full-size first run of a slow test took seconds on slow GPUs (random reads on an iGPU; RGBA32F aniso 16x on an
@@ -1372,7 +1373,7 @@ Plan calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
   p.groups = std::min(most, k.cs ? kMinGroups : kMinRows);
   setConstants(g, t, p.iters, t.size);
   const double targetMs = g.timer.eventTiming ? 20.0 : 2.0;
-  if (g.timer.eventTiming) run(g, k, p.groups);  // discard first-dispatch driver work on the NVS 310
+  if (g.timer.eventTiming) run(g, k, p.groups);  // discard first-dispatch driver work (CPU timing)
   double ms = run(g, k, p.groups);
   while (ms >= 0.0 && ms < 8.0 && p.groups < most) {  // size up to an 8 ms run (fills big GPUs), then iterations
     p.groups = std::min(most, p.groups * 2);
@@ -1861,7 +1862,7 @@ int main(int argc, char** argv) {
     ob.StructureByteStride = 4;
     if (FAILED(g.dev->CreateBuffer(&ob, nullptr, &g.out))) fail("cannot create the output buffer");
     if (FAILED(g.dev->CreateUnorderedAccessView(g.out, nullptr, &g.uav))) fail("cannot create the output view");
-    g.timer.create(g.dev, ad.desc.VendorId == 0x10DE && ad.desc.DeviceId == 0x107D);
+    g.timer.create(g.dev);
     g.ctx->CSSetConstantBuffers(0, 1, &g.cb);
     g.ctx->PSSetConstantBuffers(0, 1, &g.cb);
     g.ctx->CSSetUnorderedAccessViews(0, 1, &g.uav, nullptr);
@@ -1909,8 +1910,7 @@ int main(int argc, char** argv) {
   for (char& ch : safeName)
     if (!isalnum((unsigned char)ch)) ch = '_';
   if (outPath.empty()) outPath = (reports / ("texbench-" + safeName + ".csv")).string();
-  startReport(outPath, "TexBench", "", ad, g.timer.timingNote());
-  if (const char* timing = g.timer.timingNote()) print("Timing: %s\n\n", timing);
+  startReport(outPath, "TexBench", "", ad);
   const std::filesystem::path dxbcDir = reports / "Shaders" / "TexBench";
   std::filesystem::create_directories(dxbcDir);
 
@@ -2031,13 +2031,16 @@ int main(int argc, char** argv) {
   BackgroundJobs compiling(std::move(jobList));
   auto jobOf = [&](const Test* t) { return size_t(std::find(tests.begin(), tests.end(), t) - tests.begin()); };
   if (!tests.empty()) {
-    std::printf("Warming up the GPU for 2 seconds ...");  // on screen only, not in the results page
-    // Warm up with the compute reference.
-    gCurrent = "the 2-second warm-up (mad)";  // where a stop happened (the report's "# stopped:" line)
+    // Check the timestamps, then warm up, with the compute reference.
+    gCurrent = "the timestamp check (mad)";  // where a stop happened (the report's "# stopped:" line)
     compiling.wait(jobOf(byName("mad")));
     Bound none = bindResources(g, *byName("mad"), rng);
     const Kernel& k = kernels["mad"]["tput"];
     bind(g, *byName("mad"), none, k);
+    setConstants(g, *byName("mad"), 1, 0);
+    g.timer.checkTimestamps([&](UINT n) { return run(g, k, kConfigs[0].groups, n); });
+    std::printf("Warming up the GPU for 2 seconds ...");  // on screen only, not in the results page
+    gCurrent = "the 2-second warm-up (mad)";
     // Batches sized to the card (~8 calibrated runs, at most 256 iterations): 256 took ~1 s on an NVS 310, and
     // Windows reset its driver (owner, 2026-10-17: the screen went blank in the warm-up).
     const Plan warm = calibrate(g, *byName("mad"), k, kConfigs[0].groups);
