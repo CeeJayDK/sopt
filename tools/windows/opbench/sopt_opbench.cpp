@@ -1401,9 +1401,12 @@ int main(int argc, char** argv) {
   std::printf("\n  CSV:  %s\n  DXBC: %s\n", outPath.c_str(), dxbcDir.string().c_str());  // not in the shared results page
   if (const Score sc = score(); sc.fp32 > 0.0) {
     std::vector<std::pair<std::string, std::string>> more;
-    more.push_back({"fp16 (min16float)", sc.fp16 > 0.0 ? threeDigits(sc.fp16) + " TFLOPS" : std::string("runs at fp32")});
+    more.push_back({"fp16 (min16float) *", sc.fp16 > 0.0 ? threeDigits(sc.fp16) + " TFLOPS" : std::string("runs at fp32")});
     if (sc.special > 0.0) more.push_back({"Special functions (rcp)", threeDigits(sc.special) + " Gops/s"});
     printScore(st, std::string(kTool) + " score", gpuName, desc.VendorId, sc.fp32, "TFLOPS", "fp32, measured", more);
+    // Owner, 2026-10-19: the fp16 number is what ReShade effects can get (fxc, Shader Model 5), not the card's own fp16.
+    print("  * fp16 as ReShade effects get it: min16float, a hint the driver may run at\n"
+          "    32 bits. The card's own fp16 rate (ShaderInfo, Vulkan) can be higher.\n");
   }
   finishRun(st, maxDrift, outPath);
   gCurrent.clear();
