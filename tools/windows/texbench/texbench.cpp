@@ -1967,9 +1967,12 @@ int main(int argc, char** argv) {
     if ((filter.empty() || t.name.find(filter) != std::string::npos || t.name == "mad" || t.name == "ps.mad") &&
         storageOk(t) && fits(t))
       tests.push_back(&t);
-  if (!unsupported.empty()) print("Not supported by this GPU, left out: %s\n", unsupported.c_str());
+  // Counts on screen (owner: the name lists ran past the console width), the names in the report.
+  auto count = [](const std::string& list) { return std::count(list.begin(), list.end(), ',') + 1; };
+  if (!unsupported.empty()) print("Left out: %d tests not supported by this GPU (see the report)\n", int(count(unsupported)));
   if (!tooBig.empty())
-    print("Need more than half of the GPU's %.0f MB of memory, left out: %s\n", memory / 1048576.0, tooBig.c_str());
+    print("Left out: %d tests need over half of the %.0f MB GPU memory (see the report)\n", int(count(tooBig)),
+          memory / 1048576.0);
   for (bool added = true; added;) {
     added = false;
     for (const Test* t : std::vector<const Test*>(tests))
@@ -2323,6 +2326,8 @@ int main(int argc, char** argv) {
   std::fprintf(csv, "# TexBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n# reference drift: %.2f%%\n# run time: %.0f s\n",
                SOPT_VERSION, ad.name.c_str(), ad.desc.VendorId, ad.desc.DeviceId, ad.driver.c_str(), drift, runSeconds);
   g.timer.reportLines(csv);
+  if (!unsupported.empty()) std::fprintf(csv, "# left out (not supported): %s\n", unsupported.c_str());
+  if (!tooBig.empty()) std::fprintf(csv, "# left out (memory): %s\n", tooBig.c_str());
   const Score sc = score();
   std::fprintf(csv, "# texture rate: %.1f GTexels/s\n# pixel fill rate: %.1f GPixels/s\n# memory bandwidth (writes): %.1f GB/s\n",
                sc.texRate, sc.fill, sc.bandwidth);
