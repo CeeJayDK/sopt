@@ -7,7 +7,7 @@
 #                   Docs\ OpBench.html, TexBench.html, ShaderInfo.html, style.css, LICENSE.txt
 #   Test-Host\      Test-Host.bat, README.html; bin\ sopt-host.exe, sopt-timer.addon64 / .addon32,
 #                   common.ps1, run-test.ps1, run-bench.ps1, timings.py, ReShade64.dll; Effects\ the test effects
-#                   (sopt_IEEE754.fx, sopt_MipTest.fx, sopt_x2.fx); Docs\ style.css, LICENSE.txt, ReShade-LICENSE.md, IEEE754.md
+#                   (sopt_IEEE754.fx, sopt_MipTest.fx, sopt_x2.fx, sopt_Derivatives.fx); Docs\ style.css, LICENSE.txt, ReShade-LICENSE.md, IEEE754.md
 param(
   [string]$Out = "stage",
   [string]$Build = "build/Release",
@@ -42,6 +42,6 @@ Stage "Test-Host" (Join-Path $win "Test-Host.bat") (Join-Path $win "docs/TestHos
   @((Join-Path $win "docs/style.css"), "$ReShadeBin/ReShade-LICENSE.md", (Join-Path $root "tools/reshade/IEEE754.md"))
 $fx = Join-Path $Out "Test-Host/Effects"
 New-Item -ItemType Directory -Force -Path $fx | Out-Null
-Copy-Item (Join-Path $root "tools/reshade/sopt_IEEE754.fx"), (Join-Path $root "tools/reshade/sopt_MipTest.fx"), (Join-Path $root "tools/reshade/sopt_x2.fx") $fx
+Copy-Item (Join-Path $root "tools/reshade/sopt_IEEE754.fx"), (Join-Path $root "tools/reshade/sopt_MipTest.fx"), (Join-Path $root "tools/reshade/sopt_x2.fx"), (Join-Path $root "tools/reshade/sopt_Derivatives.fx") $fx
 
 Get-ChildItem -Recurse $Out | Where-Object { -not $_.PSIsContainer } | ForEach-Object { $_.FullName.Substring((Resolve-Path $Out).Path.Length + 1) }

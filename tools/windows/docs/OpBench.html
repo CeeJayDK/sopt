@@ -173,6 +173,7 @@
 <h3>Compute: groupshared memory and barriers</h3>
 <table>
   <tr><td><code>gsread</code>, <code>gswrite</code>, <code>gswriteread</code></td><td>groupshared memory (fast on-chip memory shared by a thread group).</td></tr>
+  <tr><td><code>gsread4</code></td><td>a float4 read from groupshared memory, as a compute blur does.</td></tr>
   <tr><td><code>gsread32</code>, <code>gswrite32</code></td><td>lanes 32 words apart: they hit the same memory bank (bank conflicts).</td></tr>
   <tr><td><code>barrier</code>, <code>groupbarrier</code>, <code>membarrier</code></td><td><code>barrier()</code> / <code>groupMemoryBarrier()</code> / <code>memoryBarrier()</code> after a write.</td></tr>
 </table>

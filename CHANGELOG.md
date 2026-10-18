@@ -23,6 +23,7 @@ docs/notes/history.md.
 - **NVIDIA GTX 750 and early Maxwell laptop chips:** they get their own settings: unlike the GTX 900 cards, they have no fast square root.
 
 ### GPU Blueprint
+- **New TexBench test: compute or pixel shader?** Runs three typical effects both ways, and the compute version in many group sizes and orders, then names the fastest way on your card and how it compares to a plain pixel shader. It adds a little to the run time.
 - **Graphics drivers with a wrong timer:** GPU Blueprint now checks whether the graphics driver's own timer can be trusted. Where it cannot (for example on an NVIDIA NVS 310), it times on the computer's clock instead and says so on screen and in the report, instead of letting tests grow far too long and restart the graphics driver.
 - **How long it takes:** every report now says how long its program ran, from start to finish (OpBench, StageBench, TexBench and ShaderInfo), so we can tell you more exactly how long the tests take.
 - **All results in one place:** key R in the menu now opens one page with a link to each results page, instead of only one of them.

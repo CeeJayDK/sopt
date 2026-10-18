@@ -161,6 +161,13 @@
   <tr><td>Compute</td><td>chains of 1 to 32 small dependent dispatches (240 &times; 135).</td></tr>
 </table>
 
+<h3>Compute layouts</h3>
+<p>Three post-processing jobs over the 3840 &times; 2160 image (9 bilinear reads in a 3 &times; 3 pattern; a 17-texel blur along x and one along y,
+in compute through groupshared memory), once as a pixel shader and then as compute shaders in 8 group sizes (8&times;8 up to
+256&times;1), pixels in a group in rows or in Morton order (2 &times; 2 quads, as the rasterizer does), groups across the
+screen in rows or in 128-pixel strips (keeps the texture cache warm). Each shows its time against the pixel shader in percent
+(minus = faster); "Best" names the fastest layout on this card.</p>
+
 <h3>Copy and downsample passes</h3>
 <p>Full-screen passes from a 3840 &times; 2160 texture (ms per pass), RGBA8, RGB10A2, RGBA16F (the HDR back buffer format) and RGBA32F:</p>
 <table>
