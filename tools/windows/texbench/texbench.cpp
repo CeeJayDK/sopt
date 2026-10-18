@@ -2164,7 +2164,7 @@ int main(int argc, char** argv) {
   auto printMatrix = [&](const std::string& sec) {
     static const char* const kHead[] = {"Load", "point", "bilin", "gather", "trilin", "aniso2", "aniso4", "aniso8", "aniso16"};
     const bool gbs = cols >= 2 + 10 + 9 * 7 + 8 + 1;
-    print("\n  %s%s%s\n  %s%-10s", st.c("\x1b[1;96m"), sec.c_str(), st.reset(), st.c("\x1b[90m"), "Format");
+    print("\n  %s%s%s\n  %s%-10s", st.c("\x1b[1;96m"), (sec + sectionWhy(st, sec)).c_str(), st.reset(), st.c("\x1b[90m"), "Format");
     for (const char* h : kHead) print(" %6s", h);
     print("%s%s\n", gbs ? "    GB/s" : "", st.reset());
     // Colors against the table's median cost (owner, 2026-10-12: fast or slow at a glance; texture reads cost far more
@@ -2219,7 +2219,7 @@ int main(int argc, char** argv) {
     bool bytes = false;
     for (const Test* t : tests)
       if (t->section == sec && results["tput"].count(t->name)) maxV = std::max(maxV, results["tput"][t->name].vsBase), bytes |= t->perByte;
-    print("\n  %s%s%s\n  %s%-*s %7s  %-*s  %6s %6s %6s%s%s\n", st.c("\x1b[1;96m"), sec.c_str(), st.reset(),
+    print("\n  %s%s%s\n  %s%-*s %7s  %-*s  %6s %6s %6s%s%s\n", st.c("\x1b[1;96m"), (sec + sectionWhy(st, sec)).c_str(), st.reset(),
                 st.c("\x1b[90m"), nameW, "Test", "Cost", kBarWidth, kBarWidth >= 18 ? "(many in parallel)" : "(parallel)", "Ops", "dep", "lat",
                 bytes ? "    GB/s" : "", st.reset());
     for (const Test* t : tests) {
@@ -2261,9 +2261,9 @@ int main(int argc, char** argv) {
       if (t->stage == Stage::Write) maxW = std::max(maxW, writeUnits[t->name].value);
     // Noise cannot be compressed; Gain = how much faster the smooth gradient / the flat color writes.
     const int w = std::clamp((cols - 1 - (2 + 18 + 1 + 4 * 9 + 3 * 7 + 2)) / 4, 4, 8);
-    print("\n  %sRender target writes: full-screen passes into 3840 x 2160 (GB/s)%s\n"
+    print("\n  %sRender target writes: full-screen passes into 3840 x 2160 (GB/s)%s%s\n"
                 "  %s%-18s %7s  %-*s  %7s  %-*s  %7s  %-*s  %7s  %-*s  %6s %6s %6s%s\n",
-                st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Format", "Noise", w, "", "NoiseRGB", w, "", "Smooth",
+                st.c("\x1b[1;96m"), sectionWhy(st, "Render target writes").c_str(), st.reset(), st.c("\x1b[90m"), "Format", "Noise", w, "", "NoiseRGB", w, "", "Smooth",
                 w, "", "Flat", w, "", "Gain", "Gain", "Gain", st.reset());
     for (const Format& f : kFormats) {
       auto get = [&](const char* kind) {
@@ -2290,10 +2290,10 @@ int main(int argc, char** argv) {
   };
   auto printBlend = [&] {
     // ms per pass; of each blend / shader pair the faster one in green.
-    print("\n  %sBlending: full-screen passes into 3840 x 2160 (ms per pass)%s\n"
+    print("\n  %sBlending: full-screen passes into 3840 x 2160 (ms per pass)%s%s\n"
                 "  %s%-10s %7s   %-15s   %-15s   %-15s   %-15s%s\n"
                 "  %s%-10s %7s   %7s %7s   %7s %7s   %7s %7s   %7s %7s%s\n",
-                st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Format", "Plain", "Add", "Lerp (alpha)", "Multiply",
+                st.c("\x1b[1;96m"), sectionWhy(st, "Blending").c_str(), st.reset(), st.c("\x1b[90m"), "Format", "Plain", "Add", "Lerp (alpha)", "Multiply",
                 "Min", st.reset(), st.c("\x1b[90m"), "", "", "blend", "shader", "blend", "shader", "blend", "shader",
                 "blend", "shader", st.reset());
     for (const char* fn : {"RGBA8", "RGB10A2", "RG11B10F", "RGBA16F", "RGBA32F"}) {
@@ -2339,7 +2339,7 @@ int main(int argc, char** argv) {
         maxP = std::max(maxP, passMs[t->name].value);
         if (t->per) barW = std::max(8, kBarWidth - 22);  // room for "  12.3 fma per exchange"
       }
-    print("\n  %s%s%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"), sec.c_str(),
+    print("\n  %s%s%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"), (sec + sectionWhy(st, sec)).c_str(),
                 st.reset(), st.c("\x1b[90m"), "Test", "ms/pass", kBarWidth, "", st.reset());
     for (const Test* t : tests)
       if (t->section == sec) {
@@ -2964,9 +2964,9 @@ int main(int argc, char** argv) {
               ad.desc.DeviceId, int(runSeconds) / 60, int(runSeconds) % 60);
   if (order.ran) {
     // Blocks: the share of compact blocks per size; tiles: how contiguous aligned squares were shaded.
-    print("\n  %sPixel shader order: which pixels the GPU shades together (one draw, 1024 x 1024)%s\n"
+    print("\n  %sPixel shader order: which pixels the GPU shades together (one draw, 1024 x 1024)%s%s\n"
                 "  %s%-10s %8s  %-*s  %-9s%s\n",
-                st.c("\x1b[1;96m"), st.reset(), st.c("\x1b[90m"), "Block", "Compact", kBarWidth, "", "Shape", st.reset());
+                st.c("\x1b[1;96m"), sectionWhy(st, "Pixel shader order").c_str(), st.reset(), st.c("\x1b[90m"), "Block", "Compact", kBarWidth, "", "Shape", st.reset());
     for (const auto& b : order.blocks)
       print("  %-10u %7.0f%%  %s  %s\n", b.w, 100.0 * b.compact, bar(100.0 * b.compact, 100.0, kBarWidth, st, kCyan).c_str(),
                   b.shape.c_str());
