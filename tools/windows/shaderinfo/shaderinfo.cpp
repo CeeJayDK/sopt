@@ -320,7 +320,7 @@ size_t runBatch(VkDevice dev, bool pepOn, const std::filesystem::path& dir, FILE
 }
 
 // The card's own fp16 rate next to fp32 (owner, 2026-10-19: OpBench's fp16 is min16float, a hint the driver may run at
-// 32 bits; real fp16 needs Shader Model 6.2 / DXC or Vulkan float16, which ReShade does not use yet). rate.comp as fp32
+// 32 bits in any program that uses it; real fp16 needs Shader Model 6.2 / DXC or Vulkan float16). rate.comp as fp32
 // and as Vulkan float16, 4096 groups of 64 threads, timed with GPU timestamps. The loop count grows by CPU time
 // (honest, so no run gets long: Windows resets a GPU busy for ~2 s) until a run takes >= 20 ms; then 5 runs, the
 // median. Returns the report's lines.
