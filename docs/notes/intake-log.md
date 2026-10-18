@@ -206,3 +206,9 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/stagebench/nvidia-gtx-1660-vs-7.csv` (StageBench 0.7.27)
 - upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-17.csv` (TexBench 0.7.27)
 - upload 1: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/texbench/nvidia-gtx-1660-14.csv`, `docs/texbench/nvidia-gtx-1660-14-order.png`, `docs/texbench/nvidia-gtx-1660-14-order-zoom.png` (TexBench 0.7.27)
+
+## 2026-10-18 11:22 UTC
+- upload 1: opbench, NVIDIA NVS 310 (driver 23.21.13.9268): `docs/opbench/nvidia-nvs-310-2.csv` (OpBench 0.7.27)
+- upload 1: stagebench, NVIDIA NVS 310 (driver 23.21.13.9268): `docs/stagebench/nvidia-nvs-310-ps-3.csv` (StageBench 0.7.27)
+- upload 1: stagebench, NVIDIA NVS 310 (driver 23.21.13.9268): `docs/stagebench/nvidia-nvs-310-vs-3.csv` (StageBench 0.7.27)
+- upload 1: texbench, NVIDIA NVS 310 (driver 23.21.13.9268): `docs/texbench/nvidia-nvs-310.csv`, `docs/texbench/nvidia-nvs-310-order.png`, `docs/texbench/nvidia-nvs-310-order-zoom.png` (TexBench 0.7.27)
