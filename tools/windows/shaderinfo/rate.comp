@@ -1,0 +1,29 @@
+#version 450
+// ShaderInfo's fp16 rate test (owner, 2026-10-19): the card's own fp16 rate next to fp32, as real 16-bit math
+// (Vulkan float16, GL_EXT_shader_explicit_arithmetic_types_float16), not min16float's hint. Built twice:
+//   glslang -V --target-env vulkan1.1 -DT=vec4 rate.comp       (fp32)
+//   glslang -V --target-env vulkan1.1 -DT=f16vec4 -DHALF rate.comp   (fp16)
+// 8 independent float4 chains of fmas per thread (32 fmas per step, 4 steps per loop turn), so packed fp16 math
+// (two halves per instruction) can show.
+#ifdef HALF
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#endif
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer Out { float o[]; };
+layout(push_constant) uniform P { float a; float b; uint n; float seed; };
+
+void main() {
+  const uint id = gl_GlobalInvocationID.x;
+  const T s = T(float(id & 255u) * 0.001 + seed);
+  const T A = T(a), B = T(b);
+  T x0 = s, x1 = s + T(0.01), x2 = s + T(0.02), x3 = s + T(0.03);
+  T x4 = s + T(0.04), x5 = s + T(0.05), x6 = s + T(0.06), x7 = s + T(0.07);
+  for (uint i = 0; i < n; ++i) {
+    for (int k = 0; k < 4; ++k) {  // glslang does not unroll; the drivers do (a constant count)
+      x0 = fma(x0, A, B); x1 = fma(x1, A, B); x2 = fma(x2, A, B); x3 = fma(x3, A, B);
+      x4 = fma(x4, A, B); x5 = fma(x5, A, B); x6 = fma(x6, A, B); x7 = fma(x7, A, B);
+    }
+  }
+  const T sum = ((x0 + x1) + (x2 + x3)) + ((x4 + x5) + (x6 + x7));
+  o[id] = float(sum.x) + float(sum.y) + float(sum.z) + float(sum.w);
+}

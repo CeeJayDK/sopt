@@ -1962,6 +1962,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   clean, except UHD 630 OpBench: the guard switched a healthy card again at imad (lat), 3.08 ms for 14.9 ms twice on
   the same work (mixed, not saved). False switches so far 8-21% of the CPU time, Fermi's real ones 0-24%: the ratio
   cannot separate them, so 0.7.33 measures a low reading again with twice the work (honest timestamps grow with it).
+  fp16 (owner, 2026-10-19, from a Gemini remark): OpBench's fp16 is min16float (fxc, SM5), a minimum-precision hint
+  the driver may run at 32 bits whichever compiler writes it; guaranteed fp16 is float16_t (DXC, SM 6.2, D3D12) or
+  Vulkan float16, neither of which ReShade uses (fxc on D3D10-12, RelaxedPrecision on Vulkan, no half type in FX).
+  0.7.34: OpBench's score marks fp16 with '*' (as ReShade gets it); ShaderInfo's rateTest (rate.comp, glslang 16.6.0,
+  fp32 and f16vec4 builds, 8 float4 fma chains, 4096 x 64 threads, sized by CPU time to >= 20 ms, GPU timestamps,
+  CPU time when they read under 25%) reports the card's own fp32 / fp16 TFLOPS and their ratio.
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /
