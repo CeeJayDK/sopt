@@ -1886,6 +1886,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   Cold runs were noisy (OpBench drift 70%, ps 245%); repeated OpBench / ps both exited 0, drift 0.64 / 0.37 / 0.26%
   (tput / dep / lat) and 0.40% (ps), scores 0.090 / 0.092 TFLOPS. Lat mad3v now uses 65536 iterations, 27.52 ms,
   cost 5.82 instead of ~1697. Vertex / TexBench initial drift 31 / 4%; no further resets or query timeouts.
+  cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
+  -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
+  cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /
+  vs (both cards; 1660 also iadd); 1660 popc 1.9 -> 1.0, fbh 3.0 -> 2.1 fma cheaper in ps; 1660 arrays: arrayread 10 /
+  0.7 / 16, arraywrite 175 / 42 / 189, constarray 59 / 14 / 59 fma (cs / ps / vs: indexed arrays 4x cheaper in pixel
+  shaders on NVIDIA, none on Intel); UHD 630 step 1.05 -> 1.9, modf 1.9 -> 2.8, ftoitof 3.7 -> 2.7, isnan 1.8 -> 0 in ps,
+  fp16 mad16v3 -1.3 (cs, packed gain) -> +0.2 (ps), mul16 0.16 -> 0.7 (as the UHD 620 in 0.7.9: Gen9's fp16 gain is
+  compute only; ReShade effects are pixel shaders, so fp16 step 5's expected NUC gain is doubtful).
 - Ideas from the owner's Gemini chat (2026-10-03). Register counts: done (sopt-fx report columns amd vgpr /
   nv regs with the change, original line with vgpr / sgpr / regs, variant comment ", vgpr a -> b" only where it
   changes; `sopt` table columns vgpr / regs, '+' = more than the original; from fxstat's isa "vgprs" / "sgprs"
