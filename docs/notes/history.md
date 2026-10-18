@@ -1955,6 +1955,13 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   GT 530 0.7.30 ran with the NVIDIA control panel set to prefer maximum performance (owner: a clean driver install had
   reset it; 0.7.29 ran without): the drift drop is at least partly the power setting; getting past the atomics is the
   small start (a power setting does not shorten a single run past the reset limit).
+  0.7.31 runs (owner, 2026-10-18): Iris 540 (NUC, driver 31.0.101.2121; Gen9 GT3e) all four tools on GPU timestamps:
+  OpBench drift 13 / 16 / 13%, fp32 0.603 TFLOPS, 104 s; StageBench ps / vs 47 s each, drift 12%; TexBench 343 s, 19.8
+  GTexels/s, 40.0 GB/s. Differs from the Gen9 family: gsread32 / gswrite32 42.8 / 42.3 (usually 30.7), the one-address
+  atomics ~280 (usually ~220); vs: arrayread 64.6 (35.6), arraywrite 151 (103), ilp1 12.8 (6.3). GTX 1660 / UHD 630
+  clean, except UHD 630 OpBench: the guard switched a healthy card again at imad (lat), 3.08 ms for 14.9 ms twice on
+  the same work (mixed, not saved). False switches so far 8-21% of the CPU time, Fermi's real ones 0-24%: the ratio
+  cannot separate them, so 0.7.33 measures a low reading again with twice the work (honest timestamps grow with it).
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /
