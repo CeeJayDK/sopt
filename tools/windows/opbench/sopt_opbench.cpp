@@ -669,16 +669,16 @@ void setConstants(Gpu& g, const Test& t, UINT iters) {
   g.ctx->UpdateSubresource(g.cb, 0, nullptr, &d, 0, 0);
 }
 
-// One timed dispatch in milliseconds (negative if the timestamps were disjoint).
-double timeDispatch(Gpu& g, UINT groups) {
+// One timed dispatch in milliseconds (negative if the timestamps were disjoint); repeat: that many back to back.
+double timeDispatch(Gpu& g, UINT groups, UINT repeat = 1) {
   const UINT threads = groups * 64u;
   if (gStage == Stage::Pixel) {  // the same threads as pixels: 1024 wide (fewer: one row)
     D3D11_VIEWPORT vp = {0.0f, 0.0f, float(std::min(threads, 1024u)), float(std::max(1u, threads / 1024u)), 0.0f, 1.0f};
     g.ctx->RSSetViewports(1, &vp);
-    return g.timer.time(g.ctx, [&] { g.ctx->Draw(3, 0); });
+    return g.timer.time(g.ctx, [&] { for (UINT k = 0; k < repeat; ++k) g.ctx->Draw(3, 0); });
   }
-  if (gStage == Stage::Vertex) return g.timer.time(g.ctx, [&] { g.ctx->Draw(threads, 0); });
-  return g.timer.time(g.ctx, [&] { g.ctx->Dispatch(groups, 1, 1); });
+  if (gStage == Stage::Vertex) return g.timer.time(g.ctx, [&] { for (UINT k = 0; k < repeat; ++k) g.ctx->Draw(threads, 0); });
+  return g.timer.time(g.ctx, [&] { for (UINT k = 0; k < repeat; ++k) g.ctx->Dispatch(groups, 1, 1); });
 }
 
 struct Result {
@@ -690,14 +690,22 @@ struct Result {
 // Chains per thread of a test in a configuration (a test's own count applies to the throughput run).
 int chainsOf(const Test& t, const Config& c) { return t.chains && std::strcmp(c.name, "tput") == 0 ? t.chains : c.chains; }
 
-// Doubles the iteration count until a dispatch takes >= 2 ms.
+// Doubles iterations until a dispatch takes >= 2 ms (20 ms with CPU timing: Timer::checkTimestamps).
 UINT calibrate(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c) {
   bindShader(g, cs);
   UINT iters = 2;
+  // A CPU interval includes first-dispatch driver work. Discard it, then
+  // use longer samples so the CPU / submission gaps at the timing boundaries are a small fraction.
+  const double targetMs = g.timer.eventTiming ? 20.0 : 2.0;
+  if (g.timer.eventTiming) {
+    setConstants(g, t, iters);
+    timeDispatch(g, c.groups);
+  }
   for (;;) {
     setConstants(g, t, iters);
     const double ms = timeDispatch(g, c.groups);  // < 0: no valid reading, keep the run length
-    if (ms < 0.0 || ms >= 2.0 || iters >= (1u << 20)) return iters;
+    if (g.timer.eventTiming && targetMs < 20.0) return calibrate(g, cs, t, c);  // switched to CPU time: its target, priming
+    if (ms < 0.0 || ms >= targetMs || iters >= (1u << 20)) return iters;
     iters *= 2;
   }
 }
@@ -804,6 +812,7 @@ bool differs(double measured, double expected) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  const ULONGLONG programStart = GetTickCount64();  // the run time: start to end, as the user waits (owner, 2026-10-18)
   gProgram = kTool;
   std::setvbuf(stdout, nullptr, _IONBF, 0);  // progress shows while it runs
   const Style st = initConsole();
@@ -1057,6 +1066,10 @@ int main(int argc, char** argv) {
   print("Each is measured twice (forward, then backward through its section), more often when the two\n"
               "readings disagree. Lower is better; the CSV has every reading. Results appear section by\n"
               "section while the rest is measured.\n");
+  gCurrent = "the timestamp check (mad)";
+  bindShader(g, shaders["tput"]["mad"]);
+  setConstants(g, *madTest, 1);
+  g.timer.checkTimestamps([&](UINT n) { return timeDispatch(g, kConfigs[0].groups, n); });
   std::printf("Warming up the GPU for 2 seconds so its clock settles ...");  // on screen only, not in the results page
   {
     gCurrent = "the 2-second warm-up (mad)";  // where a stop happened (the report's "# stopped:" line)
@@ -1187,8 +1200,10 @@ int main(int argc, char** argv) {
   if (gStage != Stage::Compute) std::fprintf(csv, "# stage: %s\n", stageName());
   std::fprintf(csv, "# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", gpuName.c_str(), desc.VendorId,
                desc.DeviceId, driver.c_str());
+  g.timer.reportLines(csv);
   std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
   for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, driftOf(c.name));
+  std::fprintf(csv, "# run time: %.0f s\n", (GetTickCount64() - programStart) / 1000.0);
   const Score sc = score();
   if (fam.family) {
     std::fprintf(csv, "# family: %s (%s, %d card%s)\n", fam.family->model, fam.family->label, fam.family->cards,
