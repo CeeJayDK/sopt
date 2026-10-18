@@ -8,6 +8,7 @@
 //   - whether VK_AMD_gpa_interface / VK_INTEL_performance_query exist, and every device extension (in the file)
 // Two compute shaders (shaders_spv.h, from int.comp and float.comp) are compiled on every Vulkan GPU;
 // everything the driver returns goes to Reports\shaderinfo-<gpu>.txt next to the exe, a summary to the console.
+// It also times one thing: the card's own fp16 rate next to fp32 (rateTest, rate.comp; since 0.7.34).
 //
 //   ShaderInfo [--spv file.spv] [--batch folder] [--all]
 //     --spv adds a compute shader of your own (entry point main); --batch compiles every *.ps.spv in the folder
@@ -31,6 +32,7 @@
 #include <vector>
 
 #include "shaders_spv.h"
+#include "rate_spv.h"
 
 using namespace benchkit;
 
@@ -43,6 +45,7 @@ PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
   X(vkGetPhysicalDeviceProperties2)                       \
   X(vkGetPhysicalDeviceFeatures2)                         \
   X(vkGetPhysicalDeviceQueueFamilyProperties)             \
+  X(vkGetPhysicalDeviceMemoryProperties)                  \
   X(vkEnumerateDeviceExtensionProperties)                 \
   X(vkCreateDevice)                                       \
   X(vkGetDeviceProcAddr)                                  \
@@ -63,6 +66,16 @@ PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
 #define VK_DECLARE(name) PFN_##name name;
 VK_INSTANCE_FUNCS(VK_DECLARE)
 VK_DEVICE_FUNCS(VK_DECLARE)
+// For the fp16 rate test (rateTest).
+#define VK_RATE_FUNCS(X)                                                                                              \
+  X(vkGetDeviceQueue) X(vkCreateBuffer) X(vkDestroyBuffer) X(vkGetBufferMemoryRequirements) X(vkAllocateMemory)      \
+  X(vkFreeMemory) X(vkBindBufferMemory) X(vkCreateDescriptorPool) X(vkDestroyDescriptorPool)                         \
+  X(vkAllocateDescriptorSets) X(vkUpdateDescriptorSets) X(vkCreateCommandPool) X(vkDestroyCommandPool)               \
+  X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkEndCommandBuffer) X(vkResetCommandBuffer)                  \
+  X(vkCmdBindPipeline) X(vkCmdBindDescriptorSets) X(vkCmdPushConstants) X(vkCmdDispatch) X(vkCmdResetQueryPool)      \
+  X(vkCmdWriteTimestamp) X(vkQueueSubmit) X(vkQueueWaitIdle) X(vkCreateQueryPool) X(vkDestroyQueryPool)              \
+  X(vkGetQueryPoolResults)
+VK_RATE_FUNCS(VK_DECLARE)
 PFN_vkGetPipelineExecutablePropertiesKHR vkGetPipelineExecutablePropertiesKHR;
 PFN_vkGetPipelineExecutableStatisticsKHR vkGetPipelineExecutableStatisticsKHR;
 PFN_vkGetPipelineExecutableInternalRepresentationsKHR vkGetPipelineExecutableInternalRepresentationsKHR;
@@ -306,6 +319,210 @@ size_t runBatch(VkDevice dev, bool pepOn, const std::filesystem::path& dir, FILE
   return compiled;
 }
 
+// The card's own fp16 rate next to fp32 (owner, 2026-10-19: OpBench's fp16 is min16float, a hint the driver may run at
+// 32 bits in any program that uses it; real fp16 needs Shader Model 6.2 / DXC or Vulkan float16). rate.comp as fp32
+// and as Vulkan float16, 4096 groups of 64 threads, timed with GPU timestamps. The loop count grows by CPU time
+// (honest, so no run gets long: Windows resets a GPU busy for ~2 s) until a run takes >= 20 ms; then 5 runs, the
+// median. Returns the report's lines.
+std::string rateTest(VkPhysicalDevice pd, const VkPhysicalDeviceProperties& props, uint32_t family, uint32_t validBits,
+                     bool f16ext, const Style& st) {
+  if (validBits == 0) return "\nfp16 rate: no GPU timestamps on this queue\n";
+  VkPhysicalDeviceShaderFloat16Int8Features f16 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
+  VkPhysicalDeviceFeatures2 f2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f16};
+  if (f16ext) vkGetPhysicalDeviceFeatures2(pd, &f2);
+  const bool half = f16ext && f16.shaderFloat16;
+  f16 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
+  f16.shaderFloat16 = VK_TRUE;
+  f2.features = {};
+  const char* ext = VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME;
+  const float prio = 1.0f;
+  VkDeviceQueueCreateInfo qci = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+  qci.queueFamilyIndex = family;
+  qci.queueCount = 1;
+  qci.pQueuePriorities = &prio;
+  VkDeviceCreateInfo dci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+  dci.pNext = half ? &f2 : nullptr;
+  dci.queueCreateInfoCount = 1;
+  dci.pQueueCreateInfos = &qci;
+  dci.enabledExtensionCount = half ? 1 : 0;
+  dci.ppEnabledExtensionNames = &ext;
+  VkDevice dev;
+  if (vkCreateDevice(pd, &dci, nullptr, &dev) != VK_SUCCESS) return "\nfp16 rate: vkCreateDevice failed\n";
+#define VK_LOAD_RATE(name) name = reinterpret_cast<PFN_##name>(vkGetDeviceProcAddr(dev, #name));
+  VK_DEVICE_FUNCS(VK_LOAD_RATE)
+  VK_RATE_FUNCS(VK_LOAD_RATE)
+#undef VK_LOAD_RATE
+  VkQueue queue;
+  vkGetDeviceQueue(dev, family, 0, &queue);
+  constexpr uint32_t kGroups = 4096, kThreads = kGroups * 64;
+  // The output buffer (any memory type it allows: nothing reads it back).
+  VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  bci.size = kThreads * 4;
+  bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  VkBuffer buf;
+  vkCreateBuffer(dev, &bci, nullptr, &buf);
+  VkMemoryRequirements mr;
+  vkGetBufferMemoryRequirements(dev, buf, &mr);
+  VkPhysicalDeviceMemoryProperties mp;
+  vkGetPhysicalDeviceMemoryProperties(pd, &mp);
+  uint32_t type = 0;
+  while (type < mp.memoryTypeCount && !(mr.memoryTypeBits & (1u << type))) ++type;
+  VkMemoryAllocateInfo mai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+  mai.allocationSize = mr.size;
+  mai.memoryTypeIndex = type;
+  VkDeviceMemory mem;
+  vkAllocateMemory(dev, &mai, nullptr, &mem);
+  vkBindBufferMemory(dev, buf, mem, 0);
+  VkDescriptorSetLayoutBinding binding = {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+  VkDescriptorSetLayoutCreateInfo dl = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  dl.bindingCount = 1;
+  dl.pBindings = &binding;
+  VkDescriptorSetLayout setLayout;
+  vkCreateDescriptorSetLayout(dev, &dl, nullptr, &setLayout);
+  VkPushConstantRange pc = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 16};
+  VkPipelineLayoutCreateInfo pl = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  pl.setLayoutCount = 1;
+  pl.pSetLayouts = &setLayout;
+  pl.pushConstantRangeCount = 1;
+  pl.pPushConstantRanges = &pc;
+  VkPipelineLayout layout;
+  vkCreatePipelineLayout(dev, &pl, nullptr, &layout);
+  VkDescriptorPoolSize ps = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1};
+  VkDescriptorPoolCreateInfo dpi = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  dpi.maxSets = 1;
+  dpi.poolSizeCount = 1;
+  dpi.pPoolSizes = &ps;
+  VkDescriptorPool pool;
+  vkCreateDescriptorPool(dev, &dpi, nullptr, &pool);
+  VkDescriptorSetAllocateInfo dsa = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+  dsa.descriptorPool = pool;
+  dsa.descriptorSetCount = 1;
+  dsa.pSetLayouts = &setLayout;
+  VkDescriptorSet set;
+  vkAllocateDescriptorSets(dev, &dsa, &set);
+  VkDescriptorBufferInfo dbi = {buf, 0, VK_WHOLE_SIZE};
+  VkWriteDescriptorSet w = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  w.dstSet = set;
+  w.descriptorCount = 1;
+  w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  w.pBufferInfo = &dbi;
+  vkUpdateDescriptorSets(dev, 1, &w, 0, nullptr);
+  VkCommandPoolCreateInfo cpci = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+  cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  cpci.queueFamilyIndex = family;
+  VkCommandPool cmdPool;
+  vkCreateCommandPool(dev, &cpci, nullptr, &cmdPool);
+  VkCommandBufferAllocateInfo cbai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+  cbai.commandPool = cmdPool;
+  cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cbai.commandBufferCount = 1;
+  VkCommandBuffer cb;
+  vkAllocateCommandBuffers(dev, &cbai, &cb);
+  VkQueryPoolCreateInfo qpi = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+  qpi.queryType = VK_QUERY_TYPE_TIMESTAMP;
+  qpi.queryCount = 2;
+  VkQueryPool qp;
+  vkCreateQueryPool(dev, &qpi, nullptr, &qp);
+  LARGE_INTEGER freq;
+  QueryPerformanceFrequency(&freq);
+  const uint64_t mask = validBits >= 64 ? ~0ull : (1ull << validBits) - 1;
+
+  // TFLOPS of one shader, or -1 when it could not run; cpuOnly: the timestamps did not cover the CPU time.
+  auto measure = [&](const uint32_t* code, size_t words, bool& cpuOnly) -> double {
+    VkShaderModuleCreateInfo smi = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    smi.codeSize = words * 4;
+    smi.pCode = code;
+    VkShaderModule mod;
+    if (vkCreateShaderModule(dev, &smi, nullptr, &mod) != VK_SUCCESS) return -1.0;
+    VkComputePipelineCreateInfo cpi = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    cpi.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, mod, "main", nullptr};
+    cpi.layout = layout;
+    VkPipeline pipe;
+    if (vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &cpi, nullptr, &pipe) != VK_SUCCESS) {
+      vkDestroyShaderModule(dev, mod, nullptr);
+      return -1.0;
+    }
+    auto run = [&](uint32_t n, double& gpu, double& cpu) {
+      vkResetCommandBuffer(cb, 0);
+      VkCommandBufferBeginInfo bi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+      bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      vkBeginCommandBuffer(cb, &bi);
+      vkCmdResetQueryPool(cb, qp, 0, 2);
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
+      vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, layout, 0, 1, &set, 0, nullptr);
+      struct {
+        float a, b;
+        uint32_t n;
+        float seed;
+      } pcv = {0.999f, 0.001f, n, 0.1f};
+      vkCmdPushConstants(cb, layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pcv), &pcv);
+      vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, qp, 0);
+      vkCmdDispatch(cb, kGroups, 1, 1);
+      vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, qp, 1);
+      vkEndCommandBuffer(cb);
+      VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+      si.commandBufferCount = 1;
+      si.pCommandBuffers = &cb;
+      LARGE_INTEGER c0, c1;
+      QueryPerformanceCounter(&c0);
+      vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE);
+      vkQueueWaitIdle(queue);
+      QueryPerformanceCounter(&c1);
+      uint64_t ts[2] = {};
+      vkGetQueryPoolResults(dev, qp, 0, 2, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+      gpu = double((ts[1] - ts[0]) & mask) * props.limits.timestampPeriod / 1e6;
+      cpu = double(c1.QuadPart - c0.QuadPart) * 1000.0 / double(freq.QuadPart);
+    };
+    double gpu = 0.0, cpu = 0.0;
+    run(1, gpu, cpu);  // first use
+    uint32_t n = 1;
+    for (; n < (1u << 20); n *= 2) {
+      run(n, gpu, cpu);
+      if (cpu >= 20.0) break;
+    }
+    std::vector<double> g, c;
+    for (int r = 0; r < 5; ++r) {
+      run(n, gpu, cpu);
+      g.push_back(gpu);
+      c.push_back(cpu);
+    }
+    vkDestroyPipeline(dev, pipe, nullptr);
+    vkDestroyShaderModule(dev, mod, nullptr);
+    double ms = median(g);
+    cpuOnly = ms < 0.25 * median(c);
+    if (cpuOnly) ms = median(c);
+    const double flops = double(kThreads) * n * 4 * 8 * 4 * 2;  // threads x loop x 4 steps x 8 chains x float4 x fma
+    return ms > 0.0 ? flops / (ms * 1e-3) / 1e12 : -1.0;
+  };
+
+  std::string text = "\nfp16 rate (Vulkan float16, the card's own fp16; OpBench's fp16 is min16float):\n";
+  bool cpu32 = false, cpu16 = false;
+  const double r32 = measure(kRate32Spv, std::size(kRate32Spv), cpu32);
+  const double r16 = half ? measure(kRate16Spv, std::size(kRate16Spv), cpu16) : -1.0;
+  char line[200];
+  std::snprintf(line, sizeof(line), "  fp32: %.3f TFLOPS%s\n", r32, cpu32 ? " (CPU time: the timestamps were wrong)" : "");
+  text += line;
+  if (!half) text += "  fp16: not supported by this driver (VK_KHR_shader_float16_int8 / shaderFloat16)\n";
+  else {
+    std::snprintf(line, sizeof(line), "  fp16: %.3f TFLOPS%s, %.2fx fp32\n", r16, cpu16 ? " (CPU time: the timestamps were wrong)" : "",
+                  r32 > 0.0 && r16 > 0.0 ? r16 / r32 : 0.0);
+    text += line;
+  }
+  std::printf("  %sfp16 rate (Vulkan float16):%s fp32 %.3f TFLOPS, ", st.c("\x1b[1;96m"), st.reset(), r32);
+  if (half) std::printf("fp16 %.3f TFLOPS (%.2fx)\n", r16, r32 > 0.0 && r16 > 0.0 ? r16 / r32 : 0.0);
+  else std::printf("fp16 not supported\n");
+
+  vkDestroyQueryPool(dev, qp, nullptr);
+  vkDestroyCommandPool(dev, cmdPool, nullptr);
+  vkDestroyDescriptorPool(dev, pool, nullptr);
+  vkDestroyPipelineLayout(dev, layout, nullptr);
+  vkDestroyDescriptorSetLayout(dev, setLayout, nullptr);
+  vkDestroyBuffer(dev, buf, nullptr);
+  vkFreeMemory(dev, mem, nullptr);
+  vkDestroyDevice(dev, nullptr);
+  return text;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -430,6 +647,10 @@ int main(int argc, char** argv) {
       for (uint32_t i = 0; i < nc; ++i)
         out("  " + std::string(descs[i].category) + " / " + descs[i].name + ": " + descs[i].description + "\n");
     }
+
+    // The card's own fp16 rate (its own device; the statistics below make theirs and load their functions again).
+    if (family != UINT32_MAX && batch.empty())
+      out(rateTest(pd, props, family, fams[family].timestampValidBits, has(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME), st));
 
     if (!pep && !amd && batch.empty()) {
       std::printf("  this driver reports nothing about compiled shaders\n");
