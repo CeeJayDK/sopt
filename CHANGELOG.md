@@ -24,6 +24,9 @@ docs/notes/history.md.
 
 ### GPU Blueprint
 - **New TexBench test: compute or pixel shader?** Runs three typical effects both ways, and the compute version in many group sizes and orders, then names the fastest way on your card and how it compares to a plain pixel shader. It adds a little to the run time.
+- **Graphics drivers with a wrong timer:** GPU Blueprint now checks whether the graphics driver's own timer can be trusted. Where it cannot (for example on an NVIDIA NVS 310), it times on the computer's clock instead and says so on screen and in the report, instead of letting tests grow far too long and restart the graphics driver.
+- **How long it takes:** every report now says how long its program ran, from start to finish (OpBench, StageBench, TexBench and ShaderInfo), so we can tell you more exactly how long the tests take.
+- **All results in one place:** key R in the menu now opens one page with a link to each results page, instead of only one of them.
 - **Slow and old graphics cards:** the warm-up now adjusts to the card, so very slow cards (for example an NVIDIA NVS 310) no longer make Windows restart the graphics driver at the start. StageBench can now be run on its own from the menu (key S).
 - **Stopped runs tell more:** when a test run stops early, its report now still names the graphics card and driver, and says where it stopped (also when that was during the warm-up).
 - **Cleaner results pages:** bars and big numbers no longer show thin lines between the blocks, the warm-up line is left out, and the TexBench section that compares ways to read the same texels is now called "Recommendation".

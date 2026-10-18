@@ -364,6 +364,7 @@ int main(int argc, char** argv) {
   if (pds.empty()) fail("no Vulkan GPU found");
   std::vector<std::string> files;
   for (VkPhysicalDevice pd : pds) {
+    const ULONGLONG gpuStart = GetTickCount64();  // the run time per GPU (owner, 2026-10-18: how long each tool takes)
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(pd, &props);
     if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU && !all) continue;  // software renderers
@@ -587,6 +588,7 @@ int main(int argc, char** argv) {
       vkDestroyDevice(dev, nullptr);
     }
     const std::filesystem::path file = here / ("shaderinfo-" + safe + ".txt");
+    out("run time: " + std::to_string((GetTickCount64() - gpuStart + 500) / 1000) + " s\n");
     if (FILE* f = std::fopen(file.string().c_str(), "wb")) {
       std::fwrite(report.data(), 1, report.size(), f);
       std::fclose(f);

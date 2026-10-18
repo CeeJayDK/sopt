@@ -1861,6 +1861,70 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   TexBench 174 / 169 s). NVS 310 on driver 392.68 (23.21.13.9268): OpBench and StageBench ps stopped in the 2 s warm-up,
   TexBench at its compute mad reference (docs/stopped, the first reports with card and driver): the newest Fermi driver
   hangs on the first timed work, where 353.62 still ran StageBench ps (0.7.11).
+  NVS 310 investigation (2026-10-18, driver 392.68): 0.7.17 OpBench --filter mad --groups 64 and full-size StageBench
+  ps reset in warm-up (device removed reason 0x887A0006). One-group compute returned ~0.0001 ms at 1,048,576 iterations,
+  then reset later. ShaderInfo found no Vulkan GPU; a standalone Direct3D 11 probe verified compute output by readback.
+  Events completed, but timestamps around compute were only 32-64 ns apart even with Disjoint == FALSE. Calibration
+  trusted them and doubled the work until Windows reset the driver: the earlier card / driver-state-only claim was
+  incomplete (Windows Display event 4101 confirms nvlddmkm recovery). The exact driver-internal fault is unknown.
+  Serial compilation, post-dispatch flush / copy / event, and start-only synchronization (0.7.19) did not fix all cases.
+  Synchronizing both timestamp boundaries (0.7.20) completed the narrow runs, but 0.7.21 still timed out in OpBench
+  (reported madlit, latency), with device removed reason 0x00000000: an outstanding query without a driver reset.
+  Timestamp workarounds are therefore unreliable. The standalone probe's full-size 16-iteration mad took 55.77-56.17 ms
+  with synchronized timestamps, agreeing with independent event completion (55-69 ms, same output).
+  0.7.22 uses NO timestamp queries on NVIDIA device 0x107D: drain earlier uploads with an EVENT, then time CPU elapsed
+  until the work's EVENT completes. Console / HTML / CSV explicitly label CPU/event timing, including stopped reports.
+  This includes submission / polling overhead: discard first-dispatch driver setup and calibrate to 20 ms on this card
+  (the shorter synchronized run once calibrated lat mad3v at two iterations, giving bogus cost ~1697). Independent
+  CPU/event probe: full-size single-chain mad 32 / 128 iterations 23.18 / 88.41 ms; one-group 131072 iterations 39.63 ms.
+  Other GPUs keep their timestamp commands, 2 ms target, no priming, and unchanged shaders / scoring. GTX 1660 / UHD 630
+  are not present, so no new on-card comparison was possible. No reference reports / model added; no settings changed.
+  Validation filters: OpBench / StageBench --filter mad; TexBench --filter "RGBA8 Load" (--filter mad selects no work).
+  0.7.22 on-card validation (default groups / five repetitions): all four runs exited 0 (17 OpBench tests in three
+  configurations, 17 StageBench tests each in ps / vs, TexBench texture test plus references). CPU/event labels are
+  present in CSV and HTML. OpBench mad tput / dep / lat: 28.55 / 23.20 / 37.82 ms at 8 / 32 / 131072 iterations.
+  Cold runs were noisy (OpBench drift 70%, ps 245%); repeated OpBench / ps both exited 0, drift 0.64 / 0.37 / 0.26%
+  (tput / dep / lat) and 0.40% (ps), scores 0.090 / 0.092 TFLOPS. Lat mad3v now uses 65536 iterations, 27.52 ms,
+  cost 5.82 instead of ~1697. Vertex / TexBench initial drift 31 / 4%; no further resets or query timeouts.
+  0.7.23 (owner, 2026-10-18: for every card, not one device id): Timer::checkTimestamps before the warm-up. n units of
+  the mad reference (1 iteration) double until CPU / event time >= 5 ms (honest, so never long), then the same run
+  with timestamps: under 25% of the CPU time, or no timestamp in 5 s, switches to CPU / event timing (the 0.7.22
+  path) with a note on screen (results page) and "# timing:" in the report (stopped ones too). Disjoint keeps the
+  timestamps. Not yet run on any card.
+  0.7.23 on the NVS 310 (agent's PR comment): OpBench / TexBench switched to CPU and completed; StageBench ps / vs
+  passed the one-reading check and reset in the warm-up (0x887A0006), and a timed-out probe left a flag set that
+  skipped later event waits. 0.7.24: the check takes 3 readings each way at n and 2n units (medians; the
+  timestamps must reach 25% of the CPU time and grow >= 1.3x with the work), its numbers always go into the report
+  ("# timestamp check:"); every timestamp reading is also guarded (CPU time from submission: two readings in a row
+  under 25% at >= 5 ms, or a timestamp missing after 5 s, switch to CPU time for the rest of the run, noted with
+  where). Not adopted from the comment: disjoint-only means CPU (Intel iGPUs report disjoint at clock changes; the
+  reading guard covers them), restarting the run after a late switch (the switch is noted with where instead).
+  0.7.24 on the NVS 310 (agent): OpBench / TexBench switched in the check; StageBench ps / vs passed the check
+  (CPU 6.33 / 11.08 ms, timestamps 4.74 / 9.36; vs 8.89 / 16.97 against 8.13 / 16.26), then "timestamps did not
+  arrive" and reset (ps in the warm-up, vs at mad16v3 after results). The guard's CPU time ended when the
+  timestamps arrived, and they arrive before the work is done on this driver, so it was short too. 0.7.25: the
+  CPU time ends at an EVENT after the timestamp pair (uploads drained before it), one low reading switches (two
+  let calibration double once more), calibration starts over after a switch (CPU target and priming), the
+  check's line is written on every exit. Results measured before a late switch keep their GPU timing (noted).
+  0.7.25 runs (2026-10-18): NVS 310 (agent, --filter mad / "RGBA8 Load"): all four exit 0; OpBench / TexBench switch
+  in the check (0.000 ms for 9.6 / 9.5 ms), StageBench ps / vs keep timestamps (CPU 6.35 / 9.56 against 4.71 / 9.46
+  ms; vs 9.08 / 18.59 against 8.13 / 16.26) and finish: fp32 0.090 (cs) / 0.081 (ps) / 0.066 (vs) TFLOPS. The owner's
+  GTX 1660 / UHD 630 runs pass the check everywhere, but the reading guard switched healthy cards mid-run: 1660 ps at
+  min (3.25 ms for 31.9), 1660 TexBench at RGBA16F aniso 16x (1.66 for 15.0), UHD 630 OpBench at aOr dep (2.55 for
+  33.3), UHD 630 ps at scaleneg4 (4.51 for 24.9): first readings of a new shader / texture (likely driver work on the CPU
+  at first use). Those four reports are mixed (GPU, then CPU timing) and were not saved. 0.7.26: a low reading is
+  measured again on the same work and switches only when it repeats.
+  0.7.25 runs (2026-10-18, timestamp-guard test builds, PR 45): NVS 310 on 392.68 OpBench --filter mad on CPU timing
+  (docs/opbench/nvidia-nvs-310.csv: the first compute numbers from this card, fp32 0.090 TFLOPS; its 18-row StageBench
+  ps / vs and 11-row TexBench filter runs not saved). Owner's GTX 1660 OpBench (-13, drift 23 / 3 / 6%, family match) and
+  vs (-vs-6), UHD 630 vs (-vs-6) and TexBench (-16, 151 s, 15.4 GTexels/s, drift 5.7%) on GPU timestamps saved; the
+  1660 ps / TexBench and UHD 630 OpBench / ps were switched to CPU timing mid-run by the 0.7.25 guard (fixed in
+  0.7.26) and left out (mixed timing).
+  0.7.27 runs (owner, 2026-10-18, PR 45 build): GTX 1660 / UHD 630 keep GPU timestamps in every report (check within
+  1-8% of CPU time, no guard switch: the repeat-on-same-work fix holds). Run times: OpBench 60 / 71 s, StageBench ps
+  29 / 32 s, vs 28 / 32 s, TexBench 140 s (1660), ShaderInfo < 1 s. UHD 630 TexBench stopped at tex2Dsize after the
+  formats section (0x887A0005, device hung 0x887A0006; 378 rows, saved as -17), where the UHD 620 stopped in 0.7.9;
+  0.7.25 ran through on the same card: likely the intermittent Gen9 hang near the big RGBA32 textures (unconfirmed).
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /

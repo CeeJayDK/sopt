@@ -1416,12 +1416,13 @@ void bind(Gpu& g, const Test& t, const Bound& b, const Kernel& k) {
   }
 }
 
-// Compute: groups thread groups; pixel shader: the top groups rows of the kPsSize x kPsSize target.
-double run(Gpu& g, const Kernel& k, UINT groups) {
-  if (k.cs) return g.timer.time(g.ctx, [&] { g.ctx->Dispatch(groups, 1, 1); });
+// Compute: groups thread groups; pixel shader: the top groups rows of the kPsSize x kPsSize target. repeat: that many
+// back to back.
+double run(Gpu& g, const Kernel& k, UINT groups, UINT repeat = 1) {
+  if (k.cs) return g.timer.time(g.ctx, [&] { for (UINT r = 0; r < repeat; ++r) g.ctx->Dispatch(groups, 1, 1); });
   const D3D11_VIEWPORT vp = {0.0f, 0.0f, float(kPsSize), float(std::min(groups, kPsSize)), 0.0f, 1.0f};
   g.ctx->RSSetViewports(1, &vp);
-  return g.timer.time(g.ctx, [&] { g.ctx->Draw(3, 0); });
+  return g.timer.time(g.ctx, [&] { for (UINT r = 0; r < repeat; ++r) g.ctx->Draw(3, 0); });
 }
 
 struct Result {
@@ -1436,7 +1437,8 @@ struct Plan {
   UINT groups = 1;
 };
 
-// A run of >= 2 ms (up to 8 ms by size first). It starts small (kMinGroups thread groups, kMinRows pixel rows: 64K / 16K threads, still enough
+// A run of >= 2 ms (20 ms with CPU timing: Timer::checkTimestamps; up to 8 ms by size first).
+// It starts small (kMinGroups thread groups, kMinRows pixel rows: 64K / 16K threads, still enough
 // to fill a GPU) and grows (more groups or rows, then more iterations), so no run is much longer than needed: a
 // full-size first run of a slow test took seconds on slow GPUs (random reads on an iGPU; RGBA32F aniso 16x on an
 // HD 6450 stopped TexBench, owner 2026-10-16: Windows resets a GPU that is busy for about 2 seconds).
@@ -1447,17 +1449,21 @@ Plan calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
   const UINT most = k.cs ? groups : kPsSize;
   p.groups = std::min(most, k.cs ? kMinGroups : kMinRows);
   setConstants(g, t, p.iters, t.size);
+  const bool cpuAtStart = g.timer.eventTiming;
+  const double targetMs = g.timer.eventTiming ? 20.0 : 2.0;
+  if (g.timer.eventTiming) run(g, k, p.groups);  // discard first-dispatch driver work (CPU timing)
   double ms = run(g, k, p.groups);
   while (ms >= 0.0 && ms < 8.0 && p.groups < most) {  // size up to an 8 ms run (fills big GPUs), then iterations
     p.groups = std::min(most, p.groups * 2);
     ms = run(g, k, p.groups);
   }
   // ms < 0: no valid reading (disjoint every time); keep the run length rather than doubling it blindly.
-  while (ms >= 0.0 && ms < 2.0 && p.iters < (1u << 20)) {
+  while (ms >= 0.0 && ms < targetMs && p.iters < (1u << 20)) {
     p.iters *= 2;
     setConstants(g, t, p.iters, t.size);
     ms = run(g, k, p.groups);
   }
+  if (g.timer.eventTiming != cpuAtStart) return calibrate(g, t, k, groups);  // switched to CPU time: its target, priming
   return p;
 }
 
@@ -1878,6 +1884,7 @@ OrderResult runOrder(Gpu& g, const std::filesystem::path& dxbcDir, const std::st
 }  // namespace
 
 int main(int argc, char** argv) {
+  const ULONGLONG programStart = GetTickCount64();  // the run time: start to end, as the user waits (owner, 2026-10-18)
   gProgram = "TexBench";
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   const Style st = initConsole();
@@ -2038,9 +2045,12 @@ int main(int argc, char** argv) {
     if ((filter.empty() || t.name.find(filter) != std::string::npos || t.name == "mad" || t.name == "ps.mad") &&
         storageOk(t) && fits(t))
       tests.push_back(&t);
-  if (!unsupported.empty()) print("Not supported by this GPU, left out: %s\n", unsupported.c_str());
+  // Counts on screen (owner: the name lists ran past the console width), the names in the report.
+  auto count = [](const std::string& list) { return std::count(list.begin(), list.end(), ',') + 1; };
+  if (!unsupported.empty()) print("Left out: %d tests not supported by this GPU (see the report)\n", int(count(unsupported)));
   if (!tooBig.empty())
-    print("Need more than half of the GPU's %.0f MB of memory, left out: %s\n", memory / 1048576.0, tooBig.c_str());
+    print("Left out: %d tests need over half of the %.0f MB GPU memory (see the report)\n", int(count(tooBig)),
+          memory / 1048576.0);
   for (bool added = true; added;) {
     added = false;
     for (const Test* t : std::vector<const Test*>(tests))
@@ -2104,13 +2114,16 @@ int main(int argc, char** argv) {
   BackgroundJobs compiling(std::move(jobList));
   auto jobOf = [&](const Test* t) { return size_t(std::find(tests.begin(), tests.end(), t) - tests.begin()); };
   if (!tests.empty()) {
-    std::printf("Warming up the GPU for 2 seconds ...");  // on screen only, not in the results page
-    // Warm up with the compute reference.
-    gCurrent = "the 2-second warm-up (mad)";  // where a stop happened (the report's "# stopped:" line)
+    // Check the timestamps, then warm up, with the compute reference.
+    gCurrent = "the timestamp check (mad)";  // where a stop happened (the report's "# stopped:" line)
     compiling.wait(jobOf(byName("mad")));
     Bound none = bindResources(g, *byName("mad"), rng);
     const Kernel& k = kernels["mad"]["tput"];
     bind(g, *byName("mad"), none, k);
+    setConstants(g, *byName("mad"), 1, 0);
+    g.timer.checkTimestamps([&](UINT n) { return run(g, k, kConfigs[0].groups, n); });
+    std::printf("Warming up the GPU for 2 seconds ...");  // on screen only, not in the results page
+    gCurrent = "the 2-second warm-up (mad)";
     // Batches sized to the card (~8 calibrated runs, at most 256 iterations): 256 took ~1 s on an NVS 310, and
     // Windows reset its driver (owner, 2026-10-17: the screen went blank in the warm-up).
     const Plan warm = calibrate(g, *byName("mad"), k, kConfigs[0].groups);
@@ -2390,7 +2403,7 @@ int main(int argc, char** argv) {
   // so a run stopped early still leaves its results.
   OrderResult order;
   auto writeCsv = [&] {
-    const double runSeconds = std::chrono::duration<double>(Clock::now() - runStart).count();
+    const double runSeconds = (GetTickCount64() - programStart) / 1000.0;
     double drift = 0.0;
     if (!refs.empty()) {
       const auto [lo, hi] = std::minmax_element(refs.begin(), refs.end());
@@ -2400,6 +2413,9 @@ int main(int argc, char** argv) {
   if (!csv) return;
   std::fprintf(csv, "# TexBench %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n# reference drift: %.2f%%\n# run time: %.0f s\n",
                SOPT_VERSION, ad.name.c_str(), ad.desc.VendorId, ad.desc.DeviceId, ad.driver.c_str(), drift, runSeconds);
+  g.timer.reportLines(csv);
+  if (!unsupported.empty()) std::fprintf(csv, "# left out (not supported): %s\n", unsupported.c_str());
+  if (!tooBig.empty()) std::fprintf(csv, "# left out (memory): %s\n", tooBig.c_str());
   const Score sc = score();
   std::fprintf(csv, "# texture rate: %.1f GTexels/s\n# pixel fill rate: %.1f GPixels/s\n# memory bandwidth (writes): %.1f GB/s\n",
                sc.texRate, sc.fill, sc.bandwidth);
@@ -2927,7 +2943,7 @@ int main(int argc, char** argv) {
   }
   lap(nullptr);
   if (planned) progress.pause();  // the tests are done: the bar is not needed any more (owner, 2026-10-12)
-  const double runSeconds = std::chrono::duration<double>(Clock::now() - runStart).count();
+  const double runSeconds = (GetTickCount64() - programStart) / 1000.0;
   const auto [lo, hi] = std::minmax_element(refs.begin(), refs.end());
   const double drift = refs.empty() ? 0.0 : 100.0 * (*hi - *lo) / median(refs);
   print("\n   reference drift %.1f%%\n", drift);
