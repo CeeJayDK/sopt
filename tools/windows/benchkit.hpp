@@ -984,13 +984,24 @@ struct Timer {
     };
     if (eventTiming) {
       // No timestamps are issued. Drain earlier uploads first, then measure CPU elapsed time until this work's EVENT
-      // completes. Calibration primes the shader and uses longer samples to reduce submission / polling overhead.
-      finish();
-      QueryPerformanceCounter(&c0);
-      work();
-      finish();
-      QueryPerformanceCounter(&c1);
-      return double(c1.QuadPart - c0.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
+      // completes. Difference method (owner, 2026-10-19: the GT 530's CPU timings were noisy): the work once, then
+      // twice; the second minus the first is the work's own time, without the fixed submission / completion overhead
+      // both contain. A negative difference (jitter larger than the work) is measured again, at most 3 times, then
+      // the plain time is used.
+      auto cpuMs = [&](int times) {
+        finish();
+        QueryPerformanceCounter(&c0);
+        for (int r = 0; r < times; ++r) work();
+        finish();
+        QueryPerformanceCounter(&c1);
+        return double(c1.QuadPart - c0.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
+      };
+      double one = 0.0;
+      for (int attempt = 0; attempt < 3; ++attempt) {
+        one = cpuMs(1);
+        if (const double two = cpuMs(2); two > one) return two - one;
+      }
+      return one;
     }
     // The guard's CPU time ends at an EVENT after the timestamps, not at the timestamps themselves: on the NVS 310
     // they arrived before the work was done, so a CPU time read from them was as short as they were (agent, 0.7.24

@@ -705,7 +705,7 @@ struct Plan {
   UINT groups = 0;
 };
 
-// A run of >= 2 ms (20 ms with CPU timing: Timer::checkTimestamps). It starts small, as TexBench does (1024 groups, 64K
+// A run of >= 2 ms (10 ms with CPU timing: Timer::checkTimestamps). It starts small, as TexBench does (1024 groups, 64K
 // threads: still enough to fill a GPU), and doubles the groups up to the configuration's size while the doubled run
 // stays under ~250 ms, then the iterations. A test whose smallest full-size run is too long for the card stays smaller:
 // on a GT 530 (Fermi: shared memory atomics are lock loops) gswrite32 took 347 ms at 2 iterations over 1M threads and
@@ -718,7 +718,7 @@ Plan calibrate(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c) {
   p.groups = std::min(c.groups, 1024u);
   // A CPU interval includes first-dispatch driver work. Discard it, then
   // use longer samples so the CPU / submission gaps at the timing boundaries are a small fraction.
-  const double targetMs = g.timer.eventTiming ? 20.0 : 2.0;
+  const double targetMs = g.timer.eventTiming ? 10.0 : 2.0;  // CPU time: overhead-free (difference method), 10 ms
   setConstants(g, t, p.iters);
   if (g.timer.eventTiming) timeDispatch(g, p.groups);
   double ms = timeDispatch(g, p.groups);  // < 0: no valid reading, keep the run length
@@ -731,7 +731,7 @@ Plan calibrate(Gpu& g, ID3D11DeviceChild* cs, const Test& t, const Config& c) {
     setConstants(g, t, p.iters);
     ms = timeDispatch(g, p.groups);
   }
-  if (g.timer.eventTiming && targetMs < 20.0) return calibrate(g, cs, t, c);  // switched to CPU time: its target, priming
+  if (g.timer.eventTiming && targetMs < 10.0) return calibrate(g, cs, t, c);  // switched to CPU time: its target, priming
   return p;
 }
 
