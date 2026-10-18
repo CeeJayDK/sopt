@@ -5,7 +5,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.7.2
+## 0.8.0
 
 ### SweetOpt
 - **Faster lookup tables on every graphics card:** when an effect looks up a value from a list of numbers, SweetOpt now writes the fastest way for each brand of graphics card (measured: up to 8 times faster on NVIDIA). Intel cards keep the original, which is already their fastest.
@@ -23,41 +23,21 @@ docs/notes/history.md.
 - **NVIDIA GTX 750 and early Maxwell laptop chips:** they get their own settings: unlike the GTX 900 cards, they have no fast square root.
 
 ### GPU Blueprint
-- **Your card's real fp16 speed:** ShaderInfo now measures how fast your card does half precision math next to full precision. OpBench's fp16 number is marked: it is what programs get with the usual half precision hint (min16float), which can be less than the card can do.
-- **What each test is for:** every section of OpBench, StageBench and TexBench now starts with one plain sentence on what it helps us learn about your graphics card (in dark gray; the column names are now white, so they stand apart).
-- **Very slow tests on old cards:** OpBench and StageBench now start each test small and only grow it while it stays short, as TexBench does, so a test that is extremely slow on a card (like shared memory atomics on an NVIDIA GT 530) no longer makes Windows restart the graphics driver. A stopped run now also names the test it was preparing.
-- **New TexBench test: compute or pixel shader?** Runs three typical effects both ways, and the compute version in many group sizes and orders, then names the fastest way on your card and how it compares to a plain pixel shader. It adds a little to the run time.
-- **Graphics drivers with a wrong timer:** GPU Blueprint now checks whether the graphics driver's own timer can be trusted. Where it cannot (for example on an NVIDIA NVS 310), it times on the computer's clock instead and says so on screen and in the report, instead of letting tests grow far too long and restart the graphics driver.
-- **How long it takes:** every report now says how long its program ran, from start to finish (OpBench, StageBench, TexBench and ShaderInfo), so we can tell you more exactly how long the tests take.
-- **All results in one place:** key R in the menu now opens one page with a link to each results page, instead of only one of them.
-- **Slow and old graphics cards:** the warm-up now adjusts to the card, so very slow cards (for example an NVIDIA NVS 310) no longer make Windows restart the graphics driver at the start. StageBench can now be run on its own from the menu (key S).
-- **Stopped runs tell more:** when a test run stops early, its report now still names the graphics card and driver, and says where it stopped (also when that was during the warm-up).
-- **Cleaner results pages:** bars and big numbers no longer show thin lines between the blocks, the warm-up line is left out, and the TexBench section that compares ways to read the same texels is now called "Recommendation".
-- **New TexBench tests for blur effects:** what one more pass costs, how many texture reads a pass gets almost for free, small targets, sharing reads between neighboring pixels, noise and dither sources, the order of reads, loops with branches, chains of compute passes, and drawing only part of the screen. They run for everyone, about half a minute more.
-- **New OpBench tests:** they show where Microsoft's shader compiler, which ReShade uses for Direct3D, makes some math slower than written, for a future project that undoes it.
-- **Fixed: TexBench on slow graphics cards:** a very slow test (like 16x anisotropic filtering on an AMD Radeon HD 6450) could stop the run. Each test now starts small and only grows as far as needed, and on cards with little memory (512 MB) the big texture and write tests run smaller instead of crawling; the few that cannot are left out and listed.
-- **Missing Microsoft runtime:** if the Visual C++ runtime the tests need is not installed, the menu says so and opens Microsoft's download page with the V key.
-- **Fits the window:** the first lines the tests print no longer wrap in Windows' standard console window.
-- **Fixed (we hope):** TexBench could stop halfway on some Intel graphics. It now frees memory as it goes, and if a run still stops, the report says why.
-- **StageBench joins the full run:** OpBench's tests again, in pixel shaders and in vertex shaders, the kinds of shaders ReShade effects use. Some math costs differently there, so SweetOpt can learn the real costs for effects. A full run takes a few minutes longer.
-- **Pick your card by name:** the menu shows your graphics card by name (with two cards both, on keys 2 and 3).
-- **See your results again:** the R key in the menu opens the saved result pages in your browser.
-- **Smaller result pages:** the saved copy of what the tests show is about half the size.
-- **Only new reports are sent:** after you send your reports they move to Reports\Sent, so the next zip holds only new ones.
-- **TexBench:** the test that writes a smooth color gradient now writes full opacity, as most effects do, and a new test writes noisy colors with full opacity (like film grain).
-- **More accurate integer tests:** OpBench measured some integer operations too cheap on older NVIDIA cards and AMD Vega. They are measured in a new way now.
-- **More OpBench tests:** combined integer operations (three values in one step), each half-precision conversion on its own, all(), degrees and more negative scales.
-- **New OpBench tests:** where a graphics card can multiply a result by 2, 4, 8 or a half for free, and where it cannot.
-- **Fixed:** OpBench said the tests for how many math operations run at once differed from other cards of the same kind, when they did not.
-- **Fixed:** OpBench's tests for multiplying by 2, 4 or 0.5 could not see the multiply at all on NVIDIA and Intel graphics cards. They are measured in a new way, and a new test shows what a plain multiply really costs.
-- **On the website:** which driver updates made graphics cards faster (a reason to keep your driver up to date), and on which graphics cards half precision (fp16) is faster. Both grow with every report.
-- **Your own copy of the results:** OpBench and TexBench now save what they show on screen, colors included, as a web page in Reports\Results, for you to keep or share (it leaves out where the files are on your PC). It is not part of the reports you send.
-- **Smoother progress in the window title:** the bar now fills in finer steps.
-- **Easier to read:** the clock drift is shown in color at the very end of each run, the progress bar goes away when the tests are done, and TexBench's formats and filtering table is colored from fast (green) to slow (red).
+- **New: StageBench.** OpBench's tests again, in pixel shaders and in vertex shaders, the kinds of shaders ReShade effects use. Some math costs differently there, so SweetOpt can learn the real costs for effects. It runs in the full set, or alone with key S.
+- **New TexBench tests:** the building blocks of blur effects (what one more pass costs, how many texture reads a pass gets almost for free, small targets, sharing reads between neighboring pixels, noise sources, the order of reads, loops, drawing only part of the screen), and "compute or pixel shader?": typical effects run both ways, and TexBench names the fastest way on your card.
+- **New OpBench tests:** how many math operations your card runs at once and side by side, where it multiplies by 2, 4, 8 or a half for free, and where Microsoft's shader compiler makes math slower than written. Integer tests are more accurate on older NVIDIA and AMD Vega cards.
+- **Your card's real half precision (fp16) speed:** ShaderInfo now measures it next to full precision. OpBench's fp16 number is marked: it is what programs get with the usual half precision hint, which can be less than the card can do.
+- **Old and slow graphics cards:** each test starts small and only grows while it stays short, the warm-up adjusts to the card, and cards with little memory run smaller tests. Cards like an NVIDIA NVS 310 or GT 530 or an AMD Radeon HD 6450 no longer make Windows restart the graphics driver.
+- **Graphics drivers with a wrong timer:** GPU Blueprint checks whether the driver's timer can be trusted, at the start and during the run. Where it cannot, it times on the computer's clock instead and says so on screen and in the report.
+- **Your results, for you:** each run saves what it showed, colors included, as a web page you can keep or share (it is not part of what you send). Key R opens one page with all of them. Every section starts with one plain sentence on what it helps us learn, and every report says how long its program ran.
+- **Easier to use:** the menu shows your graphics card by name (two cards: keys 2 and 3), tells you when Microsoft's Visual C++ runtime is missing (key V opens the download), and only sends reports you have not sent before. Before sending, it tells you how steady your card's speed was, and asks you to run again if the numbers would not be reliable.
+- **Stopped runs tell more:** if a run stops early, its report still names the graphics card and driver, and the test it stopped at.
 - **Your privacy:** the upload page asks for a name and an email, but they do not have to be real.
-- **Fixed names:** TexBench's 1D texture test is now called linear (it was called bilinear) and the 3D one trilinear (it was called linear).
-- **Know before you send:** before you send your reports, GPU Blueprint tells you how steady your graphics card's speed was during OpBench, and asks you to run it again if the numbers would not be reliable.
-- **New OpBench tests:** they show how many math operations your graphics card can run at the same time, and which kinds run side by side. Older AMD cards (Radeon HD 5000 / 6000) can run several at once, and these tests let SweetOpt learn how many. Please run GPU Blueprint again and send the reports, thank you!
+- **On the website:** which driver updates made graphics cards faster, and on which cards half precision is faster. Both grow with every report.
+- **Fixed:** TexBench stops less often on Intel graphics (it now frees memory as it goes; a rare stop can still happen, and the report then says where). Clearer names, cleaner result pages, and the first lines fit the standard console window.
+
+### Test Host
+- **New test effect:** `sopt_Derivatives.fx` shows how each graphics API computes ddx / ddy (fine or coarse), for effect authors who share values between neighboring pixels.
 
 ## 0.7.0
 
