@@ -1946,6 +1946,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   doubled up to the config's size while the doubled run stays under ~250 ms (cards whose full-size minimum runs
   stay under that keep their old run sizes), then iterations; calibrate sets gCurrent ("<test> (<config>,
   calibrating)").
+  0.7.30 runs (owner, 2026-10-18, PR 47 build): GT 530 OpBench ran through (748 rows, was stopped at the atomics),
+  CPU timing, drift 2.0 / 4.4 / 1.1% (0.7.29: 54 / 32 / 35%), 556 s, fp32 0.252 TFLOPS; StageBench ps / vs switched
+  to CPU timing mid-run (ps at lshladd tput calibrating, 0.82 ms for 14.6; vs at mad tput calibrating, 0.18 for 9.9),
+  drift 12 / 18% (0.7.29: 1998 / 443%), 88 / 180 s; TexBench 659 s, drift 6.7%. GTX 1660 / UHD 630 against 0.7.29:
+  no cost differs (0 of 747 OpBench, 0 of 228 ps tests over 0.75 units and 20%); iteration counts differ on a few
+  (1660 25, run-to-run clock noise). The small start keeps healthy cards' results.
+  GT 530 0.7.30 ran with the NVIDIA control panel set to prefer maximum performance (owner: a clean driver install had
+  reset it; 0.7.29 ran without): the drift drop is at least partly the power setting; getting past the atomics is the
+  small start (a power setting does not shorten a single run past the reset limit).
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /
