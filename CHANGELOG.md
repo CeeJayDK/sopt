@@ -13,6 +13,10 @@ docs/notes/history.md.
 - **Fixed:** a GLSL shader using `atan` with one value made SweetOpt close without a message.
 - **GLSL compute shaders:** SweetOpt can now read Vulkan GLSL compute shaders, such as FFmpeg's video filters (16 of its 22 filters so far).
 
+### GPU Blueprint
+- **Fixed:** laptop graphics cards could switch to the computer's clock for timing when they did not need to.
+- **Fixed:** ShaderInfo's half precision speed test could report twice the real speed on AMD cards.
+
 ## 0.8.0
 
 ### SweetOpt

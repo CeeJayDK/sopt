@@ -1030,7 +1030,9 @@ struct Timer {
     // (0-24%). Honest timestamps grow with the work: the same work done twice must read >= 1.5x. Wrong ones stay near 0
     // or do not grow. Twice the work is a bounded step (calibration doubles from small anyway).
     if (repeat == 1 && cpu >= 5.0 && ms < 0.25 * cpu) {
-      const bool nearZero = ms < 0.02 * cpu;
+      // Only a reading of ~0 skips the doubled check (0 doubled is still 0: it would pass). Under 2% was too wide: an
+      // RTX 3050 Laptop GPU waking for each small run read 0.299 ms for 15.1 ms of CPU time and was switched (0.8.0).
+      const bool nearZero = ms < 0.001;
       const double twice = nearZero ? 0.0 : timeOnce(ctx, work, 2);
       if (eventTiming) return -1.0;  // the doubled run's timestamps did not arrive: switched there
       if (!nearZero && (twice < 0.0 || twice >= 1.5 * ms)) return ms;  // disjoint: no answer, keep; grew: delay only
