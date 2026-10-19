@@ -1991,6 +1991,9 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   arrayread 4.4, usually 2.1), drift 1-24%, run times unchanged; ShaderInfo rate (distinct lanes) fp32 4.30 / 0.224,
   fp16 2.34x / 2.45x: the rate test's fp32 stays below OpBench's (1660 81%, UHD 630 50%, RTX 2070 70%, RTX 4070 89%),
   so its ratio is overstated where fp16 is packed (Turing should be 2.0x) -> look at rate.comp's fp32 build later.
+  Cause: clocks, not the shader. ShaderInfo runs first on an idle GPU and measured fp32 first (owner's PC: GTX 1660
+  4.14 TFLOPS cold, 5.16 on a second run; UHD 630 0.19-0.22). 0.8.3: 500 ms of the same work before each measurement:
+  GTX 1660 fp32 5.19 / fp16 1.87x, UHD 630 0.45-0.49 / ~2.0x (OpBench 5.31 / 0.45).
   GT 530 0.8.0 (owner): OpBench / TexBench CPU-timed from the start (0.000 ms), StageBench ps / vs kept timestamps
   (0.7.37 vs switched while calibrating); drift OpBench 52%, TexBench 43%; 928 / 77 / 81 / 1133 s.
   RTX 4070 (tester, 0.8.0, driver 32.0.16.1088): OpBench ada, no differences, 30.1 TFLOPS, drift 14%, 54 s; StageBench
