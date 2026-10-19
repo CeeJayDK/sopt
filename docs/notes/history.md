@@ -1972,6 +1972,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   twice minus once = the work without the fixed submission / completion overhead (a negative difference is measured
   again, at most 3 times, then the plain time); the CPU-timing run target drops 20 -> 10 ms (overhead no longer needs
   diluting), so a reading costs ~30 ms of GPU work instead of 20. Jitter itself does not cancel.
+  0.7.37 runs (owner, 2026-10-19, release test build): GT 530 OpBench and TexBench switched at the timestamp check
+  (0.000 ms for 7.2 ms), StageBench vs while calibrating mad (0.178 ms for 10.4 ms), StageBench ps kept timestamps;
+  drift OpBench 5.4%, StageBench 1.3 / 1.6%, TexBench 51% (the monitor went to sleep during the run; owner set 30 min);
+  run times OpBench 885 s, StageBench 76 / 303 s, TexBench 1134 s (~40 min; 0.7.30: ~26 min). Iris 540 / UHD 630 clean
+  on timestamps (OpBench 105 / 76 s, TexBench 271 / 177 s). GTX 1660 OpBench / StageBench clean; TexBench switched at
+  RGBA32F write noise (0.823 ms for 7.2 ms, 1.067 ms twice) although the CPU-timed rows after it match 0.7.31's
+  timestamps (0.85 ms): a one-off at a new 4K RGBA32F target, report left out; 0.7.38 checks once more before switching.
+  ShaderInfo fp16 rate (Vulkan float16): GTX 1660 4.60 / 10.44 TFLOPS (2.27x), UHD 630 0.160 / 0.384 (2.41x), Iris 540
+  0.417 / 0.785 (1.88x).
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /

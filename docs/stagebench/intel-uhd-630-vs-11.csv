@@ -1,0 +1,236 @@
+# StageBench 0.7.37
+# stage: vs
+# gpu: Intel(R) UHD Graphics 630
+# vendor: 0x8086
+# device: 0x3E92
+# driver: 31.0.101.2145
+# timestamp check: 8 / 16 units: CPU 7.81 / 14.84 ms, GPU timestamps 7.765 / 14.896 ms: timestamps kept
+# min16float: 16-bit
+# reference drift tput: 1.99%
+# run time: 33 s
+# family: intel-gen9 (Gen9 / Gen9.5, 3 cards)
+# differs from the family:
+# fp32: 0.443 TFLOPS
+# fp16 (min16float): 0.407 TFLOPS
+# special functions (rcp): 56.7 Gops/s
+config,test,base,iters,ms,ns_per_step,units,units_vs_base,vs_base_fwd,vs_base_bwd,passes,consensus,readings,step,note,expected
+tput,mad,,4,2.4285,0.004523,4.000,4.000,4.000,4.000,2,yes,4.000;4.000,"mad(x, c.x, c.y)","reference: one fma per step",4.0
+tput,add,mad,2,2.4016,0.008947,7.926,3.926,3.900,3.953,2,yes,7.900;7.953,"mad(x + c.z, c.x, c.y)","",4.0
+tput,sub,mad,2,2.4082,0.008971,7.948,3.948,3.950,3.946,2,yes,7.950;7.946,"mad(c.z - x, c.x, c.y)","",3.9
+tput,mul,mad,2,2.4091,0.008974,7.938,3.938,3.952,3.925,2,yes,7.952;7.925,"mad(x * c.z, c.x, c.y)","~0 where the driver merges it: x * (c.z * c.x)",4.0
+tput,fma1,,4,2.4237,0.004515,4.020,4.020,4.013,4.026,2,yes,4.013;4.026,"mad(x, x, c.x)","one fma, one constant: the fp32 score where it is faster",4.0
+tput,madsatu,mad,4,2.4160,0.004500,4.000,0.000,0.000,0.001,2,yes,4.000;4.001,"saturate(mad(x, c.x, c.y))","base for the literal tests: two uniforms",-0.0
+tput,madlit,madsatu,4,2.5470,0.004744,4.202,0.202,0.197,0.207,2,yes,4.197;4.208,"saturate(mad(x, k + 1.5, -0.5 - k * 0.1))","two literals: a v_mov on GCN?",0.2
+tput,madlit1,madsatu,4,2.4911,0.004640,4.123,0.123,0.130,0.116,2,yes,4.130;4.117,"saturate(mad(x, k + 1.5, c.y))","a literal and a uniform",0.1
+tput,madinl,madsatu,4,2.4282,0.004523,4.020,0.020,0.054,-0.014,2,yes,4.054;3.987,"saturate(mad(x, 2.0, -0.5))","inline constants: free to encode on AMD",0.0
+tput,mad2,mad,2,2.3919,0.008911,7.909,3.909,3.922,3.895,2,yes,7.922;7.895,"mad(mad(x, c.z, c.w), c.x, c.y)","a second mad",4.0
+tput,min,mad,2,2.4012,0.008945,7.925,3.925,3.950,3.900,2,yes,7.950;7.900,"mad(min(x, c.z), c.x, c.y)","",4.0
+tput,max,mad,2,2.4098,0.008977,7.967,3.967,3.955,3.979,2,yes,7.955;7.979,"mad(max(x, c.z), c.x, c.y)","",4.0
+tput,neg,mad,4,2.4280,0.004523,4.007,0.007,0.014,0.000,2,yes,4.014;4.000,"mad(-x, c.x, c.y)","source modifier",-0.0
+tput,abs,mad,4,2.4589,0.004580,4.057,0.057,0.057,0.058,2,yes,4.057;4.058,"mad(abs(x), c.x, c.y)","source modifier",0.1
+tput,negabs,mad,4,2.4601,0.004582,4.074,0.074,0.087,0.060,2,yes,4.087;4.060,"mad(-abs(x), c.x, c.y)","source modifiers",0.1
+tput,saturate,mad,4,2.5586,0.004766,4.237,0.237,0.222,0.251,2,yes,4.222;4.251,"mad(saturate(x), c.x, c.y)","output modifier of the previous mad",0.2
+tput,clamp,mad,2,3.4852,0.012983,11.482,7.482,7.411,7.554,2,yes,11.411;11.554,"mad(clamp(x, c.z, c.w), c.x, c.y)","AMD: v_med3",7.5
+tput,floor,mad,2,2.4012,0.008945,7.952,3.952,3.949,3.954,2,yes,7.949;7.954,"mad(floor(x), c.x, c.y)","",3.9
+tput,ceil,mad,2,2.4050,0.008959,7.939,3.939,3.978,3.900,2,yes,7.978;7.900,"mad(ceil(x), c.x, c.y)","",3.9
+tput,round,mad,2,2.4094,0.008976,7.980,3.980,4.006,3.954,2,yes,8.006;7.954,"mad(round(x), c.x, c.y)","",3.9
+tput,trunc,mad,2,2.4094,0.008976,7.979,3.979,3.954,4.005,2,yes,7.954;8.005,"mad(trunc(x), c.x, c.y)","round toward zero (fxc: round_z)",4.0
+tput,frac,mad,2,2.4017,0.008947,7.941,3.941,3.955,3.927,2,yes,7.955;7.927,"mad(frac(x), c.x, c.y)","",4.0
+tput,sign,sub,2,6.7483,0.025140,22.278,14.330,14.340,14.320,2,yes,22.290;22.266,"mad(sign(x - c.z), c.x, c.y)","sign of a difference",14.5
+tput,step,mad,2,3.5051,0.013058,11.607,7.607,7.606,7.609,2,yes,11.606;11.609,"mad(step(c.z, x), c.x, c.y)","",7.5
+tput,select,mad,2,3.4903,0.013002,11.480,7.480,7.520,7.440,2,yes,11.520;11.440,"mad(x < c.z ? c.w : x, c.x, c.y)","compare + cndmask",7.5
+tput,lerp,mad,2,3.4894,0.012999,11.518,7.518,7.478,7.558,2,yes,11.478;11.558,"mad(lerp(c.z, x, c.w), c.x, c.y)","",7.6
+tput,rcp,mad,2,4.7368,0.017646,15.628,11.628,11.611,11.644,2,yes,15.611;15.644,"mad(rcp(x), c.x, c.y)","",11.7
+tput,div,mad,2,5.3342,0.019872,17.666,13.666,13.714,13.619,2,yes,17.714;17.619,"mad(c.z / x, c.x, c.y)","c / x",13.6
+tput,divxy,add,2,5.8916,0.021948,19.446,11.519,11.571,11.468,2,yes,19.470;19.421,"mad(x / (x + c.z), c.x, c.y)","x / y",11.7
+tput,sqrt,mad,2,4.7448,0.017676,15.661,11.661,11.673,11.649,2,yes,15.673;15.649,"mad(sqrt(x), c.x, c.y)","",11.8
+tput,rsqrt,mad,2,4.7449,0.017676,15.713,11.713,11.775,11.650,2,yes,15.775;15.650,"mad(rsqrt(x), c.x, c.y)","",11.7
+tput,exp2,mad,2,4.7364,0.017644,15.631,11.631,11.646,11.617,2,yes,15.646;15.617,"mad(exp2(x), c.x, c.y)","",11.7
+tput,rsqrtnr0,mad,2,3.4918,0.013008,11.602,7.602,7.618,7.585,2,yes,11.618;11.585,"mad(asfloat(0x5F3759DFu - (asuint(x) >> 1)), c.x, c.y)","rsqrt guess, no NR step (3.4% off): shift, int sub",7.6
+tput,rsqrtnr1,mad,2,7.8197,0.029131,25.820,21.820,21.779,21.861,2,yes,25.779;25.861,"mad(rsqrtNR1(x), c.x, c.y)","rsqrt guess + 1 NR step (0.18% off)",21.9
+tput,rcpnr0,mad,2,2.4099,0.008977,7.941,3.941,3.955,3.927,2,yes,7.955;7.927,"mad(asfloat(0x7EF311C2u - asuint(x)), c.x, c.y)","rcp guess, no NR step (5% off): int sub",3.9
+tput,rcpnr1,mad,2,4.6182,0.017204,15.243,11.243,11.258,11.228,2,yes,15.258;15.228,"mad(rcpNR1(x), c.x, c.y)","rcp guess + 1 NR step (0.26% off)",12.2
+tput,sqrtnr0,mad,2,3.4954,0.013021,11.559,7.559,7.610,7.507,2,yes,11.610;11.507,"mad(asfloat(0x1FBD1DF5u + (asuint(x) >> 1)), c.x, c.y)","sqrt guess, no NR step (4.5% off): shift, int add",7.5
+tput,pow2floor,mad,2,2.4057,0.008962,7.952,3.952,3.978,3.927,2,yes,7.978;7.927,"mad(asfloat(asuint(x) & 0x7F800000u), c.x, c.y)","exp2(floor(log2(x))) from the bits: one and (exact)",4.0
+tput,exp2floor,mad,2,9.4789,0.035312,31.390,27.390,27.535,27.245,2,yes,31.535;31.245,"mad(exp2(floor(log2(x))), c.x, c.y)","the same written out",27.4
+tput,pow2ceil,mad,2,3.4948,0.013019,11.536,7.536,7.509,7.564,2,yes,11.509;11.564,"mad(asfloat((asuint(x) + 0x007FFFFFu) & 0x7F800000u), c.x, c.y)","exp2(ceil(log2(x))) from the bits: add, and (exact)",7.6
+tput,exp2ceil,mad,2,9.4880,0.035346,31.326,27.326,27.225,27.426,2,yes,31.225;31.426,"mad(exp2(ceil(log2(x))), c.x, c.y)","the same written out",27.5
+tput,log2,mad,2,4.7404,0.017659,15.647,11.647,11.676,11.618,2,yes,15.676;15.618,"mad(log2(x), c.x, c.y)","",11.7
+tput,exp,mad,2,5.2075,0.019399,17.245,13.245,13.198,13.292,2,yes,17.198;17.292,"mad(exp(x), c.x, c.y)","fxc: mul + exp2",13.6
+tput,log,mad,2,5.2738,0.019646,17.377,13.377,13.346,13.407,2,yes,17.346;17.407,"mad(log(x), c.x, c.y)","fxc: log2 + mul",13.5
+tput,pow,mad,2,9.4517,0.035210,31.195,27.195,27.184,27.206,2,yes,31.184;31.206,"mad(pow(x, c.z), c.x, c.y)","fxc: log2, mul, exp2",27.3
+tput,sin,mad,2,4.7371,0.017647,15.637,11.637,11.624,11.650,2,yes,15.624;15.650,"mad(sin(x), c.x, c.y)","",11.8
+tput,cos,mad,2,4.7490,0.017691,15.728,11.728,11.779,11.677,2,yes,15.779;15.677,"mad(cos(x), c.x, c.y)","",11.8
+tput,sqmax,mad,2,3.4867,0.012989,11.491,7.491,7.457,7.524,2,yes,11.457;11.524,"mad(max(x * x, x), c.x, c.y)","base for the scale tests",7.6
+tput,scale2,sqmax,2,4.5731,0.017036,15.093,3.602,3.608,3.596,2,yes,15.065;15.120,"mad(max(x * x * 2.0, x), c.x, c.y)","fxc writes * 2 as x + x (here dp2): what D3D gets",3.8
+tput,scalehalf,sqmax,2,4.5639,0.017002,15.113,3.622,3.676,3.568,2,yes,15.134;15.093,"mad(max(x * x * 0.5, x), c.x, c.y)","AMD: output modifier, ~0",3.7
+tput,scale4,sqmax,2,4.5748,0.017042,15.150,3.659,3.654,3.664,2,yes,15.111;15.189,"mad(max(x * x * 4.0, x), c.x, c.y)","AMD: output modifier, ~0",3.6
+tput,scale8,sqmax,2,4.5753,0.017044,15.201,3.710,3.783,3.637,2,yes,15.240;15.162,"mad(max(x * x * 8.0, x), c.x, c.y)","DX9 _x8; NVIDIA FMUL .M8?",3.9
+tput,scale0.25,sqmax,2,4.5844,0.017078,15.132,3.641,3.665,3.616,2,yes,15.122;15.141,"mad(max(x * x * 0.25, x), c.x, c.y)","DX9 _d4; NVIDIA FMUL .D4?",3.6
+tput,scale0.125,sqmax,2,4.5657,0.017009,15.071,3.580,3.601,3.560,2,yes,15.058;15.084,"mad(max(x * x * 0.125, x), c.x, c.y)","DX9 _d8",3.7
+tput,scale3,sqmax,2,4.5634,0.017000,15.063,3.573,3.556,3.589,2,yes,15.013;15.114,"mad(max(x * x * 3.0, x), c.x, c.y)","control: a full multiply",3.6
+tput,mulxx,mad,2,2.4049,0.008959,7.938,3.938,3.950,3.926,2,yes,7.950;7.926,"mad(x * x, c.x, c.y)","a multiply no driver can merge",3.9
+tput,scale16,sqmax,2,4.5715,0.017030,15.138,3.647,3.708,3.586,2,yes,15.165;15.110,"mad(max(x * x * 16.0, x), c.x, c.y)","beyond x8",3.6
+tput,scale0.0625,sqmax,2,4.5709,0.017028,15.086,3.595,3.600,3.590,2,yes,15.057;15.114,"mad(max(x * x * 0.0625, x), c.x, c.y)","beyond /8",3.6
+tput,scaleneg4,sqmax,2,4.5664,0.017011,15.046,3.555,3.548,3.563,2,yes,15.005;15.087,"mad(max(x * x * -4.0, x), c.x, c.y)","a negative scale",3.5
+tput,scaleneg0.5,sqmax,2,4.5824,0.017071,15.175,3.684,3.729,3.638,2,yes,15.186;15.163,"mad(max(x * x * -0.5, x), c.x, c.y)","a negative scale",3.7
+tput,scaleneg8,sqmax,2,4.5731,0.017036,15.119,3.628,3.706,3.551,2,yes,15.163;15.076,"mad(max(x * x * -8.0, x), c.x, c.y)","a negative scale",3.6
+tput,fmamax,mad,2,3.4739,0.012941,11.466,7.466,7.455,7.476,2,yes,11.455;11.476,"mad(max(mad(x, x, x), x), c.x, c.y)","base for the fma scale tests",7.6
+tput,fmascale4,fmamax,2,4.5792,0.017059,15.212,3.747,3.746,3.747,2,yes,15.201;15.224,"mad(max(mad(x, x, x) * 4.0, x), c.x, c.y)","AMD: omod on v_fma",3.6
+tput,fmascale0.25,fmamax,2,4.5747,0.017042,15.049,3.584,3.617,3.550,2,yes,15.072;15.026,"mad(max(mad(x, x, x) * 0.25, x), c.x, c.y)","not an AMD scale",3.5
+tput,fmascale3,fmamax,2,4.5735,0.017038,15.193,3.728,3.766,3.689,2,yes,15.221;15.165,"mad(max(mad(x, x, x) * 3.0, x), c.x, c.y)","control",3.6
+tput,addmax,mad,2,3.4830,0.012975,11.534,7.534,7.559,7.510,2,yes,11.559;11.510,"mad(max(x + abs(x), x), c.x, c.y)","base for the add scale tests",7.6
+tput,addscale4,addmax,2,4.5479,0.016942,15.011,3.477,3.452,3.502,2,yes,15.011;15.012,"mad(max((x + abs(x)) * 4.0, x), c.x, c.y)","AMD: omod on v_add",3.6
+tput,addscale3,addmax,2,4.5658,0.017009,15.097,3.563,3.496,3.630,2,yes,15.055;15.140,"mad(max((x + abs(x)) * 3.0, x), c.x, c.y)","control",3.6
+tput,max3,max,2,3.4854,0.012984,11.544,3.576,3.628,3.525,2,yes,11.583;11.504,"mad(max(max(x, c.z), c.w), c.x, c.y)","AMD: v_max3, ~0",3.9
+tput,minmax,max,2,3.4896,0.013000,11.559,3.592,3.593,3.591,2,yes,11.549;11.569,"mad(min(max(x, c.z), c.w), c.x, c.y)","AMD: v_minmax / v_med3, ~0",3.6
+tput,contract,mad,2,2.4033,0.008953,7.932,3.932,3.917,3.947,2,yes,7.917;7.947,"mad(x * c.z + c.w, c.x, c.y)","mul + add: one fma like mad2?",3.9
+tput,satmad,mad2,2,2.3994,0.008938,7.919,0.011,0.023,-0.001,2,yes,7.945;7.894,"mad(saturate(mad(x, c.z, c.w)), c.x, c.y)","saturate as output modifier, ~0",-0.0
+tput,signsat,sub,2,5.6403,0.021012,18.677,10.730,10.825,10.634,2,yes,18.775;18.579,"mad(saturate((x - c.z) * 1e38) - saturate((x - c.z) * -1e38), c.x, c.y)","exact sign: mul_sat + add",10.8
+tput,signmad,sub,2,4.6483,0.017316,15.343,7.395,7.367,7.424,2,yes,15.316;15.369,"mad(mad(saturate(mad(x - c.z, 1e38, 0.5)), 2.0, -1.0), c.x, c.y)","exact sign: mad_sat + mad",7.4
+tput,signclamp,sub,2,5.6529,0.021059,18.723,10.775,10.749,10.801,2,yes,18.698;18.747,"mad(clamp((x - c.z) * 1e38, -1.0, 1.0), c.x, c.y)","exact sign: mul, max, min",10.9
+tput,signsel,sub,2,7.8857,0.029376,26.111,18.163,18.251,18.076,2,yes,26.200;26.022,"mad((x - c.z) > 0.0 ? 1.0 : ((x - c.z) < 0.0 ? -1.0 : 0.0), c.x, c.y)","exact sign: lt, lt, and, movc",18.6
+tput,signsel2,sub,2,3.5075,0.013067,11.600,3.652,3.669,3.636,2,yes,11.619;11.581,"mad((x - c.z) >= 0.0 ? 1.0 : -1.0, c.x, c.y)","not sign (1 at 0): ge, movc",3.7
+tput,roundadd,mad,2,3.4809,0.012967,11.509,7.509,7.512,7.507,2,yes,11.512;11.507,"mad(roundAdd(x), c.x, c.y)","round: (x + 1.5 * 2^23) - 1.5 * 2^23, precise",7.5
+tput,flooradd,mad,2,6.7255,0.025054,22.159,18.159,18.181,18.137,2,yes,22.181;22.137,"mad(floorAdd(x), c.x, c.y)","floor: r - saturate((r - x) * 1e38), precise",18.3
+tput,fracadd,mad,2,6.7375,0.025099,22.313,18.313,18.282,18.343,2,yes,22.282;22.343,"mad(fracAdd(x), c.x, c.y)","frac: d + saturate(d * -1e38), d = x - r, precise",18.3
+tput,mad2v,mad,2,2.5944,0.009665,8.548,4.548,4.535,4.562,2,yes,8.535;8.562,"mad(x, c.x, c.y)","2 fmas (float2)",4.6
+tput,mad3v,mad,2,3.8218,0.014237,12.614,8.614,8.612,8.615,2,yes,12.612;12.615,"mad(x, c.x, c.y)","3 fmas (float3)",8.6
+tput,mad4v,mad,2,5.0746,0.018905,16.749,12.749,12.720,12.779,2,yes,16.720;16.779,"mad(x, c.x, c.y)","4 fmas (float4)",12.8
+tput,dot2,mad2v,2,4.7767,0.017795,15.741,7.192,7.210,7.175,2,yes,15.745;15.737,"mad(x.yx, dot(x, c.zw), c.y)","dot2: mul + fma",7.3
+tput,dot3,mad3v,2,7.5184,0.028008,24.894,12.280,12.203,12.357,2,yes,24.816;24.972,"mad(x.yzx, dot(x, c.zwz), c.y)","dot3: mul + 2 fma",12.4
+tput,dot4,mad4v,2,9.8994,0.036878,32.675,15.926,15.917,15.935,2,yes,32.636;32.714,"mad(x.yzwx, dot(x, c.zwzw), c.y)","dot4: mul + 3 fma",16.1
+tput,cross,mad3v,2,10.3263,0.038468,34.083,21.469,21.464,21.475,2,yes,34.077;34.090,"mad(cross(x, c.zwy), c.x, c.y)","cross: 3 mul + 3 fma",21.6
+tput,normalize,mad3v,2,12.9877,0.048383,43.015,30.401,30.273,30.528,2,yes,42.886;43.144,"mad(normalize(x), c.x, c.y)","dot3, rsqrt, 3 mul",30.4
+tput,length,mad3v,2,13.2530,0.049371,43.824,31.210,31.015,31.405,2,yes,43.628;44.020,"mad(x.yzx, c.x, c.y) - length(x) * c.z","dot3, sqrt, plus one fma",32.4
+tput,distance,mad3v,2,16.5091,0.061501,54.658,42.044,41.869,42.220,2,yes,54.481;54.835,"mad(x.yzx, c.x, c.y) - distance(x, c.zwz) * c.z","3 sub, dot3, sqrt, plus one fma",42.1
+tput,reflect,mad3v,2,11.4040,0.042483,37.705,25.091,25.060,25.122,2,yes,37.672;37.737,"mad(reflect(x, c.zwz), c.x, c.y)","i - 2 * dot(i, n) * n",26.0
+tput,refract,mad3v,2,22.8514,0.085128,75.552,62.938,63.177,62.699,2,yes,75.789;75.314,"mad(refract(x, c.zwz, c.z), c.x, c.y)","dot, sqrt, select ...",63.4
+tput,faceforward,mad3v,2,10.8765,0.040518,35.892,23.279,23.288,23.269,2,yes,35.900;35.884,"mad(faceforward(x, c.zwz, x.yzx), c.x, c.y)","dot, compare, select",23.7
+tput,matmul4,mad4v,2,22.3649,0.083316,73.821,57.071,57.116,57.027,2,yes,73.836;73.806,"mad(mul(float4x4(c, c.yzwx, c.zwxy, c.wxyz), x), 0.25, c.y)","float4x4 * float4: 4 dot4",57.3
+tput,transpose,matmul4,2,22.3613,0.083302,73.941,0.121,0.253,-0.011,2,yes,74.089;73.794,"mad(mul(transpose(float4x4(c, c.yzwx, c.zwxy, c.wxyz)), x), 0.25, c.y)","the same with transpose: free?",
+tput,det3,mad3v,2,12.6122,0.046984,41.633,29.019,29.128,28.911,2,yes,41.740;41.526,"mad(x, c.x, determinant(float3x3(x, c.zwz, c.wzw)) * c.w + c.y)","float3x3 determinant",29.2
+tput,fmod,mad,2,6.8244,0.025423,22.528,18.528,18.531,18.525,2,yes,22.531;22.525,"mad(fmod(x, c.z), c.x, c.y)","fxc: div, frac, mul, select",18.5
+tput,smoothstep,mad,2,6.9546,0.025908,22.914,18.914,18.922,18.905,2,yes,22.922;22.905,"mad(smoothstep(c.z, c.w, x), c.x, c.y)","fxc: add, mul_sat, mad, 2 mul",19.3
+tput,atan,mad,2,21.2638,0.079214,70.179,66.179,66.191,66.167,2,yes,70.191;70.167,"mad(atan(x), c.x, c.y)","fxc: polynomial",67.9
+tput,atan2,mad,2,23.7370,0.088427,78.359,74.359,74.330,74.388,2,yes,78.330;78.388,"mad(atan2(x, c.z), c.x, c.y)","fxc: polynomial + quadrant fixes",77.8
+tput,asin,mul,2,15.7281,0.058592,52.080,44.142,44.307,43.977,2,yes,52.259;51.902,"mad(asin(x * c.z), c.x, c.y)","fxc: polynomial + sqrt",44.2
+tput,acos,mul,2,14.5959,0.054374,48.503,40.564,40.502,40.626,2,yes,48.454;48.551,"mad(acos(x * c.z), c.x, c.y)","fxc: polynomial + sqrt",40.5
+tput,acos4,mul,2,15.5960,0.058100,51.644,43.706,43.864,43.547,2,yes,51.816;51.472,"mad(acosFast4(x * c.z), c.x, c.y)","ShaderFastMathLib acosFast4 (fxc's own acos uses the same polynomial)",44.5
+tput,atan4,mul,2,7.9336,0.029555,26.184,18.246,18.269,18.222,2,yes,26.221;26.147,"mad(atanFast4(x * c.z), c.x, c.y)","ShaderFastMathLib atanFast4: |x| <= 1 only, 1.5e-3 rad off",18.4
+tput,acos1,mul,2,10.1885,0.037955,33.741,25.803,25.685,25.921,2,yes,33.637;33.846,"mad(acosP1(x * c.z), c.x, c.y)","Lagarde acos degree 1 (6.1e-3 rad off)",25.8
+tput,atan5a,mad,2,13.5251,0.050385,44.410,40.410,40.471,40.349,2,yes,44.471;44.349,"mad(atanOP5A(x), c.x, c.y)","Lagarde atan odd degree 5 alternate (1.2e-3 rad)",40.8
+tput,atan2q,mad,2,11.2410,0.041876,37.097,33.097,33.091,33.103,2,yes,37.091;37.103,"mad(atan2Q(x, c.z), c.x, c.y)","Lagarde atan2, first quadrant only (1.2e-3 rad)",33.3
+tput,tan,mul,2,13.6633,0.050900,45.241,37.302,37.059,37.546,2,yes,45.010;45.471,"mad(tan(x * c.z), c.x, c.y)","fxc: sincos + div",37.4
+tput,sincos,add,2,9.1258,0.033996,30.122,22.196,22.208,22.184,2,yes,30.107;30.137,"mad(sin(x) + cos(x), c.x, c.y)","sin and cos of one value",22.4
+tput,cosh,mad,2,9.6721,0.036031,31.927,27.927,27.883,27.972,2,yes,31.883;31.972,"mad(cosh(x), c.x, c.y)","fxc: 2 exp",28.0
+tput,sinh,mad,2,9.6438,0.035926,31.884,27.884,27.910,27.857,2,yes,31.910;31.857,"mad(sinh(x), c.x, c.y)","fxc: 2 exp",28.6
+tput,tanh,mad,2,15.1604,0.056477,50.218,46.218,46.420,46.017,2,yes,50.420;50.017,"mad(tanh(x), c.x, c.y)","fxc: exp, div",46.3
+tput,log10,mad,2,5.2824,0.019678,17.466,13.466,13.408,13.524,2,yes,17.408;17.524,"mad(log10(x), c.x, c.y)","fxc: log2 + mul",13.5
+tput,radians,mad,2,2.4812,0.009243,8.189,4.189,4.203,4.175,2,yes,8.203;8.175,"mad(radians(x), c.x, c.y)","a mul by a constant (also degrees); ~0 where merged",4.1
+tput,ldexp,sub,2,5.9025,0.021989,19.480,11.533,11.534,11.531,2,yes,19.484;19.477,"mad(ldexp(x, x - c.z), c.x, c.y)","x * exp2(e): exp2 + mul",11.7
+tput,frexp,mad,2,12.2255,0.045543,40.351,36.351,36.274,36.428,2,yes,40.274;40.428,"mad(frexpM(x), c.x, c.y)","mantissa + exponent * 0.01",36.6
+tput,modf,mad,2,4.6566,0.017347,15.271,11.271,11.160,11.382,2,yes,15.160;15.382,"mad(modfS(x), c.x, c.y)","fraction + integer part * 0.5",11.4
+tput,isnan,mad,2,1.3313,0.004959,4.423,0.423,0.424,0.423,2,yes,4.424;4.423,"mad(isnan(x) ? c.z : x, c.x, c.y)","ne + movc (a compiler may drop it)",0.3
+tput,isinf,mad,2,4.5699,0.017024,15.084,11.084,11.098,11.070,2,yes,15.098;15.070,"mad(isinf(x) ? c.z : x, c.x, c.y)","abs, eq + movc",11.1
+tput,isfinite,mad,2,4.5662,0.017010,15.097,11.097,11.073,11.121,2,yes,15.073;15.121,"mad(isfinite(x) ? x : c.z, c.x, c.y)","HLSL isfinite + select",11.2
+tput,mod,mad,2,4.7073,0.017536,15.563,11.563,11.539,11.587,2,yes,15.539;15.587,"mad(x - c.z * floor(x / c.z), c.x, c.y)","GLSL mod (floor-based): div, floor, fma",11.6
+tput,asinh,mad,2,11.2529,0.041920,37.385,33.385,33.434,33.336,2,yes,37.434;37.336,"mad(log(x + sqrt(mad(x, x, 1.0))), c.x, c.y)","GLSL asinh: log(x + sqrt(x x + 1))",33.7
+tput,acosh,mad,2,11.2790,0.042017,37.348,33.348,33.496,33.200,2,yes,37.496;37.200,"mad(log(x + sqrt(mad(x, x, -1.0))), c.x, c.y)","GLSL acosh: log(x + sqrt(x x - 1))",33.3
+tput,atanh,mad,2,12.0293,0.044813,39.772,35.772,35.793,35.751,2,yes,39.793;39.751,"mad(0.5 * log((1.0 + x * c.z) / (1.0 - x * c.z)), c.x, c.y)","GLSL atanh: 0.5 log((1 + x) / (1 - x))",36.1
+tput,any3or,mad,2,7.8121,0.029102,25.788,21.788,21.774,21.802,2,yes,25.774;25.802,"mad((x - c.z != 0.0 || x - c.w != 0.0 || x * c.z - c.w != 0.0) ? x : c.z, c.x, c.y)","3 subs, 3 compares, 2 ors, select",22.3
+tput,all3and,mad,2,7.8315,0.029175,25.806,21.806,21.832,21.780,2,yes,25.832;25.780,"mad((x - c.z != 0.0 && x - c.w != 0.0 && x * c.z - c.w != 0.0) ? x : c.z, c.x, c.y)","all(): 3 subs, 3 compares, 2 ands, select",22.0
+tput,any3abs,mad,2,7.8244,0.029148,25.829,21.829,21.846,21.812,2,yes,25.846;25.812,"mad(abs(x - c.z) + abs(x - c.w) + abs(x * c.z - c.w) != 0.0 ? x : c.z, c.x, c.y)","3 subs, 2 adds of abs, 1 compare, select",21.9
+tput,any3max,mad,2,8.9089,0.033188,29.409,25.409,25.333,25.485,2,yes,29.333;29.485,"mad(max(max(abs(x - c.z), abs(x - c.w)), abs(x * c.z - c.w)) != 0.0 ? x : c.z, c.x, c.y)","3 subs, max3 of abs, 1 compare, select",25.4
+tput,any4or,mad,2,9.9755,0.037161,33.039,29.039,29.172,28.907,2,yes,33.172;32.907,"mad((x - c.z != 0.0 || x - c.w != 0.0 || x * c.z - c.w != 0.0 || x * c.w - c.z != 0.0) ? x : c.z, c.x, c.y)","4 subs, 4 compares, 3 ors, select",28.9
+tput,any4pairs,mad,2,8.9213,0.033234,29.446,25.446,25.518,25.374,2,yes,29.518;29.374,"mad((abs(x - c.z) != -abs(x - c.w) || abs(x * c.z - c.w) != -abs(x * c.w - c.z)) ? x : c.z, c.x, c.y)","4 subs, 2 pair compares, 1 or, select",25.4
+tput,any4max3,mad,2,9.9747,0.037159,32.925,28.925,28.894,28.956,2,yes,32.894;32.956,"mad(max(max(abs(x - c.z), abs(x - c.w)), abs(x * c.z - c.w)) != -abs(x * c.w - c.z) ? x : c.z, c.x, c.y)","4 subs, max3 of abs, 1 compare, select",29.2
+tput,any4abs,mad,2,9.9827,0.037188,32.896,28.896,28.901,28.891,2,yes,32.901;32.891,"mad(abs(x - c.z) + abs(x - c.w) + (abs(x * c.z - c.w) + abs(x * c.w - c.z)) != 0.0 ? x : c.z, c.x, c.y)","4 subs, 3 adds of abs, 1 compare, select",29.4
+tput,f16round,mad,2,6.0674,0.022603,20.028,16.028,16.021,16.035,2,yes,20.021;20.035,"mad(f16tof32(f32tof16(x)), c.x, c.y)","f32tof16 + f16tof32",16.4
+tput,f32tof16,bitor,2,5.1531,0.019197,17.008,9.078,9.078,9.078,2,yes,17.008;17.007,"mad(asfloat(f32tof16(x) + 0x3f800000u), c.x, c.y)","f32tof16 + iadd",9.9
+tput,f16tof32,bitor,2,3.5508,0.013228,11.780,3.851,3.841,3.861,2,yes,11.771;11.790,"mad(f16tof32(asuint(x) & 0x3bffu), c.x, c.y)","iand + f16tof32 (finite halves)",3.8
+tput,degrees,mad,2,2.4695,0.009200,8.179,4.179,4.176,4.181,2,yes,8.176;8.181,"mad(degrees(x), c.x, c.y)","a mul by a constant, like radians",4.2
+tput,bitcast,mad,2,1.3312,0.004959,4.409,0.409,0.424,0.394,2,yes,4.424;4.394,"mad(asfloat(asint(x)), c.x, c.y)","asint / asfloat: free",0.3
+tput,ixmul,mad,2,3.4502,0.012853,11.369,7.369,7.387,7.350,2,yes,11.387;11.350,"(x ^ asuint(c.y)) * asuint(c.x)","xor + imul (the integer base until 0.7.4)",7.8
+tput,iadd,int,2,3.4467,0.012840,11.376,3.554,3.501,3.607,2,yes,11.336;11.415,"((x + asuint(c.z)) ^ asuint(c.y)) + asuint(c.x)","",4.0
+tput,imul,int,2,4.5262,0.016862,14.990,7.169,7.207,7.130,2,yes,15.042;14.938,"((x * asuint(c.z)) ^ asuint(c.y)) + asuint(c.x)","",7.5
+tput,iand,int,2,3.4591,0.012886,11.399,3.577,3.571,3.584,2,yes,11.406;11.392,"((x & asuint(c.z)) ^ asuint(c.y)) + asuint(c.x)","NVIDIA: LOP3 can merge it with the xor",3.6
+tput,imin,int,2,3.4606,0.012892,11.405,3.584,3.557,3.611,2,yes,11.392;11.419,"(min(x, asuint(c.z)) ^ asuint(c.y)) + asuint(c.x)","umin",3.7
+tput,ishr,int,2,4.5459,0.016935,15.006,7.184,7.220,7.148,2,yes,15.055;14.956,"((x ^ (x >> 13)) ^ asuint(c.y)) + asuint(c.x)","ushr + xor",7.1
+tput,irot,int,2,6.1244,0.022815,20.217,12.396,12.397,12.394,2,yes,20.232;20.202,"(((x << 7) | (x >> 25)) ^ asuint(c.y)) + asuint(c.x)","rotate: shl, shr, or (or one funnel shift / alignbit)",12.4
+tput,popc,iadd,2,4.6149,0.017192,15.230,3.855,3.895,3.814,2,yes,15.232;15.229,"((x + countbits(x)) ^ asuint(c.y)) + asuint(c.x)","countbits",3.7
+tput,fbh,iadd,2,8.9513,0.033346,29.544,18.168,18.213,18.123,2,yes,29.549;29.539,"((x + firstbithigh(x)) ^ asuint(c.y)) + asuint(c.x)","firstbithigh",18.1
+tput,bitrev,int,2,3.5129,0.013087,11.617,3.795,3.804,3.786,2,yes,11.639;11.594,"(reversebits(x) ^ asuint(c.y)) + asuint(c.x)","reversebits",3.8
+tput,fbl,iadd,2,4.6366,0.017273,15.252,3.877,3.891,3.863,2,yes,15.227;15.278,"((x + firstbitlow(x)) ^ asuint(c.y)) + asuint(c.x)","firstbitlow",3.7
+tput,ishl,int,2,4.5341,0.016891,14.919,7.098,7.125,7.071,2,yes,14.960;14.879,"((x ^ (x << 11)) ^ asuint(c.y)) + asuint(c.x)","shl + xor",7.2
+tput,ineg,int,2,3.4519,0.012859,11.396,3.575,3.561,3.589,2,yes,11.396;11.397,"(asuint(-asint(x)) ^ asuint(c.y)) + asuint(c.x)","integer negate",3.6
+tput,iabs,int,2,3.4495,0.012850,11.405,3.584,3.589,3.579,2,yes,11.424;11.387,"(asuint(abs(asint(x))) ^ asuint(c.y)) + asuint(c.x)","integer abs",3.9
+tput,bfe,int,2,3.6352,0.013542,11.998,4.176,4.165,4.188,2,yes,12.000;11.996,"(((x >> 5) & 0xffu) ^ asuint(c.y)) + asuint(c.x)","shr + and: one bitfield extract?",4.2
+tput,xor3,int,2,6.7054,0.024980,22.132,14.311,14.272,14.349,2,yes,22.107;22.157,"((x ^ (x >> 7) ^ (x << 11)) ^ asuint(c.y)) + asuint(c.x)","2 shifts + 2 xors: v_xor3, LOP3",14.4
+tput,or3,int,2,6.7159,0.025019,22.169,14.347,14.339,14.355,2,yes,22.174;22.164,"((x | (x >> 7) | (x << 11)) ^ asuint(c.y)) + asuint(c.x)","2 shifts + 2 ors: v_or3, LOP3",14.8
+tput,andor,int,2,6.6929,0.024933,22.093,14.271,14.313,14.230,2,yes,22.148;22.038,"(((x & (x >> 7)) | (x << 11)) ^ asuint(c.y)) + asuint(c.x)","2 shifts, and, or: v_and_or, LOP3",14.3
+tput,bitsel,int,2,7.7748,0.028964,25.662,17.840,17.769,17.912,2,yes,25.604;25.720,"(((x & (x >> 7)) | (~x & (x << 11))) ^ asuint(c.y)) + asuint(c.x)","bit select (and, not, and, or): v_bfi, LOP3",18.1
+tput,maj3,int,2,8.8556,0.032990,29.276,21.454,21.588,21.320,2,yes,29.423;29.128,"((((x & (x >> 7)) | (x & (x << 11))) | ((x >> 7) & (x << 11))) ^ asuint(c.y)) + asuint(c.x)","majority (3 ands, 2 ors): LOP3",21.4
+tput,iadd3,int,2,6.6976,0.024951,22.031,14.209,14.217,14.201,2,yes,22.052;22.009,"((x + (x >> 7) + (x << 11)) ^ asuint(c.y)) + asuint(c.x)","2 shifts + 2 adds: IADD3, v_add3",14.4
+tput,lshladd,int,2,5.6052,0.020881,18.564,10.743,10.794,10.692,2,yes,18.629;18.500,"(((x << 3) + (x >> 7)) ^ asuint(c.y)) + asuint(c.x)","shl + add: LEA, v_lshl_add",10.8
+tput,shladd5,int,2,3.4561,0.012875,11.386,3.565,3.558,3.572,2,yes,11.393;11.380,"(((x << 2) + x) ^ asuint(c.y)) + asuint(c.x)","fxc: imul x, 5",3.8
+tput,addlshl,int,2,5.5989,0.020857,18.541,10.719,10.743,10.695,2,yes,18.578;18.503,"(((x + (x >> 7)) << 3) ^ asuint(c.y)) + asuint(c.x)","add + shl: v_add_lshl",10.7
+tput,imad,int,2,6.6864,0.024909,22.142,14.321,14.352,14.289,2,yes,22.187;22.098,"((x * asuint(c.z) + (x >> 7)) ^ asuint(c.y)) + asuint(c.x)","imul + add: IMAD",14.3
+tput,icmpsel,int,2,4.5318,0.016882,15.007,7.186,7.183,7.188,2,yes,15.018;14.997,"((x > asuint(c.z) ? x : ~x) ^ asuint(c.y)) + asuint(c.x)","ult, not, movc",7.2
+tput,udiv,int,2,44.3060,0.165053,146.945,139.124,139.293,138.955,2,yes,147.128;146.763,"((x / ((asuint(c.z) >> 24) | 1u)) ^ asuint(c.y)) + asuint(c.x)","unsigned divide (no instruction on most GPUs), plus shr, or",138.1
+tput,umod,int,2,44.3091,0.165064,146.243,138.421,138.465,138.378,2,yes,146.300;146.186,"((x % ((asuint(c.z) >> 24) | 1u)) ^ asuint(c.y)) + asuint(c.x)","unsigned modulo",139.3
+tput,idiv,int,2,42.9565,0.160026,142.267,134.445,134.847,134.044,2,yes,142.682;141.852,"(asuint(asint(x) / (asint(asuint(c.z) >> 24) | 1)) ^ asuint(c.y)) + asuint(c.x)","signed divide",134.5
+tput,imod,int,2,42.9067,0.159840,141.403,133.581,133.706,133.457,2,yes,141.541;141.265,"(asuint(asint(x) % (asint(asuint(c.z) >> 24) | 1)) ^ asuint(c.y)) + asuint(c.x)","signed modulo",134.3
+tput,itof,int,2,3.4525,0.012862,11.435,3.613,3.638,3.589,2,yes,11.473;11.397,"(asuint(float(asint(x))) ^ asuint(c.y)) + asuint(c.x)","int -> float conversion",3.9
+tput,utof,int,2,3.4437,0.012829,11.441,3.619,3.576,3.663,2,yes,11.411;11.471,"(asuint(float(x)) ^ asuint(c.y)) + asuint(c.x)","uint -> float conversion",3.6
+tput,unitf,int,2,5.6227,0.020946,18.621,10.799,10.797,10.802,2,yes,18.632;18.610,"(asuint(asfloat((x >> 9) | 0x3f800000u) * 1.5) ^ asuint(c.y)) + asuint(c.x)","uint -> [1, 2) by bits: ushr, or, plus a mul",10.7
+tput,ftou,unitf,2,6.7060,0.024982,22.173,3.552,3.548,3.556,2,yes,22.179;22.166,"(uint(asfloat((x >> 9) | 0x3f800000u) * 4194304.0) ^ asuint(c.y)) + asuint(c.x)","float -> uint conversion",3.8
+tput,ftoitof,mul,2,5.6452,0.021030,18.632,10.693,10.679,10.707,2,yes,18.631;18.632,"mad(float(int(x * c.z) | 1), c.x, c.y)","ftoi, or, itof",10.7
+tput,bitor,mad,2,2.4107,0.008980,7.930,3.930,3.930,3.929,2,yes,7.930;7.929,"mad(asfloat(asuint(x) | 1u), c.x, c.y)","one int op on a float value",3.9
+tput,signbits,sub,2,4.5746,0.017042,15.102,7.155,7.168,7.142,2,yes,15.117;15.087,"mad(asfloat((asuint(x - c.z) & 0x80000000u) | 0x3f800000u), c.x, c.y)","+-1 from the sign bit (1 at +0, like signsel2): and, iadd",7.2
+tput,mad16,mad,4,2.6375,0.004913,4.353,0.353,0.367,0.339,2,yes,4.367;4.339,"mad(x, (min16float)c.x, (min16float)c.y)","fp16 fma",0.9
+tput,add16,mad16,2,2.7421,0.010215,9.036,4.683,4.656,4.710,2,yes,9.023;9.049,"mad(x + (min16float)c.z, (min16float)c.x, (min16float)c.y)","",4.7
+tput,mul16,mad16,2,2.7419,0.010214,9.049,4.696,4.680,4.713,2,yes,9.047;9.052,"mad(x * (min16float)c.z, (min16float)c.x, (min16float)c.y)","",4.8
+tput,rcp16,mad16,2,4.7368,0.017646,15.610,11.257,11.179,11.335,2,yes,15.546;15.674,"mad(rcp(x), (min16float)c.x, (min16float)c.y)","",11.4
+tput,sqrt16,mad16,2,4.7437,0.017672,15.631,11.278,11.279,11.278,2,yes,15.645;15.617,"mad(sqrt(x), (min16float)c.x, (min16float)c.y)","",11.3
+tput,exp2_16,mad16,2,4.7329,0.017631,15.622,11.269,11.259,11.280,2,yes,15.626;15.619,"mad(exp2(x), (min16float)c.x, (min16float)c.y)","",11.4
+tput,log2_16,mad16,2,4.7365,0.017645,15.635,11.282,11.254,11.310,2,yes,15.621;15.649,"mad(log2(x), (min16float)c.x, (min16float)c.y)","",11.3
+tput,max16,mad16,2,2.7500,0.010245,9.061,4.708,4.701,4.715,2,yes,9.068;9.054,"mad(max(x, (min16float)c.z), (min16float)c.x, (min16float)c.y)","",4.7
+tput,mad16v3,mad3v,2,4.0092,0.014935,13.233,0.619,0.631,0.607,2,yes,13.243;13.222,"mad(x, (min16float)c.x, (min16float)c.y)","3 fp16 fmas (min16float3)",0.7
+tput,mix16,mad,2,2.6210,0.009764,8.650,4.650,4.651,4.650,2,yes,8.651;8.650,"mad((float)mad((min16float)x, (min16float)c.z, (min16float)c.w), c.x, c.y)","an fp16 fma between fp32 fmas",4.7
+tput,arraybase,mad,2,8.0887,0.030133,26.701,22.701,22.725,22.678,2,yes,26.725;26.678,"uint ai = (uint(x * 64.0) + l) & 15u; float v = asfloat(ai | 0x3f000000u); x = mad(x, c.x, c.y + v * 0.01);","base: array index, a stand-in value",22.7
+tput,arrayread,arraybase,2,18.6914,0.069631,61.592,34.890,34.986,34.795,2,yes,61.711;61.473,"uint ai = (uint(x * 64.0) + l) & 15u; float v = A[ai]; x = mad(x, c.x, c.y + v * 0.01);","float A[16][i], i differs per lane",36.1
+tput,arraywrite,arraybase,2,39.3014,0.146409,129.965,103.264,103.368,103.160,2,yes,130.093;129.838,"uint ai = (uint(x * 64.0) + l) & 15u; A[ai] = x; float v = A[ai ^ 1u]; x = mad(x, c.x, c.y + v * 0.01);","A[i] = x, then a read",103.5
+tput,constarray,arraybase,2,68.6083,0.255586,226.520,199.819,199.710,199.928,2,yes,226.435;226.606,"uint ai = (uint(x * 64.0) + l) & 15u; float v = K[ai]; x = mad(x, c.x, c.y + v * 0.01);","static const float K[16][i]",202.7
+tput,selectboth,mad,2,34.7714,0.129533,114.571,110.571,110.379,110.762,2,yes,114.379;114.762,"bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v = sel ? sin(sin(sin(sin(x)))) : cos(cos(cos(cos(x)))); x = mad(v, c.x, c.y);","4 sin and 4 cos computed, one result picked",111.1
+tput,branchuni,mad,2,17.3381,0.064590,57.131,53.131,53.028,53.233,2,yes,57.028;57.233,"bool sel = ((asuint(c.w) ^ g) & 1u) != 0; float v; [branch] if (sel) v = sin(sin(sin(sin(x)))); else v = cos(cos(cos(cos(x)))); x = mad(v, c.x, c.y);","a branch, one side per group",53.6
+tput,branchdiv,mad,2,17.3381,0.064590,57.328,53.328,53.228,53.429,2,yes,57.228;57.429,"bool sel = ((asuint(c.w) ^ l) & 1u) != 0; float v; [branch] if (sel) v = sin(sin(sin(sin(x)))); else v = cos(cos(cos(cos(x)))); x = mad(v, c.x, c.y);","a branch, both sides in every group",53.6
+tput,int,mad,2,2.3736,0.008842,7.822,3.822,3.835,3.808,2,yes,7.835;7.808,"(x ^ asuint(c.y)) + asuint(c.x)","integer xor + add, alone",3.8
+tput,rcp1,mad,2,4.6824,0.017443,15.479,11.479,11.558,11.401,2,yes,15.558;15.401,"rcp(x + c.x)","add + rcp, alone",11.8
+tput,minmax1,mad,2,2.4068,0.008966,7.931,3.931,3.945,3.917,2,yes,7.945;7.917,"max(min(x, c.z), c.w)","min + max, alone",4.0
+tput,cvt1,mad,2,2.3739,0.008843,7.822,3.822,3.809,3.835,2,yes,7.809;7.835,"asuint(float(x) * 0.7)","uint -> float + mul, alone",3.8
+tput,half1,mad,4,2.6328,0.004904,4.345,0.345,0.351,0.340,2,yes,4.351;4.340,"mad(x, (min16float)c.x, (min16float)c.y)","fp16 fma, alone",0.3
+tput,fma+fma,mad,4,2.4237,0.004514,4.000,-0.000,0.000,-0.000,2,yes,4.000;4.000,"mad(x, c.x, c.y)","control: the same fma on both halves",
+tput,fma+int,int,4,3.4937,0.006508,5.766,-2.056,-2.070,-2.042,2,yes,5.765;5.766,"mad(x, c.x, c.y)","fma beside integer ops",
+tput,fma+rcp,rcp1,2,2.7867,0.010381,9.197,-6.282,-6.374,-6.191,2,yes,9.184;9.210,"mad(x, c.x, c.y)","fma beside the transcendental unit",
+tput,fma+minmax,minmax1,4,3.5024,0.006524,5.781,-2.151,-2.163,-2.138,2,yes,5.782;5.779,"mad(x, c.x, c.y)","fma beside min / max",
+tput,fma+cvt,cvt1,4,3.4937,0.006508,5.766,-2.056,-2.043,-2.069,2,yes,5.766;5.767,"mad(x, c.x, c.y)","fma beside conversions",
+tput,fma+half,half1,4,2.5697,0.004786,4.241,-0.105,-0.103,-0.106,2,yes,4.247;4.234,"mad(x, c.x, c.y)","fp32 fma beside fp16 fma",
+tput,fma4+rcp,rcp1,4,2.2827,0.006803,6.017,-9.462,-9.541,-9.384,2,yes,6.017;6.018,"mad(x, c.x, c.y)","4 fmas beside 1 rcp (VLIW5: one bundle)",
+tput,ilp1,mad,32,3.8221,0.007119,6.308,2.308,2.283,2.333,2,yes,6.283;6.333,"mad(x, c.x, c.y)","1 chain per thread",2.3
+tput,ilp2,mad,16,2.4367,0.004539,4.014,0.014,0.007,0.022,2,yes,4.007;4.022,"mad(x, c.x, c.y)","2 chains per thread",0.0
+tput,ilp3,mad,16,3.5114,0.004360,3.864,-0.136,-0.141,-0.132,2,yes,3.859;3.868,"mad(x, c.x, c.y)","3 chains per thread",-0.0
+tput,ilp4,mad,8,2.3755,0.004425,3.920,-0.080,-0.080,-0.079,2,yes,3.920;3.921,"mad(x, c.x, c.y)","4 chains per thread",-0.1
+tput,ilp5,mad,8,2.9385,0.004379,3.893,-0.107,-0.088,-0.126,2,yes,3.912;3.874,"mad(x, c.x, c.y)","5 chains per thread",0.1
+tput,ilp6,mad,8,3.5006,0.004347,3.858,-0.142,-0.145,-0.139,2,yes,3.855;3.861,"mad(x, c.x, c.y)","6 chains per thread",-0.1
+tput,sqmax-od,mad,2,3.4851,0.012983,11.502,7.502,7.505,7.499,2,yes,11.505;11.499,"mad(max(x * x, x), c.x, c.y)","fxc /Od: the step as written",7.5
+tput,scale2-od,sqmax-od,2,4.5641,0.017002,15.065,3.563,3.555,3.571,2,yes,15.060;15.070,"mad(max(x * x * 2.0, x), c.x, c.y)","fxc /Od: the step as written",3.9
+tput,scale4-od,sqmax-od,2,4.5747,0.017042,15.102,3.599,3.636,3.562,2,yes,15.142;15.061,"mad(max(x * x * 4.0, x), c.x, c.y)","fxc /Od: the step as written",3.9
+tput,sign-od,sub,2,6.7431,0.025120,22.181,14.234,14.308,14.159,2,yes,22.258;22.105,"mad(sign(x - c.z), c.x, c.y)","fxc /Od: the step as written",14.4
+tput,clamp-od,mad,2,3.4821,0.012972,11.531,7.531,7.532,7.529,2,yes,11.532;11.529,"mad(clamp(x, c.z, c.w), c.x, c.y)","fxc /Od: the step as written",7.6
+tput,lerp-od,mad,2,3.4889,0.012997,11.476,7.476,7.489,7.464,2,yes,11.489;11.464,"mad(lerp(c.z, x, c.w), c.x, c.y)","fxc /Od: the step as written",7.5
+tput,smoothstep-od,mad,2,8.0487,0.029984,26.480,22.480,22.540,22.420,2,yes,26.540;26.420,"mad(smoothstep(c.z, c.w, x), c.x, c.y)","fxc /Od: the step as written",22.6
+tput,fmod-od,mad,2,7.9139,0.029482,26.121,22.121,22.124,22.118,2,yes,26.124;26.118,"mad(fmod(x, c.z), c.x, c.y)","fxc /Od: the step as written",22.6
+tput,atan2-od,mad,2,29.8084,0.111045,98.371,94.371,94.374,94.369,2,yes,98.374;98.369,"mad(atan2(x, c.z), c.x, c.y)","fxc /Od: the step as written",97.3
+tput,shladd5-od,int,2,3.4586,0.012884,11.397,3.575,3.579,3.571,2,yes,11.414;11.379,"(((x << 2) + x) ^ asuint(c.y)) + asuint(c.x)","fxc /Od: the step as written",3.9
+tput,irot-od,int,2,5.6259,0.020958,18.570,10.748,10.681,10.816,2,yes,18.516;18.624,"(((x << 7) | (x >> 25)) ^ asuint(c.y)) + asuint(c.x)","fxc /Od: the step as written",11.1
