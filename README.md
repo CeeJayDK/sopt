@@ -41,6 +41,11 @@ what values a setting can have (for example 0 to 1), which lets it use more shor
 - **GPU Blueprint** (`GPU-Blueprint-<version>.zip`, double-click `GPU-Blueprint.bat`):
   measures what your graphics card and driver really do. If you send us the results, SweetOpt
   learns to make better choices for cards like yours. Thank you!
+
+  <img src="docs/images/opbench-score.png" width="49%" alt="OpBench score for a GTX 1660: 5.31 TFLOPS">
+  <img src="docs/images/opbench-div.png" width="49%" alt="OpBench: what division, square roots, exp, log, sin and pow cost">
+  <img src="docs/images/texbench-blur.png" width="659" alt="TexBench: the same blur as a pixel shader and as compute shaders in many layouts, and which is fastest">
+
 - **Test Host** (`Test-Host-<version>.zip`, double-click `Test-Host.bat`): runs ReShade on
   every graphics API (Direct3D 9 to 12, Vulkan, OpenGL) without a game, to test effects and
   take screenshots. See [tools/windows/README.md](tools/windows/README.md).
