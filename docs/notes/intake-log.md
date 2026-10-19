@@ -369,3 +369,59 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 ## 2026-10-19 14:00 UTC
 - upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-ps-5.csv` (StageBench 0.8.3)
 - upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-vs-5.csv` (StageBench 0.8.3)
+
+## 2026-10-19 20:49 UTC
+- upload 1: opbench, AMD Radeon(TM) Graphics (driver 32.0.21041.1000): `docs/opbench/amd-radeon-0x164e-2.csv` (OpBench 0.8.0)
+- upload 1: opbench, NVIDIA GeForce RTX 4090 Laptop GPU (driver 32.0.16.1742): `docs/opbench/nvidia-rtx-4090-laptop-gpu-2.csv` (OpBench 0.8.0)
+- upload 1: shaderinfo, AMD Radeon(TM) Graphics (driver AMD proprietary driver 26.1.1 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-0x164e-2.txt`
+- upload 1: shaderinfo, NVIDIA GeForce RTX 4090 Laptop GPU (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-rtx-4090-laptop-gpu-2.txt`
+- upload 1: stagebench, AMD Radeon(TM) Graphics (driver 32.0.21041.1000): `docs/stagebench/amd-radeon-0x164e-ps.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 4090 Laptop GPU (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-4090-laptop-gpu-ps.csv` (StageBench 0.8.0)
+- upload 1: stagebench, AMD Radeon(TM) Graphics (driver 32.0.21041.1000): `docs/stagebench/amd-radeon-0x164e-vs.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 4090 Laptop GPU (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-4090-laptop-gpu-vs.csv` (StageBench 0.8.0)
+- upload 1: texbench, AMD Radeon(TM) Graphics (driver 32.0.21041.1000): `docs/texbench/amd-radeon-0x164e-2.csv`, `docs/texbench/amd-radeon-0x164e-2-order.png`, `docs/texbench/amd-radeon-0x164e-2-order-zoom.png` (TexBench 0.8.0)
+- upload 1: texbench, NVIDIA GeForce RTX 4090 Laptop GPU (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-4090-laptop-gpu-2.csv`, `docs/texbench/nvidia-rtx-4090-laptop-gpu-2-order.png`, `docs/texbench/nvidia-rtx-4090-laptop-gpu-2-order-zoom.png` (TexBench 0.8.0)
+
+## 2026-10-19 20:49 UTC
+- upload 1: opbench, AMD Radeon(TM) Graphics (driver 31.0.21924.61): `docs/opbench/amd-radeon-0x1636-2.csv` (OpBench 0.8.0)
+- upload 1: opbench, NVIDIA GeForce RTX 2060 (driver 32.0.16.1742): `docs/opbench/nvidia-rtx-2060-2.csv` (OpBench 0.8.0)
+- upload 1: shaderinfo, AMD Radeon(TM) Graphics (driver AMD proprietary driver 26.1.1 (AMD proprietary shader compiler) (2.0.279)): `docs/shaderinfo/amd-radeon-0x1636-2.txt`
+- upload 1: shaderinfo, NVIDIA GeForce RTX 2060 (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-rtx-2060-3.txt`
+- upload 1: stagebench, AMD Radeon(TM) Graphics (driver 31.0.21924.61): `docs/stagebench/amd-radeon-0x1636-ps.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 2060 (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-2060-ps.csv` (StageBench 0.8.0)
+- upload 1: stagebench, AMD Radeon(TM) Graphics (driver 31.0.21924.61): `docs/stagebench/amd-radeon-0x1636-vs.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 2060 (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-2060-vs.csv` (StageBench 0.8.0)
+- upload 1: texbench, AMD Radeon(TM) Graphics (driver 31.0.21924.61): `docs/texbench/amd-radeon-0x1636-2.csv`, `docs/texbench/amd-radeon-0x1636-2-order.png`, `docs/texbench/amd-radeon-0x1636-2-order-zoom.png` (TexBench 0.8.0)
+- upload 1: texbench, NVIDIA GeForce RTX 2060 (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-2060-4.csv`, `docs/texbench/nvidia-rtx-2060-4-order.png`, `docs/texbench/nvidia-rtx-2060-4-order-zoom.png` (TexBench 0.8.0)
+
+## 2026-10-19 20:49 UTC
+- upload 1: opbench, Intel(R) HD Graphics 4600 (driver 20.19.15.5171): `docs/opbench/intel-hd-graphics-4600-3.csv` (OpBench 0.8.0)
+- upload 1: opbench, NVIDIA GeForce GTX 860M (driver 32.0.15.8278): `docs/opbench/nvidia-gtx-860m-3.csv` (OpBench 0.8.0)
+- upload 1: shaderinfo, NVIDIA GeForce GTX 860M (driver NVIDIA 582.78 (582.78)): `docs/shaderinfo/nvidia-gtx-860m-3.txt`
+- upload 1: stagebench, Intel(R) HD Graphics 4600 (driver 20.19.15.5171): `docs/stagebench/intel-hd-graphics-4600-ps.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce GTX 860M (driver 32.0.15.8278): `docs/stagebench/nvidia-gtx-860m-ps.csv` (StageBench 0.8.0)
+- upload 1: stagebench, Intel(R) HD Graphics 4600 (driver 20.19.15.5171): `docs/stagebench/intel-hd-graphics-4600-vs.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce GTX 860M (driver 32.0.15.8278): `docs/stagebench/nvidia-gtx-860m-vs.csv` (StageBench 0.8.0)
+- upload 1: texbench, Intel(R) HD Graphics 4600 (driver 20.19.15.5171): `docs/texbench/intel-hd-graphics-4600-4.csv`, `docs/texbench/intel-hd-graphics-4600-4-order.png`, `docs/texbench/intel-hd-graphics-4600-4-order-zoom.png` (TexBench 0.8.0)
+- upload 1: texbench, NVIDIA GeForce GTX 860M (driver 32.0.15.8278): `docs/texbench/nvidia-gtx-860m-4.csv`, `docs/texbench/nvidia-gtx-860m-4-order.png`, `docs/texbench/nvidia-gtx-860m-4-order-zoom.png` (TexBench 0.8.0)
+
+## 2026-10-19 20:49 UTC
+- upload 1: opbench, NVIDIA Quadro M5000M (driver 32.0.15.8194): `docs/opbench/nvidia-quadro-m5000m-3.csv` (OpBench 0.8.0)
+- upload 1: shaderinfo, Quadro M5000M (driver NVIDIA 581.94 (581.94)): `docs/shaderinfo/nvidia-quadro-m5000m-3.txt`
+- upload 1: stagebench, NVIDIA Quadro M5000M (driver 32.0.15.8194): ps left out (switched to CPU timing mid-run; StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA Quadro M5000M (driver 32.0.15.8194): `docs/stagebench/nvidia-quadro-m5000m-vs.csv` (StageBench 0.8.0)
+- upload 1: texbench, NVIDIA Quadro M5000M (driver 32.0.15.8194): `docs/texbench/nvidia-quadro-m5000m-4.csv`, `docs/texbench/nvidia-quadro-m5000m-4-order.png`, `docs/texbench/nvidia-quadro-m5000m-4-order-zoom.png` (TexBench 0.8.0)
+
+## 2026-10-19 20:49 UTC
+- upload 1: opbench, AMD Radeon RX 6600 (driver 32.0.21045.5002): `docs/opbench/amd-radeon-rx-6600.csv` (OpBench 0.8.0)
+- upload 1: shaderinfo, AMD Radeon RX 6600 (driver AMD proprietary driver 26.8.1 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-rx-6600.txt`
+- upload 1: stagebench, AMD Radeon RX 6600 (driver 32.0.21045.5002): `docs/stagebench/amd-radeon-rx-6600-ps.csv` (StageBench 0.8.0)
+- upload 1: stagebench, AMD Radeon RX 6600 (driver 32.0.21045.5002): `docs/stagebench/amd-radeon-rx-6600-vs.csv` (StageBench 0.8.0)
+- upload 1: texbench, AMD Radeon RX 6600 (driver 32.0.21045.5002): `docs/texbench/amd-radeon-rx-6600.csv`, `docs/texbench/amd-radeon-rx-6600-order.png`, `docs/texbench/amd-radeon-rx-6600-order-zoom.png` (TexBench 0.8.0)
+
+## 2026-10-19 20:49 UTC
+- upload 1: opbench, Intel(R) Iris(R) Graphics 540 (driver 31.0.101.2121): `docs/opbench/intel-iris-540-5.csv` (OpBench 0.8.3)
+- upload 1: shaderinfo, Intel(R) Iris(R) Graphics 540 (driver Intel Corporation Intel driver (101.2121)): `docs/shaderinfo/intel-iris-540-6.txt`
+- upload 1: stagebench, Intel(R) Iris(R) Graphics 540 (driver 31.0.101.2121): `docs/stagebench/intel-iris-540-ps-3.csv` (StageBench 0.8.3)
+- upload 1: stagebench, Intel(R) Iris(R) Graphics 540 (driver 31.0.101.2121): `docs/stagebench/intel-iris-540-vs-3.csv` (StageBench 0.8.3)
+- upload 1: texbench, Intel(R) Iris(R) Graphics 540 (driver 31.0.101.2121): `docs/texbench/intel-iris-540-5.csv`, `docs/texbench/intel-iris-540-5-order.png`, `docs/texbench/intel-iris-540-5-order-zoom.png` (TexBench 0.8.3)
