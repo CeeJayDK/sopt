@@ -1150,6 +1150,9 @@ TEST(fx_hlsl_glsl_extras) {
   CHECK(regionOn(h, 13) != nullptr);  // fmod
   const auto g = regionsOf("sopt_extras.frag", true);
   for (uint32_t line : {13u, 14u, 15u, 16u}) CHECK(regionOn(g, line) != nullptr);  // asinh, acosh, atanh, atan(x)
+  // A Vulkan GLSL compute shader as FFmpeg writes them: sampler / image arrays, push constants, buffers, shared,
+  // specialization constants, matrix products, vector ==, length(), imageStore, gl_GlobalInvocationID.
+  CHECK(regionOn(regionsOf("sopt_compute.glsl", true), 40) != nullptr);
 }
 
 TEST(fx_hoist_rewrite) {

@@ -11,6 +11,7 @@ docs/notes/history.md.
 - **No setup needed for ReShade.fxh:** SweetOpt finds files an effect includes in the folders above it, so choosing the Shaders folder first is no longer needed.
 - **Folders of GLSL and HLSL shaders:** the menu can now optimize a whole folder of them, not only one file.
 - **Fixed:** a GLSL shader using `atan` with one value made SweetOpt close without a message.
+- **GLSL compute shaders:** SweetOpt can now read Vulkan GLSL compute shaders, such as FFmpeg's video filters (16 of its 22 filters so far).
 
 ## 0.8.0
 

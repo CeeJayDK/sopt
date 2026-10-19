@@ -66,7 +66,7 @@ bool reshadefx::parser::parse(std::string source, codegen *backend)
 
 bool reshadefx::parser::parse_top(bool &parse_success)
 {
-	if (accept(tokenid::pragma))
+	while (accept(tokenid::pragma)) // sopt: 'while': two pragmas in a row failed (FFmpeg's shader_stage + use_vulkan_memory_model)
 	{
 		if (!expect('(') || !expect(tokenid::string_literal))
 			return false;
@@ -221,7 +221,11 @@ bool reshadefx::parser::parse_top(bool &parse_success)
 
 				// sopt: the HLSL entry point (a compute shader when it has [numthreads])
 				if ((sopt_hlsl || sopt_glsl) && stype == shader_type::unknown && name == sopt_hlsl_entry)
+				{
+					if (sopt_glsl && _sopt_glsl_compute)
+						std::copy(_sopt_glsl_threads, _sopt_glsl_threads + 3, num_threads);
 					stype = num_threads[0] != 0 ? shader_type::compute : shader_type::pixel;
+				}
 
 				// This is definitely a function declaration, so parse it
 				if (!parse_function(type, name, stype, num_threads))
@@ -1476,7 +1480,21 @@ bool reshadefx::parser::parse_function(type type, std::string name, shader_type 
 		return false;
 
 	// sopt: the GLSL entry point's global in / out variables (and gl_FragCoord) as its parameters
-	if (sopt_glsl && name == sopt_hlsl_entry && stype != shader_type::unknown)
+	if (sopt_glsl && name == sopt_hlsl_entry && stype == shader_type::compute)
+	{
+		static const char *const builtins[][2] = { { "gl_GlobalInvocationID", "SV_DISPATCHTHREADID" },
+			{ "gl_LocalInvocationID", "SV_GROUPTHREADID" }, { "gl_WorkGroupID", "SV_GROUPID" }, { "gl_LocalInvocationIndex", "SV_GROUPINDEX" } };
+		for (const auto &b : builtins)
+		{
+			member_type param;
+			param.name = b[0];
+			param.location = function_location;
+			param.type = { type::t_uint, std::string(b[0]) == "gl_LocalInvocationIndex" ? 1u : 3u, 1, type::q_in };
+			param.semantic = b[1];
+			info.parameter_list.push_back(std::move(param));
+		}
+	}
+	else if (sopt_glsl && name == sopt_hlsl_entry && stype != shader_type::unknown)
 	{
 		bool has_out = false;
 		for (const sopt_glsl_io &io : _sopt_glsl_io)
@@ -1750,10 +1768,18 @@ bool reshadefx::parser::parse_variable(type type, std::string name, bool global)
 			if (global && !initializer.is_constant)
 			{
 				// sopt: a named expression instead (see sopt_named_expressions)
-				if (sopt_named_expressions && type.has(type::q_static) && type.has(type::q_const) && type.is_numeric() && !type.is_array())
+				if (sopt_named_expressions && type.has(type::q_static) && (type.has(type::q_const) || sopt_glsl) && type.is_numeric() && !type.is_array())
 				{
 					sopt_named = true;
 					_sopt_named.emplace_back(_lexer->input_string().substr(sopt_begin, _token.offset + _token.length - sopt_begin), sopt_location);
+				}
+				// sopt: a GLSL global array initialized at run time (FFmpeg v360: ivec2 in_img_size[4] = { ivec2(in_w, in_h), ... }):
+				// declared as an uninitialized static, as GLSL inputs are (its reads are region inputs)
+				else if (sopt_glsl && type.has(type::q_static) && !type.has(type::q_const))
+				{
+					if (type.is_unbounded_array() && initializer.type.is_array())
+						type.array_length = initializer.type.array_length;
+					initializer.reset_to_rvalue_constant(initializer.location, {}, type);
 				}
 				else
 				{
@@ -3381,7 +3407,7 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 	const location start = _token_next.location;
 	backup();
 	unsigned int interpolation = 0, layout_location = UINT32_MAX;
-	bool in = false, out = false, uniform = false, glsl_only = false;
+	bool in = false, out = false, uniform = false, glsl_only = false, buffer = false, shared = false, spec = false;
 	for (;;)
 	{
 		const std::string w = word();
@@ -3392,14 +3418,25 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 			if (!peek('(') || !sopt_argument_texts(')', args))
 				return parse_success = false, handled = true, true;
 			for (const std::string &a : args)
-				if (const size_t eq = a.find('='); eq != std::string::npos && a.find("location") != std::string::npos)
+			{
+				const size_t eq = a.find('=');
+				if (eq != std::string::npos && a.find("location") != std::string::npos)
 					layout_location = static_cast<unsigned int>(std::strtoul(a.c_str() + eq + 1, nullptr, 0));
+				// local_size_x = 8 (local_size_x_id = N: a specialization constant, 1 here)
+				for (int i = 0; i < 3; ++i)
+					if (eq != std::string::npos && a.find(std::string("local_size_") + "xyz"[i]) != std::string::npos)
+						_sopt_glsl_threads[i] = a.find("_id") != std::string::npos ? 1 : std::max(1, std::atoi(a.c_str() + eq + 1));
+				spec = spec || a.find("constant_id") != std::string::npos;
+			}
 			glsl_only = true;
 		}
 		else if (peek(tokenid::identifier) && w == "flat")
 			consume(), interpolation |= type::q_nointerpolation, glsl_only = true;
-		else if (peek(tokenid::identifier) && (w == "smooth" || w == "invariant" || w == "highp" || w == "mediump" || w == "lowp"))
+		else if (peek(tokenid::identifier) && (w == "smooth" || w == "invariant" || w == "highp" || w == "mediump" || w == "lowp" ||
+			w == "readonly" || w == "writeonly" || w == "restrict" || w == "coherent" || w == "volatile"))
 			consume(), glsl_only = true;
+		else if ((peek(tokenid::identifier) || peek(tokenid::reserved)) && (w == "buffer" || w == "shared"))
+			consume(), (w == "buffer" ? buffer : shared) = true, glsl_only = true;
 		else if (accept(tokenid::noperspective))
 			interpolation |= type::q_noperspective;
 		else if (accept(tokenid::centroid))
@@ -3415,6 +3452,9 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 	}
 	if (!in && !out && !uniform && !glsl_only && interpolation == 0)
 		return true;
+	// layout(constant_id = N) const T x = v;: a specialization constant, set by the program: a uniform here
+	if (spec && accept(tokenid::const_))
+		uniform = true;
 	// A plain uniform of a ReShade FX type (not a sampler or a block) parses as it is.
 	if (uniform && !in && !out && !glsl_only && interpolation == 0)
 	{
@@ -3458,8 +3498,16 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 	}
 	accept(';');
 	const std::string rest = _lexer->input_string().substr(begin, end - begin);
-	if (rest.empty()) // e.g. layout(local_size_x = 8) in;
+	if (rest.empty()) // e.g. layout(local_size_x = 8) in;: a compute shader, its built-in inputs as globals for every function
+	{
+		if (in && !_sopt_glsl_compute)
+		{
+			_sopt_glsl_compute = true;
+			parse_success = sopt_parse_text("static uint3 gl_GlobalInvocationID; static uint3 gl_LocalInvocationID; static uint3 gl_WorkGroupID; "
+				"static uint gl_LocalInvocationIndex; uniform uint3 gl_NumWorkGroups; uniform uint3 gl_WorkGroupSize;", start, nullptr);
+		}
 		return true;
+	}
 
 	// Split "T name, name" into the type word and the names (no arrays).
 	const auto words = [](const std::string &text) {
@@ -3489,7 +3537,8 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 		const std::string &t = w[0];
 		const bool keyword_sampler = t == "sampler1D" || t == "sampler2D" || t == "sampler3D";
 		reshadefx::type sampler_type = {};
-		if (keyword_sampler || (sopt_glsl_type(t, sampler_type) && sampler_type.is_sampler()))
+		const bool image = t.find("image") != std::string::npos && t.find("image") <= 1;
+		if (keyword_sampler || image || (sopt_glsl_type(t, sampler_type) && sampler_type.is_sampler()))
 		{
 			const char base = t[0] == 'i' ? 'i' : t[0] == 'u' ? 'u' : 'f';
 			const unsigned int dim = (t.find("1D") != std::string::npos) ? 1 :
@@ -3499,13 +3548,15 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 			const std::string element = base == 'i' ? "int4" : base == 'u' ? "uint4" : "float4";
 			for (size_t i = 1; i < w.size(); ++i)
 			{
+				// An array (FFmpeg: sampler2D input_img[]) is one sampler; its index is dropped where it is used.
 				if (w[i] == "[" || w[i] == "=")
 				{
-					error(start, 3000, "sopt: arrays of GLSL samplers are not supported");
-					return parse_success = false, true;
+					while (i + 1 < w.size() && w[i + 1] != "," && !(std::isalpha(static_cast<unsigned char>(w[i + 1][0])) || w[i + 1][0] == '_'))
+						++i;
+					continue;
 				}
-				text += "texture" + d + "D __sopt_tex_" + w[i] + " { Format = " + format + "; }; sampler" + d + "D<" + element +
-					"> " + w[i] + " { Texture = __sopt_tex_" + w[i] + "; };";
+				text += "texture" + d + "D __sopt_tex_" + w[i] + " { Format = " + format + "; }; " + (image ? "storage" : "sampler") + d +
+					"D<" + element + "> " + w[i] + " { Texture = __sopt_tex_" + w[i] + "; };";
 				sopt_glsl_samplers.push_back(w[i]);
 				_sopt_glsl_sampler_dims.push_back({ w[i], dim });
 			}
@@ -3528,6 +3579,30 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 		else
 			text = "uniform " + rest + ";";
 	}
+	else if (buffer)
+	{
+		const size_t open = rest.find('{'), close = rest.rfind('}');
+		if (open == std::string::npos || close == std::string::npos)
+		{
+			error(start, 3000, "sopt: unsupported GLSL buffer declaration");
+			return parse_success = false, true;
+		}
+		std::string members = rest.substr(open + 1, close - open - 1);
+		for (size_t p; (p = members.find("[]")) != std::string::npos;)
+			members.replace(p, 2, "[1]");
+		const std::vector<std::string> block = words(rest.substr(0, open)), instance = words(rest.substr(close + 1));
+		if (!instance.empty() && !block.empty())
+			text = "struct __sopt_buf_" + block.back() + " {" + members + "}; static __sopt_buf_" + block.back() + ' ' + instance[0] + ';';
+		else
+		{
+			size_t a = 0;
+			for (size_t b; (b = members.find(';', a)) != std::string::npos; a = b + 1)
+				if (members.find_first_not_of(" \t\r\n", a) < b)
+					text += "static " + members.substr(a, b - a) + ";";
+		}
+	}
+	else if (shared)
+		text = "groupshared " + rest.substr(0, rest.find('=')) + ";";
 	else if ((in || out) && w.size() >= 2)
 	{
 		// The type is the first word (GLSL types are one word), then the names.
@@ -3584,7 +3659,8 @@ static const char *const sopt_glsl_renames[][2] = {
 static const char *const sopt_glsl_specials[] = {
 	"atan", "mod", "asinh", "acosh", "atanh", "not", "lessThan", "lessThanEqual", "greaterThan", "greaterThanEqual", "equal", "notEqual",
 	"texture", "texture2D", "texture3D", "textureLod", "textureGrad", "texelFetch", "textureSize", "textureOffset",
-	"texelFetchOffset", "textureLodOffset", "textureGradOffset", "textureGather", "textureGatherOffset" };
+	"texelFetchOffset", "textureLodOffset", "textureGradOffset", "textureGather", "textureGatherOffset",
+	"imageLoad", "imageStore", "imageSize", "nonuniformEXT", "memoryBarrierShared", "memoryBarrierImage", "memoryBarrierBuffer" };
 
 bool reshadefx::parser::sopt_glsl_intrinsic_name(const std::string &name)
 {
@@ -3620,6 +3696,8 @@ bool reshadefx::parser::sopt_glsl_intrinsic(const std::string &name, const locat
 		std::string sampler = args.empty() ? std::string() : args[0];
 		sampler.erase(0, sampler.find_first_not_of(" \t\r\n"));
 		sampler.erase(sampler.find_last_not_of(" \t\r\n") + 1);
+		sampler = sampler.substr(0, sampler.find('[')); // an array's element (one sampler here)
+		sampler.erase(sampler.find_last_not_of(" \t\r\n") + 1);
 		unsigned int dim = 2;
 		for (const auto &s : _sopt_glsl_sampler_dims)
 			if (s.first == sampler)
@@ -3632,6 +3710,18 @@ bool reshadefx::parser::sopt_glsl_intrinsic(const std::string &name, const locat
 			text = args.size() == 2 ? "atan2(" + list(0) + ')' : "atan(" + list(0) + ')';
 			_sopt_glsl_plain_atan = args.size() != 2; // else 'atan(' is intercepted again, without end (stack overflow)
 		}
+		else if (name == "imageLoad")
+			text = tex + "fetch(" + args[0] + ", " + arg(1) + ')';
+		else if (name == "imageStore")
+			text = tex + "store(" + args[0] + ", " + arg(1) + ", " + arg(2) + ')';
+		else if (name == "imageSize")
+			text = tex + "size(" + args[0] + ')';
+		else if (name == "nonuniformEXT")
+			text = arg(0);
+		else if (name == "memoryBarrierShared")
+			text = "groupMemoryBarrier()";
+		else if (name == "memoryBarrierImage" || name == "memoryBarrierBuffer")
+			text = "memoryBarrier()";
 		else if (name == "mod")
 			text = '(' + arg(0) + " - " + arg(1) + " * floor(" + arg(0) + " / " + arg(1) + "))";
 		// The inverse hyperbolic functions as GLSL defines them (ReShade FX and HLSL have none).
