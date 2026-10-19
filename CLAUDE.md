@@ -22,7 +22,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Fewer instructions at equal measured speed are still better (less power; faster once the bottleneck moves).
 - When asking the owner to test or download something, repeat the links in that message (CI run / artifact links).
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
-  testers (now 0.8.3, test build; 0.8.0 released); the next test build is 0.8.4.
+  testers (now 0.9.0, release); the next test build is 0.9.1.
 - CHANGELOG.md: one `## <version>` section per release, add to the top section as things land (release.yml copies it).
   Changelog, release notes and README.md are for laymen (owner, 2026-10-10): plain English, short, what changes for the
   user, no option names or internals (those go in docs/notes/history.md, docs/technical.md).
@@ -46,7 +46,8 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 ## Releases and CI
 - CI (ci.yml) on every push: Linux/MSVC builds, tests, artifacts SweetOpt-<v>-windows-x64, GPU-Blueprint-<v>, Test-Host-<v>.
 - Release: PR to main (check for a PR template), owner merges, run release.yml manually on main = draft release, owner
-  publishes (this session cannot push tags). Run the steam-survey workflow on main before each release.
+  publishes (this session cannot push tags). The steam-survey workflow runs by itself on the 4th and 12th of each month
+  (Steam publishes early in a month, for the month before): never run it by hand before a release (owner, 2026-10-19).
 - pages.yml builds the site (tools/site/build.py) from docs/opbench / texbench; optimize-pngs.yml compresses report PNGs.
 - After adding OpBench / StageBench reports: rerun `tools/windows/gen_expected.py` (writes tools/windows/expected.hpp,
   family values per stage: cs from docs/opbench, ps / vs from docs/stagebench).
