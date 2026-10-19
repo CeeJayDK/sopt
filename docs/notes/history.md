@@ -2007,6 +2007,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   Turing family's 11.8 / 9.4, which now includes the RTX 2070 (TU106: packed fp16 in ps / vs, the 1660's TU116 not).
   GT 530 StageBench only: ps / vs kept GPU timestamps (timestamp check 1.732 / 3.454 ms, 5.340 / 10.678 ms), drift 1.3 /
   0.07%, fp32 0.215 / 0.201 as 0.8.0: Fermi's timestamps are good in pixel / vertex shaders, wrong in compute.
+  Firefox as a test corpus (owner, 2026-10-19; MPL 2.0, used locally, not committed): WebRender's gfx/wr/webrender/res
+  (41 .glsl), assembled as webrender_build does ('#include a,b', #version 150, WR_FRAGMENT_SHADER,
+  WR_MAX_VERTEX_TEXTURE_WIDTH 1024U, WR_FEATURE_TEXTURE_2D; scratchpad wr_assemble.py): 25 fragment shaders. New GLSL
+  support: T[N] return types and locals, T[N](...) constructors (= { ... }), returning arrays; prototypes (frontend
+  glslMoveCallers: the prototype dropped, callers between it and the definition moved after it with #line markers);
+  highp / mediump / lowp in parameters and locals; gl_FragCoord as a static global for helpers; a last switch case
+  without break. 24 of 25 load (ps_quad is a template, never built alone), 223 regions; --time 2: 28 regions have
+  variants that need ranges (alpha, Cb, Cs, aa_range ...). HarfBuzz's GPU snippets (no main) and CompositorD3D11.hlsl
+  (needs BlendShaderConstants.h) not yet.
   0.8.1 (owner, 2026-10-19, FFmpeg's Vulkan GLSL as a test corpus): a one-argument GLSL atan was rewritten to atan(...)
   and intercepted again without end (stack overflow; FFmpeg v360) -> _sopt_glsl_plain_atan. Folder scans take .glsl
   files with a main() (FFmpeg's common.glsl etc. are includes). Includes are also searched in the folders above the

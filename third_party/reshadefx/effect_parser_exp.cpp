@@ -186,7 +186,9 @@ bool reshadefx::parser::accept_type_class(type &type)
 	type.rows = type.cols = 0;
 
 	// sopt: GLSL type names
-	if (sopt_glsl && peek(tokenid::identifier) && _token_next.literal_as_string == "nonuniformEXT")
+	// nonuniformEXT and precision qualifiers (highp int x, in parameters and locals too): skipped
+	while (sopt_glsl && peek(tokenid::identifier) && (_token_next.literal_as_string == "nonuniformEXT" ||
+		_token_next.literal_as_string == "highp" || _token_next.literal_as_string == "mediump" || _token_next.literal_as_string == "lowp"))
 		consume();
 	if (sopt_glsl && peek(tokenid::identifier))
 	{
@@ -953,6 +955,19 @@ bool reshadefx::parser::parse_expression_unary(expression &exp)
 	}
 	else if (type type = {}; accept_type_class(type)) // Check if this is a constructor call expression
 	{
+		// sopt: a GLSL array constructor T[N](a, b, ...): the initializer list { a, b, ... }
+		if (sopt_glsl && peek('['))
+		{
+			if (!parse_array_length(type))
+				return false;
+			std::vector<std::string> args;
+			if (!peek('(') || !sopt_argument_texts(')', args))
+				return false;
+			std::string list;
+			for (const std::string &a : args)
+				list += (list.empty() ? "" : ", ") + a;
+			return sopt_parse_text('{' + list + '}', location, &exp);
+		}
 		if (!expect('('))
 			return false;
 

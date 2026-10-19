@@ -1,6 +1,7 @@
 #include "fx/frontend.hpp"
 
 #include <algorithm>
+#include <regex>
 #include <bit>
 #include <cctype>
 #include <cmath>
@@ -75,6 +76,101 @@ void mapLines(const std::string& out, std::map<std::pair<std::string, uint32_t>,
   }
 }
 
+// GLSL function prototypes (vec4 f(vec4 c);) with the definition further down, as WebRender's ps_quad declares
+// pattern_fragment for the shader that includes it: ReShade FX has no prototypes. The prototype is dropped and every
+// function between it and the definition that calls it (ps_quad's main) moves to just after the definition, with
+// #line markers so its lines keep their numbers. Works on the preprocessed text (one function signature per line).
+std::string glslMoveCallers(std::string text) {
+  struct Fn {
+    std::string name;
+    size_t begin, end;  // the signature's line start, one past the closing '}' (or the ';' of a prototype)
+    bool proto;
+  };
+  const auto scan = [&]() {
+    std::vector<Fn> fns;
+    static const std::regex sig(R"(^[ \t]*[A-Za-z_][\w\[\] \t]*[ \t]([A-Za-z_]\w*)[ \t]*\()");
+    int depth = 0;
+    for (size_t i = 0; i < text.size();) {
+      const size_t eol = std::min(text.find('\n', i), text.size());
+      std::smatch m;
+      const std::string line = text.substr(i, eol - i);
+      if (depth == 0 && std::regex_search(line, m, sig) && line.find('=') == std::string::npos) {
+        // The parameter list, then ';' (a prototype) or '{' (a definition).
+        size_t p = i + m.position(0) + m.length(0), paren = 1;
+        for (; p < text.size() && paren > 0; ++p) paren += text[p] == '(' ? 1 : text[p] == ')' ? -1 : 0;
+        while (p < text.size() && std::isspace(static_cast<unsigned char>(text[p]))) ++p;
+        if (p < text.size() && text[p] == ';') {
+          fns.push_back({m[1], i, p + 1, true});
+        } else if (p < text.size() && text[p] == '{') {
+          int d = 0;
+          size_t q = p;
+          for (; q < text.size(); ++q)
+            if (text[q] == '{') ++d;
+            else if (text[q] == '}' && --d == 0) break;
+          fns.push_back({m[1], i, q + 1, false});
+          i = std::min(text.find('\n', q), text.size());
+          if (i < text.size()) ++i;
+          continue;
+        }
+      }
+      for (char c : line) depth += c == '{' ? 1 : c == '}' ? -1 : 0;
+      i = eol + 1;
+    }
+    return fns;
+  };
+  // "#line N \"file\"" for the text that starts at 'at'.
+  const auto lineAt = [&](size_t at) {
+    long line = 1;
+    std::string file;
+    static const std::regex dir(R"(^#line (\d+)( "[^"]*")?)");
+    for (size_t i = 0; i < at;) {
+      const size_t eol = std::min(text.find('\n', i), text.size());
+      std::smatch m;
+      const std::string l = text.substr(i, eol - i);
+      if (std::regex_search(l, m, dir)) {
+        line = std::stol(m[1]);
+        if (m[2].matched) file = m[2];
+      } else {
+        ++line;
+      }
+      i = eol + 1;
+    }
+    return "#line " + std::to_string(line) + file + "\n";
+  };
+  for (int round = 0; round < 8; ++round) {
+    const std::vector<Fn> fns = scan();
+    bool moved = false;
+    for (const Fn& proto : fns) {
+      if (!proto.proto) continue;
+      const auto def = std::find_if(fns.begin(), fns.end(), [&](const Fn& f) { return !f.proto && f.name == proto.name && f.begin > proto.begin; });
+      if (def == fns.end()) continue;
+      const std::regex call("\\b" + proto.name + "\\s*\\(");
+      std::vector<const Fn*> callers;
+      for (const Fn& f : fns)
+        if (!f.proto && f.begin > proto.end && f.end <= def->begin && std::regex_search(text.begin() + f.begin, text.begin() + f.end, call))
+          callers.push_back(&f);
+      // After the definition (at the next line), each moved block with its own line numbers, then the old position.
+      size_t after = std::min(text.find('\n', def->end), text.size());
+      if (after < text.size()) ++after;
+      std::string block;
+      for (const Fn* f : callers) block += lineAt(f->begin) + text.substr(f->begin, f->end - f->begin) + "\n";
+      if (!block.empty()) block += lineAt(after);
+      text.insert(after, block);
+      // Blank out the callers and the prototype (newlines kept, so the lines that follow keep their numbers).
+      auto blank = [&](size_t b, size_t e) {
+        for (size_t k = b; k < e; ++k)
+          if (text[k] != '\n') text[k] = ' ';
+      };
+      for (const Fn* f : callers) blank(f->begin, f->end);
+      blank(proto.begin, proto.end);
+      moved = true;
+      break;  // positions changed: scan again
+    }
+    if (!moved) break;
+  }
+  return text;
+}
+
 }  // namespace
 
 std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
@@ -122,6 +218,8 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   }
   if (!decls.empty()) pp.append_string(decls);
   pp.sopt_glsl = opt.glsl;
+  // gl_FragCoord in functions other than main (WebRender's helpers): a global there; main has it as its parameter.
+  if (opt.glsl) pp.append_string("static float4 gl_FragCoord;\n");
   if (!opt.hlsl && !opt.glsl)
     pp.append_string(
         "#define tex2Doffset(s, coords, offset) tex2D(s, coords, offset)\n"
@@ -144,11 +242,12 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   parser.sopt_hlsl = opt.hlsl && !opt.glsl;
   parser.sopt_glsl = opt.glsl;
   parser.sopt_hlsl_entry = opt.entry;
-  if (!parser.parse(pp.output(), fx->cg.get())) {
+  const std::string source = opt.glsl ? glslMoveCallers(pp.output()) : pp.output();
+  if (!parser.parse(source, fx->cg.get())) {
     errors = pp.errors() + parser.errors();
     return nullptr;
   }
-  mapLines(pp.output(), fx->ppLines);
+  mapLines(source, fx->ppLines);
   for (const auto& [k, v] : pp.used_macro_definitions()) fx->userMacros[k] = v;
   fx->symbolic = opt.symbolic;
   fx->width = opt.width;

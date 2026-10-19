@@ -211,6 +211,9 @@ bool reshadefx::parser::parse_top(bool &parse_success)
 
 		if (type type = {}; parse_type(type)) // Type found, this can be either a variable or a function declaration
 		{
+			// sopt: GLSL arrays as a return type (vec4[2] f(...))
+			if (sopt_glsl && peek('[') && !parse_array_length(type))
+				return parse_success = false, true;
 			parse_success = expect(tokenid::identifier);
 			if (!parse_success)
 				return true;
@@ -509,18 +512,21 @@ bool reshadefx::parser::parse_statement(bool scoped)
 				}
 
 				// It is valid for no statement to follow if this is the last label in the switch body
-				const bool end_of_switch = peek('}');
+				bool end_of_switch = peek('}');
 
 				if (!end_of_switch && !parse_statement(true))
 				{
 					consume_until('}');
 					return false;
 				}
+				// sopt: GLSL lets the last case run to the end of the switch without a break (WebRender's ps_quad_blend)
+				const bool glsl_last = sopt_glsl && !end_of_switch && peek('}');
+				end_of_switch = end_of_switch || glsl_last;
 
 				// Handle fall-through case and end of switch statement
 				if (peek(tokenid::case_) || peek(tokenid::default_) || end_of_switch)
 				{
-					if (_codegen->is_in_block()) // Disallow fall-through for now
+					if (_codegen->is_in_block() && !glsl_last) // Disallow fall-through for now
 					{
 						parse_success = false;
 						error(_token_next.location, 3533, "non-empty case statements must have break or return");
@@ -870,8 +876,9 @@ bool reshadefx::parser::parse_statement(bool scoped)
 					return false;
 				}
 
-				// Cannot return arrays from a function
-				if (return_exp.type.is_array() || !type::rank(return_exp.type, return_type))
+				// Cannot return arrays from a function (sopt: GLSL can, vec4[2] f())
+				if ((return_exp.type.is_array() && !(sopt_glsl && return_exp.type.array_length == return_type.array_length)) ||
+					!type::rank(return_exp.type, return_type))
 				{
 					error(statement_location, 3017, "expression (" + return_exp.type.description() + ") does not match function return type (" + return_type.description() + ')');
 					accept(';');
@@ -918,6 +925,9 @@ bool reshadefx::parser::parse_statement(bool scoped)
 	// Handle variable declarations
 	if (type type = {}; parse_type(type))
 	{
+		// sopt: GLSL int[4] x (the array length after the type)
+		if (sopt_glsl && peek('[') && !parse_array_length(type))
+			return false;
 		unsigned int count = 0;
 		do
 		{
@@ -1017,6 +1027,9 @@ bool reshadefx::parser::parse_type(type &type)
 }
 bool reshadefx::parser::parse_array_length(type &type)
 {
+	// sopt: a GLSL array type (int[4] x) has its length already, after the type
+	if (sopt_glsl && type.array_length != 0 && !peek('['))
+		return true;
 	// Reset array length to zero before checking if one exists
 	type.array_length = 0;
 
