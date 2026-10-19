@@ -1125,6 +1125,14 @@ TEST(fx_sugar_intrinsics) {
   CHECK(regionOn(fx::extractRegions(*e, nullptr, big, sk2), 24) != nullptr);
 }
 
+TEST(fx_include_from_folder_above) {
+  // No include paths: sopt_test.fxh is found in the folder above the effect.
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sub" / "sopt_up.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) std::printf("  %s\n", err.c_str());
+}
+
 TEST(fx_hlsl_glsl_extras) {
   // Intrinsics HLSL / GLSL have and ReShade FX lacks: the file loads and the statements are regions.
   auto regionsOf = [](const char* name, bool glsl) {
@@ -1141,7 +1149,7 @@ TEST(fx_hlsl_glsl_extras) {
   const auto h = regionsOf("sopt_extras.hlsl", false);
   CHECK(regionOn(h, 13) != nullptr);  // fmod
   const auto g = regionsOf("sopt_extras.frag", true);
-  for (uint32_t line : {12u, 13u, 14u}) CHECK(regionOn(g, line) != nullptr);  // asinh, acosh, atanh
+  for (uint32_t line : {13u, 14u, 15u, 16u}) CHECK(regionOn(g, line) != nullptr);  // asinh, acosh, atanh, atan(x)
 }
 
 TEST(fx_hoist_rewrite) {

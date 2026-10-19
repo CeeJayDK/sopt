@@ -42,7 +42,7 @@ if "%MODE%"=="easy-switches" echo   Mode             %E%[97mEasy: ready files, e
 if "%MODE%"=="expert" echo   Mode             %E%[97mExpert: every variant behind switches, you choose%E%[0m
 if exist "sopt-facts.txt" echo   Value ranges     %E%[97msopt-facts.txt%E%[0m
 echo.
-echo   %E%[1;93m1%E%[0m  Choose the Shaders folder %E%[90m(the reshade-shaders\Shaders folder with ReShade.fxh)%E%[0m
+echo   %E%[1;93m1%E%[0m  Choose the Shaders folder %E%[90m(reshade-shaders\Shaders, to optimize every effect)%E%[0m
 echo   %E%[1;93m2%E%[0m  Choose what to optimize %E%[90m(everything, one folder or one effect)%E%[0m
 echo   %E%[1;93m3%E%[0m  Choose the time per statement %E%[90m(more time can find more)%E%[0m
 echo   %E%[1;93m4%E%[0m  Choose the graphics card family %E%[90m(what counts as faster)%E%[0m
@@ -94,7 +94,7 @@ echo.
 echo   What should SweetOpt optimize?
 echo.
 echo   %E%[1;93m1%E%[0m  Every effect in the Shaders folder
-echo   %E%[1;93m2%E%[0m  One folder %E%[90m(for example SweetFX)%E%[0m
+echo   %E%[1;93m2%E%[0m  One folder %E%[90m(for example SweetFX, or a folder of GLSL / HLSL shaders)%E%[0m
 echo   %E%[1;93m3%E%[0m  One effect file
 echo   %E%[1;93m4%E%[0m  A GLSL or HLSL shader file %E%[90m(not ReShade: .frag, .glsl, .hlsl ...)%E%[0m
 echo   %E%[1;93m0%E%[0m  Back
@@ -105,16 +105,14 @@ if errorlevel 4 goto targetOther
 if errorlevel 3 goto targetFile
 if errorlevel 2 goto targetFolder
 set "TARGET="
+if "%SHADERS%"=="" call :chooseShaders
 exit /b
 :targetFolder
-if "%SHADERS%"=="" call :chooseShaders
-if "%SHADERS%"=="" exit /b
-call :pickFolder "Choose the folder of effects to optimize" "%SHADERS%"
+rem No Shaders folder needed first: sopt-fx finds ReShade.fxh in the folders above an effect.
+call :pickFolder "Choose the folder to optimize" "%SHADERS%"
 if not "%PICKED%"=="" set "TARGET=%PICKED%"
 exit /b
 :targetFile
-if "%SHADERS%"=="" call :chooseShaders
-if "%SHADERS%"=="" exit /b
 call :pickFile "%SHADERS%"
 if not "%PICKED%"=="" set "TARGET=%PICKED%"
 exit /b
@@ -231,7 +229,7 @@ goto easySettings
 
 rem ---------------------------------------------------------------------------------------------------
 :start
-if "%SHADERS%%TARGET%"=="" call :chooseShaders
+if "%SHADERS%%TARGET%"=="" call :chooseTarget
 if "%SHADERS%%TARGET%"=="" exit /b
 set "WHAT=%TARGET%"
 if "%WHAT%"=="" set "WHAT=%SHADERS%"
@@ -254,7 +252,7 @@ pause
 exit /b
 
 :look
-if "%SHADERS%%TARGET%"=="" call :chooseShaders
+if "%SHADERS%%TARGET%"=="" call :chooseTarget
 if "%SHADERS%%TARGET%"=="" exit /b
 set "WHAT=%TARGET%"
 if "%WHAT%"=="" set "WHAT=%SHADERS%"

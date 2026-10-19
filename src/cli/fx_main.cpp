@@ -9,6 +9,7 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <regex>
 #include <set>
 #include <string>
 #include <thread>
@@ -188,10 +189,19 @@ void collect(const fs::path& p, std::vector<fs::path>& out) {
   std::error_code ec;
   if (fs::is_directory(p, ec)) {
     std::vector<fs::path> sub;
-    for (auto it = fs::recursive_directory_iterator(p, ec); it != fs::recursive_directory_iterator(); ++it)
-      if (it->is_regular_file() && (it->path().extension() == ".fx" || it->path().extension() == ".hlsl" ||
-                                    it->path().extension() == ".frag" || it->path().extension() == ".fs"))
+    // .glsl is used for shaders and for shared include files alike (FFmpeg's common.glsl): only files with a main()
+    // are shaders. .fxh / .hlsli are include files.
+    auto hasMain = [](const fs::path& f) {
+      std::ifstream in(f, std::ios::binary);
+      const std::string s((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+      return std::regex_search(s, std::regex(R"(\bvoid\s+main\s*\()"));
+    };
+    for (auto it = fs::recursive_directory_iterator(p, ec); it != fs::recursive_directory_iterator(); ++it) {
+      if (!it->is_regular_file()) continue;
+      const auto ext = it->path().extension();
+      if (ext == ".fx" || ext == ".hlsl" || ext == ".frag" || ext == ".fs" || (ext == ".glsl" && hasMain(it->path())))
         sub.push_back(it->path());
+    }
     std::sort(sub.begin(), sub.end());
     out.insert(out.end(), sub.begin(), sub.end());
   } else {

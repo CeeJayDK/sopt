@@ -152,6 +152,7 @@ namespace reshadefx
 		};
 		std::vector<sopt_glsl_io> _sopt_glsl_io; // global in / out variables of the entry point
 		std::vector<std::pair<std::string, unsigned int>> _sopt_glsl_sampler_dims; // sampler name, dimension
+		bool _sopt_glsl_plain_atan = false; // the next 'atan' is ReShade FX's own (one-argument atan rewritten to itself)
 
 		std::vector<uint32_t> _loop_break_target_stack;
 		std::vector<uint32_t> _loop_continue_target_stack;
