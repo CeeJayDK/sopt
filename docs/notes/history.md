@@ -1968,6 +1968,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   0.7.34: OpBench's score marks fp16 with '*' (as ReShade gets it); ShaderInfo's rateTest (rate.comp, glslang 16.6.0,
   fp32 and f16vec4 builds, 8 float4 fma chains, 4096 x 64 threads, sized by CPU time to >= 20 ms, GPU timestamps,
   CPU time when they read under 25%) reports the card's own fp32 / fp16 TFLOPS and their ratio.
+  0.7.36 (owner's go, 2026-10-19: CPU timing noise): CPU timing uses a difference method, the work once and twice,
+  twice minus once = the work without the fixed submission / completion overhead (a negative difference is measured
+  again, at most 3 times, then the plain time); the CPU-timing run target drops 20 -> 10 ms (overhead no longer needs
+  diluting), so a reading costs ~30 ms of GPU work instead of 20. Jitter itself does not cancel.
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /

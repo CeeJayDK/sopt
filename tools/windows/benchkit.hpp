@@ -858,8 +858,9 @@ inline Adapter selectAdapter(const Style& st, bool list, int index) {
 //   checkTimestamps  at the start: a run sized by CPU time (honest, so never long), at two lengths, three readings
 //                    each way; the timestamps must cover a quarter of the CPU time and grow with the work.
 //   every reading    CPU time from submission to an EVENT after the work: a reading under a quarter of it (at
-//                    >= 5 ms) twice on the same work, or a timestamp still missing after 5 s (no healthy GPU runs that long: Windows resets
-//                    it at ~2 s), switches to CPU time for the rest of the run; calibration then starts over.
+//                    >= 5 ms) is measured again with the work done twice; timestamps that do not grow with it (or
+//                    under 2% of the CPU time), or one still missing after 5 s (no healthy GPU runs that long: Windows
+//                    resets it at ~2 s), switch to CPU time for the rest of the run; calibration then starts over.
 // A switch is noted on screen and in the report ("# timing:"); the check's numbers always go into the report.
 struct Timer {
   ID3D11Query* disjoint = nullptr;
@@ -870,7 +871,6 @@ struct Timer {
   LARGE_INTEGER cpuFrequency = {};
   char note[240] = "";   // why CPU time is used
   char check[240] = "";  // checkTimestamps' numbers
-  bool suspect = false;  // the last reading was far under the CPU time: the next one decides
   void create(ID3D11Device* dev) {
     D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
     if (FAILED(dev->CreateQuery(&qd, &completed))) fail("cannot create the GPU completion query");
@@ -946,7 +946,7 @@ struct Timer {
     return -1.0;
   }
   template <class Work>
-  double timeOnce(ID3D11DeviceContext* ctx, Work work) {
+  double timeOnce(ID3D11DeviceContext* ctx, Work work, int repeat = 1) {  // repeat: the guard's doubled run
     // Waits for a query; a GPU that stopped responding (driver reset: the device is removed, every query fails)
     // or a measurement still unfinished after 60 seconds ends the program with a message instead of hanging.
     // A timestamp missing after 5 s returns false (the caller switches to CPU time).
@@ -984,13 +984,24 @@ struct Timer {
     };
     if (eventTiming) {
       // No timestamps are issued. Drain earlier uploads first, then measure CPU elapsed time until this work's EVENT
-      // completes. Calibration primes the shader and uses longer samples to reduce submission / polling overhead.
-      finish();
-      QueryPerformanceCounter(&c0);
-      work();
-      finish();
-      QueryPerformanceCounter(&c1);
-      return double(c1.QuadPart - c0.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
+      // completes. Difference method (owner, 2026-10-19: the GT 530's CPU timings were noisy): the work once, then
+      // twice; the second minus the first is the work's own time, without the fixed submission / completion overhead
+      // both contain. A negative difference (jitter larger than the work) is measured again, at most 3 times, then
+      // the plain time is used.
+      auto cpuMs = [&](int times) {
+        finish();
+        QueryPerformanceCounter(&c0);
+        for (int r = 0; r < times; ++r) work();
+        finish();
+        QueryPerformanceCounter(&c1);
+        return double(c1.QuadPart - c0.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
+      };
+      double one = 0.0;
+      for (int attempt = 0; attempt < 3; ++attempt) {
+        one = cpuMs(1);
+        if (const double two = cpuMs(2); two > one) return two - one;
+      }
+      return one;
     }
     // The guard's CPU time ends at an EVENT after the timestamps, not at the timestamps themselves: on the NVS 310
     // they arrived before the work was done, so a CPU time read from them was as short as they were (agent, 0.7.24
@@ -1000,7 +1011,7 @@ struct Timer {
     QueryPerformanceCounter(&c0);
     ctx->Begin(disjoint);
     ctx->End(t0);
-    work();
+    for (int r = 0; r < repeat; ++r) work();
     ctx->End(t1);
     ctx->End(disjoint);
     finish();
@@ -1013,21 +1024,21 @@ struct Timer {
     if (dj.Disjoint || dj.Frequency == 0) return -1.0;
     const double ms = double(b - a) * 1000.0 / double(dj.Frequency);
     const double cpu = double(c1.QuadPart - c0.QuadPart) * 1000.0 / double(cpuFrequency.QuadPart);
-    // A low reading is measured again with the same work (time() retries a negative reading): a first use of a shader
-    // or texture likely costs the CPU tens of ms the GPU never sees (GTX 1660 / UHD 630, 0.7.25: 1.7-4.5 ms for 15-33 ms
-    // switched healthy cards). The same work, not the next calibration step's double, so the work cannot grow first.
-    if (cpu >= 5.0 && ms < 0.25 * cpu) {
-      if (!suspect) {
-        suspect = true;
-        return -1.0;
-      }
-      suspect = false;
+    // Delay or wrong timestamps? The CPU time can run far ahead on healthy cards too (first use of a shader or texture,
+    // a GPU waking up: 8-21% of the CPU time on a GTX 1660 / UHD 630, 0.7.25-0.7.31), as far as on a lying Fermi driver
+    // (0-24%). Honest timestamps grow with the work: the same work done twice must read >= 1.5x. Wrong ones stay near 0
+    // or do not grow. Twice the work is a bounded step (calibration doubles from small anyway).
+    if (repeat == 1 && cpu >= 5.0 && ms < 0.25 * cpu) {
+      const bool nearZero = ms < 0.02 * cpu;
+      const double twice = nearZero ? 0.0 : timeOnce(ctx, work, 2);
+      if (eventTiming) return -1.0;  // the doubled run's timestamps did not arrive: switched there
+      if (!nearZero && (twice < 0.0 || twice >= 1.5 * ms)) return ms;  // disjoint: no answer, keep; grew: delay only
       char why[120];
-      std::snprintf(why, sizeof(why), "the driver's GPU timestamps are wrong (%.3f ms for %.1f ms of work)", ms, cpu);
+      if (nearZero) std::snprintf(why, sizeof(why), "the driver's timestamps are wrong (%.3f ms for %.1f ms of work)", ms, cpu);
+      else std::snprintf(why, sizeof(why), "the driver's timestamps are wrong (%.3f ms for %.1f ms, %.3f ms for twice)", ms, cpu, twice);
       useCpu(why);
       return -1.0;
     }
-    suspect = false;
     return ms;
   }
 };
