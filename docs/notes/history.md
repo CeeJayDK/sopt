@@ -2024,6 +2024,16 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   the preprocessor lexes macro output again, so '-level' with level = '-1 * 2' became '--1' (a decrement; OBS's
   YADIF, 27 shaders): a space between operator characters at an argument's start. All 222 load, 1313 regions
   (helpers counted per file); --time 2: 208 have variants that need ranges.
+  Chromium (2026-10-19): no video shader files; on Windows YouTube video mostly goes through the D3D11 video processor
+  and overlays (fixed function); the GPU fallback is Skia, whose shaders come from SkSL modules. Skia's
+  sksl_graphite_frag.sksl (+ helpers of sksl_shared / sksl_gpu; BSD-3, used locally) converted to GLSL by scratchpad
+  skia_convert.py ($pure / inline dropped, $x -> sk_p_x, half -> float, sample -> texture, SkSL swizzles .rgb1 /
+  .000a / .LT -> constructors / xyzw, sk_FragCoord, sk_Caps.* = false, half / float overload duplicates dropped,
+  float[] parameters -> [1], a main per sk_* function with uniforms for its parameters). New in sopt: GLSL array
+  parameters (vec4[2] r). 106 load, 803 regions; --time 2: 232 need ranges (sk_yuv_image_shader, Chrome's YUV to RGB,
+  15 regions). The models often replace floor() with the 12582912 rounding trick (bit-exact): measured, floor / ceil /
+  round / trunc cost ~5.9 fma on Ampere (RTX 3060, 3050: quarter-rate FRND), 3 on Turing, 0.74 on RDNA 2: a real gain on
+  NVIDIA, not on AMD.
   Plan for open-source shaders (owner, 2026-10-19): learn and improve sopt on them now (parser, cost models); later
   re-run with the improved models and offer results as an issue (files attached, how they were made, what sopt is,
   how to run it), not a patch: teach maintainers to use sopt. Before that: each project's contribution rules (AI

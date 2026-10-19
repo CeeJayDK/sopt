@@ -2,7 +2,7 @@
 // sopt test: GLSL as WebRender (Firefox) writes it: functions returning arrays, array constructors and array-typed
 // locals, a prototype with the definition further down, precision qualifiers on parameters, gl_FragCoord in a helper,
 // a last switch case without a break. The file loads, and lines 22, 30 (main, moved after pattern's definition) and
-// 43 are regions.
+// 43 are regions. An array parameter (vec4[2] r) at the end.
 in vec2 vUv;
 out vec4 oFragColor;
 uniform sampler2D sColor0;
@@ -42,4 +42,8 @@ vec4 pattern(vec4 c) {
     vec4 r = c;
     r.w = c.x * 4.0 - c.x;
     return r;
+}
+
+float first(vec4[2] r) {
+    return r[0].x * 2.0 + r[1].y;
 }

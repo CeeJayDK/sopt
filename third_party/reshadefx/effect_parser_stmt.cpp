@@ -1352,6 +1352,15 @@ bool reshadefx::parser::parse_function(type type, std::string name, shader_type 
 			break;
 		}
 
+		// sopt: GLSL float4[2] x as a parameter (the array length after the type)
+		if (sopt_glsl && peek('[') && !parse_array_length(param.type))
+		{
+			parse_success = false;
+			expect_parenthesis = false;
+			consume_until(')');
+			break;
+		}
+
 		if (!expect(tokenid::identifier))
 		{
 			parse_success = false;
