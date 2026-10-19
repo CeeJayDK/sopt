@@ -1981,6 +1981,9 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   timestamps (0.85 ms): a one-off at a new 4K RGBA32F target, report left out; 0.7.38 checks once more before switching.
   ShaderInfo fp16 rate (Vulkan float16): GTX 1660 4.60 / 10.44 TFLOPS (2.27x), UHD 630 0.160 / 0.384 (2.41x), Iris 540
   0.417 / 0.785 (1.88x).
+  0.8.0 release build (owner, 2026-10-19): GTX 1660 and UHD 630 all four tools on GPU timestamps, no switch;
+  GTX 1660 OpBench 65 s (drift 24%), StageBench 29 / 28 s, TexBench 149 s (2.1%); UHD 630 76 / 33 / 34 / 175 s (2-9%).
+  ShaderInfo fp16: GTX 1660 10.46 TFLOPS (1.96x; 0.7.37 2.27x), UHD 630 0.409 (2.57x; 2.41x): the ratio moves 10-15%.
   cs / ps / vs compared (2026-10-18; OpBench vs StageBench, 0.7.14 and 0.7.16 runs, GTX 1660 -10 / -12, UHD 630
   -13 / -15; same in both runs, all consensus yes; fma = 4 units): 211 of 220 tests within 0.75 units / 20% on both
   cards; ps = vs except arrays. Differs: a multiply by a uniform before an fma, radians, degrees 0 in cs, 1 fma in ps /

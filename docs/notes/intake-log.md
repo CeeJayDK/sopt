@@ -285,3 +285,15 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, Intel(R) Iris(R) Graphics 540 (driver 31.0.101.2121): `docs/stagebench/intel-iris-540-ps-2.csv` (StageBench 0.7.37)
 - upload 1: stagebench, Intel(R) Iris(R) Graphics 540 (driver 31.0.101.2121): `docs/stagebench/intel-iris-540-vs-2.csv` (StageBench 0.7.37)
 - upload 1: texbench, Intel(R) Iris(R) Graphics 540 (driver 31.0.101.2121): `docs/texbench/intel-iris-540-4.csv`, `docs/texbench/intel-iris-540-4-order.png`, `docs/texbench/intel-iris-540-4-order-zoom.png` (TexBench 0.7.37)
+
+## 2026-10-19 02:40 UTC
+- upload 1: opbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/opbench/intel-uhd-630-20.csv` (OpBench 0.8.0)
+- upload 1: opbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/opbench/nvidia-gtx-1660-19.csv` (OpBench 0.8.0)
+- upload 1: shaderinfo, Intel(R) UHD Graphics 630 (driver Intel Corporation Intel driver (101.2145)): `docs/shaderinfo/intel-uhd-630-14.txt`
+- upload 1: shaderinfo, NVIDIA GeForce GTX 1660 (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-gtx-1660-12.txt`
+- upload 1: stagebench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-630-ps-11.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/stagebench/nvidia-gtx-1660-ps-12.csv` (StageBench 0.8.0)
+- upload 1: stagebench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-630-vs-12.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/stagebench/nvidia-gtx-1660-vs-12.csv` (StageBench 0.8.0)
+- upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-22.csv`, `docs/texbench/intel-uhd-630-22-order.png`, `docs/texbench/intel-uhd-630-22-order-zoom.png` (TexBench 0.8.0)
+- upload 1: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/texbench/nvidia-gtx-1660-18.csv`, `docs/texbench/nvidia-gtx-1660-18-order.png`, `docs/texbench/nvidia-gtx-1660-18-order-zoom.png` (TexBench 0.8.0)
