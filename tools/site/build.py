@@ -393,6 +393,55 @@ def texbench_data(out):
     return {"cards": cards}
 
 
+def stagebench_data():
+    """Per card with StageBench reports: each test's throughput cost (fma units) in compute shaders (OpBench), pixel and
+    vertex shaders (StageBench), from the newest report of each. Runs that switched to CPU timing part way are left out."""
+    def costs(path):
+        lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+        if any(l.startswith("# timing:") and "from the timestamp check" not in l for l in lines):
+            return None  # mixed GPU / CPU timing
+        rows = list(csv.reader(l for l in lines if l and not l.startswith("#")))
+        if not rows or rows[0][:2] != ["config", "test"]:
+            return None
+        col = {c: i for i, c in enumerate(rows[0])}
+        out = {}
+        for r in rows[1:]:
+            if len(r) > col["units_vs_base"] and r[0] == "tput":
+                try:
+                    out[r[1]] = float(r[col["units_vs_base"]]) / 4.0
+                except ValueError:
+                    pass
+        return out
+
+    def newest(kind, stage=None):
+        best = {}
+        for path in glob.glob(os.path.join(ROOT, "docs", kind, "*.csv")):
+            info = read_report(path)
+            if stage and info.get("stage") != stage:
+                continue
+            m = re.search(r"-(\d+)\.csv$", path)
+            key = (tuple(int(x) for x in info.get("version", "0").split(".") if x.isdigit()), int(m.group(1)) if m else 1)
+            name = clean_name(NAME_BY_DEVICE.get(info.get("device", "")) or info.get("gpu", ""))
+            c = costs(path)
+            with open(path, encoding="utf-8", errors="replace") as f:
+                drift = re.search(r"^# reference drift(?: tput)?: (\S+)", f.read(), re.M)
+            info["drift"] = drift.group(1) if drift else ""
+            if name and c and (name not in best or key > best[name][0]):
+                best[name] = (key, c, info)
+        return best
+
+    ps, vs, cs = newest("stagebench", "ps"), newest("stagebench", "vs"), newest("opbench")
+    cards = []
+    for name in sorted(set(ps) & set(vs)):
+        tests = []
+        for test, p in ps[name][1].items():
+            tests.append({"test": test, "cs": cs.get(name, (0, {}))[1].get(test), "ps": p, "vs": vs[name][1].get(test)})
+        cards.append({"name": name, "driver": ps[name][2].get("driver", ""), "version": ps[name][2].get("version", ""),
+                      "drift": {k: v[name][2].get("drift", "") for k, v in (("cs", cs), ("ps", ps), ("vs", vs)) if name in v},
+                      "tests": tests})
+    return {"cards": cards}
+
+
 def markdown_html(text):
     """The Markdown subset docs/texbench/FINDINGS.md uses: headings, paragraphs, bullet lists, tables, **bold**,
     *italic*, `code`. The first heading is left out (the page has its own title)."""
@@ -471,6 +520,7 @@ def main():
     os.makedirs(os.path.join(out, "img"), exist_ok=True)
     os.makedirs(os.path.join(out, "data"), exist_ok=True)
     tb = texbench_data(out)
+    sb = stagebench_data()
     lib = library_data(library_path)
 
     # The page files (site/ as it is), then the data.
@@ -479,7 +529,7 @@ def main():
         os.makedirs(os.path.join(out, rel), exist_ok=True)
         for f in files:
             shutil.copy(os.path.join(dirpath, f), os.path.join(out, rel, f))
-    for name, obj in (("models", data), ("library", lib), ("texbench", tb)):
+    for name, obj in (("models", data), ("library", lib), ("texbench", tb), ("stagebench", sb)):
         with open(os.path.join(out, "data", name + ".json"), "w") as f:
             json.dump(obj, f, indent=1)
     findings = os.path.join(ROOT, "docs", "texbench", "FINDINGS.md")
@@ -487,7 +537,7 @@ def main():
         with open(findings, encoding="utf-8") as f, open(os.path.join(out, "data", "texbench-findings.html"), "w", encoding="utf-8") as o:
             o.write(markdown_html(f.read()))
     print(f"{len(data['models'])} models, {len(data['cards'])} cards, {len(lib['rules'])} library rules, "
-          f"{len(tb['cards'])} TexBench cards -> {out}")
+          f"{len(tb['cards'])} TexBench cards, {len(sb['cards'])} StageBench cards -> {out}")
 
 
 if __name__ == "__main__":
