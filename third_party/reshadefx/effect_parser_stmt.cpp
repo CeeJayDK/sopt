@@ -1801,6 +1801,26 @@ bool reshadefx::parser::parse_variable(type type, std::string name, bool global)
 				}
 			}
 
+			// sopt: HLSL float3 x = { 0.0, 0.0, 0.0 };: a brace list of literals for a vector or matrix (OBS Studio's effects)
+			if (sopt_hlsl && initializer.is_constant && initializer.type.is_array() && initializer.type.rows == 1 && initializer.type.cols == 1 && !type.is_array() &&
+				(type.is_vector() || type.is_matrix()) && initializer.type.array_length == type.components() &&
+				initializer.constant.array_data.size() == type.components())
+			{
+				reshadefx::constant value = {};
+				for (unsigned int i = 0; i < type.components(); ++i)
+				{
+					const reshadefx::constant &e = initializer.constant.array_data[i];
+					if (type.is_floating_point())
+						value.as_float[i] = initializer.type.is_floating_point() ? e.as_float[0] :
+							initializer.type.is_signed() ? static_cast<float>(e.as_int[0]) : static_cast<float>(e.as_uint[0]);
+					else
+						value.as_uint[i] = initializer.type.is_floating_point() ? static_cast<uint32_t>(static_cast<int32_t>(e.as_float[0])) : e.as_uint[0];
+				}
+				reshadefx::type value_type = type;
+				value_type.qualifiers = 0;
+				initializer.reset_to_rvalue_constant(initializer.location, value, value_type);
+			}
+
 			// Check type compatibility
 			if ((!type.is_unbounded_array() && initializer.type.array_length != type.array_length) || !type::rank(initializer.type, type))
 			{

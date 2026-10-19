@@ -2016,6 +2016,21 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   without break. 24 of 25 load (ps_quad is a template, never built alone), 223 regions; --time 2: 28 regions have
   variants that need ranges (alpha, Cb, Cs, aa_range ...). HarfBuzz's GPU snippets (no main) and CompositorD3D11.hlsl
   (needs BlendShaderConstants.h) not yet.
+  OBS Studio as a test corpus (2026-10-19; GPL-2.0, used locally): 52 .effect files (libobs/data, plugins/*/data),
+  converted to plain HLSL by scratchpad obs_convert.py (includes expanded, texture2d / texture3d -> Texture2D / 3D,
+  sampler_state -> SamplerState, TARGET -> SV_Target, obs_glsl_compile = false, techniques dropped, one file per
+  'pixel_shader = F(args)' with a main calling it; the deinterlacers' TECHNIQUE(a, b, c, d) macro): 222 pixel shaders.
+  Parser fixes: HLSL brace initializers of literals for vectors / matrices (float3 x = { 0, 0, 0 }; 84 shaders);
+  the preprocessor lexes macro output again, so '-level' with level = '-1 * 2' became '--1' (a decrement; OBS's
+  YADIF, 27 shaders): a space between operator characters at an argument's start. All 222 load, 1313 regions
+  (helpers counted per file); --time 2: 208 have variants that need ranges.
+  Plan for open-source shaders (owner, 2026-10-19): learn and improve sopt on them now (parser, cost models); later
+  re-run with the improved models and offer results as an issue (files attached, how they were made, what sopt is,
+  how to run it), not a patch: teach maintainers to use sopt. Before that: each project's contribution rules (AI
+  policies; disclose), measured gains per vendor, accuracy notes, a few clear wins first, output under their license.
+  Candidates by reach: OBS Studio, libplacebo (mpv, VLC, FFmpeg; runtime-generated GLSL), Windows Terminal (HLSL),
+  compositors (KWin, Mutter, picom, Hyprland), Chromium / Skia (SkSL), RetroArch / libretro, Godot, MPC-HC / BE,
+  Kodi, Magpie.
   0.8.1 (owner, 2026-10-19, FFmpeg's Vulkan GLSL as a test corpus): a one-argument GLSL atan was rewritten to atan(...)
   and intercepted again without end (stack overflow; FFmpeg v360) -> _sopt_glsl_plain_atan. Folder scans take .glsl
   files with a main() (FFmpeg's common.glsl etc. are includes). Includes are also searched in the folders above the

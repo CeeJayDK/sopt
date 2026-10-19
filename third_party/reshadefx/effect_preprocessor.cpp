@@ -1354,7 +1354,9 @@ void reshadefx::preprocessor::expand_macro(const std::string &name, const macro 
 		switch (type)
 		{
 		case macro_replacement_argument:
+		{
 			// Argument prescan
+			const size_t argument_begin = input.size();
 			push(arguments[index] + static_cast<char>(macro_replacement_argument));
 			while (true)
 			{
@@ -1369,7 +1371,13 @@ void reshadefx::preprocessor::expand_macro(const std::string &name, const macro 
 				input += _current_token_raw_data;
 			}
 			assert(_current_token_raw_data[0] == macro_replacement_argument);
+			// sopt: tokens stay apart as in C: '-level' with level = '-1 * 2' is '- -1 * 2', not '--1 * 2' (the text is
+			// lexed again; OBS Studio's YADIF deinterlacer failed with "l-value specifies const object")
+			if (static const std::string ops = "+-*/%<>=&|^!~"; argument_begin > 0 && input.size() > argument_begin &&
+				ops.find(input[argument_begin - 1]) != std::string::npos && ops.find(input[argument_begin]) != std::string::npos)
+				input.insert(argument_begin, 1, ' ');
 			break;
+		}
 		case macro_replacement_concat:
 			input += arguments[index];
 			break;
