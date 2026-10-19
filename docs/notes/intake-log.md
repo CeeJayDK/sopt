@@ -297,3 +297,20 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/stagebench/nvidia-gtx-1660-vs-12.csv` (StageBench 0.8.0)
 - upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-22.csv`, `docs/texbench/intel-uhd-630-22-order.png`, `docs/texbench/intel-uhd-630-22-order-zoom.png` (TexBench 0.8.0)
 - upload 1: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/texbench/nvidia-gtx-1660-18.csv`, `docs/texbench/nvidia-gtx-1660-18-order.png`, `docs/texbench/nvidia-gtx-1660-18-order-zoom.png` (TexBench 0.8.0)
+
+## 2026-10-19 04:54 UTC
+- upload 1: opbench, AMD Radeon RX 6650 XT (driver 32.0.21043.19003): `docs/opbench/amd-radeon-rx-6650-xt.csv` (OpBench 0.8.0)
+- upload 1: shaderinfo, AMD Radeon RX 6650 XT (driver AMD proprietary driver 26.6.4 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-rx-6650-xt.txt`
+- upload 1: stagebench, AMD Radeon RX 6650 XT (driver 32.0.21043.19003): `docs/stagebench/amd-radeon-rx-6650-xt-ps.csv` (StageBench 0.8.0)
+- upload 1: stagebench, AMD Radeon RX 6650 XT (driver 32.0.21043.19003): `docs/stagebench/amd-radeon-rx-6650-xt-vs.csv` (StageBench 0.8.0)
+- upload 1: texbench, AMD Radeon RX 6650 XT (driver 32.0.21043.19003): `docs/texbench/amd-radeon-rx-6650-xt.csv`, `docs/texbench/amd-radeon-rx-6650-xt-order.png`, `docs/texbench/amd-radeon-rx-6650-xt-order-zoom.png` (TexBench 0.8.0)
+- upload 2: opbench, Intel(R) Iris(R) Xe Graphics (driver 32.0.101.7084): `docs/opbench/intel-iris-xe-3.csv` (OpBench 0.8.0)
+- upload 2: opbench, NVIDIA GeForce RTX 3050 Laptop GPU (driver 32.0.16.1742): `docs/opbench/nvidia-rtx-3050-laptop-gpu-2.csv` (OpBench 0.8.0)
+- upload 2: shaderinfo, Intel(R) Iris(R) Xe Graphics (driver Intel Corporation 101.7084 (101.7084)): `docs/shaderinfo/intel-iris-xe-3.txt`
+- upload 2: shaderinfo, NVIDIA GeForce RTX 3050 Laptop GPU (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-rtx-3050-laptop-gpu-2.txt`
+- upload 2: stagebench, Intel(R) Iris(R) Xe Graphics (driver 32.0.101.7084): `docs/stagebench/intel-iris-xe-ps.csv` (StageBench 0.8.0)
+- upload 2: stagebench, NVIDIA GeForce RTX 3050 Laptop GPU (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-3050-laptop-gpu-ps.csv` (StageBench 0.8.0)
+- upload 2: stagebench, Intel(R) Iris(R) Xe Graphics (driver 32.0.101.7084): `docs/stagebench/intel-iris-xe-vs.csv` (StageBench 0.8.0)
+- upload 2: stagebench, NVIDIA GeForce RTX 3050 Laptop GPU (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-3050-laptop-gpu-vs.csv` (StageBench 0.8.0)
+- upload 2: texbench, Intel(R) Iris(R) Xe Graphics (driver 32.0.101.7084): `docs/texbench/intel-iris-xe-3.csv`, `docs/texbench/intel-iris-xe-3-order.png`, `docs/texbench/intel-iris-xe-3-order-zoom.png` (TexBench 0.8.0)
+- upload 2: texbench, NVIDIA GeForce RTX 3050 Laptop GPU (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-3050-laptop-gpu-2.csv`, `docs/texbench/nvidia-rtx-3050-laptop-gpu-2-order.png`, `docs/texbench/nvidia-rtx-3050-laptop-gpu-2-order-zoom.png` (TexBench 0.8.0)
