@@ -30,7 +30,7 @@ echo   %E%[1;97m  GPU Blueprint  -  by CeeJay.dk%E%[0m
 echo   %E%[90m  measures your graphics card for sopt%E%[0m
 echo   %E%[96m=====================================================%E%[0m
 echo.
-echo   %E%[1;93m1%E%[0m  %E%[1;92mEvery graphics card in this PC: ShaderInfo, OpBench, StageBench and TexBench%E%[0m %E%[90m(10-25 min per card)%E%[0m %E%[92m^<- recommended%E%[0m
+echo   %E%[1;93m1%E%[0m  %E%[1;92mEvery graphics card in this PC: ShaderInfo, OpBench, StageBench and TexBench%E%[0m %E%[90m(5-10 min per card, old cards up to 25)%E%[0m %E%[92m^<- recommended%E%[0m
 if "%cards%"=="2" goto menuCards
 if "%cards%"=="1" goto menuOne
 echo   %E%[1;93m2%E%[0m  Main graphics card only
