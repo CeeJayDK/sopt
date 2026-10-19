@@ -2379,6 +2379,12 @@ void Extractor::suggest(const Leaf& l, Fact& f) const {
     if (d > 0) return set(0, 2 * d, "uniform, twice its default");
     if (d < 0) return set(2 * d, 0, "uniform, twice its default");
   }
+  // Sizes and their inverses (OBS: base_dimension, base_dimension_i; owner, 2026-10-19: more automatic ranges).
+  const bool size = has({"dimension", "size", "width", "height", "resolution"});
+  if (size && (has({"inv", "rcp", "texel"}) || (last.size() > 2 && last.compare(last.size() - 2, 2, "_i") == 0)))
+    return set(1.0 / opt_.maxWidth, 1, "name looks like an inverse size (1 / pixels)");
+  if (size) return set(1, opt_.maxWidth, "name looks like a size in pixels");
+  if (has({"alpha", "opacity"})) return set(0, 1, "name looks like alpha");
   if (has({"uv", "coord", "tex"})) return set(0, 1, "name looks like a texture coordinate");
   if (has({"col", "rgb", "luma", "lum"})) return set(0, 1, "name looks like a color");
   if (has({"depth"})) return set(0, 1, "name looks like depth");

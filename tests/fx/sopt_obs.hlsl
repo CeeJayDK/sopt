@@ -1,7 +1,8 @@
 // Plain HLSL for test_fx, as OBS Studio writes it: vectors with brace initializers ({ 0, 0, 0, 1 }), and a macro
-// argument that starts with '-' after a '-' in the macro (NEG(-1) was lexed as '--1'). Loads; line 14 is a region.
+// argument that starts with '-' after a '-' in the macro (NEG(-1) was lexed as '--1'). Loads; lines 15 and 17 are regions.
 uniform float3 gWeights = { 0.25, 0.5, 0.25 };
 static const float4 gBias = { 0, 0, 0, 1 };
+uniform float2 base_dimension_i;
 Texture2D<float4> gColor : register(t0);
 SamplerState gLinear : register(s0);
 
@@ -12,5 +13,7 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target
     float4 c = gColor.Sample(gLinear, uv);
     float n = NEG(-1) * c.r;
     float w = c.a * 3.0 - c.a + c.g * gWeights.x;
+    // base_dimension_i: likely [1 / 7680, 1] by its name (an inverse size)
+    float t = uv.x * base_dimension_i.x * 4.0 - uv.x * base_dimension_i.x;
     return float4(w, n, 0.0, 1.0) + gBias;
 }
