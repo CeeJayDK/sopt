@@ -1987,6 +1987,18 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   0.8.2: the guard's nearZero is < 0.001 ms (a reading of 0; every other low reading gets the doubled check; an RTX
   3050 Laptop read 0.299 ms for 15.1 ms and was switched); rate.comp's lanes start apart (T(vec4(b0, b0 + 0.0005, ...)):
   equal lanes let AMD's compiler share them, RX 6650 XT read 22.3 TFLOPS, peak 10.8), rate_spv.h rebuilt (glslang 16.6.0).
+  Reports 2026-10-19 (afternoon): owner 0.8.2 GTX 1660 / UHD 630 all on timestamps, families match (StageBench ps 1660
+  arrayread 4.4, usually 2.1), drift 1-24%, run times unchanged; ShaderInfo rate (distinct lanes) fp32 4.30 / 0.224,
+  fp16 2.34x / 2.45x: the rate test's fp32 stays below OpBench's (1660 81%, UHD 630 50%, RTX 2070 70%, RTX 4070 89%),
+  so its ratio is overstated where fp16 is packed (Turing should be 2.0x) -> look at rate.comp's fp32 build later.
+  GT 530 0.8.0 (owner): OpBench / TexBench CPU-timed from the start (0.000 ms), StageBench ps / vs kept timestamps
+  (0.7.37 vs switched while calibrating); drift OpBench 52%, TexBench 43%; 928 / 77 / 81 / 1133 s.
+  RTX 4070 (tester, 0.8.0, driver 32.0.16.1088): OpBench ada, no differences, 30.1 TFLOPS, drift 14%, 54 s; StageBench
+  ps drift 161%, vs switched to CPU timing while calibrating (0.006 ms for 15.5 ms: under 0.8.0's 2% rule; 0.8.2 would
+  check it) -> vs left out; TexBench drift 73%, 396 s; ShaderInfo fp16 1.01x.
+  RTX 2070 (tester, 0.8.0): OpBench turing, no differences, 8.09 TFLOPS, drift 38%; StageBench drift 48 / 49%, unlike
+  the GTX 1660 packed fp16 gains in ps and vs (mad16 -1.9, max16 5.5 vs 18.1, mix16 2.8 vs 16.0); TexBench drift 46%,
+  189 s; ShaderInfo fp16 2.33x.
   0.8.1 (owner, 2026-10-19, FFmpeg's Vulkan GLSL as a test corpus): a one-argument GLSL atan was rewritten to atan(...)
   and intercepted again without end (stack overflow; FFmpeg v360) -> _sopt_glsl_plain_atan. Folder scans take .glsl
   files with a main() (FFmpeg's common.glsl etc. are includes). Includes are also searched in the folders above the

@@ -321,3 +321,35 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-5070-ps.csv` (StageBench 0.8.0)
 - upload 1: stagebench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-5070-vs.csv` (StageBench 0.8.0)
 - upload 1: texbench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-5070.csv`, `docs/texbench/nvidia-rtx-5070-order.png`, `docs/texbench/nvidia-rtx-5070-order-zoom.png` (TexBench 0.8.0)
+
+## 2026-10-19 13:23 UTC
+- upload 1: opbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/opbench/intel-uhd-630-21.csv` (OpBench 0.8.2)
+- upload 1: opbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/opbench/nvidia-gtx-1660-20.csv` (OpBench 0.8.2)
+- upload 1: shaderinfo, Intel(R) UHD Graphics 630 (driver Intel Corporation Intel driver (101.2145)): `docs/shaderinfo/intel-uhd-630-15.txt`
+- upload 1: shaderinfo, NVIDIA GeForce GTX 1660 (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-gtx-1660-13.txt`
+- upload 1: stagebench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-630-ps-12.csv` (StageBench 0.8.2)
+- upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/stagebench/nvidia-gtx-1660-ps-13.csv` (StageBench 0.8.2)
+- upload 1: stagebench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-630-vs-13.csv` (StageBench 0.8.2)
+- upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/stagebench/nvidia-gtx-1660-vs-13.csv` (StageBench 0.8.2)
+- upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-23.csv`, `docs/texbench/intel-uhd-630-23-order.png`, `docs/texbench/intel-uhd-630-23-order-zoom.png` (TexBench 0.8.2)
+- upload 1: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/texbench/nvidia-gtx-1660-19.csv`, `docs/texbench/nvidia-gtx-1660-19-order.png`, `docs/texbench/nvidia-gtx-1660-19-order-zoom.png` (TexBench 0.8.2)
+
+## 2026-10-19 13:23 UTC
+- upload 1: opbench, NVIDIA GeForce RTX 4070 (driver 32.0.16.1088): `docs/opbench/nvidia-rtx-4070-2.csv` (OpBench 0.8.0)
+- upload 1: shaderinfo, NVIDIA GeForce RTX 4070 (driver NVIDIA 610.88 (610.88)): `docs/shaderinfo/nvidia-rtx-4070.txt`
+- upload 1: stagebench, NVIDIA GeForce RTX 4070 (driver 32.0.16.1088): `docs/stagebench/nvidia-rtx-4070-ps.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 4070 (driver 32.0.16.1088): vs left out (switched to CPU timing mid-run; StageBench 0.8.0)
+- upload 1: texbench, NVIDIA GeForce RTX 4070 (driver 32.0.16.1088): `docs/texbench/nvidia-rtx-4070.csv`, `docs/texbench/nvidia-rtx-4070-order.png`, `docs/texbench/nvidia-rtx-4070-order-zoom.png` (TexBench 0.8.0)
+
+## 2026-10-19 13:23 UTC
+- upload 1: opbench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/opbench/nvidia-gt-530-4.csv` (OpBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-ps-4.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-vs-4.csv` (StageBench 0.8.0)
+- upload 1: texbench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/texbench/nvidia-gt-530-4.csv`, `docs/texbench/nvidia-gt-530-4-order.png`, `docs/texbench/nvidia-gt-530-4-order-zoom.png` (TexBench 0.8.0)
+
+## 2026-10-19 13:23 UTC
+- upload 1: opbench, NVIDIA GeForce RTX 2070 (driver 32.0.16.1742): `docs/opbench/nvidia-rtx-2070-3.csv` (OpBench 0.8.0)
+- upload 1: shaderinfo, NVIDIA GeForce RTX 2070 (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-rtx-2070-2.txt`
+- upload 1: stagebench, NVIDIA GeForce RTX 2070 (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-2070-ps.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 2070 (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-2070-vs.csv` (StageBench 0.8.0)
+- upload 1: texbench, NVIDIA GeForce RTX 2070 (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-2070-2.csv`, `docs/texbench/nvidia-rtx-2070-2-order.png`, `docs/texbench/nvidia-rtx-2070-2-order-zoom.png` (TexBench 0.8.0)
