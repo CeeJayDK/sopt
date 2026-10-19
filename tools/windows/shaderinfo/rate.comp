@@ -14,7 +14,9 @@ layout(push_constant) uniform P { float a; float b; uint n; float seed; };
 
 void main() {
   const uint id = gl_GlobalInvocationID.x;
-  const T s = T(float(id & 255u) * 0.001 + seed);
+  // Distinct lanes: with equal ones (T(scalar)) a compiler can share them; AMD's read 2x the card's peak (0.8.0).
+  const float b0 = float(id & 255u) * 0.001 + seed;
+  const T s = T(vec4(b0, b0 + 0.0005, b0 + 0.001, b0 + 0.0015));
   const T A = T(a), B = T(b);
   T x0 = s, x1 = s + T(0.01), x2 = s + T(0.02), x3 = s + T(0.03);
   T x4 = s + T(0.04), x5 = s + T(0.05), x6 = s + T(0.06), x7 = s + T(0.07);
