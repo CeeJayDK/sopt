@@ -918,6 +918,8 @@ bool reshadefx::parser::parse_expression_unary(expression &exp)
 	// sopt: GLSL built-in functions named differently in ReShade FX ('texture' is a keyword there)
 	else if (sopt_glsl && (peek(tokenid::identifier) || peek(tokenid::texture2d) || peek(tokenid::texture3d)) &&
 		sopt_glsl_intrinsic_name(_lexer->input_string().substr(_token_next.offset, _token_next.length)) &&
+		!(_sopt_glsl_plain_atan && _lexer->input_string().substr(_token_next.offset, _token_next.length) == "atan" &&
+			!(_sopt_glsl_plain_atan = false)) &&
 		[this]() { backup(); consume(); const bool call = peek('('); restore(); return call; }())
 	{
 		const std::string word = _lexer->input_string().substr(_token_next.offset, _token_next.length);

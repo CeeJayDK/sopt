@@ -3628,7 +3628,10 @@ bool reshadefx::parser::sopt_glsl_intrinsic(const std::string &name, const locat
 		const std::string lod_coord = dim == 3 ? "float4(" + arg(1) + ", " + arg(2) + ")" :
 			dim == 1 ? "float4(" + arg(1) + ", 0.0, 0.0, " + arg(2) + ")" : "float4(" + arg(1) + ", 0.0, " + arg(2) + ")";
 		if (name == "atan")
+		{
 			text = args.size() == 2 ? "atan2(" + list(0) + ')' : "atan(" + list(0) + ')';
+			_sopt_glsl_plain_atan = args.size() != 2; // else 'atan(' is intercepted again, without end (stack overflow)
+		}
 		else if (name == "mod")
 			text = '(' + arg(0) + " - " + arg(1) + " * floor(" + arg(0) + " / " + arg(1) + "))";
 		// The inverse hyperbolic functions as GLSL defines them (ReShade FX and HLSL have none).

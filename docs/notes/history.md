@@ -1981,6 +1981,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   timestamps (0.85 ms): a one-off at a new 4K RGBA32F target, report left out; 0.7.38 checks once more before switching.
   ShaderInfo fp16 rate (Vulkan float16): GTX 1660 4.60 / 10.44 TFLOPS (2.27x), UHD 630 0.160 / 0.384 (2.41x), Iris 540
   0.417 / 0.785 (1.88x).
+  0.8.1 (owner, 2026-10-19, FFmpeg's Vulkan GLSL as a test corpus): a one-argument GLSL atan was rewritten to atan(...)
+  and intercepted again without end (stack overflow; FFmpeg v360) -> _sopt_glsl_plain_atan. Folder scans take .glsl
+  files with a main() (FFmpeg's common.glsl etc. are includes). Includes are also searched in the folders above the
+  file, up to a reshade-shaders folder or the drive root (owner: no ReShade.fxh setup; not bundled: the user's own copy
+  matches their ReShade); the menu no longer asks for the Shaders folder before a folder / file target.
+  All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
+  imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
+  libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.
   0.8.0 release build (owner, 2026-10-19): GTX 1660 and UHD 630 all four tools on GPU timestamps, no switch;
   GTX 1660 OpBench 65 s (drift 24%), StageBench 29 / 28 s, TexBench 149 s (2.1%); UHD 630 76 / 33 / 34 / 175 s (2-9%).
   ShaderInfo fp16: GTX 1660 10.46 TFLOPS (1.96x; 0.7.37 2.27x), UHD 630 0.409 (2.57x; 2.41x): the ratio moves 10-15%.

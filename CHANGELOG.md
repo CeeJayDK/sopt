@@ -5,6 +5,13 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
+## 0.8.1
+
+### SweetOpt
+- **No setup needed for ReShade.fxh:** SweetOpt finds files an effect includes in the folders above it, so choosing the Shaders folder first is no longer needed.
+- **Folders of GLSL and HLSL shaders:** the menu can now optimize a whole folder of them, not only one file.
+- **Fixed:** a GLSL shader using `atan` with one value made SweetOpt close without a message.
+
 ## 0.8.0
 
 ### SweetOpt

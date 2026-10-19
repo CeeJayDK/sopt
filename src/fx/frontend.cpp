@@ -82,6 +82,12 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   reshadefx::preprocessor pp;
   pp.add_include_path(path.parent_path());
   for (const auto& p : opt.includePaths) pp.add_include_path(p);
+  // Then the folders above the file (owner, 2026-10-19: no setup for ReShade.fxh): an effect in
+  // reshade-shaders\Shaders\SweetFX finds ReShade.fxh in Shaders. Up to a reshade-shaders folder or the drive root.
+  for (fs::path dir = fs::absolute(path).parent_path(); dir.has_relative_path() && dir.filename() != "reshade-shaders";) {
+    dir = dir.parent_path();
+    pp.add_include_path(dir);
+  }
   // Given macros first: the preprocessor keeps a name's first definition, so they override the defaults below
   // (e.g. __VENDOR__ / __RENDERER__ to check per-vendor rewrites).
   for (const auto& [k, v] : opt.macros) pp.add_macro_definition(k, v);
