@@ -2031,6 +2031,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   Candidates by reach: OBS Studio, libplacebo (mpv, VLC, FFmpeg; runtime-generated GLSL), Windows Terminal (HLSL),
   compositors (KWin, Mutter, picom, Hyprland), Chromium / Skia (SkSL), RetroArch / libretro, Godot, MPC-HC / BE,
   Kodi, Magpie.
+  Reports 2026-10-19 evening (0.8.0 from testers, owner's Iris 540 0.8.3 clean): RDNA 2 iGPU 'AMD Radeon(TM) Graphics'
+  (32.0.21041.1000) amd-rdna2 no differences, drift 0.4%; Vega iGPU 'AMD Radeon(TM) Graphics' (31.0.21924.61) amd-gcn5
+  no differences, drift 54%; RTX 4090 Laptop ada, RTX 2060 turing (StageBench fp16 gains as the RTX 2070: TU10x ps / vs
+  packed fp16, TU116 not -> split Turing for stage costs), RX 6600 amd-rdna2, HD 4600 gen7.5, GTX 860M maxwell1, Quadro
+  M5000M maxwell2: all match their families. Quadro M5000M StageBench ps switched to CPU timing while calibrating
+  (0.097 ms for 6.3 ms, 0.8.0's 2% rule) -> left out. ShaderInfo rate on 0.8.0 AMD reads 2x (RX 6600 19.3 TFLOPS, RDNA 2
+  iGPU 1.13) and cold clocks (RTX 2060 fp16 2.84x): both fixed in 0.8.2 / 0.8.3. High drift: RTX 2060 StageBench 243 /
+  89%, RX 6600 vs 293%, GTX 860M vs 63%, Vega iGPU OpBench 54%.
   0.8.1 (owner, 2026-10-19, FFmpeg's Vulkan GLSL as a test corpus): a one-argument GLSL atan was rewritten to atan(...)
   and intercepted again without end (stack overflow; FFmpeg v360) -> _sopt_glsl_plain_atan. Folder scans take .glsl
   files with a main() (FFmpeg's common.glsl etc. are includes). Includes are also searched in the folders above the
