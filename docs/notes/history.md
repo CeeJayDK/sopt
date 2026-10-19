@@ -1999,6 +1999,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   RTX 2070 (tester, 0.8.0): OpBench turing, no differences, 8.09 TFLOPS, drift 38%; StageBench drift 48 / 49%, unlike
   the GTX 1660 packed fp16 gains in ps and vs (mad16 -1.9, max16 5.5 vs 18.1, mix16 2.8 vs 16.0); TexBench drift 46%,
   189 s; ShaderInfo fp16 2.33x.
+  0.8.3 runs (owner, 2026-10-19): GTX 1660 / UHD 630 all clean; ShaderInfo with the warm-up: fp32 5.348 / 0.466 TFLOPS
+  (OpBench 5.323 / 0.452), fp16 1.88x / 2.04x: fixed. StageBench 1660 ps / vs now 'differs' max16 18.1 / mix16 16.0 vs the
+  Turing family's 11.8 / 9.4, which now includes the RTX 2070 (TU106: packed fp16 in ps / vs, the 1660's TU116 not).
+  GT 530 StageBench only: ps / vs kept GPU timestamps (timestamp check 1.732 / 3.454 ms, 5.340 / 10.678 ms), drift 1.3 /
+  0.07%, fp32 0.215 / 0.201 as 0.8.0: Fermi's timestamps are good in pixel / vertex shaders, wrong in compute.
   0.8.1 (owner, 2026-10-19, FFmpeg's Vulkan GLSL as a test corpus): a one-argument GLSL atan was rewritten to atan(...)
   and intercepted again without end (stack overflow; FFmpeg v360) -> _sopt_glsl_plain_atan. Folder scans take .glsl
   files with a main() (FFmpeg's common.glsl etc. are includes). Includes are also searched in the folders above the
