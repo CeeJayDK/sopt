@@ -314,3 +314,10 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 2: stagebench, NVIDIA GeForce RTX 3050 Laptop GPU (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-3050-laptop-gpu-vs.csv` (StageBench 0.8.0)
 - upload 2: texbench, Intel(R) Iris(R) Xe Graphics (driver 32.0.101.7084): `docs/texbench/intel-iris-xe-3.csv`, `docs/texbench/intel-iris-xe-3-order.png`, `docs/texbench/intel-iris-xe-3-order-zoom.png` (TexBench 0.8.0)
 - upload 2: texbench, NVIDIA GeForce RTX 3050 Laptop GPU (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-3050-laptop-gpu-2.csv`, `docs/texbench/nvidia-rtx-3050-laptop-gpu-2-order.png`, `docs/texbench/nvidia-rtx-3050-laptop-gpu-2-order-zoom.png` (TexBench 0.8.0)
+
+## 2026-10-19 10:28 UTC
+- upload 1: opbench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1742): `docs/opbench/nvidia-rtx-5070.csv` (OpBench 0.8.0)
+- upload 1: shaderinfo, NVIDIA GeForce RTX 5070 (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-rtx-5070.txt`
+- upload 1: stagebench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-5070-ps.csv` (StageBench 0.8.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-5070-vs.csv` (StageBench 0.8.0)
+- upload 1: texbench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-5070.csv`, `docs/texbench/nvidia-rtx-5070-order.png`, `docs/texbench/nvidia-rtx-5070-order-zoom.png` (TexBench 0.8.0)

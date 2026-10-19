@@ -1981,6 +1981,9 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   timestamps (0.85 ms): a one-off at a new 4K RGBA32F target, report left out; 0.7.38 checks once more before switching.
   ShaderInfo fp16 rate (Vulkan float16): GTX 1660 4.60 / 10.44 TFLOPS (2.27x), UHD 630 0.160 / 0.384 (2.41x), Iris 540
   0.417 / 0.785 (1.88x).
+  RTX 5070 (tester, 0.8.0, 2026-10-19, driver 32.0.16.1742): OpBench nvidia-blackwell, no differences, 34.9 TFLOPS,
+  drift 14%, 47 s; StageBench ps / vs 20 / 19 s, drift 6 / 17%; TexBench 110 s, 541 GTexels/s, 217 GPixels/s, drift 21%;
+  ShaderInfo fp16 0.99x (Blackwell: fp16 = fp32 rate). All on GPU timestamps.
   0.8.1 (owner, 2026-10-19, FFmpeg's Vulkan GLSL as a test corpus): a one-argument GLSL atan was rewritten to atan(...)
   and intercepted again without end (stack overflow; FFmpeg v360) -> _sopt_glsl_plain_atan. Folder scans take .glsl
   files with a main() (FFmpeg's common.glsl etc. are includes). Includes are also searched in the folders above the
