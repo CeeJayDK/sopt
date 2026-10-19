@@ -112,6 +112,7 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numer
 .dot { display: inline-block; width: 8px; height: 8px; background: var(--c); margin-right: 8px; }
 .heat td.num { color: #0a0e10; font-weight: 500; }
 .heat td.empty { background: transparent; color: var(--text-faint); }
+td.hit { color: var(--amber); font-weight: 500; }
 
 /* one group of operations on every architecture: architectures as rows, operations as columns (bars line up down a
    column), heatmap or compact bars; an operation's alternatives from the rewrite library follow it. White numbers

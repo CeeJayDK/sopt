@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StageBench findings</title>
+<meta name="description" content="What math costs in pixel and vertex shaders compared with compute shaders, measured on real GPUs with GPU Blueprint's StageBench.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body data-root="../../" data-page="stagebench">
+<main class="wrap">
+  <section class="hero">
+    <div class="tag">gpu blueprint &middot; stagebench</div>
+    <h1>Does math cost the same in every kind of shader?</h1>
+    <p class="lead">ReShade effects are mostly pixel shaders, while OpBench measures in compute shaders. StageBench runs OpBench's tests again in pixel shaders and in vertex shaders, so the cost models can follow the kind of shader an effect uses.</p>
+    <p class="unit"><strong>1.0 = one fma</strong> (a fused multiply-add at full rate), measured as throughput, lower is better. <strong>cs</strong> = compute shader (OpBench), <strong>ps</strong> = pixel shader, <strong>vs</strong> = vertex shader, each from the card's newest report. Highlighted: more than 20% and 0.75 fma away from the compute shader.</p>
+  </section>
+
+  <section>
+    <h2>Where the kind of shader changes the cost</h2>
+    <p class="note">Tests that differ on at least one card, cs &rarr; ps / vs. Left out here, but in the detail below: cards whose clock moved more than 30% during a run, or whose pixel or vertex results differ from compute as a whole by more than 15% (every test would show).</p>
+    <div class="tablewrap"><table id="differ"></table></div>
+  </section>
+
+  <section>
+    <h2>One card in detail</h2>
+    <label class="select">card <select id="card"></select></label>
+    <div id="detail"></div>
+  </section>
+</main>
+<script src="../../common.js"></script>
+<script src="stagebench.js"></script>
+</body>
+</html>

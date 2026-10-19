@@ -116,6 +116,7 @@ document.addEventListener("DOMContentLoaded", () => {
       link("library/", "rewrite library", "library"),
       link("gpu-blueprint/", "gpu blueprint", "blueprint"),
       link("gpu-blueprint/texbench/", "texbench", "texbench"),
+      link("gpu-blueprint/stagebench/", "stagebench", "stagebench"),
       el("a", { href: "https://github.com/CeeJayDK/sopt", text: "github" }))));
   document.body.append(el("footer", { class: "site" },
     el("p", { text: "SweetOpt and GPU Blueprint by CeeJay.dk. Free software (GPL-3.0): github.com/CeeJayDK/sopt" }),

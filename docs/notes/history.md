@@ -2002,6 +2002,19 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   not: blackdetect / scdet (subgroup ops, no ReShade FX equivalent), nlmeans x4 (host-defined macros DTYPE etc.,
   buffer_reference pointers). libavcodec (41): past the pragmas, stop at uint8_t / uint32_t / u8vec2 and
   buffer_reference. GLSL precise temporaries are named sopt_p (glslang warns on '__').
+  0.8.0 reports from testers (report-intake, 2026-10-19): RX 6650 XT (RDNA 2, driver 32.0.21043.19003): OpBench
+  family amd-rdna2, 11.09 TFLOPS, drift 22 / 4 / 23%, 53 s; StageBench ps / vs drift 31 / 47%, 20 / 24 s, ps / vs
+  median 0.79 / 0.70 of cs (the drift); TexBench drift 92%, 119 s. ShaderInfo fp32 22.3 TFLOPS = 2x OpBench and the
+  card's peak (10.8): rate.comp's vec4 components are all equal (T(scalar)), a compiler can share them -> fix.
+  Iris Xe (driver 32.0.101.7084): OpBench gen12, 1.75 TFLOPS, drift 8%, 80 s; StageBench 33 / 32 s, drift 7%; TexBench
+  252 s; ShaderInfo fp16 1.85x. RTX 3050 Laptop (617.42): OpBench ampere, 7.47 TFLOPS, drift 30%, 70 s; TexBench 194 s;
+  ShaderInfo fp16 0.98x (GA10x: fp16 = fp32 rate); StageBench ps and vs switched to CPU timing while calibrating
+  (0.299 ms for 15.1 ms of work, < 2%: nearZero, no doubled check; a laptop GPU waking per small run): a false switch,
+  both left out. -> nearZero should only be ~0 ms, the doubled check for the rest.
+  StageBench web page (gpu-blueprint/stagebench/, 2026-10-19, owner's go): newest report per card, cs from OpBench,
+  mixed-timing runs left out; differs = > 20% and > 0.75 fma; summary table without cards with drift > 30% or a whole
+  ps / vs shift > 15% (median stage / cs: HD 6450 vs 0.55, NVS 310 0.81 / 0.84, RX 6650 XT ~0.75): 31 tests differ on
+  Iris 540 / Iris Xe / UHD 630 / GTX 1660.
   0.8.0 release build (owner, 2026-10-19): GTX 1660 and UHD 630 all four tools on GPU timestamps, no switch;
   GTX 1660 OpBench 65 s (drift 24%), StageBench 29 / 28 s, TexBench 149 s (2.1%); UHD 630 76 / 33 / 34 / 175 s (2-9%).
   ShaderInfo fp16: GTX 1660 10.46 TFLOPS (1.96x; 0.7.37 2.27x), UHD 630 0.409 (2.57x; 2.41x): the ratio moves 10-15%.
