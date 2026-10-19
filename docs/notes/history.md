@@ -1984,6 +1984,9 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   RTX 5070 (tester, 0.8.0, 2026-10-19, driver 32.0.16.1742): OpBench nvidia-blackwell, no differences, 34.9 TFLOPS,
   drift 14%, 47 s; StageBench ps / vs 20 / 19 s, drift 6 / 17%; TexBench 110 s, 541 GTexels/s, 217 GPixels/s, drift 21%;
   ShaderInfo fp16 0.99x (Blackwell: fp16 = fp32 rate). All on GPU timestamps.
+  0.8.2: the guard's nearZero is < 0.001 ms (a reading of 0; every other low reading gets the doubled check; an RTX
+  3050 Laptop read 0.299 ms for 15.1 ms and was switched); rate.comp's lanes start apart (T(vec4(b0, b0 + 0.0005, ...)):
+  equal lanes let AMD's compiler share them, RX 6650 XT read 22.3 TFLOPS, peak 10.8), rate_spv.h rebuilt (glslang 16.6.0).
   0.8.1 (owner, 2026-10-19, FFmpeg's Vulkan GLSL as a test corpus): a one-argument GLSL atan was rewritten to atan(...)
   and intercepted again without end (stack overflow; FFmpeg v360) -> _sopt_glsl_plain_atan. Folder scans take .glsl
   files with a main() (FFmpeg's common.glsl etc. are includes). Includes are also searched in the folders above the
