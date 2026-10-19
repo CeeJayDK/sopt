@@ -868,6 +868,7 @@ struct Timer {
   ID3D11Query* t1 = nullptr;
   ID3D11Query* completed = nullptr;
   bool eventTiming = false;
+  bool guardAgain = false;  // timeOnce's second check is running
   LARGE_INTEGER cpuFrequency = {};
   char note[240] = "";   // why CPU time is used
   char check[240] = "";  // checkTimestamps' numbers
@@ -1033,6 +1034,14 @@ struct Timer {
       const double twice = nearZero ? 0.0 : timeOnce(ctx, work, 2);
       if (eventTiming) return -1.0;  // the doubled run's timestamps did not arrive: switched there
       if (!nearZero && (twice < 0.0 || twice >= 1.5 * ms)) return ms;  // disjoint: no answer, keep; grew: delay only
+      // A one-off (GTX 1660, 0.7.37: the first use of a 4K RGBA32F target, 0.823 ms for 7.2 ms of CPU time and 1.067
+      // ms for twice, yet 0.85 ms on the CPU clock afterwards): measure and check once more before switching.
+      if (!guardAgain) {
+        guardAgain = true;
+        const double again = timeOnce(ctx, work);
+        guardAgain = false;
+        return again;
+      }
       char why[120];
       if (nearZero) std::snprintf(why, sizeof(why), "the driver's timestamps are wrong (%.3f ms for %.1f ms of work)", ms, cpu);
       else std::snprintf(why, sizeof(why), "the driver's timestamps are wrong (%.3f ms for %.1f ms, %.3f ms for twice)", ms, cpu, twice);

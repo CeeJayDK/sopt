@@ -30,7 +30,8 @@ echo   %E%[1;97m  GPU Blueprint  -  by CeeJay.dk%E%[0m
 echo   %E%[90m  measures your graphics card for sopt%E%[0m
 echo   %E%[96m=====================================================%E%[0m
 echo.
-echo   %E%[1;93m1%E%[0m  %E%[1;92mEvery graphics card in this PC: ShaderInfo, OpBench, StageBench and TexBench%E%[0m %E%[90m(10-25 min per card)%E%[0m %E%[92m^<- recommended%E%[0m
+echo   %E%[1;93m1%E%[0m  %E%[1;92mEvery graphics card in this PC%E%[0m  %E%[92m^<- recommended%E%[0m
+echo      %E%[90mall four tests, 5-10 min per card (old cards up to 25)%E%[0m
 if "%cards%"=="2" goto menuCards
 if "%cards%"=="1" goto menuOne
 echo   %E%[1;93m2%E%[0m  Main graphics card only
@@ -66,11 +67,13 @@ set "VCMISSING="
 for %%d in (vcruntime140.dll vcruntime140_1.dll msvcp140.dll) do if not exist "%SystemRoot%\System32\%%d" set "VCMISSING=1"
 if not defined VCMISSING goto menuVcOk
 echo.
-echo   %E%[1;91mThe Microsoft Visual C++ runtime is missing: the tests will not start without it.%E%[0m
+echo   %E%[1;91mThe Microsoft Visual C++ runtime is missing:%E%[0m
+echo   %E%[1;91mthe tests will not start without it.%E%[0m
 echo   %E%[1;93mV%E%[0m  Open Microsoft's download page %E%[90m(install "X64", then run this menu again)%E%[0m
 :menuVcOk
 echo.
-echo   %E%[90mClose games and other GPU-heavy programs first. When a run is done, it offers to send the reports.%E%[0m
+echo   %E%[90mClose games and other GPU-heavy programs first.%E%[0m
+echo   %E%[90mWhen a run is done, it offers to send the reports.%E%[0m
 echo.
 choice /c 1234567890VRS /n /m "  Press a number: "
 set "n=%errorlevel%"
@@ -124,24 +127,30 @@ rem the user drags it onto the page (file requests take uploads through the web 
 cls
 echo.
 if defined ZIP goto sendAsk
-echo   %E%[91mNo reports yet.%E%[0m Run a test first (1 to 6 or S); the reports are zipped when it is done.
+echo   %E%[91mNo reports yet.%E%[0m Run a test first (1 to 6 or S);
+echo   the reports are zipped when it is done.
 echo.
 pause
 exit /b
 :sendAsk
 if defined UPLOAD goto sendInfo
-echo   %E%[91mThe upload page is not set up in this version.%E%[0m Send %ZIP% to CeeJay another way.
+echo   %E%[91mThe upload page is not set up in this version.%E%[0m
+echo   Send %ZIP% to CeeJay another way.
 echo.
 pause
 exit /b
 rem Also called at the end of a run (no cls: the results stay on screen).
 :sendInfo
-echo   This opens CeeJay's upload page (Dropbox) in your browser and shows %E%[1;97m%ZIP%%E%[0m in a folder.
-echo   Drag the zip onto the page. You do not need a Dropbox account; the page asks for a name and an email.
-echo   %E%[93mThey do not have to be real: any name and any email will do. CeeJay never sees the email.%E%[0m
+echo   This opens CeeJay's upload page (Dropbox) in your browser and shows
+echo   %E%[1;97m%ZIP%%E%[0m in a folder.
+echo   Drag the zip onto the page. You do not need a Dropbox account;
+echo   the page asks for a name and an email.
+echo   %E%[93mThey do not have to be real: any name and any email will do.%E%[0m
+echo   %E%[93mCeeJay never sees the email.%E%[0m
 echo.
-echo   The zip holds the reports in the Reports folder: your graphics card's name, driver version and the
-echo   measurements. Nothing else from your PC is sent, and nothing is sent unless you upload it.
+echo   The zip holds the reports in the Reports folder: your graphics card's
+echo   name, driver version and the measurements. Nothing else from your PC is
+echo   sent, and nothing is sent unless you upload it.
 echo.
 for /f "usebackq tokens=1,2* delims=|" %%a in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%BIN%drift-check.ps1" "%~dp0."`) do call :drift %%a %%b "%%c"
 echo.
@@ -167,8 +176,9 @@ echo   %~2 on %~3: clock drift %~1%% %E%[92m(fine)%E%[0m
 exit /b
 :driftHigh
 echo   %E%[1;93m%~2 on %~3: clock drift %~1%%: the numbers may be less reliable.%E%[0m
-echo   %E%[93mA rerun can help: close other programs, plug in a laptop, and set "Prefer maximum performance"%E%[0m
-echo   %E%[93m(NVIDIA Control Panel) or the "High performance" power plan in Windows.%E%[0m
+echo   %E%[93mA rerun can help: close other programs, plug in a laptop, and set%E%[0m
+echo   %E%[93m"Prefer maximum performance" (NVIDIA Control Panel) or the%E%[0m
+echo   %E%[93m"High performance" power plan in Windows.%E%[0m
 exit /b
 
 rem :run "<adapter number or empty>" all|opbench|stagebench|texbench|shaderinfo
@@ -233,7 +243,8 @@ if defined ZIP goto zipped
 echo   %E%[92mDone.%E%[0m The reports are in the Reports folder.
 goto beep
 :zipped
-echo   %E%[92mDone.%E%[0m %E%[1;97m%ZIP%%E%[0m, next to GPU-Blueprint.bat, holds every report in the Reports folder.
+echo   %E%[92mDone.%E%[0m %E%[1;97m%ZIP%%E%[0m, next to GPU-Blueprint.bat,
+echo   holds every report in the Reports folder.
 echo.
 <nul set /p "=%BEL%"
 if not defined UPLOAD goto later
