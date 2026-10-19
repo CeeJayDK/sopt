@@ -8,6 +8,7 @@ docs/notes/history.md.
 ## 0.8.1
 
 ### SweetOpt
+- **Fewer value ranges to set up:** where SweetOpt has a good reason to guess a value's range (it was read from a texture, its name says it is a color or a texture coordinate, a setting's default value), it now uses that guess by itself. Changes found this way are written behind their switch and say which guess they rely on; easy mode does not apply them on its own. A value ranges file still overrides every guess.
 - **No setup needed for ReShade.fxh:** SweetOpt finds files an effect includes in the folders above it, so choosing the Shaders folder first is no longer needed.
 - **Folders of GLSL and HLSL shaders:** the menu can now optimize a whole folder of them, not only one file.
 - **Fixed:** a GLSL shader using `atan` with one value made SweetOpt close without a message.

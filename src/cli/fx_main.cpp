@@ -97,6 +97,9 @@ void usage() {
       "                    (fxstat, $SOPT_FXSTAT) to DIR, for ShaderInfo --batch DIR on a PC\n"
       "  --driver-stats F  the driver statistics ShaderInfo --batch wrote (F, with the export's\n"
       "                    manifest.txt next to it): Intel instruction counts as a measured vendor\n"
+      "  --no-likely       no likely ranges: inputs without facts get the default range, not the\n"
+      "                    suggestion (a texture read 0..1, a color-like name ...); variants on likely\n"
+      "                    ranges are written behind their switches, marked, never in easy mode\n"
       "  --assumed         also write variants of regions whose input ranges are assumed\n"
       "  --no-accuracy-variants  do not keep candidates that are only more accurate (not cheaper)\n"
       "  --no-exact-rule   variants must stay within the budget of the original (default:\n"
@@ -299,6 +302,7 @@ int main(int argc, char** argv) {
       if (r < 0) return 2;
     } else if (a == "--isa") isa = true;
     else if (a == "--assumed") allowAssumed = true;
+    else if (a == "--no-likely") ropt.likelyRanges = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--facts") factsFile = next();
     else if (a == "--ask") ask = true;

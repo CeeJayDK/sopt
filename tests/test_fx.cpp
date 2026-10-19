@@ -20,6 +20,13 @@ namespace {
 
 const fs::path kEffect = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_test.fx";
 
+// Facts and suggestions as they are without likely ranges (fx_likely_ranges tests those).
+fx::RegionOptions noLikely() {
+  fx::RegionOptions r;
+  r.likelyRanges = false;
+  return r;
+}
+
 struct Loaded {
   std::vector<fx::Region> regions;
   fx::SkipCount skipped;
@@ -39,7 +46,7 @@ Loaded load() {
   lo.height = fx::kAltHeight;
   auto alt = fx::loadEffect(kEffect, lo, err);
   l.skipped.keepDetails = true;
-  l.regions = fx::extractRegions(*e, alt.get(), fx::RegionOptions(), l.skipped);
+  l.regions = fx::extractRegions(*e, alt.get(), noLikely(), l.skipped);
   return l;
 }
 
@@ -253,7 +260,7 @@ TEST(fx_semantic_ranges) {
   }
   fx::SkipCount sk;
   auto input = [&](uint32_t line, const std::string& name) -> std::pair<InputDecl, fx::Fact> {
-    for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
+    for (const auto& r : fx::extractRegions(*e, nullptr, noLikely(), sk))
       if (r.line == line)
         for (size_t k = 0; k < r.prog.inputs.size(); ++k)
           if (r.prog.inputs[k].name == name) return {r.prog.inputs[k], r.facts[k]};
@@ -679,7 +686,7 @@ TEST(fx_hlsl) {
     return -1;
   };
   fx::SkipCount sk;
-  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const auto regions = fx::extractRegions(*e, nullptr, noLikely(), sk);
   const fx::Region* c = regionAt(regions, 15);
   CHECK(c != nullptr);
   if (c) {
@@ -1131,6 +1138,32 @@ TEST(fx_include_from_folder_above) {
   auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sub" / "sopt_up.fx", fx::LoadOptions(), err);
   CHECK(e != nullptr);
   if (!e) std::printf("  %s\n", err.c_str());
+}
+
+TEST(fx_likely_ranges) {
+  // A value read from a texture in plain HLSL (format unknown: c = gColor.Sample(...)) gets the likely range [0, 1],
+  // also where it is used later (c.x); --no-likely: the assumed default.
+  fx::LoadOptions lo;
+  lo.hlsl = true;
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_extras.hlsl", lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  auto factOf = [&](bool likely) {
+    fx::RegionOptions ro;
+    ro.likelyRanges = likely;
+    fx::SkipCount sk;
+    const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+    const fx::Region* r = regionOn(regions, 13);
+    CHECK(r != nullptr);
+    for (size_t k = 0; r && k < r->facts.size(); ++k)
+      if (r->prog.inputs[k].name == "c.x") return std::make_pair(r->facts[k], r->prog.inputs[k]);
+    return std::make_pair(fx::Fact(), InputDecl());
+  };
+  const auto [on, onIn] = factOf(true);
+  CHECK(on.likely && onIn.lo == 0.0 && onIn.hi == 1.0);
+  const auto [off, offIn] = factOf(false);
+  CHECK(!off.likely && off.assumed);
 }
 
 TEST(fx_hlsl_glsl_extras) {

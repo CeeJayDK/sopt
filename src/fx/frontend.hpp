@@ -95,6 +95,10 @@ struct Fact {
   bool fetch = false;  // the input is a texture fetch (its FX call text)
   std::string source;  // "ui_min/ui_max", "TEXCOORD", "BackBuffer (8-bit)", "assumed", ...
   bool assumed = false;
+  // A likely range (owner, 2026-10-19: ranges as easy as possible): an input without facts whose suggestion has a
+  // reason (a texture read, a color-like name, a uniform's default ...) is searched on that range. Its variants are
+  // written behind their switches and marked, never put in easy mode's ready files.
+  bool likely = false;
   // Key for a user-given range (see UserRanges): "<file name> <function> <variable>".
   std::string key;
   // For assumed ranges: a suggestion for the user and why.
@@ -149,6 +153,7 @@ struct RegionOptions {
   uint32_t maxInputs = 4;     // skip statements reading more distinct variables
   uint32_t maxSlots = 8;      // ... or more input components
   double defaultLo = -1000.0, defaultHi = 1000.0;  // range when nothing is known
+  bool likelyRanges = true;   // use a reasoned suggestion as the range (Fact::likely); --no-likely: off
   double relEps = 1e-6;       // budget for values with a general use
   double texcoordPx = 0.01;   // budget for values only used as texture coordinates, in
                               // pixels on a target maxWidth wide
