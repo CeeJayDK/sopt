@@ -137,6 +137,8 @@ std::string variantStatement(const Region& r, const std::string& expr) {
 
 void easyPicks(std::vector<RegionResult>& results, std::vector<SourceRewrite>& rewrites, const EasyOptions& eo) {
   for (RegionResult& rr : results) {
+    // Likely ranges are guesses: their variants stay behind switches for the user to choose.
+    if (std::any_of(rr.region.facts.begin(), rr.region.facts.end(), [](const Fact& f) { return f.likely; })) continue;
     int best = -1;
     long bestKey = 0;
     for (size_t k = 0; k < rr.variants.size(); ++k) {
@@ -427,6 +429,13 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         if (v.intel >= 0 && rr->targetIntel >= 0 && len > 0 && len < 500)
           len += std::snprintf(note + len, sizeof(note) - len, ", intel %d -> %d", rr->targetIntel, v.intel);
         std::string back;
+        for (const Fact& f : rr->region.facts)
+          if (f.likely) {
+            char buf[160];
+            std::snprintf(buf, sizeof(buf), "; likely range: %s in [%g, %g] (%s)", f.input.c_str(), f.suggestLo, f.suggestHi,
+                          f.suggestWhy.c_str());
+            back += buf;
+          }
         // Register counts only where they change (register pressure).
         if (v.amdVgprs >= 0 && rr->targetAmdVgprs >= 0 && v.amdVgprs != rr->targetAmdVgprs)
           back += ", vgpr " + std::to_string(rr->targetAmdVgprs) + " -> " + std::to_string(v.amdVgprs);

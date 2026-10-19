@@ -2034,6 +2034,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   15 regions). The models often replace floor() with the 12582912 rounding trick (bit-exact): measured, floor / ceil /
   round / trunc cost ~5.9 fma on Ampere (RTX 3060, 3050: quarter-rate FRND), 3 on Turing, 0.74 on RDNA 2: a real gain on
   NVIDIA, not on AMD.
+  Likely ranges (owner, 2026-10-19: ranges as easy as possible): an input without facts whose suggestion has a reason
+  (texture read, color / texcoord / depth / position name, COLOR semantic, a uniform's default x2, a definition's
+  value x2) is searched on that range (Fact::likely), and a texture read of an unknown format (plain HLSL / GLSL) is
+  likely [0, 1], carried through the range arithmetic (Range::likely, like assumed). Variants on likely ranges are
+  written behind their switches with '; likely range: x in [lo, hi] (why)', never in easy mode; --no-likely turns it
+  off; a facts file overrides. --time 2, written regions before -> after: FFmpeg 1 -> 1, Firefox 0 -> 2, OBS 0 -> 120
+  (81 files, fxc compiles all with SOPT_ALL 0 / 1), Skia 0 -> 27; still needing ranges: 7 / 27 / 128 / 207 (neutral
+  names, uniforms without defaults, GLSL varyings). Names can mislead: WebRender's mirrored_repeat has abs_uv / uv_int
+  'likely [0, 1]' by name, but they exceed 1 there by design; the variant is only safe behind its switch.
   Plan for open-source shaders (owner, 2026-10-19): learn and improve sopt on them now (parser, cost models); later
   re-run with the improved models and offer results as an issue (files attached, how they were made, what sopt is,
   how to run it), not a patch: teach maintainers to use sopt. Before that: each project's contribution rules (AI

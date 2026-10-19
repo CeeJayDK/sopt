@@ -578,6 +578,8 @@ struct Range {
   uint32_t grid = 0;
   bool known = false;
   bool assumed = false;  // depends on a default range somewhere
+  bool likely = false;   // depends on a likely range (a texture read of an unknown format) somewhere
+  std::string likelyWhy;
   std::string why;
 
   static Range of(double lo, double hi, std::string why, uint32_t grid = 0) {
@@ -593,7 +595,10 @@ Range derived(double lo, double hi, std::initializer_list<const Range*> from) {
   for (const Range* r : from)
     if (!r->known) return Range::unknown();
   Range r = Range::of(lo, hi, "derived");
-  for (const Range* f : from) r.assumed = r.assumed || f->assumed;
+  for (const Range* f : from) {
+    r.assumed = r.assumed || f->assumed;
+    if (f->likely && !r.likely) r.likely = true, r.likelyWhy = f->likelyWhy;
+  }
   if (!r.known) return Range::unknown();
   return r;
 }
@@ -603,6 +608,8 @@ Range unite(const Range& a, const Range& b) {
   Range r = Range::of(std::min(a.lo, b.lo), std::max(a.hi, b.hi),
                       a.why == b.why ? a.why : std::string("derived"));
   r.assumed = a.assumed || b.assumed;
+  r.likely = a.likely || b.likely;
+  r.likelyWhy = a.likely ? a.likelyWhy : b.likelyWhy;
   if (a.grid == b.grid && a.lo == b.lo && a.hi == b.hi) r.grid = a.grid;
   return r;
 }
@@ -1463,6 +1470,14 @@ Range Extractor::samplerRange(uint32_t valueId) {
     const auto u = opt_.userRanges->find(textureFactKey(fx_, s.textureName));
     if (u != opt_.userRanges->end()) return Range::of(u->second.first, u->second.second, "user (facts file)");
   }
+  // Plain HLSL / GLSL: the format is not in the shader. A likely [0, 1] (most textures are color or unorm data; see
+  // Fact::likely). ReShade FX declares float formats, which keep no range.
+  if (opt_.likelyRanges && (fx_.hlsl || fx_.glsl)) {
+    Range r = Range::of(0, 1, "likely: texture read, format unknown");
+    r.likely = true;
+    r.likelyWhy = "texture read, format unknown";
+    return r;
+  }
   return Range::unknown();
 }
 
@@ -2236,9 +2251,22 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
         } else if (!r.known) {
           r = Range::of(opt_.defaultLo, opt_.defaultHi, "assumed");
           r.assumed = true;
+          // A suggestion with a reason is a likely range; "no guess" and a definition of 0 stay assumed.
+          suggest(l, fact);
+          if (opt_.likelyRanges && fact.suggestWhy.rfind("no guess", 0) != 0 && fact.suggestWhy.find("(value 0)") == std::string::npos &&
+              fact.suggestLo < fact.suggestHi) {
+            r = Range::of(fact.suggestLo, fact.suggestHi, "likely: " + fact.suggestWhy);
+            fact.likely = true;
+          }
         }
       }
       if (r.assumed) suggest(l, fact);
+      if (r.known && r.likely && !fact.likely) {
+        fact.likely = true;
+        fact.suggestLo = r.lo;
+        fact.suggestHi = r.hi;
+        fact.suggestWhy = r.likelyWhy;
+      }
       d.lo = r.lo;
       d.hi = r.hi;
       d.grid = r.grid;
