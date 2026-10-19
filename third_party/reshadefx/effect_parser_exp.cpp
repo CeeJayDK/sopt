@@ -119,6 +119,28 @@ bool reshadefx::parser::accept_symbol(std::string &identifier, scoped_symbol &sy
 
 	return true;
 }
+// sopt: GLSL a * b with a matrix operand: mul(b, a) on the transposed matrices (see sopt_glsl_type).
+bool reshadefx::parser::sopt_glsl_matrix_mul(const expression &a, const expression &b, expression &exp)
+{
+	symbol mul;
+	bool ambiguous = false;
+	if (!resolve_function_call("mul", { b, a }, current_scope(), mul, ambiguous))
+	{
+		error(b.location, 3020, "sopt: no matrix product for these GLSL types");
+		return false;
+	}
+	std::vector<expression> parameters(2);
+	const expression *const operands[2] = { &b, &a };
+	for (size_t i = 0; i < 2; ++i)
+	{
+		expression operand = *operands[i];
+		operand.add_cast_operation(mul.function->parameter_list[i].type);
+		parameters[i].reset_to_rvalue(operand.location, _codegen->emit_load(operand), mul.function->parameter_list[i].type);
+	}
+	exp.reset_to_rvalue(a.location, _codegen->emit_call_intrinsic(a.location, mul.id, mul.type, parameters), mul.type);
+	return true;
+}
+
 // sopt: GLSL type names (see sopt_glsl). Matrices are kept transposed: GLSL matCxR (C columns of R rows) is
 // float{C}x{R} with GLSL column i as row i, so constructors and m[i] keep their meaning and '*' becomes mul with
 // the operands swapped (see sopt_glsl_matrix_mul).
@@ -164,6 +186,8 @@ bool reshadefx::parser::accept_type_class(type &type)
 	type.rows = type.cols = 0;
 
 	// sopt: GLSL type names
+	if (sopt_glsl && peek(tokenid::identifier) && _token_next.literal_as_string == "nonuniformEXT")
+		consume();
 	if (sopt_glsl && peek(tokenid::identifier))
 	{
 		reshadefx::type glsl_type = type;
@@ -1385,6 +1409,12 @@ bool reshadefx::parser::parse_expression_unary(expression &exp)
 
 			if (accept('(')) // Methods (function calls on types) are not supported right now
 			{
+				// sopt: GLSL array.length(): the array's length, a constant int
+				if (sopt_glsl && subscript == "length" && exp.type.is_bounded_array() && accept(')'))
+				{
+					exp.reset_to_rvalue_constant(location, static_cast<int>(exp.type.array_length));
+					continue;
+				}
 				if (!exp.type.is_struct() || exp.type.is_array())
 					error(location, 3087, "object does not have methods");
 				else
@@ -1538,6 +1568,12 @@ bool reshadefx::parser::parse_expression_unary(expression &exp)
 				return false;
 			}
 		}
+		else if (sopt_glsl && (exp.type.is_sampler() || exp.type.is_storage()) && accept('['))
+		{
+			expression index_exp;
+			if (!parse_expression(index_exp) || !expect(']'))
+				return false;
+		}
 		else if (accept('['))
 		{
 			if (!exp.type.is_array() && !exp.type.is_vector() && !exp.type.is_matrix())
@@ -1644,12 +1680,15 @@ bool reshadefx::parser::parse_expression_multary(expression &lhs_exp, unsigned i
 			if (!parse_expression_multary(rhs_exp, right_precedence))
 				return false;
 
-			// sopt: GLSL matrix products (a * b = mul(b, a) with the transposed matrices) are not supported yet
-			if (sopt_glsl && (op == tokenid::star || op == tokenid::star_equal) && (lhs_exp.type.is_matrix() || rhs_exp.type.is_matrix()) &&
+			// sopt: GLSL matrix products (a * b = mul(b, a) with the transposed matrices)
+			if (sopt_glsl && op == tokenid::star && (lhs_exp.type.is_matrix() || rhs_exp.type.is_matrix()) &&
 				!lhs_exp.type.is_scalar() && !rhs_exp.type.is_scalar())
 			{
-				error(rhs_exp.location, 3000, "sopt: GLSL matrix products are not supported yet");
-				return false;
+				expression product;
+				if (!sopt_glsl_matrix_mul(lhs_exp, rhs_exp, product))
+					return false;
+				lhs_exp = std::move(product);
+				continue;
 			}
 
 			// Deduce the result base type based on implicit conversion rules
@@ -1760,7 +1799,23 @@ bool reshadefx::parser::parse_expression_multary(expression &lhs_exp, unsigned i
 			if (is_bool_result)
 				type = { type::t_bool, type.rows, type.cols };
 
-			const codegen::id result_value = _codegen->emit_binary_op(lhs_exp.location, op, type, lhs_exp.type, lhs_value, rhs_value);
+			codegen::id result_value = _codegen->emit_binary_op(lhs_exp.location, op, type, lhs_exp.type, lhs_value, rhs_value);
+
+			// sopt: GLSL == / != on vectors give one bool: all() / any() of the components
+			if (sopt_glsl && (op == tokenid::equal_equal || op == tokenid::exclaim_equal) && type.is_vector())
+			{
+				expression components;
+				components.reset_to_rvalue(lhs_exp.location, result_value, type);
+				symbol reduce;
+				bool ambiguous = false;
+				if (resolve_function_call(op == tokenid::equal_equal ? "all" : "any", { components }, current_scope(), reduce, ambiguous))
+				{
+					std::vector<expression> parameters(1);
+					parameters[0].reset_to_rvalue(lhs_exp.location, result_value, type);
+					result_value = _codegen->emit_call_intrinsic(lhs_exp.location, reduce.id, reduce.type, parameters);
+					type = reduce.type;
+				}
+			}
 
 			lhs_exp.reset_to_rvalue(lhs_exp.location, result_value, type);
 		}
@@ -1901,6 +1956,19 @@ bool reshadefx::parser::parse_expression_assignment(expression &lhs_exp)
 		{
 			error(lhs_exp.location, 3025, "l-value specifies const object");
 			return false;
+		}
+		// sopt: GLSL a *= M (a matrix product): a = mul(M, a) on the transposed matrices
+		if (sopt_glsl && op == tokenid::star_equal && (lhs_exp.type.is_matrix() || rhs_exp.type.is_matrix()) &&
+			!lhs_exp.type.is_scalar() && !rhs_exp.type.is_scalar())
+		{
+			expression product;
+			if (!sopt_glsl_matrix_mul(lhs_exp, rhs_exp, product))
+				return false;
+			product.add_cast_operation(lhs_exp.type);
+			const codegen::id product_value = _codegen->emit_load(product);
+			_codegen->emit_store(lhs_exp, product_value);
+			lhs_exp.reset_to_rvalue(lhs_exp.location, product_value, lhs_exp.type);
+			return true;
 		}
 		if (!type::rank(lhs_exp.type, rhs_exp.type))
 		{

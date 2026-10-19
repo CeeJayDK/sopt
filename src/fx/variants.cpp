@@ -453,7 +453,8 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         if (needsPrecise(v.expr)) {
           // fxc -O3 folds (v + c) - c to v: the add-round trick only survives as precise.
           const unsigned w = width(v.expr.nodes[v.expr.root].type);
-          const std::string tmp = "__sopt_p" + std::to_string(r.line) + "_" + std::to_string(k + 1);
+          // GLSL reserves names with "__" (glslang warns): sopt_p there.
+          const std::string tmp = (r.glsl ? "sopt_p" : "__sopt_p") + std::to_string(r.line) + "_" + std::to_string(k + 1);
           const std::string ty = w > 1 ? (r.glsl ? "vec" : "float") + std::to_string(w) : std::string("float");
           out += ind + "precise " + ty + " " + tmp + " = " + text + ";\n";
           text = tmp;

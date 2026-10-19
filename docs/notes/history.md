@@ -1989,6 +1989,19 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.
+  GLSL compute (2026-10-19, owner's go): 'layout(local_size...) in;' makes main a compute shader (num_threads from the
+  layout, 1 for spec-constant ids); gl_GlobalInvocationID / LocalInvocationID / WorkGroupID / LocalInvocationIndex are
+  entry parameters (SV_DispatchThreadID ...) and static globals for other functions, gl_NumWorkGroups / WorkGroupSize
+  uniforms; sampler / image arrays are one sampler / storage (the index is dropped: a fetch is a region input);
+  imageLoad / Store / Size = tex2Dfetch / store / size; buffer blocks = a struct + static instance (or static members),
+  [] -> [1]; shared = groupshared (initializer dropped); layout(constant_id) const = uniform; nonuniformEXT dropped;
+  GLSL vector == / != = all() / any(); a * b with a matrix = mul(b, a) (transposed storage), also *=; array.length();
+  runtime-initialized globals: named expressions (scalars / vectors) or uninitialized statics (arrays). Two pragmas in a
+  row failed in ReShade's parser (parse_top: if -> while). FFmpeg libavfilter: 16 of 22 parse (v360 51 regions, 67 in
+  all; xfade frand got a variant that glslang compiles with SOPT_ALL 0 and 1, --glsl-version 460 as FFmpeg builds);
+  not: blackdetect / scdet (subgroup ops, no ReShade FX equivalent), nlmeans x4 (host-defined macros DTYPE etc.,
+  buffer_reference pointers). libavcodec (41): past the pragmas, stop at uint8_t / uint32_t / u8vec2 and
+  buffer_reference. GLSL precise temporaries are named sopt_p (glslang warns on '__').
   0.8.0 release build (owner, 2026-10-19): GTX 1660 and UHD 630 all four tools on GPU timestamps, no switch;
   GTX 1660 OpBench 65 s (drift 24%), StageBench 29 / 28 s, TexBench 149 s (2.1%); UHD 630 76 / 33 / 34 / 175 s (2-9%).
   ShaderInfo fp16: GTX 1660 10.46 TFLOPS (1.96x; 0.7.37 2.27x), UHD 630 0.409 (2.57x; 2.41x): the ratio moves 10-15%.
