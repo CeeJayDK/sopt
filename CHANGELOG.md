@@ -5,22 +5,22 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.8.1
+## 0.9.0
 
 ### SweetOpt
 - **Fewer value ranges to set up:** where SweetOpt has a good reason to guess a value's range (it was read from a texture, its name says it is a color, alpha, a texture coordinate or a size in pixels, a setting's default value), it now uses that guess by itself. Changes found this way are written behind their switch and say which guess they rely on; easy mode does not apply them on its own. A value ranges file still overrides every guess.
-- **No setup needed for ReShade.fxh:** SweetOpt finds files an effect includes in the folders above it, so choosing the Shaders folder first is no longer needed.
+- **No setup needed for ReShade.fxh:** SweetOpt finds the files an effect includes in the folders above it, so choosing the Shaders folder first is no longer needed.
 - **Folders of GLSL and HLSL shaders:** the menu can now optimize a whole folder of them, not only one file.
-- **Fixed:** a GLSL shader using `atan` with one value made SweetOpt close without a message.
-- **GLSL compute shaders:** SweetOpt can now read Vulkan GLSL compute shaders, such as FFmpeg's video filters (16 of its 22 filters so far).
-- **More GLSL understood:** shaders written like Firefox's (functions that return arrays, functions declared before they are written, precision words) can now be read: all of Firefox's WebRender shaders load.
-- **More HLSL understood:** vectors set with braces (`float3 x = { 0, 0, 0 };`), and a fix for macros whose values start with a minus sign. All of OBS Studio's shaders load (converted from its own effect format).
-- **Array parameters in GLSL** (`vec4[2] r`): Chrome's graphics library Skia uses them; its shaders, including the ones that show videos, now load (converted from Skia's own shading language).
+- **Many more shaders understood:** SweetOpt was tested on the shaders of FFmpeg, Firefox, OBS Studio and Chrome's graphics library Skia, and now reads them: Vulkan GLSL compute shaders (16 of FFmpeg's 22 video filters), all of Firefox's WebRender shaders, all of OBS Studio's shaders (converted from its own effect format) and all of Skia's (converted from its own shading language). Along the way it learned GLSL arrays as values, parameters and return types, functions declared before they are written, precision words, and HLSL vectors set with braces.
+- **Fixed:** a GLSL shader using `atan` with one value made SweetOpt close without a message, and a macro whose value starts with a minus sign could be misread.
 
 ### GPU Blueprint
 - **Fixed:** laptop graphics cards could switch to the computer's clock for timing when they did not need to.
 - **Fixed:** ShaderInfo's half precision speed test is more accurate: it now lets the card's clocks rise first, and it could report twice the real speed on AMD cards.
+- **On the website:** a new StageBench page shows where math costs differently in pixel and vertex shaders than in compute shaders, per graphics card.
 
+### Test Host
+- **Two new test effects** for ReShade's developer: they show two small bugs in ReShade's effect compiler.
 ## 0.8.0
 
 ### SweetOpt
