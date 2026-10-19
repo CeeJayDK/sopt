@@ -480,6 +480,9 @@ std::string rateTest(VkPhysicalDevice pd, const VkPhysicalDeviceProperties& prop
       run(n, gpu, cpu);
       if (cpu >= 20.0) break;
     }
+    // Warm-up: ShaderInfo runs first in the set, on an idle GPU at low clocks; fp32 (measured first) read 4.14 TFLOPS
+    // on a GTX 1660 cold and 5.16 warm (OpBench 5.31). Half a second of the same work lets the clocks rise.
+    for (double spent = 0.0; spent < 500.0; spent += cpu) run(n, gpu, cpu);
     std::vector<double> g, c;
     for (int r = 0; r < 5; ++r) {
       run(n, gpu, cpu);

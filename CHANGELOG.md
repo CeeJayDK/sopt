@@ -15,7 +15,7 @@ docs/notes/history.md.
 
 ### GPU Blueprint
 - **Fixed:** laptop graphics cards could switch to the computer's clock for timing when they did not need to.
-- **Fixed:** ShaderInfo's half precision speed test could report twice the real speed on AMD cards.
+- **Fixed:** ShaderInfo's half precision speed test is more accurate: it now lets the card's clocks rise first, and it could report twice the real speed on AMD cards.
 
 ## 0.8.0
 
