@@ -48,5 +48,8 @@ a declaration. Any two pragmas the preprocessor passes on fail this way (FFmpeg'
 
 Fix: `while (accept(tokenid::pragma))` instead of `if` in `parse_top`.
 
-**Tested:** SweetOpt's tests (MSVC, GCC, Clang) and the repros with the compiler copy; not yet in ReShade itself
-(Test Host: load the two repro effects in an unpatched and a patched build).
+**Tested:** in ReShade 6.8.0 itself (Test Host, D3D11, GTX 1660, 2026-10-19): `sopt_MacroMinus.fx` fails with
+X3025 and `sopt_PragmaTwice.fx` with X3000 (reported on line 2, the pragmas are on lines 3 and 4). Controls without
+the trigger compile and draw the expected white screen: the macro as `-(x)`, and one pragma only. The fixes are
+tested in SweetOpt's copy of the compiler (its tests on MSVC, GCC and Clang; the repros compile), not yet in a
+patched ReShade build.
