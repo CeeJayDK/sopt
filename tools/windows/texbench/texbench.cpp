@@ -1437,7 +1437,7 @@ struct Plan {
   UINT groups = 1;
 };
 
-// A run of >= 2 ms (20 ms with CPU timing: Timer::checkTimestamps; up to 8 ms by size first).
+// A run of >= 2 ms (10 ms with CPU timing: Timer::checkTimestamps; up to 8 ms by size first).
 // It starts small (kMinGroups thread groups, kMinRows pixel rows: 64K / 16K threads, still enough
 // to fill a GPU) and grows (more groups or rows, then more iterations), so no run is much longer than needed: a
 // full-size first run of a slow test took seconds on slow GPUs (random reads on an iGPU; RGBA32F aniso 16x on an
@@ -1450,7 +1450,7 @@ Plan calibrate(Gpu& g, const Test& t, const Kernel& k, UINT groups) {
   p.groups = std::min(most, k.cs ? kMinGroups : kMinRows);
   setConstants(g, t, p.iters, t.size);
   const bool cpuAtStart = g.timer.eventTiming;
-  const double targetMs = g.timer.eventTiming ? 20.0 : 2.0;
+  const double targetMs = g.timer.eventTiming ? 10.0 : 2.0;  // CPU time: overhead-free (difference method), 10 ms
   if (g.timer.eventTiming) run(g, k, p.groups);  // discard first-dispatch driver work (CPU timing)
   double ms = run(g, k, p.groups);
   while (ms >= 0.0 && ms < 8.0 && p.groups < most) {  // size up to an 8 ms run (fills big GPUs), then iterations
