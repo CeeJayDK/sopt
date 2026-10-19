@@ -1148,6 +1148,7 @@ TEST(fx_hlsl_glsl_extras) {
   };
   const auto h = regionsOf("sopt_extras.hlsl", false);
   CHECK(regionOn(h, 13) != nullptr);  // fmod
+  CHECK(regionOn(regionsOf("sopt_obs.hlsl", false), 14) != nullptr);  // OBS Studio: brace initializers, -NEG(-1)
   const auto g = regionsOf("sopt_extras.frag", true);
   for (uint32_t line : {13u, 14u, 15u, 16u}) CHECK(regionOn(g, line) != nullptr);  // asinh, acosh, atanh, atan(x)
   // A Vulkan GLSL compute shader as FFmpeg writes them: sampler / image arrays, push constants, buffers, shared,
