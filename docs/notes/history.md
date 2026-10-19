@@ -2058,6 +2058,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   (0.097 ms for 6.3 ms, 0.8.0's 2% rule) -> left out. ShaderInfo rate on 0.8.0 AMD reads 2x (RX 6600 19.3 TFLOPS, RDNA 2
   iGPU 1.13) and cold clocks (RTX 2060 fp16 2.84x): both fixed in 0.8.2 / 0.8.3. High drift: RTX 2060 StageBench 243 /
   89%, RX 6600 vs 293%, GTX 860M vs 63%, Vega iGPU OpBench 54%.
+  0.9.0 draft builds (owner, 2026-10-20): GTX 1660 / UHD 630 all on timestamps, families match (1660 StageBench
+  max16 / mix16 now 'differ' from a Turing family of 1660 + 2060 + 2070: the split), ShaderInfo fp32 5.31 / 0.48 TFLOPS,
+  fp16 1.88x / 1.97x. GT 530: OpBench / TexBench CPU time from the check (0.000 ms), StageBench on timestamps; drift
+  OpBench 98% (CPU timing), TexBench 8% (was 51% with the monitor going to sleep); 935 / 76 / 81 / 1137 s.
   0.8.1 (owner, 2026-10-19, FFmpeg's Vulkan GLSL as a test corpus): a one-argument GLSL atan was rewritten to atan(...)
   and intercepted again without end (stack overflow; FFmpeg v360) -> _sopt_glsl_plain_atan. Folder scans take .glsl
   files with a main() (FFmpeg's common.glsl etc. are includes). Includes are also searched in the folders above the
