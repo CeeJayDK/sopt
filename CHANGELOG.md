@@ -21,6 +21,7 @@ docs/notes/history.md.
 
 ### Test Host
 - **Two new test effects** for ReShade's developer: they show two small bugs in ReShade's effect compiler.
+
 ## 0.8.0
 
 ### SweetOpt
