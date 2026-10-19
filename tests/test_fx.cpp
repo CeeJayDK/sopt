@@ -1153,6 +1153,10 @@ TEST(fx_hlsl_glsl_extras) {
   // A Vulkan GLSL compute shader as FFmpeg writes them: sampler / image arrays, push constants, buffers, shared,
   // specialization constants, matrix products, vector ==, length(), imageStore, gl_GlobalInvocationID.
   CHECK(regionOn(regionsOf("sopt_compute.glsl", true), 40) != nullptr);
+  // GLSL as WebRender writes it: array types, a prototype (main moves after the definition, its lines kept), precision
+  // qualifiers, gl_FragCoord in a helper, a last case without break.
+  const auto w = regionsOf("sopt_glsl_more.frag", true);
+  for (uint32_t line : {22u, 30u, 43u}) CHECK(regionOn(w, line) != nullptr);
 }
 
 TEST(fx_hoist_rewrite) {

@@ -12,6 +12,7 @@ docs/notes/history.md.
 - **Folders of GLSL and HLSL shaders:** the menu can now optimize a whole folder of them, not only one file.
 - **Fixed:** a GLSL shader using `atan` with one value made SweetOpt close without a message.
 - **GLSL compute shaders:** SweetOpt can now read Vulkan GLSL compute shaders, such as FFmpeg's video filters (16 of its 22 filters so far).
+- **More GLSL understood:** shaders written like Firefox's (functions that return arrays, functions declared before they are written, precision words) can now be read: all of Firefox's WebRender shaders load.
 
 ### GPU Blueprint
 - **Fixed:** laptop graphics cards could switch to the computer's clock for timing when they did not need to.
