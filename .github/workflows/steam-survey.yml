@@ -1,13 +1,14 @@
 # GPU family shares from the Steam Hardware & Software Survey (owner, 2026-10-09: easy mode weighs variants that are
 # faster on some GPU families and slower on others by how many people own them; read the survey when a version is
-# released, not every run). Run it by hand before a release (Actions > steam-survey > Run workflow on main); it also
-# runs monthly. On main it commits data/steam-gpu-share.txt when the shares changed (GITHUB_TOKEN pushes start no
+# released, not every run). It runs by itself twice a month (Steam publishes the survey early in a month, for the
+# month before; owner, 2026-10-19: no hand runs before releases), and by hand if needed. On main it commits data/steam-gpu-share.txt when the shares changed (GITHUB_TOKEN pushes start no
 # workflows). A push that changes the script, on any branch, only prints the result and keeps the page as an artifact.
 name: steam-survey
 on:
   workflow_dispatch:
   schedule:
-    - cron: "41 6 4 * *"  # the 4th of every month (the survey appears in the first days)
+    - cron: "41 6 4 * *"   # the 4th of every month (the survey appears in the first days)
+    - cron: "41 6 12 * *"  # and the 12th, in case it came late (commits only when the shares changed)
   push:
     paths:
       - "tools/site/steam_share.py"

@@ -46,8 +46,8 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 ## Releases and CI
 - CI (ci.yml) on every push: Linux/MSVC builds, tests, artifacts SweetOpt-<v>-windows-x64, GPU-Blueprint-<v>, Test-Host-<v>.
 - Release: PR to main (check for a PR template), owner merges, run release.yml manually on main = draft release, owner
-  publishes (this session cannot push tags). Steam publishes its survey once a month, early in the month, for the month
-  before: run the steam-survey workflow only when a new month's data is out (not before every release; owner, 2026-10-19).
+  publishes (this session cannot push tags). The steam-survey workflow runs by itself on the 4th and 12th of each month
+  (Steam publishes early in a month, for the month before): never run it by hand before a release (owner, 2026-10-19).
 - pages.yml builds the site (tools/site/build.py) from docs/opbench / texbench; optimize-pngs.yml compresses report PNGs.
 - After adding OpBench / StageBench reports: rerun `tools/windows/gen_expected.py` (writes tools/windows/expected.hpp,
   family values per stage: cs from docs/opbench, ps / vs from docs/stagebench).
