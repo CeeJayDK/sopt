@@ -11,8 +11,8 @@ docs/notes/history.md.
 - **Fewer value ranges to set up:** where SweetOpt has a good reason to guess a value's range (it was read from a texture, its name says it is a color, alpha, a texture coordinate or a size in pixels, a setting's default value), it now uses that guess by itself. Changes found this way are written behind their switch and say which guess they rely on; easy mode does not apply them on its own. A value ranges file still overrides every guess.
 - **No setup needed for ReShade.fxh:** SweetOpt finds the files an effect includes in the folders above it, so choosing the Shaders folder first is no longer needed.
 - **Folders of GLSL and HLSL shaders:** the menu can now optimize a whole folder of them, not only one file.
-- **Many more shaders understood:** SweetOpt was tested on the shaders of FFmpeg, Firefox, OBS Studio and Chrome's graphics library Skia, and now reads them: Vulkan GLSL compute shaders (16 of FFmpeg's 22 video filters), all of Firefox's WebRender shaders, all of OBS Studio's shaders (converted from its own effect format) and all of Skia's (converted from its own shading language). Along the way it learned GLSL arrays as values, parameters and return types, functions declared before they are written, precision words, and HLSL vectors set with braces.
-- **Fixed:** a GLSL shader using `atan` with one value made SweetOpt close without a message, and a macro whose value starts with a minus sign could be misread.
+- **Many more shaders understood:** we tested SweetOpt on the shaders of four big open-source programs (the video tool FFmpeg, Firefox, the streaming program OBS Studio and Chrome's graphics library Skia) and taught it what they use. It now reads nearly all of them.
+- **Fixed:** one kind of GLSL shader made SweetOpt close without a message, and some ReShade effects with short-hand definitions (macros) could be misread.
 
 ### GPU Blueprint
 - **Fixed:** laptop graphics cards could switch to the computer's clock for timing when they did not need to.
