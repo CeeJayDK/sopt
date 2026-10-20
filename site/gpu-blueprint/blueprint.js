@@ -195,9 +195,12 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
       el("span", { text: "RDNA 3: from AMD's compiler, not yet measured" })));
 
   // Cards.
+  const RUN_TOOLS = ["OpBench", "StageBench", "TexBench"];
+  const runTime = (s) => (s < 120 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`);
   const table = document.getElementById("cardtable");
   table.replaceChildren(
-    el("thead", {}, el("tr", {}, el("th", { text: "Card" }), el("th", { text: "Architecture" }), el("th", { class: "num", text: "Reports" }), el("th", { text: "Drivers" }))),
+    el("thead", {}, el("tr", {}, el("th", { text: "Card" }), el("th", { text: "Architecture" }), el("th", { class: "num", text: "Reports" }), el("th", { text: "Drivers" }),
+      ...RUN_TOOLS.map((t) => el("th", { class: "num", text: t })))),
     el("tbody", {}, ...data.cards.map((c) => {
       const m = byName[c.model];
       const archName = m ? archsOf(m.name).map((a) => a.name).join(" / ") : "";
@@ -205,7 +208,8 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
         el("td", { text: c.name }),
         el("td", {}, m ? el("span", { class: "dot", style: `--c:${VENDOR_COLOR[m.vendor]}` }) : null, m ? `${m.vendor} ${archName}` : "not modelled yet"),
         el("td", { class: "num", text: String(c.reports) }),
-        el("td", { text: c.drivers.join(", ") }));
+        el("td", { text: c.drivers.join(", ") }),
+        ...RUN_TOOLS.map((t) => el("td", { class: "num", text: c.times[t] ? runTime(c.times[t]) : "-" })));
     })));
 
   // Architecture cell as in the card table.
@@ -286,7 +290,7 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
         if (v == null) return el("td", { class: "c free", text: "–" });
         if (v < 0.25) return el("td", { class: "c free", text: num(Math.max(0, v)) });
         const h = heatColor(v, lo, hi);
-        return el("td", { class: "c hot", style: `background:${h.bg};color:${h.fg}${h.fg === "#fff" ? "" : ";text-shadow:none"}`, text: num(v) });
+        return el("td", { class: "c hot", style: `background:${h.bg}`, text: num(v) });
       })));
     document.getElementById("alltable").replaceChildren(el("thead", {}, head), el("tbody", {}, ...body));
     document.getElementById("allscale").replaceChildren(...(hi > lo ? [...heatScale(lo, hi, "fma units").children] : []));
