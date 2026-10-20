@@ -2080,6 +2080,8 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   one finite test point read target_[UINT32_MAX]; likely the tester's "stops at 96%"), fubax TripleMonitor /
   CurvedMonitor (vertex shader move put the new pixel shader input behind a // comment on the last parameter line),
   dh_uber_rt (a window from a declaration in an outer block declared the variable inside the inner { } block).
+  Report 2026-10-20 (0.9.0): Radeon HD 6450 (TeraScale 2, driver 8.17.10.1433, 3rd OpBench of this card): drift
+  0.1 / 0.6 / 0.0% (cs), 7.3% ps, 0.0% vs; run times 269 s OpBench, 2 x 124 s StageBench, 772 s TexBench (drift 67%).
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.
