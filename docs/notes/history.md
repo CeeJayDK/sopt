@@ -2082,6 +2082,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   dh_uber_rt (a window from a declaration in an outer block declared the variable inside the inner { } block).
   Report 2026-10-20 (0.9.0): Radeon HD 6450 (TeraScale 2, driver 8.17.10.1433, 3rd OpBench of this card): drift
   0.1 / 0.6 / 0.0% (cs), 7.3% ps, 0.0% vs; run times 269 s OpBench, 2 x 124 s StageBench, 772 s TexBench (drift 67%).
+  Report 2026-10-21 (0.9.0, sent to the owner directly, filed with report_intake.py's fetch on the local zip): RTX 2080
+  (new card, Turing, driver 596.36 / 32.0.15.9636): drift 1.4 / 2.1 / 0.9% (cs), 2.3% ps, 2.4% vs, matches the family
+  in every test. mad16v3 -6.0 units in cs, ps and vs (TU10x: packed fp16 in every stage, against the GTX 1660's 0 in
+  ps / vs: more for the Turing split). Score fp16 = fp32 in cs (10.4 TFLOPS), twice in ps / vs (19.9 / 19.7). Run
+  times 91 s OpBench, 38 + 33 s StageBench, 146 s TexBench (drift 18%, 410 GB/s writes, 325 GTexels/s).
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.

@@ -479,3 +479,10 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, AMD Radeon HD 6450 (driver 8.17.10.1433): `docs/stagebench/amd-radeon-hd-6450-ps-3.csv` (StageBench 0.9.0)
 - upload 1: stagebench, AMD Radeon HD 6450 (driver 8.17.10.1433): `docs/stagebench/amd-radeon-hd-6450-vs-3.csv` (StageBench 0.9.0)
 - upload 1: texbench, AMD Radeon HD 6450 (driver 8.17.10.1433): `docs/texbench/amd-radeon-hd-6450-2.csv`, `docs/texbench/amd-radeon-hd-6450-2-order.png`, `docs/texbench/amd-radeon-hd-6450-2-order-zoom.png` (TexBench 0.9.0)
+
+## 2026-10-20 22:15 UTC
+- upload 1: opbench, NVIDIA GeForce RTX 2080 (driver 32.0.15.9636): `docs/opbench/nvidia-rtx-2080.csv` (OpBench 0.9.0)
+- upload 1: shaderinfo, NVIDIA GeForce RTX 2080 (driver NVIDIA 596.36 (596.36)): `docs/shaderinfo/nvidia-rtx-2080.txt`
+- upload 1: stagebench, NVIDIA GeForce RTX 2080 (driver 32.0.15.9636): `docs/stagebench/nvidia-rtx-2080-ps.csv` (StageBench 0.9.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 2080 (driver 32.0.15.9636): `docs/stagebench/nvidia-rtx-2080-vs.csv` (StageBench 0.9.0)
+- upload 1: texbench, NVIDIA GeForce RTX 2080 (driver 32.0.15.9636): `docs/texbench/nvidia-rtx-2080.csv`, `docs/texbench/nvidia-rtx-2080-order.png`, `docs/texbench/nvidia-rtx-2080-order-zoom.png` (TexBench 0.9.0)
