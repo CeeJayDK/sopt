@@ -443,3 +443,10 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-ps-6.csv` (StageBench 0.9.0)
 - upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-vs-6.csv` (StageBench 0.9.0)
 - upload 1: texbench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/texbench/nvidia-gt-530-5.csv`, `docs/texbench/nvidia-gt-530-5-order.png`, `docs/texbench/nvidia-gt-530-5-order-zoom.png` (TexBench 0.9.0)
+
+## 2026-10-20 05:01 UTC
+- upload 1: opbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.9150): `docs/opbench/intel-arc-b580-2.csv` (OpBench 0.9.0)
+- upload 1: shaderinfo, Intel(R) Arc(TM) B580 Graphics (driver Intel Corporation 101.9150 (101.9150)): `docs/shaderinfo/intel-arc-b580-2.txt`
+- upload 1: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.9150): `docs/stagebench/intel-arc-b580-ps.csv` (StageBench 0.9.0)
+- upload 1: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.9150): `docs/stagebench/intel-arc-b580-vs.csv` (StageBench 0.9.0)
+- upload 1: texbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.9150): `docs/texbench/intel-arc-b580-2.csv`, `docs/texbench/intel-arc-b580-2-order.png`, `docs/texbench/intel-arc-b580-2-order-zoom.png` (TexBench 0.9.0)
