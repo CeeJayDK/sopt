@@ -1,0 +1,41 @@
+name: effect-packages
+# sopt-fx on every package in ReShade's own effect list (EffectPackages.ini): catches crashes, effects it cannot read
+# and variants that do not parse before testers do. Only reports are kept (the shaders stay their authors').
+on:
+  workflow_dispatch:
+    inputs:
+      time:
+        description: search seconds per region
+        default: "1"
+  schedule:
+    - cron: "0 3 6 * *"  # monthly
+  push:
+    paths: [tools/corpus/**, .github/workflows/corpus.yml]
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel --target sopt-fx
+      - name: Install the packages
+        run: |
+          curl -sfL -o EffectPackages.ini https://raw.githubusercontent.com/crosire/reshade-shaders/list/EffectPackages.ini
+          python3 -I tools/corpus/effect_packages.py install EffectPackages.ini "$RUNNER_TEMP/corpus"
+      - name: Run sopt-fx
+        run: |
+          python3 -I tools/corpus/effect_packages.py run "$RUNNER_TEMP/corpus" build/sopt-fx corpus-out \
+            --time "${{ inputs.time || '1' }}" --timeout 1800 || echo "failed=1" >> "$GITHUB_ENV"
+          cat corpus-out/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: effect-packages-reports
+          path: corpus-out
+      - name: Problems found
+        if: env.failed == '1'
+        run: echo "::error::sopt-fx crashed, timed out or wrote variants that do not parse (see the summary)" && exit 1

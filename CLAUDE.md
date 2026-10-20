@@ -52,6 +52,8 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - After adding OpBench / StageBench reports: rerun `tools/windows/gen_expected.py` (writes tools/windows/expected.hpp,
   family values per stage: cs from docs/opbench, ps / vs from docs/stagebench).
 - 0.7.0 released 2026-10-09. Next: the open review items (open item 1), then fp16 step 2.
+- effect-packages.yml (monthly / manual): sopt-fx on every package in ReShade's EffectPackages.ini; fails on crashes,
+  timeouts and variants that do not parse. Check its summary before a release.
 - Bot pushes (report-intake, steam-survey, optimize-pngs) start no CI run; release.yml runs the tests itself.
 
 ## GPU Blueprint report intake (only when the owner says "check Dropbox")
