@@ -1792,11 +1792,15 @@ void Enumerator::topDownPass(uint32_t cost, SearchStats& stats) {
         if (tdP0_ == UINT32_MAX) tdP0_ = static_cast<uint32_t>(i);
         else if (tdP1_ == UINT32_MAX) tdP1_ = static_cast<uint32_t>(i);
       }
-    if (tdP1_ == UINT32_MAX) return;
-    for (uint32_t c = 0; c < cost; ++c)  // earlier levels (the pass starts at level 1)
-      for (uint32_t x : byCost_[c][static_cast<size_t>(T)]) tdIndex_.push_back({fpOf(x)[tdP0_], x});
-    std::sort(tdIndex_.begin(), tdIndex_.end());
+    if (tdP1_ != UINT32_MAX) {
+      for (uint32_t c = 0; c < cost; ++c)  // earlier levels (the pass starts at level 1)
+        for (uint32_t x : byCost_[c][static_cast<size_t>(T)]) tdIndex_.push_back({fpOf(x)[tdP0_], x});
+      std::sort(tdIndex_.begin(), tdIndex_.end());
+    }
   }
+  // Fewer than two finite points: on every call, not only the first (potatoFX's sqrt(1 - x*x - y*y) with x, y in
+  // [-1000, 1000] is finite at one point: the next level read target_[UINT32_MAX] and crashed, 2026-10-20).
+  if (tdP1_ == UINT32_MAX) return;
   const auto& fresh = byCost_[cost][static_cast<size_t>(T)];
   if (fresh.empty()) return;
   {

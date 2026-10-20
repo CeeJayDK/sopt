@@ -160,3 +160,15 @@ TEST(threshold_points) {
   CHECK(!check(q, "min(x, 1.0) + step(c, x)").pass);
   CHECK(!check(q, "min(x, c * 2.0) + step(0.5, x)").pass);
 }
+
+TEST(search_one_finite_point) {
+  // potatoFX's pCamera.fx (2026-10-20): acos(sqrt(1 - x*x - y*y)) / f on [-1000, 1000] is finite at one test
+  // point only; the top-down pass read past its arrays on its second level and crashed sopt-fx.
+  Program p = parseProgram("input x : float in [-1000, 1000]\ninput y : float in [-1000, 1000]\n"
+                           "input f : float in [-1000, 1000]\noutput r = acos(sqrt(1.0 - x * x - y * y)) / f\n"
+                           "budget r : rel 1e-6\n");
+  Options opt;
+  opt.search.timeLimitSec = 1.0;
+  const RunResult r = optimize(p, opt);
+  CHECK(r.targetCost > 0);
+}
