@@ -68,8 +68,9 @@ UNRELIABLE = {
 MODEL_RULES = [
     (r"RTX 50\d\d", "nvidia-blackwell"),
     (r"RTX 40\d\d", "nvidia-ada"),
-    (r"RTX 30\d\d", "nvidia-ampere"),
-    (r"GTX 16\d\d|RTX 20\d\d", "nvidia-turing"),
+    (r"RTX 30\d\d|RTX 2050", "nvidia-ampere"),  # the RTX 2050 is an Ampere chip (GA107)
+    (r"GTX 16\d\d", "nvidia-turing"),           # Turing GTX 16 (TU116 / TU117)
+    (r"RTX 20\d\d", "nvidia-turing-rtx"),       # Turing RTX 20 (TU10x): fp16 also faster in pixel shaders
     (r"GTX 10\d\d|GT 10\d\d", "nvidia-pascal"),
     # Maxwell 2 (GM20x, SM52) before Maxwell 1 (GM107 / GM108, SM50: no hardware sqrt).
     (r"GTX (9[5-8]0( Ti)?|TITAN X|9(65|70|80)M)\b|Quadro M(2000|3000M|4000|5000M?|5500|6000)\b", "nvidia-maxwell2"),

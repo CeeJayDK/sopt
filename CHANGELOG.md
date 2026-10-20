@@ -11,6 +11,8 @@ docs/notes/history.md.
 - **Fixed:** effects that include files from a sub-folder without naming it (BFBFX includes its files from `bfb_inc` this way) could not be read. SweetOpt now looks in every folder under reshade-shaders\Shaders, as ReShade does.
 - **Fixed:** SweetOpt could close during the search without writing anything (seen with potatoFX), and two kinds of changes could make an effect stop loading (seen with fubax-shaders and dh-reshade-shaders). Found by testing SweetOpt on every effect package ReShade's installer offers.
 
+- **Turing cards in two groups:** GTX 16 cards (1650, 1660) and RTX 20 cards are now treated as two kinds of graphics card. They do the same math at the same speed, except half precision math in effects, which only RTX 20 cards run faster. The RTX 2050 now counts as the newer kind (RTX 30), which it really is.
+
 ### GPU Blueprint
 - **StageBench has its own page** in the guide: what it measures, why, and how long it takes.
 - **How long will it take?** The menu shows about how long the tests take on each of your graphics cards, each test says at its start how long it usually takes on cards like yours, and the window title counts down the time left. The times come from the reports people have sent.

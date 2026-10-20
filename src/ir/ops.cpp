@@ -206,6 +206,7 @@ const CostModel kIntelGen75{"intel-gen7.5",
 // same (their mul hides under it), pow two of them. min/max/step/compare/select run on the ALU pipe
 // beside the FMAs: one is ~free next to a mad, two cost one op (max3, clamp), so 2 each as an
 // additive approximation; lerp two ops, sign ~2 ops. Contraction to fma; no omod, no max3.
+// nvidia-turing is Turing's GTX 16 half (TU116 / TU117); nvidia-turing-rtx below the RTX 20 half (TU10x).
 const CostModel kNvidiaTuring{"nvidia-turing",
   {0, 0, 1, 1, 1, 12, 12, 8, 12,
    12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 4, 4, 4, 12, 2, 2, 2, 28,
@@ -214,6 +215,15 @@ const CostModel kNvidiaTuring{"nvidia-turing",
    1, 1, 8, 8, 12, 12, 2, 2, 2, 3, 3, 3, 2, 2, 2,
    2, 2, 1},
   1, true};
+
+// NVIDIA Turing RTX 20 (TU10x: RTX 2060 - 2080 Ti; owner, 2026-10-21: the family split). In fp32 the same as the
+// GTX 16 half (1 of 257 OpBench tests apart); they differ in fp16 in pixel and vertex shaders (StageBench: mad16 0
+// on the GTX 1660 against -1.9 on the RTX 2060 / 2070 / 2080, max16 18 against 5.5), for the stage-aware half costs.
+const CostModel kNvidiaTuringRtx = [] {
+  CostModel m = kNvidiaTuring;
+  m.name = "nvidia-turing-rtx";
+  return m;
+}();
 
 // NVIDIA Pascal (GT 1030 = GP108 and GTX 1060 6GB = GP106, docs/opbench/nvidia-gt-1030.csv /
 // nvidia-gtx-1060-6gb.csv, the two agree within ~0.3), sopt-opbench, quarter units (4 = one fma,
@@ -425,6 +435,7 @@ uint16_t fuseBits(const CostModel& m) {
       {"nvidia-maxwell2", nv | kFuseBfe | kFuseMulScale},
       {"nvidia-pascal", nv | kFuseBfe | kFuseMulScale},
       {"nvidia-turing", nv | kFuseImad | kFuseMulScale},
+      {"nvidia-turing-rtx", nv | kFuseImad | kFuseMulScale},
       {"nvidia-ampere", nv | kFuseImad | kFuseMulScale},
       {"nvidia-ada", nv | kFuseImad | kFuseMulScale | kFuseBfe},
       {"nvidia", nv | kFuseImad | kFuseMulScale},
@@ -456,6 +467,7 @@ const HalfCosts& halfCosts(const CostModel& m) {
       {"intel-gen12", {true, false, 55, 115, 1}},
       {"intel-xe2", {true, false, 100, 100, 1}},
       {"nvidia-turing", {true, false, 100, 133, 1}},
+      {"nvidia-turing-rtx", {true, false, 100, 133, 1}},  // compute: as GTX 16 (fp16 in pixel shaders: faster, not yet modelled)
       {"nvidia-ampere", {true, false, 100, 100, 1}},
       {"nvidia-ada", {true, false, 100, 100, 1}},
       {"nvidia-blackwell", {true, false, 100, 100, 1}},
@@ -499,6 +511,7 @@ const CostModel& costNvidiaMaxwell2() { return kNvidiaMaxwell2; }
 const CostModel& costNvidiaMaxwell1() { return kNvidiaMaxwell1; }
 const CostModel& costNvidiaPascal() { return kNvidiaPascal; }
 const CostModel& costNvidiaTuring() { return kNvidiaTuring; }
+const CostModel& costNvidiaTuringRtx() { return kNvidiaTuringRtx; }
 const CostModel& costNvidiaAmpere() { return kNvidiaAmpere; }
 const CostModel& costNvidiaAda() { return kNvidiaAda; }
 const CostModel& costNvidiaBlackwell() { return kNvidiaBlackwell; }
@@ -521,7 +534,7 @@ const CostModel kRdna3NoFolds = [] {
 
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kRdna3Rga || &objective == &kNvidia ||
-                 &objective == &kNvidiaMaxwell2 || &objective == &kNvidiaMaxwell1 || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaAda || &objective == &kNvidiaAmpere ||
+                 &objective == &kNvidiaMaxwell2 || &objective == &kNvidiaMaxwell1 || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaTuringRtx || &objective == &kNvidiaAda || &objective == &kNvidiaAmpere ||
                  &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kIntelGen12 || &objective == &kIntelXe2 || &objective == &kAmdRdna2 ||
                  &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
              ? kSearch
@@ -541,6 +554,7 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kNvidiaMaxwell1.name) return &kNvidiaMaxwell1;
   if (name == kNvidiaPascal.name) return &kNvidiaPascal;
   if (name == kNvidiaTuring.name) return &kNvidiaTuring;
+  if (name == kNvidiaTuringRtx.name) return &kNvidiaTuringRtx;
   if (name == kNvidiaAmpere.name) return &kNvidiaAmpere;
   if (name == kNvidiaAda.name) return &kNvidiaAda;
   if (name == kNvidiaBlackwell.name) return &kNvidiaBlackwell;
