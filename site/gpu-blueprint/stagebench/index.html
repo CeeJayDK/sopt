@@ -21,8 +21,21 @@
 
   <section>
     <h2>Where the kind of shader changes the cost</h2>
-    <p class="note">Tests that differ on at least one card, cs &rarr; ps / vs. Left out here, but in the detail below: cards whose clock moved more than 30% during a run, or whose pixel or vertex results differ from compute as a whole by more than 15% (every test would show).</p>
-    <div class="tablewrap"><table id="differ"></table></div>
+    <p class="note">Tests that differ on at least one card. Each card has three bars on one scale per test:
+      <span class="key cs">compute</span> <span class="key ps">pixel</span> <span class="key vs">vertex</span>, bright where
+      a stage differs from compute. Hover a test for the code it times, a card's bars for the numbers. Left out here, but in
+      the tables below: cards whose clock moved more than 30% during a run, or whose pixel or vertex results differ from
+      compute as a whole by more than 15% (every test would show).</p>
+    <div class="tablewrap cmpwrap"><table id="differ" class="cmp"></table></div>
+  </section>
+
+  <section>
+    <h2>Every StageBench test</h2>
+    <p class="note">Every test on every card in one kind of shader, in fma units on top of the test's base (lower is
+      better, 0 = free), from each card's newest report. Hover a test for the code it times.</p>
+    <label class="select">shader <select id="stage"><option value="ps">pixel</option><option value="vs">vertex</option><option value="cs">compute (OpBench)</option></select></label>
+    <div class="tablewrap cmpwrap"><table id="heat" class="cmp"></table></div>
+    <div id="heatscale" class="scale"></div>
   </section>
 
   <section>

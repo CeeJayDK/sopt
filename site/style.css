@@ -122,7 +122,22 @@ td.hit { color: var(--amber); font-weight: 500; }
 .cmp { border-collapse: separate; border-spacing: 0; }
 .cmp th { text-transform: none; letter-spacing: 0; }
 .cmp td, .cmp th { padding: 5px 6px; }
-.cmp th, .cmp td.hot { color: #fff; text-shadow: 0 1px 2px #000, 0 0 2px #000; }
+.cmp th, td.hot { color: #fff; text-shadow: 0 1px 2px #000, 0 0 2px #000; }
+/* heat cells in every table: thin dark lines between rows and columns, none next to a white group line (owner, 2026-10-20) */
+td.hot { border-bottom: 1px solid var(--bg); }
+td.hot + td.hot:not(.gs) { border-left: 1px solid var(--bg); }
+/* StageBench: three small bars per card (compute, pixel, vertex), bright where a stage differs from compute */
+.cmp td.trio { white-space: nowrap; padding: 4px 6px 2px; text-align: center; }
+.trio .b { display: inline-flex; flex-direction: column; justify-content: flex-end; align-items: center; width: 30px; height: 44px; vertical-align: bottom; }
+.trio .b i { display: block; width: 14px; background: var(--c); opacity: .45; }
+.trio .b.hit i { opacity: 1; }
+.trio .b small { font: 10px var(--mono); color: var(--text-dim); margin-top: 2px; }
+.trio .b.hit small { color: #fff; }
+.trio .cs, .key.cs { --c: #9aa5aa; }
+.trio .ps, .key.ps { --c: var(--cyan); }
+.trio .vs, .key.vs { --c: var(--amber); }
+.key { font: 12px var(--mono); color: var(--c); }
+.key::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 4px; background: var(--c); }
 /* the first column only as wide as the longest name (width 1% shrinks it to its content) */
 .cmp th.arch { position: sticky; left: 0; z-index: 1; background: var(--panel); color: var(--c, #fff); text-align: left;
   white-space: nowrap; font: 500 13px var(--mono); width: 1%; }

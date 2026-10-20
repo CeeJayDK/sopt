@@ -73,7 +73,7 @@ const STRIPES = ["#08306b", "#08519c", "#2171b5", "#4292c6", "#6baed6", "#9ecae1
 function heatColor(v, lo, hi) {
   const t = hi > lo ? Math.max(0, Math.min(1, Math.log(v / lo) / Math.log(hi / lo))) : 0;
   const k = Math.min(STRIPES.length - 1, Math.floor(t * STRIPES.length));
-  return { bg: STRIPES[k], fg: k >= 4 && k <= 11 ? "#10161a" : "#fff" };
+  return { bg: STRIPES[k], fg: "#fff" };  // white with a drop shadow (td.hot) on every shade (owner, 2026-10-20)
 }
 // The scale under a heat table: each shade with the value where it starts.
 function heatScale(lo, hi, unit) {

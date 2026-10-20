@@ -97,9 +97,10 @@ def read_report(path):
         if m:
             info["tool"] = m.group(1)
             info["version"] = m.group(2)
-        m = re.match(r"# (gpu|vendor|device|driver|stage): (.*)", line)
+        m = re.match(r"# (gpu|vendor|device|driver|stage|run time): (.*)", line)
         if m:
             info[m.group(1)] = m.group(2).strip()
+    info["rows"] = max(0, sum(1 for l in lines if l and not l.startswith("#")) - 1)  # tests (one header line)
     if "gpu" not in info:  # version 1: gpu,vendor,device,driver on every row
         rows = [r for r in csv.reader(l for l in lines if l and not l.startswith("#"))]
         if len(rows) > 1 and rows[0][:4] == ["gpu", "vendor", "device", "driver"]:
@@ -364,7 +365,8 @@ def texbench_data(out):
                 order.append({"test": test, "value": r[col["units"]] or r[col["units_vs_base"]], "note": note})
                 continue
             s = sections.setdefault(sec, {"title": sec, "kind": cfg if cfg in ("write", "blend", "pass") else "cost", "rows": {}})
-            row = s["rows"].setdefault(test, {"test": test, "note": note})
+            row = s["rows"].setdefault(test, {"test": test, "note": note,
+                                              "step": r[col["step"]] if "step" in col and len(r) > col["step"] else ""})
             try:
                 if cfg in ("write", "blend", "pass"):
                     row["value"] = float(r[col["units"]])
@@ -396,6 +398,7 @@ def texbench_data(out):
 def stagebench_data():
     """Per card with StageBench reports: each test's throughput cost (fma units) in compute shaders (OpBench), pixel and
     vertex shaders (StageBench), from the newest report of each. Runs that switched to CPU timing part way are left out."""
+    steps = {}  # test -> the HLSL step it times
     def costs(path):
         lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
         if any(l.startswith("# timing:") and "from the timestamp check" not in l for l in lines):
@@ -406,6 +409,8 @@ def stagebench_data():
         col = {c: i for i, c in enumerate(rows[0])}
         out = {}
         for r in rows[1:]:
+            if "step" in col and len(r) > col["step"]:
+                steps.setdefault(r[1], r[col["step"]])
             if len(r) > col["units_vs_base"] and r[0] == "tput":
                 try:
                     out[r[1]] = float(r[col["units_vs_base"]]) / 4.0
@@ -435,11 +440,40 @@ def stagebench_data():
     for name in sorted(set(ps) & set(vs)):
         tests = []
         for test, p in ps[name][1].items():
-            tests.append({"test": test, "cs": cs.get(name, (0, {}))[1].get(test), "ps": p, "vs": vs[name][1].get(test)})
+            tests.append({"test": test, "step": steps.get(test, ""), "cs": cs.get(name, (0, {}))[1].get(test), "ps": p,
+                          "vs": vs[name][1].get(test)})
         cards.append({"name": name, "driver": ps[name][2].get("driver", ""), "version": ps[name][2].get("version", ""),
                       "drift": {k: v[name][2].get("drift", "") for k, v in (("cs", cs), ("ps", ps), ("vs", vs)) if name in v},
                       "tests": tests})
     return {"cards": cards}
+
+
+def run_times():
+    """Median run time in seconds per card and tool, over the reports with the newest set of tests: a report counts when
+    its number of tests is within 10% of the newest version's (0.8.0 and 0.9.0 alike, 0.7.0 had about half), so the
+    times of different cards compare. StageBench: the pixel and the vertex shader run together."""
+    out = {}
+    for tool, kind in (("OpBench", "opbench"), ("StageBench", "stagebench"), ("TexBench", "texbench")):
+        per = {}
+        for path in glob.glob(os.path.join(ROOT, "docs", kind, "*.csv")):
+            info = read_report(path)
+            secs = re.match(r"(\d+)", info.get("run time", ""))
+            if not secs:
+                continue
+            name = clean_name(NAME_BY_FILE.get(os.path.basename(path)) or NAME_BY_DEVICE.get(info.get("device", "")) or info.get("gpu", ""))
+            version = tuple(int(x) for x in info.get("version", "0").split(".") if x.isdigit())
+            per.setdefault((name, info.get("stage", "")), []).append((version, info["rows"], int(secs.group(1))))
+        latest = max((v for reps in per.values() for v, _, _ in reps), default=())
+        tests = statistics.median([n for reps in per.values() for v, n, _ in reps if v == latest] or [0])
+        parts = {}  # card -> one median per stage
+        for (name, _), reps in per.items():
+            same = [s for _, n, s in reps if abs(n - tests) <= 0.1 * tests]
+            if same:
+                parts.setdefault(name, []).append(statistics.median(same))
+        for name, p in parts.items():
+            if len(p) == (2 if tool == "StageBench" else 1):  # StageBench: both runs, or it would look twice as fast
+                out.setdefault(name, {})[tool] = sum(p)
+    return out
 
 
 def markdown_html(text):
@@ -514,6 +548,9 @@ def main():
         drv = info.get("driver")
         if drv and drv not in c["drivers"]:
             c["drivers"].append(drv)
+    times = run_times()
+    for c in cards.values():
+        c["times"] = {k: round(v) for k, v in times.get(c["name"], {}).items()}
     data["cards"] = sorted(cards.values(), key=lambda c: c["name"])
     data.update(opbench_extras())
 

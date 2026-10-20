@@ -18,6 +18,7 @@ function vendorOf(name) {
   return Object.keys(VENDOR_COLOR).find((v) => name.toUpperCase().startsWith(v.toUpperCase())) || "";
 }
 function shortCard(name) { return name.replace(/^(NVIDIA GeForce|AMD Radeon|Intel) /, "").replace(/ (Graphics|GPU)$/, ""); }
+const about = (r) => [r.step, r.note].filter(Boolean).join("  ·  ");
 function shortTitle(title) { return title.replace(/\s*\(.*\)\s*$/, "").replace(/:.*$/, ""); }
 function rest(title) { const i = title.indexOf(":"); return i < 0 ? "" : title.slice(i + 1).trim().replace("aAdd = atomicAdd ...; ", ""); }
 // The reports' short atomic names in full (the terminal is narrow, the page is not): aCmpXchg -> atomicCompareExchange.
@@ -55,8 +56,8 @@ function matrix(sec) {
       const r = cells[fmt + "|" + f];
       if (!r) return el("td", { class: "num empty", text: "-" });
       const h = heatColor(Math.max(r.tput, lo), lo, hi);
-      return el("td", { class: "num", style: `background:${h.bg};color:${h.fg}`, text: num(r.tput),
-        title: `${r.test}: ${num(r.tput)} fma` + (r.lat != null ? `, latency ${num(r.lat)}` : "") });
+      return el("td", { class: "num hot", style: `background:${h.bg}`, text: num(r.tput),
+        title: `${r.test}: ${num(r.tput)} fma` + (r.lat != null ? `, latency ${num(r.lat)}` : "") + (r.step ? `\n${r.step}` : "") });
     }))))));
 }
 
@@ -72,7 +73,7 @@ function sectionPanel(sec, color) {
   return el("div", { class: "panel" }, head,
     el("p", { class: "note", style: "margin-top:8px", text: unit }),
     ...rows.map((r) => barRow(testLabel(r.test), r[key], scale, color, { wide: true,
-      title: (r.note ? r.note + " · " : "") + (r.lat != null ? `latency ${num(r.lat)} fma` : "") })));
+      title: [about(r), r.lat != null ? `latency ${num(r.lat)} fma` : ""].filter(Boolean).join("\n") })));
 }
 
 fetch(ROOT + "data/texbench-findings.html").then((r) => (r.ok ? r.text() : "")).then((h) => {
@@ -85,14 +86,17 @@ loadJSON("texbench").then((data) => {
   const vals = cards.flatMap((c) => COMPARE.map(([, test]) => findRow(c, test))).filter((r) => r && r.tput > 0).map((r) => r.tput);
   const lo = Math.min(...vals), hi = Math.max(...vals);
   document.getElementById("compare").replaceChildren(
-    el("thead", {}, el("tr", {}, el("th", { text: "Card" }), ...COMPARE.map(([label]) => el("th", { class: "num", text: label })))),
+    el("thead", {}, el("tr", {}, el("th", { text: "Card" }), ...COMPARE.map(([label, test]) => {
+      const r = cards.map((c) => findRow(c, test)).find((x) => x && (x.step || x.note));  // what the test does
+      return el("th", { class: "num", text: label, title: r ? `${test}\n${about(r)}` : test });
+    }))),
     el("tbody", {}, ...cards.map((c) => el("tr", {},
       el("td", { title: c.name, style: "white-space:nowrap" }, el("span", { class: "dot", style: `--c:${VENDOR_COLOR[vendorOf(c.name)]}` }), shortCard(c.name)),
       ...COMPARE.map(([, test]) => {
         const r = findRow(c, test);
         if (!r || r.tput == null) return el("td", { class: "num", text: "-" });
         const h = heatColor(Math.max(r.tput, lo), lo, hi);
-        return el("td", { class: "num hot", style: `background:${h.bg};color:${h.fg}`, text: num(r.tput) });
+        return el("td", { class: "num hot", style: `background:${h.bg}`, text: num(r.tput), title: `${c.name}, ${test}: ${num(r.tput)} fma` });
       })))));
   if (vals.length) document.getElementById("compare").closest(".tablewrap").after(heatScale(lo, hi, "fma units"));
 
