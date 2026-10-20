@@ -125,7 +125,7 @@ td.hit { color: var(--amber); font-weight: 500; }
 .cmp th, td.hot { color: #fff; text-shadow: 0 1px 2px #000, 0 0 2px #000; }
 /* heat cells in every table: thin dark lines between rows and columns, none next to a white group line (owner, 2026-10-20) */
 td.hot { border-bottom: 1px solid var(--bg); }
-td.hot + td.hot:not(.gs) { border-left: 1px solid var(--bg); }
+td.hot + td.hot:not(.gs) { border-left: 1px solid rgb(0 0 0 / 40%); }
 /* StageBench: three small bars per card (compute, pixel, vertex), bright where a stage differs from compute */
 .cmp td.trio { white-space: nowrap; padding: 4px 6px 2px; text-align: center; }
 .trio .b { display: inline-flex; flex-direction: column; justify-content: flex-end; align-items: center; width: 30px; height: 44px; vertical-align: bottom; }
@@ -159,7 +159,7 @@ td.hot + td.hot:not(.gs) { border-left: 1px solid var(--bg); }
 /* numbers line up on the decimal point (blueprint.js aligned) */
 .cmp .pad { visibility: hidden; }
 .scale { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin-top: 10px; font: 12px var(--mono); color: var(--text-faint); }
-.scale .sw { width: 22px; height: 14px; }
+.scale .sw { width: 11px; height: 14px; }
 .scale .lab { padding: 0 8px; }
 .scale .range { flex-basis: 100%; margin-top: 4px; }
 .alts { margin-top: 10px; font-size: 13.5px; }

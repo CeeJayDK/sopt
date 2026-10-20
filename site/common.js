@@ -67,9 +67,14 @@ function hl(text) {
 }
 
 // Heat colors: the warming stripes' 16 shades (Ed Hawkins; ColorBrewer Blues / Reds), dark blue = cheapest, dark
-// red = most expensive, in steps on a log scale between lo and hi (owner, 2026-10-10).
+// red = most expensive, in steps on a log scale between lo and hi (owner, 2026-10-10). Twice the steps (owner,
+// 2026-10-20): each shade, and between two neighbours the mix of both (31 shades).
 const STRIPES = ["#08306b", "#08519c", "#2171b5", "#4292c6", "#6baed6", "#9ecae1", "#c6dbef", "#deebf7",
-  "#fee0d2", "#fcbba1", "#fc9272", "#fb6a4a", "#ef3b2c", "#cb181d", "#a50f15", "#67000d"];
+  "#fee0d2", "#fcbba1", "#fc9272", "#fb6a4a", "#ef3b2c", "#cb181d", "#a50f15", "#67000d"].flatMap((c, k, all) => {
+  if (!k) return [c];
+  const mid = [1, 3, 5].map((i) => Math.round((parseInt(all[k - 1].substr(i, 2), 16) + parseInt(c.substr(i, 2), 16)) / 2));
+  return ["#" + mid.map((v) => v.toString(16).padStart(2, "0")).join(""), c];
+});
 function heatColor(v, lo, hi) {
   const t = hi > lo ? Math.max(0, Math.min(1, Math.log(v / lo) / Math.log(hi / lo))) : 0;
   const k = Math.min(STRIPES.length - 1, Math.floor(t * STRIPES.length));
