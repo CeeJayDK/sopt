@@ -473,3 +473,9 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 2: stagebench, AMD Radeon HD 6450 (driver 8.17.10.1433): `docs/stagebench/amd-radeon-hd-6450-ps-2.csv` (StageBench 0.9.0)
 - upload 2: stagebench, AMD Radeon HD 6450 (driver 8.17.10.1433): `docs/stagebench/amd-radeon-hd-6450-vs-2.csv` (StageBench 0.9.0)
 - upload 2: texbench, AMD Radeon HD 6450 (driver 8.17.10.1433): `docs/texbench/amd-radeon-hd-6450.csv`, `docs/texbench/amd-radeon-hd-6450-order.png`, `docs/texbench/amd-radeon-hd-6450-order-zoom.png` (TexBench 0.9.0)
+
+## 2026-10-20 18:51 UTC
+- upload 1: opbench, AMD Radeon HD 6450 (driver 8.17.10.1433): `docs/opbench/amd-radeon-hd-6450-3.csv` (OpBench 0.9.0)
+- upload 1: stagebench, AMD Radeon HD 6450 (driver 8.17.10.1433): `docs/stagebench/amd-radeon-hd-6450-ps-3.csv` (StageBench 0.9.0)
+- upload 1: stagebench, AMD Radeon HD 6450 (driver 8.17.10.1433): `docs/stagebench/amd-radeon-hd-6450-vs-3.csv` (StageBench 0.9.0)
+- upload 1: texbench, AMD Radeon HD 6450 (driver 8.17.10.1433): `docs/texbench/amd-radeon-hd-6450-2.csv`, `docs/texbench/amd-radeon-hd-6450-2-order.png`, `docs/texbench/amd-radeon-hd-6450-2-order-zoom.png` (TexBench 0.9.0)
