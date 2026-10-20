@@ -2070,6 +2070,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   0.9.1 (tester, 2026-10-20): BFBFX's AO.fx / GI.fx `#include "random.fxh"` from BFBFX\bfb_inc. ReShade's default
   search path reshade-shaders\Shaders\** adds every folder below it as an include path (runtime.cpp, a sorted set);
   loadEffect does the same, only when the file is inside a reshade-shaders\Shaders folder (never a drive scan).
+  Reports 2026-10-20 (0.9.0, driver 617.42 / 32.0.16.1742): RTX 2070 (4th OpBench of this card, -4; StageBench -2):
+  tput drift 51% (cs) / 50% (ps) / 49% (vs), as its earlier runs (38%, 176%): this card's clock moves; mad16v3
+  -5.7 cs / -6.0 ps / -6.1 vs units (packed fp16 in every stage: TU10x, against the GTX 1660's 0 in ps / vs, the
+  Turing split). TexBench 187 s. RTX 3070 Ti Laptop (GA104, new card, Ampere): drift 31 / 26 / 21% (tput / dep /
+  lat), ps 20%, vs 31%; mad16v3 -0.4 cs / -0.3 ps / -0.6 vs (no fp16 gain, as Ampere). TexBench 116 s.
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.
