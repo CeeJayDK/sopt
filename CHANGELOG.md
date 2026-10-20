@@ -13,6 +13,8 @@ docs/notes/history.md.
 
 ### GPU Blueprint
 - **StageBench has its own page** in the guide: what it measures, why, and how long it takes.
+- **How long will it take?** The menu shows about how long the tests take on each of your graphics cards, each test says at its start how long it usually takes on cards like yours, and the window title counts down the time left. The times come from the reports people have sent.
+- **On the website:** the StageBench page has a table of every test on every card and small bars that show where pixel and vertex shaders cost differently; hovering a test shows the code it times; the cards list shows how long each test took per card; the colour tables have twice as many shades.
 
 ## 0.9.0
 

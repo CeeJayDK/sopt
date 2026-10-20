@@ -811,13 +811,7 @@ struct FamilyCosts {
 
 FamilyCosts familyOf(const std::string& gpuName, unsigned deviceId) {
   FamilyCosts fc;
-  std::string name = std::regex_replace(gpuName, std::regex(R"(\((R|TM)\))"), "");
-  name = std::regex_replace(name, std::regex(R"(\s+)"), " ");
-  const char* model = nullptr;
-  for (const expected::Device& d : expected::kDevices)
-    if (d.id == deviceId) model = d.model;
-  for (const expected::Rule& r : expected::kRules)
-    if (!model && std::regex_search(name, std::regex(r.pattern))) model = r.model;
+  const char* model = expected::modelOf(gpuName, deviceId);
   if (!model) return fc;
   for (const expected::Family& f : expected::kFamilies)
     if (std::strcmp(f.model, model) == 0 && std::strcmp(f.stage, stageName()) == 0) fc.family = &f;
@@ -903,6 +897,7 @@ int main(int argc, char** argv) {
   const std::string& gpuName = ad.name;
   const std::string& driver = ad.driver;
   const FamilyCosts fam = familyOf(gpuName, desc.DeviceId);
+  printUsualTime(gpuName, desc.DeviceId, kTool, gStage == Stage::Compute ? 1.0 : 0.5);  // StageBench: one of its two runs
 
   Gpu g;
   const D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;

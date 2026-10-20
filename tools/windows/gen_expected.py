@@ -93,6 +93,10 @@ def main():
         "// family's cards (one report each). Only hardware, no names of the people who ran them.",
         "#pragma once",
         "",
+        "#include <cstring>",
+        "#include <regex>",
+        "#include <string>",
+        "",
         "namespace expected {",
         "",
         "struct Family {",
@@ -139,7 +143,39 @@ def main():
         model = site.model_of(site.clean_name(name))
         if model:
             out.append(f'    {{{dev}, "{model}"}},')
-    out += ["};", "", "}  // namespace expected", ""]
+    # How long each program takes on a family's cards (owner, 2026-10-20: shown at the start and in the menu): the median
+    # over its cards of each card's median run time (tools/site/build.py run_times: reports with the current tests).
+    times = {}
+    for name, t in site.run_times().items():
+        model = site.model_of(name)
+        for tool, secs in t.items():
+            if model:
+                times.setdefault((model, tool), []).append(secs)
+    out += ["};", "", "// Median run time in seconds of each program on the family's cards (StageBench: pixel and vertex runs).",
+            "struct RunTime {", "  const char* model;", "  const char* tool;", "  int seconds;", "  int cards;", "};",
+            "inline const RunTime kRunTimes[] = {"]
+    for (model, tool), v in sorted(times.items()):
+        out.append(f'    {{"{model}", "{tool}", {round(statistics.median(v))}, {len(v)}}},')
+    out += ["};", "",
+            "// The family (cost model) of a card: by device ID, else by name (without (R) / (TM)); nullptr if none yet.",
+            "inline const char* modelOf(std::string name, unsigned deviceId) {",
+            "  for (const Device& d : kDevices)",
+            "    if (d.id == deviceId) return d.model;",
+            r'  name = std::regex_replace(name, std::regex(R"(\((R|TM)\))"), "");',
+            r'  name = std::regex_replace(name, std::regex(R"(\s+)"), " ");',
+            "  for (const Rule& r : kRules)",
+            "    if (std::regex_search(name, std::regex(r.pattern))) return r.model;",
+            "  return nullptr;",
+            "}",
+            "",
+            "// The family's run time of a program, or nullptr.",
+            "inline const RunTime* runTime(const char* model, const char* tool) {",
+            "  for (const RunTime& t : kRunTimes)",
+            "    if (model && std::strcmp(t.model, model) == 0 && std::strcmp(t.tool, tool) == 0) return &t;",
+            "  return nullptr;",
+            "}",
+            "",
+            "}  // namespace expected", ""]
     dst = os.path.join(ROOT, "tools", "windows", "expected.hpp")
     with open(dst, "w", newline="\n") as f:
         f.write("\n".join(out))
