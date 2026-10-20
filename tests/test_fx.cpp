@@ -1215,6 +1215,24 @@ TEST(fx_hlsl_glsl_extras) {
   for (uint32_t line : {22u, 30u, 43u}) CHECK(regionOn(w, line) != nullptr);
 }
 
+TEST(fx_window_same_block) {
+  // dh_uber_rt.fx (2026-10-20): "float2 w = uv * 0.5; { ... w *= ...; }": a window from the declaration
+  // would declare w inside the inner block. Windows with the inner temporary d stay.
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_block.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  bool inner = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, ro, sk))
+    if (r.line == 9) {
+      CHECK(r.kind != fx::Region::Kind::Init);
+      inner = inner || !r.removed.empty();
+    }
+  CHECK(inner);
+}
+
 TEST(fx_hoist_rewrite) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_hoist.fx";
   fx::LoadOptions lo;
@@ -1238,7 +1256,7 @@ TEST(fx_hoist_rewrite) {
       flat = flat || (l.find("color * sopt_f0.x") != std::string::npos &&  // k = Strength * ... inlined
                       ed.extra.find("!__RESHADE_PERFORMANCE_MODE__") != std::string::npos);
     }
-    cheap = cheap || (ed.first <= 23 && ed.last >= 23);  // float2 o = texcoord + Strength * 0.01;
+    cheap = cheap || (ed.first <= 24 && ed.last >= 24);  // float2 o = texcoord + Strength * 0.01;
   }
   CHECK(wrapper && pass && flat && !cheap);
   // Written and parsed with the switch off and on, with and without performance mode.

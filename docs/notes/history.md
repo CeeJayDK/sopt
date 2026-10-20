@@ -2075,6 +2075,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   -5.7 cs / -6.0 ps / -6.1 vs units (packed fp16 in every stage: TU10x, against the GTX 1660's 0 in ps / vs, the
   Turing split). TexBench 187 s. RTX 3070 Ti Laptop (GA104, new card, Ampere): drift 31 / 26 / 21% (tput / dep /
   lat), ps 20%, vs 31%; mad16v3 -0.4 cs / -0.3 ps / -0.6 vs (no fp16 gain, as Ampere). TexBench 116 s.
+  effect-packages (2026-10-20, first full run, one job per package after one long job was stopped at 1 h 40):
+  every effect of every package parses; three bugs fixed: potatoFX pCamera.fx crashed the search (top-down pass with
+  one finite test point read target_[UINT32_MAX]; likely the tester's "stops at 96%"), fubax TripleMonitor /
+  CurvedMonitor (vertex shader move put the new pixel shader input behind a // comment on the last parameter line),
+  dh_uber_rt (a window from a declaration in an outer block declared the variable inside the inner { } block).
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.

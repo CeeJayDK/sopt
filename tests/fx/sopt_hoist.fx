@@ -15,7 +15,8 @@ void HoistVS(in uint id : SV_VertexID, out float4 pos : SV_Position, out float2 
 	pos = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
 }
 
-float4 HoistPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
+float4 HoistPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0 // a comment after the last parameter (fubax)
+	) : SV_Target
 {
 	float2 c = texcoord - 0.5;
 	float2 r = float2(c.x * cos(Angle) - c.y * sin(Angle), c.x * sin(Angle) + c.y * cos(Angle)) / Zoom + 0.5;
