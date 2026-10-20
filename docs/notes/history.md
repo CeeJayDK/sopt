@@ -2067,6 +2067,9 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   files with a main() (FFmpeg's common.glsl etc. are includes). Includes are also searched in the folders above the
   file, up to a reshade-shaders folder or the drive root (owner: no ReShade.fxh setup; not bundled: the user's own copy
   matches their ReShade); the menu no longer asks for the Shaders folder before a folder / file target.
+  0.9.1 (tester, 2026-10-20): BFBFX's AO.fx / GI.fx `#include "random.fxh"` from BFBFXfb_inc. ReShade's default
+  search path reshade-shaders\Shaders\** adds every folder below it as an include path (runtime.cpp, a sorted set);
+  loadEffect does the same, only when the file is inside a reshade-shaders\Shaders folder (never a drive scan).
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.

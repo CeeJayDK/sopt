@@ -1140,6 +1140,22 @@ TEST(fx_include_from_folder_above) {
   if (!e) std::printf("  %s\n", err.c_str());
 }
 
+TEST(fx_include_from_subfolder) {
+  // As ReShade's Shaders\** search path: Pack\a.fx includes "b.fxh" from Pack\inc (BFBFX's bfb_inc).
+  const fs::path root = fs::temp_directory_path() / "sopt-test-sub" / "reshade-shaders" / "Shaders";
+  fs::create_directories(root / "Pack" / "inc");
+  std::ofstream(root / "Pack" / "inc" / "b.fxh") << "float4 VS(uint id : SV_VertexID) : SV_Position { return 0; }\n"
+                                                    "float4 PS(float4 p : SV_Position) : SV_Target { return p; }\n";
+  std::ofstream(root / "Pack" / "a.fx") << "#include \"b.fxh\"\n"
+                                           "technique T { pass { VertexShader = VS; PixelShader = PS; } }\n";
+  std::string err;
+  auto e = fx::loadEffect(root / "Pack" / "a.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) std::printf("  %s\n", err.c_str());
+  std::error_code ec;
+  fs::remove_all(root.parent_path().parent_path(), ec);
+}
+
 TEST(fx_likely_ranges) {
   // A value read from a texture in plain HLSL (format unknown: c = gColor.Sample(...)) gets the likely range [0, 1],
   // also where it is used later (c.x); --no-likely: the assumed default.

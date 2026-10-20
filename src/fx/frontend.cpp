@@ -180,9 +180,21 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   for (const auto& p : opt.includePaths) pp.add_include_path(p);
   // Then the folders above the file (owner, 2026-10-19: no setup for ReShade.fxh): an effect in
   // reshade-shaders\Shaders\SweetFX finds ReShade.fxh in Shaders. Up to a reshade-shaders folder or the drive root.
+  fs::path shaders;  // the reshade-shaders\Shaders folder above the file, if any
   for (fs::path dir = fs::absolute(path).parent_path(); dir.has_relative_path() && dir.filename() != "reshade-shaders";) {
+    if (dir.filename() == "Shaders" && dir.parent_path().filename() == "reshade-shaders") shaders = dir;
     dir = dir.parent_path();
     pp.add_include_path(dir);
+  }
+  // ReShade's default search path is reshade-shaders\Shaders\** and it adds every folder below it as an include path
+  // (runtime.cpp, sorted): BFBFX's AO.fx includes "random.fxh" from BFBFX\bfb_inc.
+  if (!shaders.empty()) {
+    std::error_code ec;
+    std::set<fs::path> sub;
+    for (auto it = fs::recursive_directory_iterator(shaders, fs::directory_options::skip_permission_denied, ec);
+         it != fs::recursive_directory_iterator(); it.increment(ec))
+      if (it->is_directory(ec)) sub.insert(it->path());
+    for (const auto& d : sub) pp.add_include_path(d);
   }
   // Given macros first: the preprocessor keeps a name's first definition, so they override the defaults below
   // (e.g. __VENDOR__ / __RENDERER__ to check per-vendor rewrites).

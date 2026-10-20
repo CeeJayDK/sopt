@@ -5,6 +5,11 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
+## 0.9.1
+
+### SweetOpt
+- **Fixed:** effects that include files from a sub-folder without naming it (BFBFX includes its files from `bfb_inc` this way) could not be read. SweetOpt now looks in every folder under reshade-shaders\Shaders, as ReShade does.
+
 ## 0.9.0
 
 ### SweetOpt
