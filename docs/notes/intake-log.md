@@ -450,3 +450,15 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.9150): `docs/stagebench/intel-arc-b580-ps.csv` (StageBench 0.9.0)
 - upload 1: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.9150): `docs/stagebench/intel-arc-b580-vs.csv` (StageBench 0.9.0)
 - upload 1: texbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.9150): `docs/texbench/intel-arc-b580-2.csv`, `docs/texbench/intel-arc-b580-2-order.png`, `docs/texbench/intel-arc-b580-2-order-zoom.png` (TexBench 0.9.0)
+
+## 2026-10-20 11:13 UTC
+- upload 1: opbench, NVIDIA GeForce RTX 2070 (driver 32.0.16.1742): `docs/opbench/nvidia-rtx-2070-4.csv` (OpBench 0.9.0)
+- upload 1: shaderinfo, NVIDIA GeForce RTX 2070 (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-rtx-2070-3.txt`
+- upload 1: stagebench, NVIDIA GeForce RTX 2070 (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-2070-ps-2.csv` (StageBench 0.9.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 2070 (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-2070-vs-2.csv` (StageBench 0.9.0)
+- upload 1: texbench, NVIDIA GeForce RTX 2070 (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-2070-3.csv`, `docs/texbench/nvidia-rtx-2070-3-order.png`, `docs/texbench/nvidia-rtx-2070-3-order-zoom.png` (TexBench 0.9.0)
+- upload 2: opbench, NVIDIA GeForce RTX 3070 Ti Laptop GPU (driver 32.0.16.1742): `docs/opbench/nvidia-rtx-3070-ti-laptop-gpu.csv` (OpBench 0.9.0)
+- upload 2: shaderinfo, NVIDIA GeForce RTX 3070 Ti Laptop GPU (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-rtx-3070-ti-laptop-gpu.txt`
+- upload 2: stagebench, NVIDIA GeForce RTX 3070 Ti Laptop GPU (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-3070-ti-laptop-gpu-ps.csv` (StageBench 0.9.0)
+- upload 2: stagebench, NVIDIA GeForce RTX 3070 Ti Laptop GPU (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-3070-ti-laptop-gpu-vs.csv` (StageBench 0.9.0)
+- upload 2: texbench, NVIDIA GeForce RTX 3070 Ti Laptop GPU (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-3070-ti-laptop-gpu.csv`, `docs/texbench/nvidia-rtx-3070-ti-laptop-gpu-order.png`, `docs/texbench/nvidia-rtx-3070-ti-laptop-gpu-order-zoom.png` (TexBench 0.9.0)
