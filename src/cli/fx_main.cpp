@@ -1511,6 +1511,8 @@ int main(int argc, char** argv) {
       // The variant files are meant to lie over the original folder: headers and `#if exists` tests
       // that are not in the output directory resolve there (SuperDepth3D's AXAA.fxh).
       lo.includePaths.insert(lo.includePaths.begin(), original.parent_path());
+      const auto around = fx::folderIncludePaths(original);  // the original's ReShade folders (BFBFX's bfb_inc)
+      lo.includePaths.insert(lo.includePaths.begin() + 1, around.begin(), around.end());
       lo.macros.emplace_back("SOPT_ALL", std::to_string(k));
       std::string err;
       ++checks;

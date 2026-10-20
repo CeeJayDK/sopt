@@ -85,6 +85,10 @@ inline constexpr const char* kSymbolicPrefix = "__sopt_";
 std::set<std::string> symbolicMacros(const std::filesystem::path& path, const LoadOptions& opt,
                                      const Effect& plain);
 
+// Include folders loadEffect adds for a file: the folders above it and, inside reshade-shaders/Shaders, every folder
+// below Shaders (as ReShade's Shaders/** search path).
+std::vector<std::filesystem::path> folderIncludePaths(const std::filesystem::path& file);
+
 // Preprocesses and parses one .fx file. Returns null and sets errors on failure.
 std::unique_ptr<Effect> loadEffect(const std::filesystem::path& path, const LoadOptions& opt,
                                    std::string& errors);
