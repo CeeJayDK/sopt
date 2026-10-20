@@ -11,8 +11,9 @@ longer CLAUDE.md). grep it for a topic before re-deriving anything. New detailed
 go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout, invariants and open items, in short form.
 
 ## Working with the owner
-- Christian (CeeJay, SweetFX / ReShade). Communicates in Danish; wants brief, direct answers. Hardware: NVIDIA GTX 1660
-  and an Intel NUC (Iris 540); no AMD card (AMD numbers come from RGA and testers' reports).
+- Christian (CeeJay, SweetFX / ReShade). Communicates in Danish; wants brief, direct answers. Hardware (2026-10-20):
+  GTX 1660 + UHD 630, a NUC (Iris 540), test PCs with a GT 530 and an AMD Radeon HD 6450 (TeraScale 2), a GT 1030 at
+  his parents'. No modern AMD card (those numbers come from RGA and testers' reports).
 - **Tokens are limited** (owner, 2026-10-09: weekly usage ran out fast). Keep turns lean: no long explanations, avoid
   re-reading large files, prefer GitHub Actions for heavy or repetitive work (they cost no tokens), batch tool calls.
 - Do not implement your own improvisations or design changes without asking first. The agreed plan is fine; flag the rest.
