@@ -10,6 +10,9 @@ docs/notes/history.md.
 ### SweetOpt
 - **Fixed:** effects that include files from a sub-folder without naming it (BFBFX includes its files from `bfb_inc` this way) could not be read. SweetOpt now looks in every folder under reshade-shaders\Shaders, as ReShade does.
 
+### GPU Blueprint
+- **StageBench has its own page** in the guide: what it measures, why, and how long it takes.
+
 ## 0.9.0
 
 ### SweetOpt

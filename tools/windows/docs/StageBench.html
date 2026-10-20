@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StageBench</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../README.html">GPU Blueprint</a> / StageBench</nav>
+<header class="top">
+  <h1>StageBench</h1>
+  <p>What math costs in pixel and vertex shaders, the kinds of shaders ReShade effects run.</p>
+</header>
+
+<h2>How to run</h2>
+<p>From the GPU Blueprint menu (<code>GPU-Blueprint.bat</code>): <kbd>1</kbd> to <kbd>3</kbd> run it with the other programs, <kbd>S</kbd> alone. It takes about half a minute to a minute and a half (up to 5 on old cards) and writes <code>Reports\stagebench-ps-&lt;GPU&gt;.csv</code> and <code>Reports\stagebench-vs-&lt;GPU&gt;.csv</code>.</p>
+
+<h3>Command line</h3>
+<table>
+  <tr><td><code>--stage ps</code>, <code>--stage vs</code></td><td>only the pixel or only the vertex shader run (without it: both, one after the other)</td></tr>
+  <tr><td><code>--list</code>, <code>--adapter N</code>, <code>--filter text</code></td><td>as in <a href="OpBench.html">OpBench</a></td></tr>
+</table>
+
+<h2>Why</h2>
+<p><a href="OpBench.html">OpBench</a> measures in a compute shader. ReShade effects are mostly pixel shaders, and a graphics driver does not always treat the kinds of shaders alike. On a GTX 1660, for example, half precision math is twice as fast in a compute shader, but no faster in a pixel or vertex shader, while an RTX 2060 or 2070 gets the gain in all of them. StageBench finds such differences, so SweetOpt can use the costs of the kind of shader it is optimizing.</p>
+
+<h2>How a test works</h2>
+<p>StageBench is OpBench's own program with the same tests and the same units (<strong>one fma = 4 units</strong>), run in two other places:</p>
+<table>
+  <tr><td>Pixel shader <code>ps</code></td><td>one thread per pixel of a 1024 x 1024 image. This run also has the tests only pixel shaders can do: <code>ddx</code> / <code>ddy</code> (how a value changes to the next pixel) and <code>clip</code>.</td></tr>
+  <tr><td>Vertex shader <code>vs</code></td><td>one thread per point, drawn off-screen.</td></tr>
+</table>
+<p>Only the "many in parallel" way of running (<code>tput</code>) is measured: what an instruction costs when the GPU is fully busy, as in a game. Tests that only exist in compute shaders (shared memory, barriers, atomics) are left out. Everything else, from the reference checks before every test to the forward and backward passes and the extra readings when two disagree, works as in OpBench.</p>
+
+<h2>Reading the CSVs</h2>
+<p>Each file is laid out like OpBench's CSV (see <a href="OpBench.html">OpBench</a>), with one more <code>#</code> line: <code>stage: ps</code> or <code>stage: vs</code>. The <code>expected</code> column compares your card with other cards of its family in the same kind of shader.</p>
+
+<h2>Compared with compute shaders</h2>
+<p>The <a href="http://ceejay.dk/sopt/gpu-blueprint/stagebench/">StageBench page</a> on the SweetOpt site puts each card's pixel and vertex shader costs next to its compute shader costs from OpBench and marks where they differ.</p>
+
+<footer>StageBench writes only <code>Reports\stagebench-ps-&lt;GPU&gt;.csv</code>, <code>Reports\stagebench-vs-&lt;GPU&gt;.csv</code> and the tests' shaders in <code>Reports\Shaders\StageBench-ps\</code> and <code>-vs\</code>. It does not use the network. Part of <a href="https://github.com/CeeJayDK/sopt">sopt</a> by CeeJay.dk (GPL-3.0).</footer>
+</main>
+</body>
+</html>
