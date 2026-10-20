@@ -2,8 +2,13 @@
 """Installs every package in ReShade's own effect list (EffectPackages.ini) the way ReShade's setup does, then runs
 sopt-fx on each package's effects and writes a summary (crashes, parse failures, variant checks, savings).
 
-  effect_packages.py install EffectPackages.ini DEST      -> DEST/reshade-shaders/Shaders/..., DEST/packages.json
+  effect_packages.py ids EffectPackages.ini [ID,ID...]   -> the package ids as JSON (for a job matrix)
+  effect_packages.py install EffectPackages.ini DEST [ID,ID...]  -> DEST/reshade-shaders/Shaders/..., DEST/packages.json
   effect_packages.py run DEST SOPT_FX OUT [--time S] [--timeout S]  -> OUT/<n>/ reports, OUT/summary.md
+  effect_packages.py summary OUT_DIR...                  -> one summary.md from several runs' (stdout); exit 1 on problems
+
+install with ids installs those packages and the required ones (Required=1: the standard effects with ReShade.fxh),
+which are then only there for the includes and not run unless asked for.
 
 Setup's rule (setup/MainWindow.xaml.cs): the archive's first folder named Shaders, else the shortest folder holding an
 .fx file, is copied to the package's InstallPath; DenyEffectFiles are removed. Textures are not needed by sopt.
@@ -29,12 +34,17 @@ def shaders_dir(root):
     return min(found)[3] if found else None
 
 
-def install(ini, dest):
+def chosen(ini, ids):
+    want = set(ids.split(",")) if ids else None
+    return [(p, want is None or p["id"] in want) for p in packages(ini) if want is None or p["id"] in want or p.get("Required") == "1"]
+
+
+def install(ini, dest, ids=""):
     out = []
-    for p in packages(ini):
+    for p, run in chosen(ini, ids):
         rel = p["InstallPath"].replace("\\", "/").lstrip("./")
         target = os.path.join(dest, rel)
-        entry = {"id": p["id"], "name": p["PackageName"], "url": p["RepositoryUrl"], "effects": [], "error": ""}
+        entry = {"id": p["id"], "name": p["PackageName"], "url": p["RepositoryUrl"], "effects": [], "error": "", "run": run}
         try:
             data = urllib.request.urlopen(p["DownloadUrl"], timeout=120).read()
             with tempfile.TemporaryDirectory() as tmp:
@@ -75,6 +85,8 @@ def run(dest, sopt, out, secs, timeout):
     os.makedirs(out, exist_ok=True)
     rows, bad = [], 0
     for p in pk:
+        if not p.get("run", True):
+            continue
         if not p["effects"]:
             rows.append(f"| {p['id']} | [{p['name']}]({p['url']}) | 0 | | | | | {p['error'] or 'no effects'} |")
             continue
@@ -101,10 +113,14 @@ def run(dest, sopt, out, secs, timeout):
         if checks and checks[0] != "0":
             problem.append(f"**{checks[0]} of {checks[1]} variant checks failed**")
         bad += bool(problem)
+        if problem:  # the reasons into the job's log, so they are there without the reports
+            print(f"--- {p['id']} {p['name']}: {', '.join(problem)}")
+            print("\n".join([l for l in log.splitlines() if "does not parse" in l or "error" in l.lower()][:60]), flush=True)
         save = f"{saved[0]} regions, {saved[1]} -> {saved[2]}" if saved else ""
         rows.append(f"| {p['id']} | [{p['name']}]({p['url']}) | {len(p['effects'])} | {parsed[0] + ' / ' + parsed[1] if parsed else '?'}"
                     f" | {parsed[2] if parsed else '?'} | {save} | {secs_used:.0f} s | {', '.join(problem)} |")
         print(rows[-1], flush=True)
+    open(os.path.join(out, "rows.md"), "w", encoding="utf-8").write("\n".join(rows) + "\n")
     md = ("# sopt-fx on ReShade's effect packages\n\nParsed / failed: effects; savings: regions with written variants,"
           " cost on the default model. Problems: sopt-fx exited with an error (crash, timeout) or a written variant"
           " does not parse.\n\n| # | package | effects | parsed / failed | regions | saved | time | problems |\n"
@@ -113,10 +129,26 @@ def run(dest, sopt, out, secs, timeout):
     return bad
 
 
+def summary(dirs):
+    rows = []
+    for d in dirs:
+        f = os.path.join(d, "rows.md")
+        if os.path.exists(f):
+            rows += [l for l in open(f, encoding="utf-8").read().splitlines() if l.startswith("|")]
+    rows.sort(key=lambda r: r.split("|")[1].strip())
+    print("# sopt-fx on ReShade's effect packages\n\n| # | package | effects | parsed / failed | regions | saved | time | problems |\n"
+          "|---|---|---|---|---|---|---|---|\n" + "\n".join(rows))
+    return any("**" in r for r in rows)
+
+
 if __name__ == "__main__":
     a = sys.argv[1:]
-    if a[:1] == ["install"]:
-        install(a[1], a[2])
+    if a[:1] == ["ids"]:
+        print(json.dumps([p["id"] for p, run in chosen(a[1], a[2] if len(a) > 2 else "") if run]))
+    elif a[:1] == ["summary"]:
+        sys.exit(1 if summary(a[1:]) else 0)
+    elif a[:1] == ["install"]:
+        install(a[1], a[2], a[3] if len(a) > 3 else "")
     elif a[:1] == ["run"]:
         opt = dict(zip(a[4::2], a[5::2]))
         sys.exit(1 if run(a[1], a[2], a[3], float(opt.get("--time", 1)), float(opt.get("--timeout", 1800))) else 0)
