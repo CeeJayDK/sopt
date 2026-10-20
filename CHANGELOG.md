@@ -5,6 +5,15 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
+## 0.9.1
+
+### SweetOpt
+- **Fixed:** effects that include files from a sub-folder without naming it (BFBFX includes its files from `bfb_inc` this way) could not be read. SweetOpt now looks in every folder under reshade-shaders\Shaders, as ReShade does.
+- **Fixed:** SweetOpt could close during the search without writing anything (seen with potatoFX), and two kinds of changes could make an effect stop loading (seen with fubax-shaders and dh-reshade-shaders). Found by testing SweetOpt on every effect package ReShade's installer offers.
+
+### GPU Blueprint
+- **StageBench has its own page** in the guide: what it measures, why, and how long it takes.
+
 ## 0.9.0
 
 ### SweetOpt

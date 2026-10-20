@@ -2067,6 +2067,21 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   files with a main() (FFmpeg's common.glsl etc. are includes). Includes are also searched in the folders above the
   file, up to a reshade-shaders folder or the drive root (owner: no ReShade.fxh setup; not bundled: the user's own copy
   matches their ReShade); the menu no longer asks for the Shaders folder before a folder / file target.
+  0.9.1 (tester, 2026-10-20): BFBFX's AO.fx / GI.fx `#include "random.fxh"` from BFBFX\bfb_inc. ReShade's default
+  search path reshade-shaders\Shaders\** adds every folder below it as an include path (runtime.cpp, a sorted set);
+  loadEffect does the same, only when the file is inside a reshade-shaders\Shaders folder (never a drive scan).
+  Reports 2026-10-20 (0.9.0, driver 617.42 / 32.0.16.1742): RTX 2070 (4th OpBench of this card, -4; StageBench -2):
+  tput drift 51% (cs) / 50% (ps) / 49% (vs), as its earlier runs (38%, 176%): this card's clock moves; mad16v3
+  -5.7 cs / -6.0 ps / -6.1 vs units (packed fp16 in every stage: TU10x, against the GTX 1660's 0 in ps / vs, the
+  Turing split). TexBench 187 s. RTX 3070 Ti Laptop (GA104, new card, Ampere): drift 31 / 26 / 21% (tput / dep /
+  lat), ps 20%, vs 31%; mad16v3 -0.4 cs / -0.3 ps / -0.6 vs (no fp16 gain, as Ampere). TexBench 116 s.
+  effect-packages (2026-10-20, first full run, one job per package after one long job was stopped at 1 h 40):
+  every effect of every package parses; three bugs fixed: potatoFX pCamera.fx crashed the search (top-down pass with
+  one finite test point read target_[UINT32_MAX]; likely the tester's "stops at 96%"), fubax TripleMonitor /
+  CurvedMonitor (vertex shader move put the new pixel shader input behind a // comment on the last parameter line),
+  dh_uber_rt (a window from a declaration in an outer block declared the variable inside the inner { } block).
+  Report 2026-10-20 (0.9.0): Radeon HD 6450 (TeraScale 2, driver 8.17.10.1433, 3rd OpBench of this card): drift
+  0.1 / 0.6 / 0.0% (cs), 7.3% ps, 0.0% vs; run times 269 s OpBench, 2 x 124 s StageBench, 772 s TexBench (drift 67%).
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.

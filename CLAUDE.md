@@ -11,8 +11,9 @@ longer CLAUDE.md). grep it for a topic before re-deriving anything. New detailed
 go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout, invariants and open items, in short form.
 
 ## Working with the owner
-- Christian (CeeJay, SweetFX / ReShade). Communicates in Danish; wants brief, direct answers. Hardware: NVIDIA GTX 1660
-  and an Intel NUC (Iris 540); no AMD card (AMD numbers come from RGA and testers' reports).
+- Christian (CeeJay, SweetFX / ReShade). Communicates in Danish; wants brief, direct answers. Hardware (2026-10-20):
+  GTX 1660 + UHD 630, a NUC (Iris 540), test PCs with a GT 530 and an AMD Radeon HD 6450 (TeraScale 2), a GT 1030 at
+  his parents'. No modern AMD card (those numbers come from RGA and testers' reports).
 - **Tokens are limited** (owner, 2026-10-09: weekly usage ran out fast). Keep turns lean: no long explanations, avoid
   re-reading large files, prefer GitHub Actions for heavy or repetitive work (they cost no tokens), batch tool calls.
 - Do not implement your own improvisations or design changes without asking first. The agreed plan is fine; flag the rest.
@@ -22,7 +23,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Fewer instructions at equal measured speed are still better (less power; faster once the bottleneck moves).
 - When asking the owner to test or download something, repeat the links in that message (CI run / artifact links).
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
-  testers (now 0.9.0, release); the next test build is 0.9.1.
+  testers (now 0.9.1, test build; 0.9.0 released); the next test build is 0.9.2.
 - CHANGELOG.md: one `## <version>` section per release, add to the top section as things land (release.yml copies it).
   Changelog, release notes and README.md are for laymen (owner, 2026-10-10): plain English, short, what changes for the
   user, no option names or internals (those go in docs/notes/history.md, docs/technical.md).
@@ -52,6 +53,8 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - After adding OpBench / StageBench reports: rerun `tools/windows/gen_expected.py` (writes tools/windows/expected.hpp,
   family values per stage: cs from docs/opbench, ps / vs from docs/stagebench).
 - 0.7.0 released 2026-10-09. Next: the open review items (open item 1), then fp16 step 2.
+- effect-packages.yml (monthly / manual): sopt-fx on every package in ReShade's EffectPackages.ini; fails on crashes,
+  timeouts and variants that do not parse. Check its summary before a release.
 - Bot pushes (report-intake, steam-survey, optimize-pngs) start no CI run; release.yml runs the tests itself.
 
 ## GPU Blueprint report intake (only when the owner says "check Dropbox")

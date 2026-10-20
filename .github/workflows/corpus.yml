@@ -1,0 +1,81 @@
+name: effect-packages
+# sopt-fx on every package in ReShade's own effect list (EffectPackages.ini): catches crashes, effects it cannot read
+# and variants that do not parse before testers do. Only reports are kept (the shaders stay their authors').
+# One job per package (2026-10-20: one long job was stopped by GitHub after 1 h 40 min and lost every report).
+on:
+  workflow_dispatch:
+    inputs:
+      time:
+        description: search seconds per region
+        default: "1"
+      packages:
+        description: package ids, comma separated (empty = all)
+        default: ""
+  schedule:
+    - cron: "0 3 6 * *"  # monthly
+  push:
+    paths: [tools/corpus/**, .github/workflows/corpus.yml]
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      ids: ${{ steps.ids.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel --target sopt-fx
+      - id: ids
+        run: |
+          curl -sfL -o EffectPackages.ini https://raw.githubusercontent.com/crosire/reshade-shaders/list/EffectPackages.ini
+          echo "ids=$(python3 -I tools/corpus/effect_packages.py ids EffectPackages.ini '${{ inputs.packages }}')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sopt-fx
+          path: |
+            build/sopt-fx
+            EffectPackages.ini
+
+  package:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        id: ${{ fromJson(needs.prepare.outputs.ids) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: sopt-fx
+      - name: Install and run
+        run: |
+          chmod +x build/sopt-fx
+          python3 -I tools/corpus/effect_packages.py install EffectPackages.ini "$RUNNER_TEMP/corpus" "${{ matrix.id }}"
+          python3 -I tools/corpus/effect_packages.py run "$RUNNER_TEMP/corpus" build/sopt-fx "out/${{ matrix.id }}" \
+            --time "${{ inputs.time || '1' }}" --timeout 6000
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: reports-${{ matrix.id }}
+          path: out
+
+  summary:
+    needs: package
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: reports-*
+          merge-multiple: true
+          path: out
+      - name: Summary
+        run: |
+          set -o pipefail
+          python3 -I tools/corpus/effect_packages.py summary out/* | tee -a "$GITHUB_STEP_SUMMARY"

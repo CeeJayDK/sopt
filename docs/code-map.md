@@ -117,6 +117,7 @@ Everything rests on `src/ir`: what an operation is, what it costs on each GPU, a
 |---|---|
 | `tests/test_*.cpp` | One file per area (eval, parser, fx, library, accuracy, ...); `tests/fx/*.fx` are the test effects. |
 | `tools/site/test_report_intake.py` | Checks the report intake script (run by CI). |
+| `tools/corpus/effect_packages.py` | Installs every package of ReShade's EffectPackages.ini as ReShade's setup does and runs sopt-fx on each (workflow effect-packages: monthly, manual, on changes; summary + reports as artifact). |
 
 ### Windows tools (`tools/windows`)
 | File | What it does |
