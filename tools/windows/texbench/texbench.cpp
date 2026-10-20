@@ -1922,6 +1922,7 @@ int main(int argc, char** argv) {
   }
   const Adapter ad = selectAdapter(st, list, adapterIndex);
   if (list) return 0;
+  printUsualTime(ad.name, ad.desc.DeviceId, "TexBench");
 
   Gpu g;
   const D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;

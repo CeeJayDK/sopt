@@ -14,7 +14,16 @@ set "BEL="
 rem The cards by name, once (owner, 2026-10-16: a PC rarely has more than two; one or two cards are named on keys 2
 rem and 3, with one card key 3 is not shown; more cards keep "main card" and "pick a card").
 set "cards=0"
-if exist "%BIN%OpBench.exe" for /f "usebackq tokens=1,*" %%a in (`call "%BIN%OpBench.exe" --adapters`) do call :addCard %%a "%%b"
+set "allSec=0"
+set "unknownCard="
+set "ADP=call "%BIN%OpBench.exe" --adapters"
+set "TOK=usebackq tokens=1-3 delims=|"
+if exist "%BIN%OpBench.exe" for /f "%TOK%" %%a in (`%ADP%`) do (
+  call :addCard %%a "%%b" %%c
+)
+if "%cards%"=="0" set "unknownCard=1"
+set "every=5-10 min per card (old cards up to 25)"
+if not defined unknownCard set "every=%allTime%"
 set "run2="
 set "run3="
 if "%cards%"=="1" set "run2=%cardIdx1%"
@@ -31,18 +40,18 @@ echo   %E%[90m  measures your graphics card for sopt%E%[0m
 echo   %E%[96m=====================================================%E%[0m
 echo.
 echo   %E%[1;93m1%E%[0m  %E%[1;92mEvery graphics card in this PC%E%[0m  %E%[92m^<- recommended%E%[0m
-echo      %E%[90mall four tests, 5-10 min per card (old cards up to 25)%E%[0m
+echo      %E%[90mall four tests, %every%%E%[0m
 if "%cards%"=="2" goto menuCards
 if "%cards%"=="1" goto menuOne
 echo   %E%[1;93m2%E%[0m  Main graphics card only
 echo   %E%[1;93m3%E%[0m  Another graphics card: you pick the card
 goto menuTools
 :menuOne
-echo   %E%[1;93m2%E%[0m  Only the %cardName1%
+echo   %E%[1;93m2%E%[0m  Only the %cardName1%  %E%[90m%cardTime1%%E%[0m
 goto menuTools
 :menuCards
-echo   %E%[1;93m2%E%[0m  Only the %cardName1%
-echo   %E%[1;93m3%E%[0m  Only the %cardName2%
+echo   %E%[1;93m2%E%[0m  Only the %cardName1%  %E%[90m%cardTime1%%E%[0m
+echo   %E%[1;93m3%E%[0m  Only the %cardName2%  %E%[90m%cardTime2%%E%[0m
 :menuTools
 echo.
 echo   %E%[1;93m4%E%[0m  OpBench only     %E%[90mwhat math instructions cost%E%[0m
@@ -92,11 +101,23 @@ if "%n%"=="8" start "" "%~dp0README.html"
 if "%n%"=="9" call :send
 goto menu
 
-rem :addCard <adapter number> "<name>" (from OpBench --adapters)
+rem :addCard <adapter number> "<name>" <usual seconds, 0: unknown>
+rem (OpBench --adapters: index|name|seconds). The times come from the reports
+rem of the card's family (owner, 2026-10-20); key 1 shows the total only when
+rem every card is known.
 :addCard
 set /a cards+=1
 set "cardIdx%cards%=%~1"
 set "cardName%cards%=%~2"
+set "cardTime%cards%="
+set /a sec=%~3+0, min=(%~3+30)/60
+if %min% LSS 1 set "min=1"
+if not "%sec%"=="0" set "cardTime%cards%=(about %min% min)"
+if "%sec%"=="0" set "unknownCard=1"
+set /a allSec+=sec, allMin=(allSec+30)/60
+if %allMin% LSS 1 set "allMin=1"
+set "allTime=about %allMin% min"
+if %cards% GTR 1 set "allTime=about %allMin% min for the %cards% cards"
 exit /b
 
 rem R: the pages the tests save of what they showed (Reports\Results, owner 2026-10-16: see the results again).
@@ -217,7 +238,7 @@ rem Every card: ShaderInfo once (it covers every Vulkan GPU), then OpBench, Stag
 rem shaders are most of what sopt optimizes) and TexBench per card.
 :every
 call :one ShaderInfo.exe ""
-for /f "usebackq" %%i in (`call "%BIN%OpBench.exe" --adapters`) do (
+for /f "usebackq delims=|" %%i in (`call "%BIN%OpBench.exe" --adapters`) do (
   call :one OpBench.exe "--adapter %%i"
   call :one StageBench.exe "--adapter %%i"
   call :one TexBench.exe "--adapter %%i"

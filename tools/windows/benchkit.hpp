@@ -30,6 +30,8 @@ __declspec(dllexport) DWORD NvOptimusEnablement = 1;
 __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 }
 
+#include "expected.hpp"
+
 #ifndef SOPT_VERSION
 #define SOPT_VERSION "dev"
 #endif
@@ -360,6 +362,38 @@ inline std::string bar(double v, double maxV, int width, const Style& st, Shade 
   return s;
 }
 
+// "about 45 s" / "about 4 min": estimates are rough.
+inline std::string aboutTime(double seconds) {
+  char buf[32];
+  if (seconds < 100) std::snprintf(buf, sizeof(buf), "about %d s", std::max(5, int(std::lround(seconds / 5)) * 5));
+  else std::snprintf(buf, sizeof(buf), "about %d min", int(std::lround(seconds / 60)));
+  return buf;
+}
+
+// How long a program usually takes on the card's family (expected.hpp, from the reports; owner, 2026-10-20), printed
+// at its start. share: the part of the program's time this run is (a StageBench stage: about half).
+inline void printUsualTime(const std::string& gpu, unsigned device, const char* tool, double share = 1.0) {
+  const char* model = expected::modelOf(gpu, device);
+  const expected::RunTime* t = expected::runTime(model, tool);
+  if (!t) return;
+  const char* label = model;
+  for (const expected::Family& f : expected::kFamilies)
+    if (std::strcmp(f.model, model) == 0) label = f.label;
+  print("  Usually takes %s on %s cards (%d measured).\n", aboutTime(t->seconds * share).c_str(), label, t->cards);
+}
+
+// The menu's estimate for a whole card: OpBench, StageBench and TexBench of its family; 0 when one is not known.
+inline int cardSeconds(const std::string& gpu, unsigned device) {
+  const char* model = expected::modelOf(gpu, device);
+  int sum = 0;
+  for (const char* tool : {"OpBench", "StageBench", "TexBench"}) {
+    const expected::RunTime* t = expected::runTime(model, tool);
+    if (!t) return 0;
+    sum += t->seconds;
+  }
+  return sum;
+}
+
 // The progress bar while measuring: one level per measurement, 6 levels per cell (with light grey).
 // The planned measurements fill the scale from 0% to 100%; extra passes for tests whose readings
 // disagree run on past 100% in yellow.
@@ -381,6 +415,7 @@ struct Progress {
   int planned = 0;
   int steps = 0;
   bool live = true;  // until the first section is printed nothing is above to read: the bar updates every step
+  ULONGLONG t0 = GetTickCount64();
   void step() {
     ++steps;
     if (st->vt) {
@@ -395,7 +430,11 @@ struct Progress {
   }
   void title() const {
     const int pct = planned ? std::min(100, 100 * steps / planned) : 100;
-    setTitle(titleBar(pct) + (gCurrent.empty() ? "" : "  " + gCurrent));
+    // The time left (owner, 2026-10-20): the time so far per step, for the planned steps still to come.
+    std::string left;
+    if (planned && steps >= std::max(3, planned / 20) && steps < planned)
+      left = "  " + aboutTime((GetTickCount64() - t0) / 1000.0 * (planned - steps) / steps) + " left";
+    setTitle(titleBar(pct) + left + (gCurrent.empty() ? "" : "  " + gCurrent));
   }
   // The bar for the steps so far: full cells, then the last cell's fill level (6 levels), yellow past 100%.
   void draw() const {
@@ -754,7 +793,8 @@ inline const char* vendorColor(const Style& st, UINT vendor) {
 
 // --adapters: the index of every hardware GPU, one per line, each GPU once (a driver can list the same GPU
 // twice, e.g. the NVIDIA card first because of NvOptimusEnablement and again at its own place: same LUID)
-// and without software adapters (Microsoft Basic Render Driver). GPU-Blueprint.bat (every card) runs each index.
+// and without software adapters (Microsoft Basic Render Driver). GPU-Blueprint.bat (every card) runs each index and
+// shows each card's name and usual run time.
 inline void printUniqueAdapters() {
   IDXGIFactory1* factory = nullptr;
   if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) fail("CreateDXGIFactory1 failed");
@@ -781,7 +821,7 @@ inline void printUniqueAdapters() {
     std::string name = narrow(d.Description);
     for (const char* mark : {"(R)", "(TM)"})
       for (size_t at; (at = name.find(mark)) != std::string::npos;) name.erase(at, std::strlen(mark));
-    print("%u %s\n", k, name.c_str());
+    print("%u|%s|%d\n", k, name.c_str(), cardSeconds(name, d.DeviceId));  // index|name|usual seconds (0: unknown)
   }
   factory->Release();
 }

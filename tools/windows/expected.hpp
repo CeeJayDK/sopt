@@ -3,6 +3,10 @@
 // family's cards (one report each). Only hardware, no names of the people who ran them.
 #pragma once
 
+#include <cstring>
+#include <regex>
+#include <string>
+
 namespace expected {
 
 struct Family {
@@ -1217,5 +1221,68 @@ inline const Device kDevices[] = {
     {0x1681, "amd-rdna2"},
     {0x9A78, "intel-gen12"},
 };
+
+// Median run time in seconds of each program on the family's cards (StageBench: pixel and vertex runs).
+struct RunTime {
+  const char* model;
+  const char* tool;
+  int seconds;
+  int cards;
+};
+inline const RunTime kRunTimes[] = {
+    {"amd-gcn5", "OpBench", 70, 1},
+    {"amd-gcn5", "StageBench", 55, 1},
+    {"amd-gcn5", "TexBench", 158, 1},
+    {"amd-rdna2", "OpBench", 63, 3},
+    {"amd-rdna2", "StageBench", 56, 3},
+    {"amd-rdna2", "TexBench", 140, 3},
+    {"intel-gen12", "OpBench", 80, 1},
+    {"intel-gen12", "StageBench", 65, 1},
+    {"intel-gen12", "TexBench", 252, 1},
+    {"intel-gen7.5", "OpBench", 117, 1},
+    {"intel-gen7.5", "StageBench", 138, 1},
+    {"intel-gen7.5", "TexBench", 291, 1},
+    {"intel-gen9", "OpBench", 90, 2},
+    {"intel-gen9", "StageBench", 80, 2},
+    {"intel-gen9", "TexBench", 224, 2},
+    {"intel-xe2", "OpBench", 60, 1},
+    {"intel-xe2", "StageBench", 65, 1},
+    {"intel-xe2", "TexBench", 120, 1},
+    {"nvidia-ada", "OpBench", 59, 2},
+    {"nvidia-ada", "StageBench", 62, 1},
+    {"nvidia-ada", "TexBench", 251, 2},
+    {"nvidia-ampere", "OpBench", 61, 2},
+    {"nvidia-ampere", "StageBench", 97, 1},
+    {"nvidia-ampere", "TexBench", 155, 2},
+    {"nvidia-blackwell", "OpBench", 47, 1},
+    {"nvidia-blackwell", "StageBench", 39, 1},
+    {"nvidia-blackwell", "TexBench", 110, 1},
+    {"nvidia-maxwell1", "OpBench", 91, 1},
+    {"nvidia-maxwell1", "StageBench", 78, 1},
+    {"nvidia-maxwell1", "TexBench", 210, 1},
+    {"nvidia-maxwell2", "OpBench", 77, 1},
+    {"nvidia-maxwell2", "TexBench", 180, 1},
+    {"nvidia-turing", "OpBench", 63, 3},
+    {"nvidia-turing", "StageBench", 57, 3},
+    {"nvidia-turing", "TexBench", 150, 3},
+};
+
+// The family (cost model) of a card: by device ID, else by name (without (R) / (TM)); nullptr if none yet.
+inline const char* modelOf(std::string name, unsigned deviceId) {
+  for (const Device& d : kDevices)
+    if (d.id == deviceId) return d.model;
+  name = std::regex_replace(name, std::regex(R"(\((R|TM)\))"), "");
+  name = std::regex_replace(name, std::regex(R"(\s+)"), " ");
+  for (const Rule& r : kRules)
+    if (std::regex_search(name, std::regex(r.pattern))) return r.model;
+  return nullptr;
+}
+
+// The family's run time of a program, or nullptr.
+inline const RunTime* runTime(const char* model, const char* tool) {
+  for (const RunTime& t : kRunTimes)
+    if (model && std::strcmp(t.model, model) == 0 && std::strcmp(t.tool, tool) == 0) return &t;
+  return nullptr;
+}
 
 }  // namespace expected
