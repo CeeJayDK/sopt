@@ -13,10 +13,11 @@
   <p>Measures what your graphics card and its driver really do, so SweetOpt can pick the fastest shader code for each kind of card.</p>
 </header>
 
-<p>GPU Blueprint is part of <a href="https://github.com/CeeJayDK/sopt">SweetOpt</a>, the super sweet shader optimizer for ReShade effects (GPL-3.0) by CeeJay.dk. It has three small programs:</p>
+<p>GPU Blueprint is part of <a href="https://github.com/CeeJayDK/sopt">SweetOpt</a>, the super sweet shader optimizer for ReShade effects (GPL-3.0) by CeeJay.dk. It has four small programs:</p>
 
 <div class="cards">
   <div class="card"><h3><a href="Docs/OpBench.html">OpBench</a></h3><p>What math instructions cost: add, multiply, sqrt, sin, sign, integer and half precision math.</p></div>
+  <div class="card"><h3><a href="Docs/StageBench.html">StageBench</a></h3><p>The same math in pixel and vertex shaders, the kinds of shaders ReShade effects run.</p></div>
   <div class="card"><h3><a href="Docs/TexBench.html">TexBench</a></h3><p>What texture reads, render target writes, blending and pass states cost, for every texture format.</p></div>
   <div class="card"><h3><a href="Docs/ShaderInfo.html">ShaderInfo</a></h3><p>What the graphics driver reports about the shaders it compiles.</p></div>
 </div>
@@ -73,7 +74,7 @@
   <tr><td><code>--adapter N</code></td><td>measure card number N instead of the one with the most video memory</td></tr>
   <tr><td><code>--filter text</code></td><td>only tests whose name contains <em>text</em> (quick checks)</td></tr>
 </table>
-<p>Details in each program's page: <a href="Docs/OpBench.html">OpBench</a>, <a href="Docs/TexBench.html">TexBench</a>, <a href="Docs/ShaderInfo.html">ShaderInfo</a>.</p>
+<p>Details in each program's page: <a href="Docs/OpBench.html">OpBench</a>, <a href="Docs/StageBench.html">StageBench</a>, <a href="Docs/TexBench.html">TexBench</a>, <a href="Docs/ShaderInfo.html">ShaderInfo</a>.</p>
 
 <footer>GPU Blueprint, part of SweetOpt by CeeJay.dk. <a href="https://github.com/CeeJayDK/sopt">github.com/CeeJayDK/sopt</a></footer>
 </main>

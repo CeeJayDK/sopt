@@ -444,6 +444,10 @@ std::optional<SourceRewrite> hoistShader(const Effect& fx, const Function& ps, c
     const size_t closeInHead = pclose - text.starts[ps.loc.line - 1];
     size_t ins = closeInHead;
     while (ins > 0 && std::isspace(static_cast<unsigned char>(headText[ins - 1]))) --ins;
+    // Not behind a line comment at the end of the last parameter's line (fubax's TripleMonitor.fx:
+    // "out float3 display : SV_Target // output color"): then on the line of the closing parenthesis.
+    const size_t lineStart = ins ? headText.rfind('\n', ins - 1) : std::string::npos;
+    if (headText.find("//", lineStart == std::string::npos ? 0 : lineStart) < ins) ins = closeInHead;
     headText.insert(ins, psParams);
     for (size_t a = 0; a <= headText.size();) {
       size_t b = headText.find('\n', a);

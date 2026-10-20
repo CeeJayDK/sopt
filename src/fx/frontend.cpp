@@ -173,17 +173,35 @@ std::string glslMoveCallers(std::string text) {
 
 }  // namespace
 
+std::vector<fs::path> folderIncludePaths(const fs::path& file) {
+  std::vector<fs::path> dirs;
+  // The folders above the file (owner, 2026-10-19: no setup for ReShade.fxh): an effect in
+  // reshade-shaders\Shaders\SweetFX finds ReShade.fxh in Shaders. Up to a reshade-shaders folder or the drive root.
+  fs::path shaders;  // the reshade-shaders\Shaders folder above the file, if any
+  for (fs::path dir = fs::absolute(file).parent_path(); dir.has_relative_path() && dir.filename() != "reshade-shaders";) {
+    if (dir.filename() == "Shaders" && dir.parent_path().filename() == "reshade-shaders") shaders = dir;
+    dir = dir.parent_path();
+    dirs.push_back(dir);
+  }
+  // ReShade's default search path is reshade-shaders\Shaders\** and it adds every folder below it as an include path
+  // (runtime.cpp, sorted): BFBFX's AO.fx includes "random.fxh" from BFBFX\bfb_inc.
+  if (!shaders.empty()) {
+    std::error_code ec;
+    std::set<fs::path> sub;
+    for (auto it = fs::recursive_directory_iterator(shaders, fs::directory_options::skip_permission_denied, ec);
+         it != fs::recursive_directory_iterator(); it.increment(ec))
+      if (it->is_directory(ec)) sub.insert(it->path());
+    dirs.insert(dirs.end(), sub.begin(), sub.end());
+  }
+  return dirs;
+}
+
 std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
                                    std::string& errors) {
   reshadefx::preprocessor pp;
   pp.add_include_path(path.parent_path());
   for (const auto& p : opt.includePaths) pp.add_include_path(p);
-  // Then the folders above the file (owner, 2026-10-19: no setup for ReShade.fxh): an effect in
-  // reshade-shaders\Shaders\SweetFX finds ReShade.fxh in Shaders. Up to a reshade-shaders folder or the drive root.
-  for (fs::path dir = fs::absolute(path).parent_path(); dir.has_relative_path() && dir.filename() != "reshade-shaders";) {
-    dir = dir.parent_path();
-    pp.add_include_path(dir);
-  }
+  for (const auto& p : folderIncludePaths(path)) pp.add_include_path(p);
   // Given macros first: the preprocessor keeps a name's first definition, so they override the defaults below
   // (e.g. __VENDOR__ / __RENDERER__ to check per-vendor rewrites).
   for (const auto& [k, v] : opt.macros) pp.add_macro_definition(k, v);
@@ -712,6 +730,31 @@ bool directiveOf(const std::string& line, std::string& word, std::string& arg) {
 // in this parse (a window's statements are all there or all not): for every #if group
 // with a directive inside the span, the condition of the branch taken now. Empty when
 // the span has no directives. False if a group's taken branch cannot be told.
+// Whether lines first .. last - 1 open and close as many braces as they close and open (comments skipped): a
+// statement on line `last` is then in the same block as one ending on line first - 1.
+bool sameBlock(const std::string& file, uint32_t first, uint32_t last) {
+  const std::vector<std::string>* lines = sourceLines(file);
+  if (!lines) return false;
+  int depth = 0;
+  bool inComment = false;
+  for (uint32_t l = first; l < last && l <= lines->size(); ++l) {
+    const std::string& s = (*lines)[l - 1];
+    for (size_t i = 0; i < s.size(); ++i) {
+      if (inComment) {
+        if (s.compare(i, 2, "*/") == 0) { inComment = false; ++i; }
+      } else if (s.compare(i, 2, "//") == 0) {
+        break;
+      } else if (s.compare(i, 2, "/*") == 0) {
+        inComment = true; ++i;
+      } else if (s[i] == '{' || s[i] == '}') {
+        depth += s[i] == '{' ? 1 : -1;
+        if (depth < 0) return false;
+      }
+    }
+  }
+  return depth == 0;
+}
+
 bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32_t last,
                std::string& guard, std::string& why) {
   guard.clear();
@@ -2659,14 +2702,22 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
         std::sort(defs.begin(), defs.end(), [](const Statement* a, const Statement* b) { return a->seq < b->seq; });
         if (!leavesUnchanged(s, defs)) continue;
         Region win = reg;
-        // A chain from the variable's declaration: the variant replaces the declaration.
+        // A chain from the variable's declaration: the variant replaces the declaration, so the statement must be in
+        // the declaration's block (dh_uber_rt.fx: "float2 weight = 1.0; { ... weight *= ...; }" declared weight
+        // inside the inner block, undeclared after it).
+        bool otherBlock = false;
         for (const Statement* c : chainDefs)
           if (c->kind == Statement::Kind::Init) {
             Region shape;
             shapeOf(*c, shape, why);
             win.kind = Region::Kind::Init;
             win.lhs = shape.lhs;
+            otherBlock = otherBlock || !sameBlock(reg.file, shape.lastLine + 1, reg.line);
           }
+        if (otherBlock) {
+          SKIPADD("window: the declaration is in another block");
+          continue;
+        }
         std::string text;
         for (const Statement* d : defs) {
           Region shape;
