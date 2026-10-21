@@ -135,7 +135,11 @@ std::string variantStatement(const Region& r, const std::string& expr);
 struct WriteOptions {
   bool clean = false;
   bool allOn = false;
+  std::vector<std::filesystem::path> roots;  // the input folders (outputName); none: every file by its name
 };
+// Where a source file goes in the output folder: its path below the input folder it is in, so the output keeps the
+// folders and can be copied over the Shaders folder (owner, 2026-10-21); else (outside them) its name.
+std::filesystem::path outputName(const std::filesystem::path& file, const std::vector<std::filesystem::path>& roots);
 std::vector<std::filesystem::path> writeVariants(const std::vector<RegionResult>& results,
                                                  const std::filesystem::path& outDir,
                                                  std::string& errors,

@@ -179,6 +179,16 @@ void easyPicks(std::vector<RegionResult>& results, std::vector<SourceRewrite>& r
                  rewrites.end());
 }
 
+fs::path outputName(const fs::path& file, const std::vector<fs::path>& roots) {
+  std::error_code ec;
+  const fs::path f = fs::weakly_canonical(file, ec);
+  for (const fs::path& r : roots) {
+    const fs::path rel = f.lexically_relative(fs::weakly_canonical(r, ec));
+    if (!rel.empty() && *rel.begin() != "..") return rel;
+  }
+  return f.filename();
+}
+
 std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
                                     const fs::path& outDir, std::string& errors,
                                     const std::vector<SourceRewrite>& rewrites, const WriteOptions& wo) {
@@ -200,7 +210,7 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
       errors += "cannot read " + file + "\n";
       continue;
     }
-    const std::string name = pathFrom(file).filename().string();
+    const std::string name = outputName(pathFrom(file), wo.roots).generic_string();
     if (names.count(name)) {
       errors += "two sources named " + name + ": " + names[name] + " and " + file + " (skipped)\n";
       continue;
@@ -484,6 +494,7 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
     const std::string bom = "\xEF\xBB\xBF";
     if (const size_t pos = out.find(bom); pos != std::string::npos) out = bom + out.erase(pos, bom.size());
     const fs::path dst = outDir / name;
+    fs::create_directories(dst.parent_path(), ec);
     std::ofstream f(dst, std::ios::binary);
     f << out;
     if (!f) {

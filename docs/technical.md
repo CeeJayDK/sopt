@@ -58,9 +58,11 @@ region) and writes to the output directory:
   wins). With `--isa`/`--sass`, `SOPT_AUTO = 1` makes every switch not set on its own
   take the variant measured fastest on the GPU's vendor (`__VENDOR__`: AMD 0x1002,
   NVIDIA 0x10DE; other vendors and regions without a gain there keep the original;
-  less accurate variants are never picked). Point ReShade at the output directory:
-  effects find the changed headers next to them, the rest through the normal include
-  paths.
+  less accurate variants are never picked). The output directory keeps the files' paths
+  below each folder given on the command line (a given file: below its folder; files
+  outside them, by name), so it can be copied over the Shaders folder. Not as an extra
+  effect search path: ReShade does not skip effects with the same file name and would load
+  both copies.
 - `sopt-report.md`: each region's original (row 0) with its cost, inputs with their
   ranges and where they come from, the budget, and the variants with cost and measured
   instructions (with the change in %), class, error vs the original and vs exact math,

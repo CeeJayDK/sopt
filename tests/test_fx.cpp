@@ -1233,6 +1233,16 @@ TEST(fx_window_same_block) {
   CHECK(inner);
 }
 
+TEST(fx_output_keeps_folders) {
+  // sopt-out keeps the folders below the input folder, so it can be copied over the Shaders folder (2026-10-21);
+  // files outside every input folder (ReShade.fxh above a pack's folder) keep their name only.
+  const fs::path root = fs::path("C:/x/reshade-shaders/Shaders");
+  CHECK(fx::outputName(root / "BFBFX" / "bfb_inc" / "random.fxh", {root}).generic_string() == "BFBFX/bfb_inc/random.fxh");
+  CHECK(fx::outputName(root / "Vibrance.fx", {root / "BFBFX", root}).generic_string() == "Vibrance.fx");
+  CHECK(fx::outputName(root / "ReShade.fxh", {root / "BFBFX"}).generic_string() == "ReShade.fxh");
+  CHECK(fx::outputName(root / "BFBFX" / "AO.fx", {}).generic_string() == "AO.fx");
+}
+
 TEST(fx_hoist_rewrite) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_hoist.fx";
   fx::LoadOptions lo;

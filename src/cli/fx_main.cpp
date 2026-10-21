@@ -232,6 +232,7 @@ int main(int argc, char** argv) {
   fx::WriteOptions easyWrite;
   fx::EasyOptions easyOpt;
   fs::path outDir = "sopt-out";
+  std::vector<fs::path> roots;  // the folders given (or the given files' folders)
   bool list = false, skips = false;
   std::vector<std::string> regionFilter;
   size_t numVariants = 3;
@@ -337,7 +338,10 @@ int main(int argc, char** argv) {
     else if (a == "-h" || a == "--help") { usage(); return 0; }
     else if (a == "--version") { std::puts("sopt-fx (SweetOpt) " SOPT_VERSION); return 0; }
     else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
-    else collect(a, inputs);
+    else {
+      collect(a, inputs);
+      roots.push_back(fs::is_directory(a) ? fs::path(a) : fs::path(a).parent_path());  // outputs keep their folders below it
+    }
   }
   if (args.noAmdFolds) opt.search.model = withoutAmdFolds(opt.search.model);
   if (inputs.empty()) {
@@ -1479,7 +1483,9 @@ int main(int argc, char** argv) {
   }
   const auto& wResults = easy ? easyResults : results;
   const auto& wRewrites = easy ? easyRewrites : rewrites;
-  auto files = fx::writeVariants(wResults, outDir, errors, wRewrites, easy ? easyWrite : fx::WriteOptions{});
+  fx::WriteOptions wo = easy ? easyWrite : fx::WriteOptions{};
+  wo.roots = roots;
+  auto files = fx::writeVariants(wResults, outDir, errors, wRewrites, wo);
 
   // Effects that include a changed header are copied too, so that the output directory
   // is self-contained: an effect finds headers next to it before the include paths.
@@ -1492,9 +1498,10 @@ int main(int argc, char** argv) {
     bool uses = false;
     for (const auto& f : srcs) uses = uses || changed.count(f);
     if (!uses) continue;
-    const fs::path dst = outDir / p.filename();
+    const fs::path dst = outDir / fx::outputName(p, roots);
     std::error_code ec;
     if (!changed.count(fx::pathString(p)) && !fs::exists(dst, ec)) {
+      fs::create_directories(dst.parent_path(), ec);
       fs::copy_file(p, dst, fs::copy_options::overwrite_existing, ec);
       if (ec) errors += "cannot copy " + p.string() + "\n";
       else files.push_back(dst);
