@@ -2355,7 +2355,13 @@ int main(int argc, char** argv) {
     const Test* best = nullptr;  // compute layouts: the fastest, against the pixel shader
     for (const Test* t : tests)
       if (t->section == sec && vsPs(t) > -1e9 && (!best || passMs[t->name].value < passMs[best->name].value)) best = t;
-    if (best) print("  Best: %s, %+.0f%% against the pixel shader\n", best->name.c_str(), vsPs(best));
+    // The pixel shader when no compute layout beats it (owner, 2026-10-21: naming the fastest compute layout "best"
+    // was unfair to a faster pixel shader).
+    if (best && vsPs(best) < 0.0)
+      print("  Best: %s, %.0f%% faster than the pixel shader\n", best->name.c_str(), -vsPs(best));
+    else if (best)
+      print("  Best: the pixel shader (the fastest compute layout, %s, is %.0f%% slower)\n", best->name.c_str(),
+            vsPs(best));
   };
   auto printSection = [&](const std::string& sec) {
     const Test* first = nullptr;
