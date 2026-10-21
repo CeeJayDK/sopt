@@ -158,8 +158,10 @@ const CostModel& costNvidiaMaxwell2();
 const CostModel& costNvidiaMaxwell1();
 // nvidia-pascal: NVIDIA Pascal (GT 1030, GTX 1060) from sopt-opbench timings, quarter units.
 const CostModel& costNvidiaPascal();
-// nvidia-turing: NVIDIA Turing (GTX 1660) from sopt-opbench timings, quarter units, MUFU ~3x extra.
+// nvidia-turing: NVIDIA Turing GTX 16 (GTX 1660) from sopt-opbench timings, quarter units, MUFU ~3x extra.
 const CostModel& costNvidiaTuring();
+// nvidia-turing-rtx: NVIDIA Turing RTX 20 (TU10x): the same fp32 costs, fp16 faster in pixel shaders.
+const CostModel& costNvidiaTuringRtx();
 // nvidia-ampere / nvidia-blackwell: provisional, from sopt-opbench (RTX 3050; RTX 5080 / 5090).
 const CostModel& costNvidiaAmpere();
 // nvidia-ada: NVIDIA Ada Lovelace (RTX 40): Ampere's costs, bitfield extract in one instruction.

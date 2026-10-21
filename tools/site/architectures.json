@@ -8,8 +8,9 @@
       {"name": "Maxwell 2", "examples": "GeForce GTX 950 - 980 Ti, 965M - 980M, Quadro M5000M", "model": "nvidia-maxwell2"},
       {"name": "Pascal", "examples": "GeForce GT 1030, GTX 1050 - 1080", "model": "nvidia-pascal"},
       {"name": "Volta", "examples": "Titan V", "model": null},
-      {"name": "Turing", "examples": "GeForce GTX 1650 / 1660, RTX 20", "model": "nvidia-turing"},
-      {"name": "Ampere", "examples": "GeForce RTX 30", "model": "nvidia-ampere"},
+      {"name": "Turing (GTX 16)", "examples": "GeForce GTX 1650 / 1660", "model": "nvidia-turing"},
+      {"name": "Turing (RTX 20)", "examples": "GeForce RTX 2060 - 2080 Ti", "model": "nvidia-turing-rtx"},
+      {"name": "Ampere", "examples": "GeForce RTX 30, RTX 2050", "model": "nvidia-ampere"},
       {"name": "Ada Lovelace", "examples": "GeForce RTX 40", "model": "nvidia-ada"},
       {"name": "Blackwell", "examples": "GeForce RTX 50", "model": "nvidia-blackwell"}
     ]},

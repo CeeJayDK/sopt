@@ -124,12 +124,13 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 
 ## Facts worth keeping in mind
 - Cost models (all from OpBench, docs/opbench): nvidia-ampere (default since 2026-10-10: largest Steam group), rdna3 (RX 7900 GRE), amd-rdna2, amd-rdna4, amd-gcn5,
-  amd-terascale2, nvidia-maxwell1 (GM107/108) / maxwell2 (GM20x; "nvidia-maxwell" still accepted) / pascal / turing / ampere (RTX 30) / ada (RTX 40) / blackwell, intel-gen7.5 / gen9 / gen12 / xe2 (Arc B),
+  amd-terascale2, nvidia-maxwell1 (GM107/108) / maxwell2 (GM20x; "nvidia-maxwell" still accepted) / pascal / turing (GTX 16) / turing-rtx (RTX 20, same fp32 table; split 2026-10-21 for fp16 in
+  pixel shaders) / ampere (RTX 30, also the RTX 2050) / ada (RTX 40) / blackwell, intel-gen7.5 / gen9 / gen12 / xe2 (Arc B),
   plus rdna3-rga (old instruction counts), nvidia (ptxas), generic, search (enumeration order). New cards that differ
   get their own model, identical ones share. GCN 4 (RX 590) would be its own model (owner's go needed).
 - min16float: ReShade writes it as min16float only on D3D10-12 (D3D9 float, OpenGL mediump = ignored, Vulkan
   RelaxedPrecision = ignored by AMD's compiler). fp16 is faster only on AMD GCN 5 / RDNA 2 (packed) and Intel Gen9 / Gen12,
-  NVIDIA Turing for vec3 mad only; not on Xe2, Ampere+, RDNA 3 / 4 (HalfCosts in ops.cpp; per-family table in history,
+  NVIDIA Turing for vec3 mad only (in pixel / vertex shaders only on RTX 20); not on Xe2, Ampere+, RDNA 3 / 4 (HalfCosts in ops.cpp; per-family table in history,
   2026-10-12). One cost model per GPU family (owner, 2026-10-12); driver splits are listed in history.md.
 - ReShade FX has no wave intrinsics / SM6 features (owner: ReShade adds features once widely supported).
 - fxc -O3 folds (x + c) - c and assumes no NaN / inf on inputs; drivers turn x / const into a multiply and share

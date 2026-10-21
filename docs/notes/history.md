@@ -2087,6 +2087,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   in every test. mad16v3 -6.0 units in cs, ps and vs (TU10x: packed fp16 in every stage, against the GTX 1660's 0 in
   ps / vs: more for the Turing split). Score fp16 = fp32 in cs (10.4 TFLOPS), twice in ps / vs (19.9 / 19.7). Run
   times 91 s OpBench, 38 + 33 s StageBench, 146 s TexBench (drift 18%, 410 GB/s writes, 325 GTexels/s).
+  Turing split (owner, 2026-10-21): GTX 16 (TU116 / TU117, nvidia-turing: the table from the GTX 1660) and RTX 20
+  (TU10x, nvidia-turing-rtx: a copy of the same table). Family medians: cs 1 of 257 tests apart (omod3, one card
+  each); ps and vs 4 of ~225, all fp16: mad16 0 / -1.9, half1 0 / -1.9, max16 18 / 5.5, mix16 16 / 2.7 (GTX 1660
+  against RTX 2060 / 2070 / 2080). HalfCosts the same until they are per stage. The RTX 2050 (GA107) is Ampere now
+  (MODEL_RULES had it as Turing); Steam shares from the September card list: GTX 16 5.22, RTX 20 3.92, Ampere +0.42.
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.
