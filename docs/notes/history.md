@@ -2092,6 +2092,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   each); ps and vs 4 of ~225, all fp16: mad16 0 / -1.9, half1 0 / -1.9, max16 18 / 5.5, mix16 16 / 2.7 (GTX 1660
   against RTX 2060 / 2070 / 2080). HalfCosts the same until they are per stage. The RTX 2050 (GA107) is Ampere now
   (MODEL_RULES had it as Turing); Steam shares from the September card list: GTX 16 5.22, RTX 20 3.92, Ampere +0.42.
+  TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
+  read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
+  GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one
+  8-bit step, RGBA8 / RGBA16F / R32F alike); SampleLevel 0 / 1 next to Sample in the pixel shader (tput equal; dep:
+  Sample ~3 units slower on both); interpolators (pass tests on an 8-sin pixel shader: 1-2 values free, a float4 with
+  .xy read = float2; in bulk ~0.5 fma per component on the GTX 1660, ~2 on the UHD 630; nointerpolation far less).
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.
