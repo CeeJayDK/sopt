@@ -486,3 +486,10 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, NVIDIA GeForce RTX 2080 (driver 32.0.15.9636): `docs/stagebench/nvidia-rtx-2080-ps.csv` (StageBench 0.9.0)
 - upload 1: stagebench, NVIDIA GeForce RTX 2080 (driver 32.0.15.9636): `docs/stagebench/nvidia-rtx-2080-vs.csv` (StageBench 0.9.0)
 - upload 1: texbench, NVIDIA GeForce RTX 2080 (driver 32.0.15.9636): `docs/texbench/nvidia-rtx-2080.csv`, `docs/texbench/nvidia-rtx-2080-order.png`, `docs/texbench/nvidia-rtx-2080-order-zoom.png` (TexBench 0.9.0)
+
+## 2026-10-22 17:19 UTC
+- upload 1: opbench, Intel(R) UHD Graphics 620 (driver 31.0.101.2145): `docs/opbench/intel-uhd-620-4.csv` (OpBench 0.9.0)
+- upload 1: shaderinfo, Intel(R) UHD Graphics 620 (driver Intel Corporation Intel driver (101.2145)): `docs/shaderinfo/intel-uhd-620-3.txt`
+- upload 1: stagebench, Intel(R) UHD Graphics 620 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-620-ps-2.csv` (StageBench 0.9.0)
+- upload 1: stagebench, Intel(R) UHD Graphics 620 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-620-vs-2.csv` (StageBench 0.9.0)
+- upload 1: texbench, Intel(R) UHD Graphics 620 (driver 31.0.101.2145): `docs/texbench/intel-uhd-620-3.csv` (TexBench 0.9.0)
