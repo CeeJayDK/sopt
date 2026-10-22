@@ -2096,6 +2096,8 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   file's path below the input folder (outputName in variants.cpp; was flat: same-named files of two packs collided,
   sub-folder headers landed beside the effect). Use: back up Shaders, copy sopt-out over it. Not as a search path:
   ReShade's find_files keeps both files of one name (runtime.cpp), so every effect would load twice.
+  SOPT_ALL renamed SOPT_GROUP (owner, 2026-10-22; no compatibility: switch files are only for testing, developers
+  edit the constructs out).
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.

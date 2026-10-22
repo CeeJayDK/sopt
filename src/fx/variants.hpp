@@ -120,17 +120,17 @@ std::string variantStatement(const Region& r, const std::string& expr);
 // Writes a copy of every source file that has regions with variants into outDir (by
 // file name) with a switch per region:
 //   #ifndef SOPT_File_12
-//   #define SOPT_File_12 SOPT_ALL   // 0 = original, 1..n = variants
+//   #define SOPT_File_12 SOPT_GROUP   // 0 = original, 1..n = variants
 //   #endif
 //   #if SOPT_File_12 == 1 ... #else <original> #endif
-// SOPT_ALL (default 0) selects the first variant of every region at once. Returns the
+// SOPT_GROUP (default 0) selects the first variant of every region at once. Returns the
 // written paths.
 // Classical rewrites (fx/classic.hpp) are written too, each under its switch; a region on their
 // lines gives way.
 // Easy mode (owner, 2026-10-08: "a ready file" for people who do not want to choose):
 //   clean:  the picks written in directly, no SOPT_ switches (conditions that must stay, such as
 //           __RENDERER__ or performance mode gates of classical rewrites, stay as #if);
-//   allOn:  the usual variant file, every switch defaulting to its pick (SOPT_ALL default 1, no
+//   allOn:  the usual variant file, every switch defaulting to its pick (SOPT_GROUP default 1, no
 //           SOPT_AUTO block); meant for results reduced by easyPicks (one variant per region).
 struct WriteOptions {
   bool clean = false;

@@ -47,12 +47,12 @@ Press **M** for **expert mode** if you want to choose between all the alternativ
 (or keep easy mode with a switch for each change). The files then keep the original code next to
 each change, and ReShade lists these switches under the effect:
 
-- **`SOPT_ALL`** chooses for every change at once: **0** = the original code, **1** = the first
+- **`SOPT_GROUP`** chooses for every change at once: **0** = the original code, **1** = the first
   alternative everywhere, **2** = the second, and so on. Expert mode starts at 0.
 - **`SOPT_<file>_<line>`** chooses for one change only.
 
-`SOPT_ALL` is there for testing: step it through 0, 1, 2 ... and compare the picture and the
-frame rate. If one number causes a problem, set `SOPT_ALL` back to 0 and turn the single
+`SOPT_GROUP` is there for testing: step it through 0, 1, 2 ... and compare the picture and the
+frame rate. If one number causes a problem, set `SOPT_GROUP` back to 0 and turn the single
 switches on one by one to find the change behind it. Please tell us when that happens.
 
 ## Value ranges: more shortcuts

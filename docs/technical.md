@@ -43,7 +43,7 @@ region) and writes to the output directory:
 
   ```hlsl
   #ifndef SOPT_Vignette_73
-  #define SOPT_Vignette_73 SOPT_ALL // 0 = original, 1..3 = variants
+  #define SOPT_Vignette_73 SOPT_GROUP // 0 = original, 1..3 = variants
   #endif
   #if SOPT_Vignette_73 == 1
   		float tc = mad(tex.y, 1.0 - (tex.x + tex.x), tex.x); // sopt: within budget, cost 21 -> 14, amd 3 -> 2, nv 4 -> 3
@@ -53,7 +53,7 @@ region) and writes to the output directory:
   #endif
   ```
 
-  `SOPT_ALL = k` (preprocessor definition in ReShade) selects variant k of every
+  `SOPT_GROUP = k` (preprocessor definition in ReShade) selects variant k of every
   region at once (the last variant where a region has fewer; a switch set on its own
   wins). With `--isa`/`--sass`, `SOPT_AUTO = 1` makes every switch not set on its own
   take the variant measured fastest on the GPU's vendor (`__VENDOR__`: AMD 0x1002,
@@ -69,7 +69,7 @@ region) and writes to the output directory:
   and which variant SOPT_AUTO picks per vendor; regions without gains; skipped
   statements by reason.
 
-Every variant effect is re-parsed with `SOPT_ALL = 0..n`.
+Every variant effect is re-parsed with `SOPT_GROUP = 0..n`.
 
 **Regions.** A region is one statement (`float3 x = ...;`, `x.rgb = ...;`, `x *= ...;`,
 `return ...;`) of pure arithmetic, alone on its lines, without macros (texture fetch

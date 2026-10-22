@@ -1510,7 +1510,7 @@ int main(int argc, char** argv) {
   }
 
   console::section(con, "Writing");
-  // Every variant must still parse: SOPT_ALL = k selects variant k where it exists.
+  // Every variant must still parse: SOPT_GROUP = k selects variant k where it exists.
   size_t checks = 0, checkFailures = 0;
   for (const auto& [e, original] : effectsOut) {
     for (size_t k = 0; k <= 2 * numVariants; ++k) {
@@ -1520,12 +1520,12 @@ int main(int argc, char** argv) {
       lo.includePaths.insert(lo.includePaths.begin(), original.parent_path());
       const auto around = fx::folderIncludePaths(original);  // the original's ReShade folders (BFBFX's bfb_inc)
       lo.includePaths.insert(lo.includePaths.begin() + 1, around.begin(), around.end());
-      lo.macros.emplace_back("SOPT_ALL", std::to_string(k));
+      lo.macros.emplace_back("SOPT_GROUP", std::to_string(k));
       std::string err;
       ++checks;
       if (!fx::loadEffect(e, lo, err)) {
         ++checkFailures;
-        errors += e.string() + " (SOPT_ALL=" + std::to_string(k) + ") does not parse:\n" + err;
+        errors += e.string() + " (SOPT_GROUP=" + std::to_string(k) + ") does not parse:\n" + err;
       }
     }
   }
