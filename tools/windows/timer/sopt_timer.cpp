@@ -4,7 +4,7 @@
 // technique the median, 10th/90th percentile over the last frames and a 60-frame mean
 // (what ReShade's own statistics show) in the add-on's settings.
 // Bench: walks the presets (default: sopt-*.ini next to the current preset, the test
-// bundle's one preset per effect and SOPT_ALL step). For every pair of enabled techniques
+// bundle's one preset per effect and SOPT_GROUP step). For every pair of enabled techniques
 // X_orig / X_sopt it renders both itself on the same input (the frame before any effect),
 // interleaved A B B A / B A A B, one timestamp pair per run. Per frame the difference of
 // the means (sopt - orig) cancels clock drift; the medians go to sopt-timer.csv in

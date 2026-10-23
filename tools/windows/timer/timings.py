@@ -3,7 +3,7 @@
 
     python3 tools/timer/timings.py dx11-amd.csv vulkan-amd.csv dx11-nv.csv > timings.md
 
-One row per preset (effect and SOPT_ALL step), one column per CSV: orig -> sopt in
+One row per preset (effect and SOPT_GROUP step), one column per CSV: orig -> sopt in
 microseconds, the median per-frame difference in percent, and a verdict from the
 difference's 10th/90th percentiles: "faster" when both are below 0, "slower" when both
 are above, "same" otherwise (the difference is inside the frame-to-frame noise).

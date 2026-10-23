@@ -10,7 +10,7 @@ namespace sopt::fx {
 
 // Classical source transforms (owner, 2026-10-08: "the regular optimizer tricks before we start
 // superoptimizing"). Each one rewrites several source lines at once; the variant files switch it
-// with SOPT_<file>_T<line> (0 = original, 1 = rewritten; default SOPT_ALL like the variants).
+// with SOPT_<file>_T<line> (0 = original, 1 = rewritten; default SOPT_GROUP like the variants).
 struct LineEdit {
   uint32_t first = 0, last = 0;    // 1-based source lines replaced (inclusive)
   std::vector<std::string> lines;  // their replacement (empty: removed)
