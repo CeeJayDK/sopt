@@ -20,7 +20,7 @@
 <p>Windows, the easy way: double-click <code>SweetOpt.bat</code>. A menu opens:</p>
 <table>
   <tr><th>Key</th><th>What it does</th></tr>
-  <tr><td><kbd>1</kbd></td><td>Choose your <code>reshade-shaders\Shaders</code> folder (the one with <code>ReShade.fxh</code>).</td></tr>
+  <tr><td><kbd>1</kbd></td><td>Choose your <code>reshade-shaders\Shaders</code> folder, to optimize every effect in it. Not needed when you pick a folder or an effect with <kbd>2</kbd>: SweetOpt finds <code>ReShade.fxh</code> by itself.</td></tr>
   <tr><td><kbd>2</kbd></td><td>Choose what to optimize: everything, one folder (such as SweetFX), one effect, or a GLSL / HLSL shader file that is not a ReShade effect (then no Shaders folder is needed).</td></tr>
   <tr><td><kbd>3</kbd></td><td>The time per statement: 5, 20 or 60 seconds (more time can find more).</td></tr>
   <tr><td><kbd>4</kbd></td><td>Your graphics card family (what counts as faster). Variants are never slower on it, but every variant is also costed for the other families, and changes that help them are kept too. It then asks whether to search with the other families' costs as well (finds more of those; about 4x the time).</td></tr>
@@ -45,7 +45,7 @@ Linux:    bin/sopt-fx -I ~/reshade-shaders/Shaders -o out ~/reshade-shaders/Shad
 <table>
   <tr><th>File</th><th>What</th></tr>
   <tr><td><code>sopt-report.md</code></td><td>every statement with cheaper variants: the original, each variant, its cost, its accuracy class and its error (any Markdown viewer or a text editor)</td></tr>
-  <tr><td><code>*.fx</code> / <code>*.fxh</code></td><td>copies of the changed files, each changed statement written as <code>#if SOPT_&lt;file&gt;_&lt;line&gt; == 1</code> &hellip; variant 1 &hellip; <code>#else</code> &hellip; the original &hellip; <code>#endif</code></td></tr>
+  <tr><td><code>*.fx</code> / <code>*.fxh</code></td><td>the faster copies of the changed files, in the same folders as the originals (for example <code>SweetFX\Vibrance.fx</code>). In easy mode the changes are written in; with switches, each changed statement is written as <code>#if SOPT_&lt;file&gt;_&lt;line&gt; == 1</code> &hellip; variant 1 &hellip; <code>#else</code> &hellip; the original &hellip; <code>#endif</code></td></tr>
   <tr><td><code>sopt-facts.txt</code></td><td>inputs whose value range SweetOpt could not work out (see 4)</td></tr>
   <tr><td><code>sopt-cache.txt</code></td><td>this run's results for the next run in the same folder: unchanged statements are not searched again, changed ones (new value ranges, another card) start from the earlier finds; delete it or use <code>--no-cache</code> to start from scratch</td></tr>
   <tr><td><code>sopt-found.txt</code></td><td>every rewrite found, as rules (material for SweetOpt's rewrite library)</td></tr>
@@ -53,18 +53,29 @@ Linux:    bin/sopt-fx -I ~/reshade-shaders/Shaders -o out ~/reshade-shaders/Shad
 <p>Accuracy classes: <strong>bit-exact</strong>, <strong>8-bit identical</strong>, <strong>within budget</strong>, <strong>too exact</strong> (closer to exact math than the original: differs from it only where the original rounds), <strong>less accurate</strong> (listed with its error so you can judge it).</p>
 <p>Scheduling: for statements that read uniforms or textures, the report also shows the cost with ReShade's <em>performance mode</em> on (uniforms become constants, so math on them alone is free) and the <em>tail</em>, the work left once the last texture sample arrives. SweetOpt groups math on constants and uniforms together and lets the last sample enter last; variants that are not faster but faster in performance mode, or that have a shorter tail, are listed as <strong>faster in performance mode</strong> / <strong>better scheduling (not faster)</strong>. <code>--perf-mode-first</code> makes the performance mode cost the main one, <code>--no-schedule</code> turns this off.</p>
 
-<h2>3. Try the variants in ReShade</h2>
-<p>Use a copy of your game's <code>reshade-shaders</code> folder (or put the results folder first in ReShade's effect search path), so the originals stay untouched. Then set preprocessor definitions in ReShade's UI:</p>
+<h2>3. Use the results in ReShade</h2>
+<ol>
+  <li>Make a backup of your game's <code>reshade-shaders\Shaders</code> folder (copy it somewhere else).</li>
+  <li>Copy everything in <code>sopt-out</code> into your <code>Shaders</code> folder and choose <em>Replace</em>. The folders inside <code>sopt-out</code> match the ones in <code>Shaders</code>, so every file lands on the original it replaces. (The <code>sopt-&hellip;</code> text files are SweetOpt's report; ReShade ignores them, you can leave them out.)</li>
+  <li>Start the game. In <strong>easy mode</strong> (the menu's default) that is all: the faster code is already in the files.</li>
+</ol>
+<p>Do not add <code>sopt-out</code> to ReShade's effect search paths instead: ReShade would then load every effect twice, the original and the copy. To undo, put the backup back.</p>
+
+<h3>The SOPT_ switches</h3>
+<p>Files made in <strong>expert mode</strong>, or in easy mode with switches, keep the original code next to each change. Preprocessor definitions choose which runs; ReShade lists them under the effect (or set them globally in its settings):</p>
 <table>
-  <tr><td><code>SOPT_ALL = 1</code></td><td>variant 1 of every statement (2, 3: the next ones)</td></tr>
-  <tr><td><code>SOPT_&lt;file&gt;_&lt;line&gt;</code></td><td>one statement on its own (0 = the original)</td></tr>
+  <tr><td><code>SOPT_GROUP</code></td><td>the choice for every changed statement at once: 0 = the original code everywhere, 1 = variant 1 everywhere, 2 = variant 2 &hellip; (the last variant where a statement has fewer). Expert mode starts at 0, easy mode with switches at 1 (our picks).</td></tr>
+  <tr><td><code>SOPT_&lt;file&gt;_&lt;line&gt;</code></td><td>one changed statement on its own (0 = the original), overriding <code>SOPT_GROUP</code> for it.</td></tr>
   <tr><td><code>SOPT_TOO_EXACT = 0</code></td><td>turns off the "too exact" variants (in case an effect relies on rounding)</td></tr>
   <tr><td><code>SOPT_AUTO = 1</code></td><td>per GPU vendor, the variant measured fastest (only in files made with <code>--isa</code> / <code>--sass</code>, which need extra tools)</td></tr>
 </table>
-<p>Compare the image with <code>SOPT_ALL = 0</code> and <code>1</code> (SweetFX's Compare.fx helps), and look at the performance statistics.</p>
+<p><code>SOPT_GROUP</code> is there to test quickly: step it through 0, 1, 2 &hellip; and compare the image (SweetFX's Compare.fx helps) and the performance statistics. If one number changes the picture or breaks the effect, set <code>SOPT_GROUP</code> back to 0 and turn the <code>SOPT_&lt;file&gt;_&lt;line&gt;</code> switches on one at a time to find the statement and variant behind it; <code>sopt-report.md</code> shows what each one does. Please tell us about it, so SweetOpt can learn from it.</p>
 
 <h2>4. Better results with value ranges (optional)</h2>
-<p>SweetOpt only rewrites a statement when it knows the range of every input (from <code>ui_min</code> / <code>ui_max</code>, texture formats, texture coordinates, &hellip;). Inputs it could not work out are listed in <code>sopt-facts.txt</code> with a suggested range. In the menu, press <kbd>8</kbd>, remove the <code>#</code> in front of the lines you know, correct the ranges, save, and start again. From the command line: <code>--facts sopt-facts.txt</code> (or <code>--ask</code> to answer interactively).</p>
+<p>A shortcut is often only correct for some values: <code>x * x</code> instead of <code>pow(x, 2.0)</code> is fine for any <code>x</code>, but others hold only when <code>x</code> stays between 0 and 1. SweetOpt works out what values an input can have where it can (a setting's <code>ui_min</code> / <code>ui_max</code>, a texture's format, a texture coordinate, a color, &hellip;), and only uses such shortcuts when it knows. The results then say that some shortcuts "need value ranges".</p>
+<p>You can tell it the rest. Press <kbd>8</kbd> in the menu: <code>sopt-facts.txt</code> opens with one line per input it could not work out, for example</p>
+<pre># Vibrance.fx VibrancePass luma = [-1000, 1000]   # no guess (the default); 1 region</pre>
+<p>If you know the value's range, remove the <code>#</code> at the start and put the real range in, for example <code>Vibrance.fx VibrancePass luma = [0, 1]</code>. Save, and press <kbd>5</kbd> to run again: SweetOpt uses those ranges and can then use more shortcuts. Only give ranges you are sure of: a wrong range can give a wrong picture. From the command line: <code>--facts sopt-facts.txt</code> (or <code>--ask</code> to answer interactively).</p>
 
 <h2>5. Single expressions: sopt</h2>
 <p><code>sopt</code> optimizes one expression described in a small text file, e.g. <code>screen.sopt</code>:</p>

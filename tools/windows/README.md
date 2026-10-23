@@ -80,7 +80,7 @@ technique ReShade renders. The add-on's settings in ReShade's Add-ons tab show, 
 
 **Bench.** Click "Run bench" in the add-on settings, or start `sopt-host --bench`. It then:
 1. Loads every preset whose name starts with `sopt-` from the current preset's folder, one
-   after the other. These are the test bundle's presets, one per effect and `SOPT_ALL` step.
+   after the other. These are the test bundle's presets, one per effect and `SOPT_GROUP` step.
 2. Warms up for 120 frames once both techniques have rendered. Effects compile after a preset
    switch.
 3. For every enabled pair `X_orig` / `X_sopt`, renders both itself on the same input: the frame

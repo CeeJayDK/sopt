@@ -176,14 +176,14 @@ TEST(fx_search_and_variants) {
   std::stringstream ss;
   ss << f.rdbuf();
   const std::string text = ss.str();
-  CHECK(text.find("#ifndef SOPT_sopt_test_4\n#define SOPT_sopt_test_4 SOPT_ALL") != std::string::npos);
+  CHECK(text.find("#ifndef SOPT_sopt_test_4\n#define SOPT_sopt_test_4 SOPT_GROUP") != std::string::npos);
   CHECK(text.find("#if SOPT_sopt_test_4 >= 1\n\tfloat3 r = c; // sopt: bit-exact") != std::string::npos);
   CHECK(text.find("#else\n\tfloat3 r = c * 0.5 + c * 0.5;\n#endif") != std::string::npos);
   // The effect, copied next to the changed header, parses with either switch value.
   fs::copy_file(kEffect, out / "sopt_test.fx", fs::copy_options::overwrite_existing, ec);
   for (const char* all : {"0", "1", "3"}) {
     fx::LoadOptions lo;
-    lo.macros.emplace_back("SOPT_ALL", all);
+    lo.macros.emplace_back("SOPT_GROUP", all);
     std::string err;
     auto e = fx::loadEffect(out / "sopt_test.fx", lo, err);
     CHECK(e != nullptr);
@@ -457,7 +457,7 @@ TEST(fx_chain_windows) {
   CHECK(text.find("\tfloat e = uv.y * uv.y;") != std::string::npos);
   for (const char* rev : {"0", "1"}) {
     fx::LoadOptions o;
-    o.macros = {{"SOPT_ALL", "1"}, {"TEST_REV", rev}};
+    o.macros = {{"SOPT_GROUP", "1"}, {"TEST_REV", rev}};
     std::string err2;
     CHECK(fx::loadEffect(out / "sopt_chain.fx", o, err2) != nullptr);
   }
@@ -513,7 +513,7 @@ TEST(fx_vendor_auto) {
   const std::string text = ss.str();
   CHECK(text.find("#if SOPT_AUTO && __VENDOR__ == 0x1002\n#define SOPT_sopt_chain_27 2\n"
                   "#elif SOPT_AUTO && __VENDOR__ == 0x10DE\n#define SOPT_sopt_chain_27 1\n#else\n"
-                  "#define SOPT_sopt_chain_27 SOPT_ALL") != std::string::npos);
+                  "#define SOPT_sopt_chain_27 SOPT_GROUP") != std::string::npos);
   for (const char* vendor : {"0x1002", "0x10DE", "0x8086"})
     for (const char* autoOn : {"0", "1"}) {
       fx::LoadOptions o;
@@ -653,7 +653,7 @@ TEST(fx_back_buffer_formats) {
   CHECK(text.find("#if !((SOPT_sopt_chain_30_33 >= 1 && (BUFFER_COLOR_SPACE <= 1)))\n") != std::string::npos);
   for (const char* space : {"1", "2"}) {
     fx::LoadOptions o;
-    o.macros = {{"SOPT_ALL", "1"}, {"BUFFER_COLOR_SPACE", space}};
+    o.macros = {{"SOPT_GROUP", "1"}, {"BUFFER_COLOR_SPACE", space}};
     std::string err2;
     CHECK(fx::loadEffect(out / "sopt_chain.fx", o, err2) != nullptr);
   }
@@ -745,7 +745,7 @@ TEST(fx_hlsl) {
   CHECK(ss.str().find("__VENDOR__") == std::string::npos);
   for (const char* all : {"0", "1"}) {
     fx::LoadOptions lv = lo;
-    lv.macros.emplace_back("SOPT_ALL", all);
+    lv.macros.emplace_back("SOPT_GROUP", all);
     CHECK(fx::loadEffect(out / "sopt_hlsl.hlsl", lv, err) != nullptr);
   }
   fs::remove_all(out, ec);
@@ -766,7 +766,7 @@ int inputNamed(const fx::Region& r, const std::string& name) {
 }
 
 // Writes one variant (the region's own value) for each region and checks that the
-// variant file loads with SOPT_ALL 0 and 1.
+// variant file loads with SOPT_GROUP 0 and 1.
 void checkVariantFile(const std::vector<const fx::Region*>& regions, const fs::path& file, const fx::LoadOptions& lo,
                       const std::string& expect) {
   std::vector<fx::RegionResult> results;
@@ -793,7 +793,7 @@ void checkVariantFile(const std::vector<const fx::Region*>& regions, const fs::p
   CHECK(ss.str().find(expect) != std::string::npos);
   for (const char* all : {"0", "1"}) {
     fx::LoadOptions lv = lo;
-    lv.macros.emplace_back("SOPT_ALL", all);
+    lv.macros.emplace_back("SOPT_GROUP", all);
     std::string err;
     CHECK(fx::loadEffect(out / file.filename(), lv, err) != nullptr);
   }
@@ -1010,7 +1010,7 @@ TEST(fx_precise_and_too_exact) {
   CHECK(text.find("// sopt: too exact") != std::string::npos);
   for (const char* te : {"0", "1"}) {
     fx::LoadOptions lv;
-    lv.macros.emplace_back("SOPT_ALL", "1");
+    lv.macros.emplace_back("SOPT_GROUP", "1");
     lv.macros.emplace_back("SOPT_TOO_EXACT", te);
     CHECK(fx::loadEffect(out / "sopt_precise.fx", lv, err) != nullptr);
   }
@@ -1233,6 +1233,16 @@ TEST(fx_window_same_block) {
   CHECK(inner);
 }
 
+TEST(fx_output_keeps_folders) {
+  // sopt-out keeps the folders below the input folder, so it can be copied over the Shaders folder (2026-10-21);
+  // files outside every input folder (ReShade.fxh above a pack's folder) keep their name only.
+  const fs::path root = fs::path("C:/x/reshade-shaders/Shaders");
+  CHECK(fx::outputName(root / "BFBFX" / "bfb_inc" / "random.fxh", {root}).generic_string() == "BFBFX/bfb_inc/random.fxh");
+  CHECK(fx::outputName(root / "Vibrance.fx", {root / "BFBFX", root}).generic_string() == "Vibrance.fx");
+  CHECK(fx::outputName(root / "ReShade.fxh", {root / "BFBFX"}).generic_string() == "ReShade.fxh");
+  CHECK(fx::outputName(root / "BFBFX" / "AO.fx", {}).generic_string() == "AO.fx");
+}
+
 TEST(fx_hoist_rewrite) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_hoist.fx";
   fx::LoadOptions lo;
@@ -1306,7 +1316,7 @@ TEST(fx_blend_rewrite) {
   CHECK(files.size() == 1 && errors.empty());
   for (const char* on : {"0", "1"}) {
     fx::LoadOptions l2;
-    l2.macros.emplace_back("SOPT_ALL", on);
+    l2.macros.emplace_back("SOPT_GROUP", on);
     std::string err2;
     auto e2 = fx::loadEffect(out / "sopt_blend.fx", l2, err2);
     CHECK(e2 != nullptr);
@@ -1385,7 +1395,7 @@ TEST(fx_glsl) {
   CHECK(ss.str().find("    float v = 1.0;") != std::string::npos);
   for (const char* all : {"0", "1"}) {
     fx::LoadOptions lv = lo;
-    lv.macros.emplace_back("SOPT_ALL", all);
+    lv.macros.emplace_back("SOPT_GROUP", all);
     CHECK(fx::loadEffect(out / file.filename(), lv, err) != nullptr);
   }
   fs::remove_all(out, ec);
@@ -1472,7 +1482,7 @@ TEST(fx_easy_mode) {
     CHECK(s.rfind("#version 410 core\n// Optimized by SweetOpt", 0) == 0);
     CHECK(s.find("    float v = 1.0;") != std::string::npos);
     CHECK((s.find("SOPT_") == std::string::npos) == clean);
-    CHECK(clean || s.find("#define SOPT_ALL 1") != std::string::npos);
+    CHECK(clean || s.find("#define SOPT_GROUP 1") != std::string::npos);
     CHECK(fx::loadEffect(out / file.filename(), lo, err) != nullptr);
   }
   fs::remove_all(out, ec);
