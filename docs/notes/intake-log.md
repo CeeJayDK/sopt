@@ -493,3 +493,29 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, Intel(R) UHD Graphics 620 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-620-ps-2.csv` (StageBench 0.9.0)
 - upload 1: stagebench, Intel(R) UHD Graphics 620 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-620-vs-2.csv` (StageBench 0.9.0)
 - upload 1: texbench, Intel(R) UHD Graphics 620 (driver 31.0.101.2145): `docs/texbench/intel-uhd-620-3.csv` (TexBench 0.9.0)
+
+## 2026-10-23 21:30 UTC
+- upload 1: opbench, AMD Radeon(TM) Graphics (driver 31.0.21925.1001): `docs/opbench/amd-radeon-0x1636-3.csv` (OpBench 0.9.2)
+- upload 1: shaderinfo, AMD Radeon(TM) Graphics (driver AMD proprietary driver 26.5.2 (AMD proprietary shader compiler) (2.0.279)): `docs/shaderinfo/amd-radeon-0x1636-3.txt`
+- upload 1: stagebench, AMD Radeon(TM) Graphics (driver 31.0.21925.1001): `docs/stagebench/amd-radeon-0x1636-ps-2.csv` (StageBench 0.9.2)
+- upload 1: stagebench, AMD Radeon(TM) Graphics (driver 31.0.21925.1001): `docs/stagebench/amd-radeon-0x1636-vs-2.csv` (StageBench 0.9.2)
+- upload 1: texbench, AMD Radeon(TM) Graphics (driver 31.0.21925.1001): `docs/texbench/amd-radeon-0x1636-3.csv`, `docs/texbench/amd-radeon-0x1636-3-order.png`, `docs/texbench/amd-radeon-0x1636-3-order-zoom.png` (TexBench 0.9.2)
+- upload 2: opbench, Intel(R) HD Graphics 3000 (driver 8.17.10.1404): `docs/opbench/intel-hd-graphics-3000.csv` (OpBench 0.9.2)
+- upload 2: stagebench, Intel(R) HD Graphics 3000 (driver 8.17.10.1404): `docs/stagebench/intel-hd-graphics-3000-ps.csv` (StageBench 0.9.2)
+- upload 2: stagebench, Intel(R) HD Graphics 3000 (driver 8.17.10.1404): `docs/stagebench/intel-hd-graphics-3000-vs.csv` (StageBench 0.9.2)
+- upload 2: texbench, Intel(R) HD Graphics 3000 (driver 8.17.10.1404): `docs/texbench/intel-hd-graphics-3000.csv`, `docs/texbench/intel-hd-graphics-3000-order.png`, `docs/texbench/intel-hd-graphics-3000-order-zoom.png` (TexBench 0.9.2)
+- upload 3: opbench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/opbench/nvidia-gt-1030-2.csv` (OpBench 0.9.2)
+- upload 3: shaderinfo, NVIDIA GeForce GT 1030 (driver NVIDIA 582.78 (582.78)): `docs/shaderinfo/nvidia-gt-1030.txt`
+- upload 3: stagebench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/stagebench/nvidia-gt-1030-ps.csv` (StageBench 0.9.2)
+- upload 3: stagebench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/stagebench/nvidia-gt-1030-vs.csv` (StageBench 0.9.2)
+- upload 3: texbench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/texbench/nvidia-gt-1030.csv`, `docs/texbench/nvidia-gt-1030-order.png`, `docs/texbench/nvidia-gt-1030-order-zoom.png` (TexBench 0.9.2)
+- upload 4: opbench, AMD Radeon(TM) Graphics (driver 31.0.21925.1001): `docs/opbench/amd-radeon-0x1638.csv` (OpBench 0.9.0)
+- upload 4: opbench, NVIDIA GeForce RTX 2050 (driver 32.0.16.2101): `docs/opbench/nvidia-rtx-2050.csv` (OpBench 0.9.0)
+- upload 4: shaderinfo, AMD Radeon(TM) Graphics (driver AMD proprietary driver 26.5.2 (AMD proprietary shader compiler) (2.0.279)): `docs/shaderinfo/amd-radeon-0x1638.txt`
+- upload 4: shaderinfo, NVIDIA GeForce RTX 2050 (driver NVIDIA 621.01 (621.1)): `docs/shaderinfo/nvidia-rtx-2050.txt`
+- upload 4: stagebench, AMD Radeon(TM) Graphics (driver 31.0.21925.1001): `docs/stagebench/amd-radeon-0x1638-ps.csv` (StageBench 0.9.0)
+- upload 4: stagebench, NVIDIA GeForce RTX 2050 (driver 32.0.16.2101): `docs/stagebench/nvidia-rtx-2050-ps.csv` (StageBench 0.9.0)
+- upload 4: stagebench, AMD Radeon(TM) Graphics (driver 31.0.21925.1001): `docs/stagebench/amd-radeon-0x1638-vs.csv` (StageBench 0.9.0)
+- upload 4: stagebench, NVIDIA GeForce RTX 2050 (driver 32.0.16.2101): `docs/stagebench/nvidia-rtx-2050-vs.csv` (StageBench 0.9.0)
+- upload 4: texbench, AMD Radeon(TM) Graphics (driver 31.0.21925.1001): `docs/texbench/amd-radeon-0x1638.csv`, `docs/texbench/amd-radeon-0x1638-order.png`, `docs/texbench/amd-radeon-0x1638-order-zoom.png` (TexBench 0.9.0)
+- upload 4: texbench, NVIDIA GeForce RTX 2050 (driver 32.0.16.2101): `docs/texbench/nvidia-rtx-2050.csv`, `docs/texbench/nvidia-rtx-2050-order.png`, `docs/texbench/nvidia-rtx-2050-order-zoom.png` (TexBench 0.9.0)
