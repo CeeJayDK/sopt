@@ -21,20 +21,50 @@ copies of your effects that use them. Your original files are never changed.
 1. Download `SweetOpt-<version>-windows-x64.zip` from the
    [Releases](https://github.com/CeeJayDK/sopt/releases) page and unzip it anywhere.
 2. Double-click **SweetOpt.bat**. A simple menu opens.
-3. Press **1** and pick your ReShade `Shaders` folder (the one inside `reshade-shaders`).
+3. Press **1** and pick your ReShade `Shaders` folder (the one inside `reshade-shaders`) to
+   optimize every effect, or press **2** to pick one folder or one effect.
 4. Press **5** to start. SweetOpt shows how far it has come and how long is left.
 5. When it is done, press **7** to open the results. The `sopt-out` folder holds the faster
-   copies of your effects.
-6. In ReShade's settings, put the `sopt-out` folder **first** in the effect search paths, so
-   ReShade uses the faster copies. (Or copy your game's `reshade-shaders` folder and try the
-   results there.)
+   copies of your effects, in the same folders as the originals.
 
-The menu starts in **easy mode**: you get ready-to-use files with only the changes we recommend.
-Press **M** for **expert mode** if you want to choose between all the alternatives yourself.
 Press **9** in the menu to open the full guide.
 
-**Tip:** if the results say some shortcuts "need value ranges", press **8**. SweetOpt then asks
-what values a setting can have (for example 0 to 1), which lets it use more shortcuts safely.
+## Using the results
+
+1. Make a backup of your game's `reshade-shaders\Shaders` folder.
+2. Copy everything in `sopt-out` into your `Shaders` folder and choose **Replace**. Each file
+   lands on the original it replaces. (The `sopt-...` text files are SweetOpt's report; you can
+   leave them out.)
+3. Start the game. That's it: the menu starts in **easy mode**, so the faster code is already in
+   the files and there is nothing to set.
+
+Don't add `sopt-out` to ReShade's effect search paths instead: ReShade would then load every
+effect twice. To undo, put your backup back.
+
+## The SOPT_ switches (expert mode)
+
+Press **M** for **expert mode** if you want to choose between all the alternatives yourself
+(or keep easy mode with a switch for each change). The files then keep the original code next to
+each change, and ReShade lists these switches under the effect:
+
+- **`SOPT_GROUP`** chooses for every change at once: **0** = the original code, **1** = the first
+  alternative everywhere, **2** = the second, and so on. Expert mode starts at 0.
+- **`SOPT_<file>_<line>`** chooses for one change only.
+
+`SOPT_GROUP` is there for testing: step it through 0, 1, 2 ... and compare the picture and the
+frame rate. If one number causes a problem, set `SOPT_GROUP` back to 0 and turn the single
+switches on one by one to find the change behind it. Please tell us when that happens.
+
+## Value ranges: more shortcuts
+
+Some shortcuts are only correct for certain values (for example when a setting stays between 0
+and 1). SweetOpt works out most ranges by itself. When the results say some shortcuts "need
+value ranges", press **8**: a list opens with one line per value it could not work out, like
+
+    # Vibrance.fx VibrancePass luma = [-1000, 1000]
+
+If you know the real range, remove the `#` and correct the numbers (`... luma = [0, 1]`), save,
+and press **5** again. Only give ranges you are sure of: a wrong range can change the picture.
 
 ## The other tools in this project
 

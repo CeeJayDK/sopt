@@ -162,7 +162,10 @@ enum { kScatterNone, kScatterPoints, kScatterSplats, kScatterCompute };
 // Pass state tests (full-screen passes into 3840 x 2160, ms per pass).
 enum { kPassTargets = 1, kPassClear, kPassMips, kPassHeavy, kPassStencil, kPassDiscardTiles, kPassDiscardPixels,
        kPassCopySample, kPassCopyLoad, kPassDownBilinear, kPassDownLoad, kPassBands, kPassStencilBands,
-       kPassDiscardBands };
+       kPassDiscardBands, kPassInterp };
+// Interpolator tests (kPassInterp, owner 2026-10-22: is a texture coordinate cheaper from the vertex shader or worked
+// out in the pixel shader, and does a float4 cost more than the float2 used of it?): what the pixel shader gets.
+enum { kInterpNone, kInterpMad, kInterpFloat2, kInterpHalfUsed, kInterpFloat4, kInterpTwoFloat2, kInterpFlat };
 
 enum class Stage { Compute, Pixel, Write, Blend, Pass, Blur };
 // Plain / Mipped: 2D size x size; Lut1D: 2D size x 1; Lut3D: 3D size^3; Tex1D: a real 1D texture;
@@ -197,7 +200,8 @@ struct Test {
   UINT maxAniso = 16;        // anisotropic filtering: the sampler's MaxAnisotropy
   int matrix = -1;           // formats x filtering: the column (kMatrixCols), shown as one table
   UINT needs = 0;            // D3D11_FORMAT_SUPPORT bits the format must have (else the test is left out)
-  int count = 1;             // pass state test: render targets
+  int count = 1;             // pass state test: render targets; interpolator test: float4 values
+  int interp = kInterpNone;  // interpolator test: what the vertex shader hands the pixel shader
   int sources = 1;           // copy / downsample passes: source textures read in turn (more than any cache holds)
   // Scatter (topt P11, Stage::Blur): src is the vertex shader (points / splats) or the compute shader, drawn count times.
   int scatter = 0;           // kScatter* below
@@ -1035,6 +1039,12 @@ std::vector<Test> makeTests() {
   psSample("Sample aniso 4:1", Filter::Aniso, 1.0f, 4.0f, "4 x 1 texel footprint, 16x anisotropic filtering");
   psSample("Sample offset", Filter::Linear, 1.0f, 1.0f, "tex2D with an offset, bilinear");
   v.back().step = std::string(kCoherent) + " float4 t = T.Sample(S, uv, int2(1, -1)); " + kUse;
+  // SampleLevel against Sample (owner, 2026-10-22): level 0 has its own instruction on AMD and NVIDIA (no level
+  // register, no derivatives); another level needs the register.
+  psSample("SampleLevel 0", Filter::Linear, 1.0f, 1.0f, "tex2Dlod at level 0, bilinear (no derivatives)");
+  v.back().step = std::string(kCoherent) + " float4 t = T.SampleLevel(S, uv, 0.0); " + kUse;
+  psSample("SampleLevel 1", Filter::Linear, 1.0f, 1.0f, "tex2Dlod at level 1, bilinear (a level other than 0)");
+  v.back().step = std::string(kCoherent) + " float4 t = T.SampleLevel(S, uv, 1.0); " + kUse;
 
   // Cache use in the pixel shader (owner, 2026-10-05: does the spread at which reads get slower follow the
   // pixel order pictures?): each pixel reads at random within N x N texels around its own texel, RGBA8 2048 x
@@ -1128,6 +1138,22 @@ std::vector<Test> makeTests() {
   passTest("heavy, bands 25% (vertex)", kPassBands, "RGBA8", 1, "a vertex shader draws only the two bands (top, bottom)");
   passTest("heavy, stencil 25% bands", kPassStencilBands, "RGBA8", 1, "full screen, the stencil test passes the bands");
   passTest("heavy, discard 25% bands", kPassDiscardBands, "RGBA8", 1, "full screen, discard outside the bands");
+  // Interpolators: a pixel shader busy with math (8 sin of a float4), so what the values from the vertex shader cost
+  // shows on top of it; against the same shader without them (interp: none).
+  auto interpTest = [&](std::string name, int kind, int count, std::string note) {
+    passTest(std::move(name), kPassInterp, "RGBA8", count, std::move(note));
+    v.back().interp = kind;
+    v.back().section = "Interpolators: values from the vertex shader, full-screen passes into 3840 x 2160";
+  };
+  interpTest("interp: none", kInterpNone, 0, "8 sin of a float4 per pixel, only SV_Position in");
+  interpTest("uv from SV_Position", kInterpMad, 0, "the texture coordinate worked out in the pixel shader: one mad");
+  interpTest("1 float2", kInterpFloat2, 1, "the texture coordinate from the vertex shader (TEXCOORD float2)");
+  interpTest("1 float4, xy used", kInterpHalfUsed, 1, "a float4 from the vertex shader, the pixel shader reads .xy");
+  interpTest("1 float4", kInterpFloat4, 1, "a float4, all four used");
+  interpTest("2 float2", kInterpTwoFloat2, 2, "two float2 (fxc packs them into one register)");
+  interpTest("4 float4", kInterpFloat4, 4, "16 values");
+  interpTest("8 float4", kInterpFloat4, 8, "32 values");
+  interpTest("8 float4 nointerpolation", kInterpFlat, 8, "32 values, flat (one per triangle)");
   // Copy and downsample passes (owner, 2026-10-05: ReShade's internal copy shader now uses Load instead of
   // Sample; where does it win, and the half-size downsample as one bilinear read against 4 Loads).
   for (const char* fn : {"RGBA8", "RGB10A2", "RGBA16F", "RGBA32F"}) {
@@ -1270,6 +1296,30 @@ std::string blendSource(int op, bool shader, bool restore = false) {
   return s + "  return " + kMath[op] + ";\n}\n";
 }
 
+// An interpolator test's values (after SV_Position): " float2 t0 : TEXCOORD0; ...".
+std::string interpFields(const Test& t) {
+  std::string s;
+  for (int k = 0; k < t.count; ++k) {
+    const bool two = t.interp == kInterpFloat2 || t.interp == kInterpTwoFloat2;
+    s += std::string(" ") + (t.interp == kInterpFlat ? "nointerpolation " : "") + (two ? "float2" : "float4") + " t" +
+         std::to_string(k) + " : TEXCOORD" + std::to_string(k) + ";";
+  }
+  return s;
+}
+
+// Its vertex shader: the full-screen triangle, the values different at each corner (so they are interpolated).
+std::string interpVertexSource(const Test& t) {
+  std::string s = "struct O { float4 pos : SV_Position;" + interpFields(t) +
+                  " };\nO main(uint v : SV_VertexID) {\n  O o;\n  float2 p = float2((v << 1) & 2, v & 2);\n"
+                  "  o.pos = float4(p * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);\n";
+  for (int k = 0; k < t.count; ++k) {
+    const std::string ks = std::to_string(k), f = std::to_string(0.01 * (k + 1));
+    s += t.interp == kInterpFloat2 || t.interp == kInterpTwoFloat2 ? "  o.t" + ks + " = p * " + f + ";\n"
+                                                                    : "  o.t" + ks + " = float4(p, p.yx) * " + f + ";\n";
+  }
+  return s + "  return o;\n}\n";
+}
+
 // Pass state tests: noise into count targets, or the heavy shader (with discard for the discard tests).
 std::string passSource(const Test& t) {
   // Copy and downsample passes read the 3840 x 2160 source texture T (t0) with the sampler S (s0).
@@ -1282,6 +1332,17 @@ std::string passSource(const Test& t) {
     return src + "  int2 p = int2(pos.xy) * 2;\n"
                  "  return (T.Load(int3(p, 0)) + T.Load(int3(p, 0), int2(1, 0)) + T.Load(int3(p, 0), int2(0, 1)) +\n"
                  "          T.Load(int3(p, 0), int2(1, 1))) * 0.25;\n}\n";
+  if (t.pass == kPassInterp) {
+    std::string s = "cbuffer C : register(b0) { float4 U[16]; };\nstruct I { float4 pos : SV_Position;" + interpFields(t) +
+                    " };\nfloat4 main(I i) : SV_Target {\n  float4 v = i.pos * U[8].x";
+    if (t.interp == kInterpMad) s += " + float4(i.pos.xy * U[9].xy + U[9].zw, 0.0, 0.0)";
+    if (t.interp == kInterpFloat2) s += " + float4(i.t0, 0.0, 0.0)";
+    if (t.interp == kInterpHalfUsed) s += " + float4(i.t0.xy, 0.0, 0.0)";
+    if (t.interp == kInterpTwoFloat2) s += " + float4(i.t0, i.t1)";
+    if (t.interp == kInterpFloat4 || t.interp == kInterpFlat)
+      for (int k = 0; k < t.count; ++k) s += " + i.t" + std::to_string(k);
+    return s + ";\n  [unroll] for (int k = 0; k < 8; ++k) v = sin(v * U[k].x + U[k].y);\n  return v;\n}\n";
+  }
   std::string s = kNoise;
   if (t.pass == kPassTargets) {
     s += "struct Out {";
@@ -1686,6 +1747,125 @@ double blendPass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader
 // numbers (shaded as one piece before the GPU moved on) and lower when it was interleaved with others.
 
 constexpr UINT kOrderSize = 1024;
+
+// Sampling precision (owner, 2026-10-22: FetchMore reads 1/256 texel off centre to get a little of the neighbour;
+// 1/257 gave the same as 1/256 on a GTX 1660, as D3D11 asks for 8 bits of sub-texel precision only): a 2 x 1 texture,
+// one bilinear read per step from one texel centre to the next, kPrecisionSteps steps. The distinct results show how
+// finely the GPU places reads (texels 0 and 1) and whether the filter keeps that inside one 8-bit colour step (texels 0
+// and 1/255: what FetchMore decodes).
+struct PrecisionResult {
+  const char* format;
+  size_t positions = 0, levels = 0;  // distinct results: texels 0 -> 1, and 0 -> 1/255
+  size_t firstStep = 0;  // the first read (of kPrecisionSteps) that differs from texel 0: 128 = rounds to the nearest
+                         // 1/256 (1/257 reads as 1/256), 256 = rounds down (1/257 reads as texel 0)
+};
+constexpr UINT kPrecisionSteps = 65536;  // 16 bits of positions
+
+std::vector<PrecisionResult> runPrecision(Gpu& g) {
+  std::vector<PrecisionResult> out;
+  ID3DBlob* code = compile("Texture2D<float4> T : register(t0);\nSamplerState L : register(s0);\n"
+                           "RWStructuredBuffer<float> O : register(u0);\n"
+                           "[numthreads(64, 1, 1)] void main(uint3 id : SV_DispatchThreadID) {\n"
+                           "  O[id.x] = T.SampleLevel(L, float2((0.5 + id.x / 65536.0) * 0.5, 0.5), 0.0).r;\n}\n",
+                           "precision", "cs_5_0");
+  ID3D11ComputeShader* cs = nullptr;
+  ID3D11Buffer *buf = nullptr, *readBuf = nullptr;
+  ID3D11UnorderedAccessView* uav = nullptr;
+  ID3D11SamplerState* sampler = nullptr;
+  D3D11_BUFFER_DESC bd = {};
+  bd.ByteWidth = kPrecisionSteps * 4;
+  bd.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+  bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+  bd.StructureByteStride = 4;
+  D3D11_BUFFER_DESC rd = bd;
+  rd.BindFlags = 0;
+  rd.MiscFlags = 0;
+  rd.Usage = D3D11_USAGE_STAGING;
+  rd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  D3D11_UNORDERED_ACCESS_VIEW_DESC ud = {};
+  ud.Format = DXGI_FORMAT_UNKNOWN;
+  ud.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+  ud.Buffer.NumElements = kPrecisionSteps;
+  D3D11_SAMPLER_DESC sd = {};
+  sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+  sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+  sd.MaxLOD = D3D11_FLOAT32_MAX;
+  const bool ok = SUCCEEDED(g.dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &cs)) &&
+                  SUCCEEDED(g.dev->CreateBuffer(&bd, nullptr, &buf)) && SUCCEEDED(g.dev->CreateBuffer(&rd, nullptr, &readBuf)) &&
+                  SUCCEEDED(g.dev->CreateUnorderedAccessView(buf, &ud, &uav)) &&
+                  SUCCEEDED(g.dev->CreateSamplerState(&sd, &sampler));
+  code->Release();
+  // Two texels of each format: 0 and v (1, or one 8-bit step); the read returns .r.
+  struct Case {
+    const char* name;
+    DXGI_FORMAT dxgi;
+    UINT bytes;
+  };
+  const Case cases[] = {{"RGBA8", DXGI_FORMAT_R8G8B8A8_UNORM, 4}, {"RGBA16F", DXGI_FORMAT_R16G16B16A16_FLOAT, 8},
+                        {"R32F", DXGI_FORMAT_R32_FLOAT, 4}};
+  auto texels = [](const Case& c, bool step) {
+    std::vector<uint8_t> d(2 * c.bytes, 0);
+    if (c.dxgi == DXGI_FORMAT_R8G8B8A8_UNORM) d[c.bytes] = step ? 1 : 255;
+    else if (c.dxgi == DXGI_FORMAT_R16G16B16A16_FLOAT) {
+      const uint16_t h = step ? 0x1C04 : 0x3C00;  // 1/255 (nearest half: 0.0039215), 1.0
+      std::memcpy(&d[c.bytes], &h, 2);
+    } else {
+      const float f = step ? 1.0f / 255.0f : 1.0f;
+      std::memcpy(&d[c.bytes], &f, 4);
+    }
+    return d;
+  };
+  for (const Case& c : cases) {
+    UINT support = 0;
+    if (!ok || FAILED(g.dev->CheckFormatSupport(c.dxgi, &support)) || !(support & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE)) continue;
+    PrecisionResult r{c.name};
+    for (const bool step : {false, true}) {
+      const std::vector<uint8_t> data = texels(c, step);
+      D3D11_TEXTURE2D_DESC td = {};
+      td.Width = 2;
+      td.Height = 1;
+      td.MipLevels = td.ArraySize = 1;
+      td.Format = c.dxgi;
+      td.SampleDesc.Count = 1;
+      td.Usage = D3D11_USAGE_IMMUTABLE;
+      td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+      D3D11_SUBRESOURCE_DATA init = {data.data(), 2 * c.bytes, 0};
+      ID3D11Texture2D* tex = nullptr;
+      ID3D11ShaderResourceView* srv = nullptr;
+      if (FAILED(g.dev->CreateTexture2D(&td, &init, &tex)) || FAILED(g.dev->CreateShaderResourceView(tex, nullptr, &srv))) {
+        release(tex);
+        continue;
+      }
+      g.ctx->CSSetShader(cs, nullptr, 0);
+      g.ctx->CSSetShaderResources(0, 1, &srv);
+      g.ctx->CSSetSamplers(0, 1, &sampler);
+      g.ctx->CSSetUnorderedAccessViews(0, 1, &uav, nullptr);
+      g.ctx->Dispatch(kPrecisionSteps / 64, 1, 1);
+      ID3D11ShaderResourceView* nullView = nullptr;
+      ID3D11UnorderedAccessView* nullUav = nullptr;
+      g.ctx->CSSetShaderResources(0, 1, &nullView);
+      g.ctx->CSSetUnorderedAccessViews(0, 1, &nullUav, nullptr);
+      g.ctx->CopyResource(readBuf, buf);
+      D3D11_MAPPED_SUBRESOURCE m;
+      if (SUCCEEDED(g.ctx->Map(readBuf, 0, D3D11_MAP_READ, 0, &m))) {
+        std::vector<float> v(static_cast<const float*>(m.pData), static_cast<const float*>(m.pData) + kPrecisionSteps);
+        g.ctx->Unmap(readBuf, 0);
+        if (!step) r.firstStep = size_t(std::find_if(v.begin(), v.end(), [&](float x) { return x != v[0]; }) - v.begin());
+        std::sort(v.begin(), v.end());
+        (step ? r.levels : r.positions) = size_t(std::unique(v.begin(), v.end()) - v.begin());
+      }
+      release(srv);
+      release(tex);
+    }
+    out.push_back(r);
+  }
+  release(sampler);
+  release(uav);
+  release(readBuf);
+  release(buf);
+  release(cs);
+  return out;
+}
 
 struct OrderResult {
   bool ran = false;
@@ -2524,6 +2704,7 @@ int main(int argc, char** argv) {
   // CSV: written again whenever a section is shown (between measurements, the GPU idle) and at the end,
   // so a run stopped early still leaves its results.
   OrderResult order;
+  std::vector<PrecisionResult> precision;
   auto writeCsv = [&] {
     const double runSeconds = (GetTickCount64() - programStart) / 1000.0;
     double drift = 0.0;
@@ -2541,6 +2722,12 @@ int main(int argc, char** argv) {
   const Score sc = score();
   std::fprintf(csv, "# texture rate: %.1f GTexels/s\n# pixel fill rate: %.1f GPixels/s\n# memory bandwidth (writes): %.1f GB/s\n",
                sc.texRate, sc.fill, sc.bandwidth);
+  if (!precision.empty()) {
+    std::fprintf(csv, "# sampling precision (distinct results of %u reads between two texels: from 0 to 1, from 0 to 1/255):", kPrecisionSteps);
+    for (const PrecisionResult& p : precision)
+      std::fprintf(csv, " %s %zu / %zu, first change at %zu/%u texel;", p.format, p.positions, p.levels, p.firstStep, kPrecisionSteps);
+    std::fprintf(csv, "\n");
+  }
   std::fprintf(csv, "config,test,section,base,iters,ms,ns_per_step,units,units_vs_base,passes,consensus,readings,step,note,seconds\n");
   auto readingsText = [](const std::vector<double>& v) {
     std::string s;
@@ -2942,11 +3129,12 @@ int main(int argc, char** argv) {
         g.ctx->OMSetDepthStencilState(dsTest, 1);
       }
       if (ps) g.ctx->PSSetShader(ps, nullptr, 0);
-      ID3D11VertexShader* bandsVs = nullptr;
-      if (t->pass == kPassBands) {
-        ID3DBlob* code = compile(kBandsVertexShader, "bands", "vs_5_0");
+      ID3D11VertexShader* bandsVs = nullptr;  // the pass's own vertex shader: the bands, or an interpolator test's
+      if (t->pass == kPassBands || t->pass == kPassInterp) {
+        const std::string vsSrc = t->pass == kPassBands ? std::string(kBandsVertexShader) : interpVertexSource(*t);
+        ID3DBlob* code = compile(vsSrc, t->name.c_str(), "vs_5_0");
         if (FAILED(g.dev->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &bandsVs)))
-          fail("cannot create the bands' vertex shader");
+          fail("cannot create the vertex shader of " + t->name);
         code->Release();
         g.ctx->VSSetShader(bandsVs, nullptr, 0);
       }
@@ -2963,7 +3151,7 @@ int main(int argc, char** argv) {
         else {
           g.ctx->OMSetRenderTargets(UINT(count), &rtvs[size_t((k & 1) * count)], dsv);
           if (sourceView.size() > 1) g.ctx->PSSetShaderResources(0, 1, &sourceView[k % sourceView.size()]);
-          g.ctx->Draw(bandsVs ? 12 : 3, 0);
+          g.ctx->Draw(t->pass == kPassBands ? 12 : 3, 0);
         }
       };
       timeUnits(t, unit);
@@ -3174,6 +3362,11 @@ int main(int argc, char** argv) {
     order = runOrder(g, dxbcDir, (std::filesystem::path(outPath).parent_path() / std::filesystem::path(outPath).stem()).string(),
                      refs.empty() ? 0.0 : median(refs), reps);
   }
+  if (filter.empty() || std::string("Sampling precision").find(filter) != std::string::npos) {
+    gCurrent = "Sampling precision";
+    setTitle(gCurrent);
+    precision = runPrecision(g);
+  }
 
   writeCsv();
 
@@ -3182,6 +3375,16 @@ int main(int argc, char** argv) {
   printBox(st, std::string("TexBench ") + SOPT_VERSION + "  -  " + ad.name);
   print("  driver %s, vendor 0x%04X, device 0x%04X, run time %d min %02d s\n", ad.driver.c_str(), ad.desc.VendorId,
               ad.desc.DeviceId, int(runSeconds) / 60, int(runSeconds) % 60);
+  if (!precision.empty()) {
+    // Steps a read can land on between two texels (bits = log2), and the levels inside one 8-bit colour step.
+    print("\n  %sSampling precision: %u bilinear reads from one texel to the next%s\n  %s%-9s %22s  %26s%s\n",
+          st.c("\x1b[1;96m"), kPrecisionSteps, st.reset(), st.c("\x1b[97m"), "Format", "Positions (0 to 1)",
+          "Levels in one 8-bit step  First change", st.reset());
+    for (const PrecisionResult& p : precision)
+      print("  %-9s %12zu (%4.1f bits)  %16zu (%4.1f bits)  at 1/%.0f texel\n", p.format, p.positions,
+            std::log2(double(std::max<size_t>(p.positions, 1))), p.levels, std::log2(double(std::max<size_t>(p.levels, 1))),
+            p.firstStep ? double(kPrecisionSteps) / double(p.firstStep) : 0.0);
+  }
   if (order.ran) {
     // Blocks: the share of compact blocks per size; tiles: how contiguous aligned squares were shaded.
     print("\n  %sPixel shader order: which pixels the GPU shades together (one draw, 1024 x 1024)%s%s\n"

@@ -32,7 +32,7 @@
       <div class="card"><h3>1. Find</h3><p>Every arithmetic statement in the shader becomes a small expression with the value ranges of its inputs (from <code>ui_min</code> / <code>ui_max</code>, texture formats, texture coordinates, and ranges you add).</p></div>
       <div class="card"><h3>2. Search</h3><p>A superoptimizer tries every cheaper program, smallest first, plus a library of known rewrites, and ranks them with cost models measured on real GPUs.</p></div>
       <div class="card"><h3>3. Verify</h3><p>Each candidate is checked against the original on millions of points, under the GPUs' approximate math, and often proven with interval arithmetic. Only what the output cannot tell apart (or what is closer to exact math) survives.</p></div>
-      <div class="card"><h3>4. Choose</h3><p>Variants are written next to the original behind switches like <code>SOPT_ALL</code>, with a report of each one's speed and accuracy. You test them in ReShade and keep what you like.</p></div>
+      <div class="card"><h3>4. Choose</h3><p>Variants are written next to the original behind switches like <code>SOPT_GROUP</code>, with a report of each one's speed and accuracy. You test them in ReShade and keep what you like.</p></div>
     </div>
   </section>
 

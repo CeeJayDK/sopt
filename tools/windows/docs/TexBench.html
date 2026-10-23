@@ -127,6 +127,7 @@
   <tr><td>Sample bilinear</td><td>Sample (mip level from the derivatives: 1 texel per pixel = mip 0)</td></tr>
   <tr><td>Sample trilinear</td><td>1.5 texels per pixel: between mip 0 and 1</td></tr>
   <tr><td>Sample aniso 4:1</td><td>4 &times; 1 texel footprint, 16&times; anisotropic filtering</td></tr>
+  <tr><td>SampleLevel 0 / 1</td><td>the same bilinear read with the mip level given (<code>tex2Dlod</code>): level 0 needs no derivatives, and AMD and NVIDIA have an instruction of its own for it; level 1 for comparison.</td></tr>
 </table>
 
 <h3>Render target writes</h3>
@@ -147,6 +148,20 @@
   <tr><td>heavy, discard 50% pixels</td><td>discard first in every other pixel: GPUs shade 2 &times; 2 pixel quads, so this usually saves nothing.</td></tr>
   <tr><td>heavy, bands 25% (vertex)</td><td>a vertex shader draws only two bands (the top and bottom 12.5%), against the full screen with the stencil test or discard passing only the bands.</td></tr>
 </table>
+
+<h3>Interpolators</h3>
+<p>Values a vertex shader hands the pixel shader, interpolated across the triangle. Full-screen passes into 3840 &times; 2160 (ms per pass), with a pixel shader busy with math (8 <code>sin</code> of a float4), so what the values cost shows on top of it:</p>
+<table>
+  <tr><td>interp: none</td><td>only the pixel position comes in: the base.</td></tr>
+  <tr><td>uv from SV_Position</td><td>the texture coordinate worked out in the pixel shader (one mad), against:</td></tr>
+  <tr><td>1 float2</td><td>the texture coordinate from the vertex shader.</td></tr>
+  <tr><td>1 float4, xy used</td><td>a float4 of which the pixel shader reads two values: do the other two cost anything?</td></tr>
+  <tr><td>1 float4, 2 float2, 4 / 8 float4</td><td>more values (2 float2: two values the compiler packs into one register).</td></tr>
+  <tr><td>8 float4 nointerpolation</td><td>the same, flat (one value per triangle, not interpolated).</td></tr>
+</table>
+
+<h3>Sampling precision</h3>
+<p>Not a timing: a 2 &times; 1 texture, and 65536 bilinear reads stepping from one texel's centre to the next. The number of different results shows how finely the card places a read between two texels (Direct3D 11 asks for 8 bits, 256 steps), and the reads between a texel of 0 and one of 1/255 show whether the filter keeps that inside one 8-bit colour step (tricks that read a little of a neighbour, such as FetchMore, need it). "First change" shows how a position is rounded: at 1/512 texel = to the nearest step, at 1/256 = down. For RGBA8, RGBA16F and R32F; in the CSV's <code>#</code> lines.</p>
 
 <h3>Blur building blocks</h3>
 <p>Numbers for multi-pass blurs (ms per pass, or per chain of passes), from a 3840 &times; 2160 RGBA8 image:</p>
