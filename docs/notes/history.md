@@ -2098,6 +2098,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   chain's draws overlapped (RTX 2080: 1 pass 0.0012 ms against ~0.0035 per pass in longer chains); draws now count
   across units (each reads what the draw before wrote), also ping-pong and compute. GTX 1660 after: 1/64 chains
   0.003 / 0.007 / 0.013 / 0.027 ms for 1 / 2 / 4 / 8 passes; reads 0.424 (1) ... 0.435 (4), 0.490 (6), 1.028 (16).
+  topt P12 / P13a-c (2026-10-23): blending R8 / R16F / R32F / RG16F / RG32F (plain, add blend, add shader; needs
+  BLENDABLE), pass chains also at 1/4 and 1/16, "half bilinear RGBA8, 6 sources" (six 4K sources in turn, ~200 MB:
+  past every cache; Test::sources), under-filled passes (64 bilinear reads of a 16 x 16 block of the image's top-left
+  1920 x 1080 into 120 x 67 / 240 x 135 / 480 x 270). GTX 1660: chains 44 us per pass at 1/4, 12 us at 1/16; 64 reads
+  0.164 / 0.196 / 0.111 ms (the small targets slower than 480 x 270: the GPU not filled); 6 sources = 1 (small L2);
+  R16F plain / add blend / add shader 61.5 / 61.5 / 61.5, RG32F 152.4 / 150.6 / 228.3 (units per pixel).
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.

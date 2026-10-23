@@ -133,7 +133,7 @@
 <p>Full-screen passes into 3840 &times; 2160. Each format as a render target, in GB/s, written three times by the same pixel shader: noise (which cannot be compressed), a smooth gradient and one flat color. GPUs compress render targets, so compressible output can be written faster than the memory bandwidth allows; the two Gain columns (smooth / noise, flat / noise) show how well this card compresses each format. The passes alternate between two targets: some GPUs (NVIDIA among them) keep back to back full-screen draws into one target in an on-chip cache, so only the last one would reach memory. Small formats (R8, R16) are usually limited by the pixel rate (ROPs), not by memory.</p>
 
 <h3>Blending</h3>
-<p>Full-screen passes into 3840 &times; 2160 (ms per pass). ReShade passes can blend their output into the target (BlendEnable, BlendOp, SrcBlend, DestBlend) instead of reading the image in the shader. For RGBA8, RGB10A2, RG11B10F, RGBA16F and RGBA32F: a plain write, then four common blends, each done by the blend hardware ("blend") and by a shader that reads the target's content as a texture and does the same math ("shader"): add (ONE, ONE: e.g. bloom), lerp (SRCALPHA, INVSRCALPHA: mixing with the image), multiply (DESTCOLOR, ZERO) and min (BlendOp MIN). The faster of each pair is shown in green. Before each pass a plain draw restores the target's content (noise); those draws are timed alone right before and subtracted. The blended passes write a different noise, so source and destination differ at every pixel. Two targets take turns, as for the writes.</p>
+<p>Full-screen passes into 3840 &times; 2160 (ms per pass). ReShade passes can blend their output into the target (BlendEnable, BlendOp, SrcBlend, DestBlend) instead of reading the image in the shader. For RGBA8, RGB10A2, RG11B10F, RGBA16F and RGBA32F: a plain write, then four common blends, each done by the blend hardware ("blend") and by a shader that reads the target's content as a texture and does the same math ("shader"): add (ONE, ONE: e.g. bloom), lerp (SRCALPHA, INVSRCALPHA: mixing with the image), multiply (DESTCOLOR, ZERO) and min (BlendOp MIN). The faster of each pair is shown in green. Before each pass a plain draw restores the target's content (noise); those draws are timed alone right before and subtracted. The blended passes write a different noise, so source and destination differ at every pixel. Two targets take turns, as for the writes. The one- and two-channel formats R8, R16F, R32F, RG16F and RG32F (masks, histograms) get the plain write and add only.</p>
 
 <h3>Pass states</h3>
 <p>Full-screen passes into 3840 &times; 2160 (ms per pass).</p>
@@ -151,7 +151,8 @@
 <h3>Blur building blocks</h3>
 <p>Numbers for multi-pass blurs (ms per pass, or per chain of passes), from a 3840 &times; 2160 RGBA8 image:</p>
 <table>
-  <tr><td>Pass overhead</td><td>chains of 1 to 32 dependent passes (each reads the one before) into 1/64 and 1/256 of the screen, with a new target per pass or two in turn: the step from one chain to the next is what one more pass costs.</td></tr>
+  <tr><td>Under-filled passes</td><td>64 bilinear reads per pixel (a 16 &times; 16 block of a 1920 &times; 1080 area) into 120 &times; 67, 240 &times; 135 and 480 &times; 270: targets too small to keep the whole GPU busy against one that is not.</td></tr>
+  <tr><td>Pass overhead</td><td>chains of 1 to 32 dependent passes (each reads the one before) into 1/4, 1/16, 1/64 and 1/256 of the screen, with a new target per pass or two in turn: the step from one chain to the next is what one more pass costs.</td></tr>
   <tr><td>Bilinear reads per pixel</td><td>1 to 24 reads at fractional offsets: up to which count reads are nearly free (the pass waits on memory anyway).</td></tr>
   <tr><td>Target size</td><td>a 2 &times; 2 average (one bilinear read) into 1/4 down to 1/1024 of the screen: where small targets stop getting faster.</td></tr>
   <tr><td>Quad exchange</td><td>16 reads against 4 reads whose 2 &times; 2 neighbours come from <code>ddx_fine</code> / <code>ddy_fine</code>; the cost of one exchange in fma.</td></tr>
@@ -172,7 +173,7 @@ screen in rows or in 128-pixel strips (keeps the texture cache warm). Each shows
 <p>Full-screen passes from a 3840 &times; 2160 texture (ms per pass), RGBA8, RGB10A2, RGBA16F (the HDR back buffer format) and RGBA32F:</p>
 <table>
   <tr><td>copy Sample, copy Load</td><td>a full-size copy with a point sample against <code>tex2Dfetch</code> (ReShade's internal copy shader uses Load since our patch).</td></tr>
-  <tr><td>half bilinear, half 4 Load</td><td>a half-size (1920 &times; 1080) average of each 2 &times; 2 block: one bilinear read at the block's center against 4 fetches and the math.</td></tr>
+  <tr><td>half bilinear, half 4 Load</td><td>a half-size (1920 &times; 1080) average of each 2 &times; 2 block: one bilinear read at the block's center against 4 fetches and the math. "half bilinear RGBA8, 6 sources" reads six different sources in turn (about 200 MB, more than any GPU cache holds), so it measures memory, where one source can stay in a large cache.</td></tr>
 </table>
 
 <h3>Pixel shader order</h3>

@@ -194,6 +194,7 @@ struct Test {
   int matrix = -1;           // formats x filtering: the column (kMatrixCols), shown as one table
   UINT needs = 0;            // D3D11_FORMAT_SUPPORT bits the format must have (else the test is left out)
   int count = 1;             // pass state test: render targets
+  int sources = 1;           // copy / downsample passes: source textures read in turn (more than any cache holds)
   bool skipDep = false;      // runs in tput and lat only (dep equals tput for reads: see runsIn)
   bool psPixel = false;      // pixel shader: P is the pixel's own texel (1:1), scale is free for the step
   // Blur building blocks (Stage::Blur): one unit = chain draws of the shader src into tw x th targets. chainMode
@@ -275,14 +276,29 @@ void makeBlurTests(std::vector<Test>& v) {
   // P1 per-pass overhead: chains of dependent passes into small targets (1 read + write each); the slope is the cost
   // of one more pass. Distinct targets, and two targets in turn.
   const std::string p1 = "Pass overhead: chains of dependent passes (1 read + write, RGBA8)";
-  for (UINT div : {8u, 16u})
+  // Also at 1/4 and 1/16 of the screen (topt P13b, 2026-10-23: where small passes stop running from the caches).
+  for (UINT div : {2u, 4u, 8u, 16u})
     for (int k : {1, 2, 4, 8, 16, 32})
-      blur((div == 8 ? "1/64, " : "1/256, ") + std::to_string(k) + (k == 1 ? " pass" : " passes"), p1, "RGBA8", div, k, 1,
+      blur("1/" + std::to_string(div * div) + ", " + std::to_string(k) + (k == 1 ? " pass" : " passes"), p1, "RGBA8", div, k, 1,
            "  return T.Load(int3(pos.xy, 0));\n",
-           std::string(div == 8 ? "480 x 270" : "240 x 135") + ", each pass reads the one before");
+           std::to_string(kRtW / div) + " x " + std::to_string(kRtH / div) + ", each pass reads the one before");
   for (int k : {1, 2, 4, 8, 16, 32})
     blur("1/64 ping-pong, " + std::to_string(k), p1, "RGBA8", 8, k, 2, "  return T.Load(int3(pos.xy, 0));\n",
          "480 x 270, two targets in turn (A -> B -> A)");
+
+  // Under-filled passes with dense reads (topt P13c, 2026-10-23): each pixel averages a 16 x 16 block of a 1920 x 1080
+  // area (the image's top-left quarter: the same memory as a 1920 x 1080 source) with 64 bilinear reads, into targets
+  // too small to fill the GPU (120 x 67, 240 x 135) and one that is not (480 x 270; the blocks then overlap).
+  const std::string p13 = "Under-filled passes: 64 bilinear reads (a 16 x 16 block) per pixel of a 1920 x 1080 area";
+  for (UINT div : {32u, 16u, 8u}) {
+    const std::string stride = std::to_string(1920 / (kRtW / div)) + ".0";
+    blur("64 reads into " + std::to_string(kRtW / div) + " x " + std::to_string(kRtH / div), p13, "RGBA8", div, 1, 0,
+         "  float2 b = floor(pos.xy) * " + stride + ";\n  float4 s = 0.0;\n"
+         "  [unroll] for (int j = 0; j < 8; ++j) [unroll] for (int i = 0; i < 8; ++i)\n"
+         "    s += T.SampleLevel(L, (b + float2(2 * i + 1, 2 * j + 1))" + uv + ", 0.0);\n  return s * 0.015625;\n",
+         std::to_string(kRtW / div) + " x " + std::to_string(kRtH / div) + " pixels, " + stride.substr(0, stride.size() - 2) +
+             " texels apart");
+  }
 
   // P3 "free" fetches: N bilinear reads at fractional offsets within +-3 texels (R2 sequence), full size.
   const std::string p3 = "Bilinear reads per pixel: RGBA8 3840 x 2160 into RGBA8";
@@ -982,10 +998,12 @@ std::vector<Test> makeTests() {
   // Blending (ReShade pass states BlendEnable / BlendOp / SrcBlend / DestBlend): the output blended into
   // the target by the hardware against a shader that reads the target's content as a texture and does the
   // same math. Each pass first restores the target's content (noise) by a copy, timed alone and subtracted.
-  for (const char* fn : {"RGBA8", "RGB10A2", "RG11B10F", "RGBA16F", "RGBA32F"})
+  // One- and two-channel formats (topt P12, 2026-10-23: histograms and masks): plain and add only.
+  for (const char* fn : {"RGBA8", "RGB10A2", "RG11B10F", "RGBA16F", "RGBA32F", "R8", "R16F", "R32F", "RG16F", "RG32F"})
     for (int op = 0; op <= 4; ++op)
       for (bool shader : {false, true}) {
-        if (op == 0 && shader) continue;
+        const bool few = formatByName(fn)->channels < 3;
+        if ((op == 0 && shader) || (few && op > 1)) continue;
         static const char* const kOps[] = {"plain", "add", "lerp", "multiply", "min"};
         Test t;
         t.name = std::string(fn) + " " + kOps[op] + (op == 0 ? "" : shader ? " shader" : " blend");
@@ -994,6 +1012,7 @@ std::vector<Test> makeTests() {
         t.format = formatByName(fn);
         t.blend = op;
         t.shaderBlend = shader;
+        if (few) t.needs = D3D11_FORMAT_SUPPORT_RENDER_TARGET | (shader ? 0u : UINT(D3D11_FORMAT_SUPPORT_BLENDABLE));
         add(t);
       }
 
@@ -1036,6 +1055,12 @@ std::vector<Test> makeTests() {
     cp(std::string("copy Sample ") + fn, kPassCopySample, "full-size copy, point Sample");
     cp(std::string("copy Load ") + fn, kPassCopyLoad, "full-size copy, Load");
     cp(std::string("half bilinear ") + fn, kPassDownBilinear, "1920 x 1080 average of 2 x 2: one bilinear read");
+    // From memory (topt P13a, 2026-10-23): one 33 MB source stays in large L2 / Infinity Caches; six in turn (~200 MB
+    // in RGBA8) cannot.
+    if (std::string(fn) == "RGBA8") {
+      cp("half bilinear RGBA8, 6 sources", kPassDownBilinear, "the same, six 3840 x 2160 sources in turn: from memory");
+      v.back().sources = 6;
+    }
     cp(std::string("half 4 Load ") + fn, kPassDownLoad, "1920 x 1080 average of 2 x 2: 4 Loads + math");
   }
   makeBlurTests(v);
@@ -2684,8 +2709,8 @@ int main(int argc, char** argv) {
       const bool half = t->pass == kPassDownBilinear || t->pass == kPassDownLoad;
       D3D11_VIEWPORT vp = {0.0f, 0.0f, float(half ? kRtW / 2 : kRtW), float(half ? kRtH / 2 : kRtH), 0.0f, 1.0f};
       g.ctx->RSSetViewports(1, &vp);
-      ID3D11Texture2D* source = nullptr;
-      ID3D11ShaderResourceView* sourceView = nullptr;
+      std::vector<ID3D11Texture2D*> source(size_t(t->sources), nullptr);
+      std::vector<ID3D11ShaderResourceView*> sourceView(size_t(t->sources), nullptr);
       ID3D11SamplerState* sampler = nullptr;
       if (copyPass) {
         // The source: random texels of the format, 3840 x 2160; point sampler for the copy, bilinear for the downsample.
@@ -2697,16 +2722,19 @@ int main(int argc, char** argv) {
         td.SampleDesc.Count = 1;
         td.Usage = D3D11_USAGE_IMMUTABLE;
         td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        const auto data = texelData(*t->format, size_t(kRtW) * kRtH, rng);
-        D3D11_SUBRESOURCE_DATA init = {data.data(), kRtW * UINT(t->format->bytes), 0};
-        if (FAILED(g.dev->CreateTexture2D(&td, &init, &source)) || FAILED(g.dev->CreateShaderResourceView(source, nullptr, &sourceView)))
-          fail("cannot create the source texture for " + t->name);
+        for (size_t s = 0; s < source.size(); ++s) {
+          const auto data = texelData(*t->format, size_t(kRtW) * kRtH, rng);
+          D3D11_SUBRESOURCE_DATA init = {data.data(), kRtW * UINT(t->format->bytes), 0};
+          if (FAILED(g.dev->CreateTexture2D(&td, &init, &source[s])) ||
+              FAILED(g.dev->CreateShaderResourceView(source[s], nullptr, &sourceView[s])))
+            fail("cannot create the source texture for " + t->name);
+        }
         D3D11_SAMPLER_DESC sd = {};
         sd.Filter = t->pass == kPassDownBilinear ? D3D11_FILTER_MIN_MAG_MIP_LINEAR : D3D11_FILTER_MIN_MAG_MIP_POINT;
         sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
         sd.MaxLOD = D3D11_FLOAT32_MAX;
         if (FAILED(g.dev->CreateSamplerState(&sd, &sampler))) fail("cannot create the sampler for " + t->name);
-        g.ctx->PSSetShaderResources(0, 1, &sourceView);
+        g.ctx->PSSetShaderResources(0, 1, &sourceView[0]);
         g.ctx->PSSetSamplers(0, 1, &sampler);
       }
       if (t->pass == kPassStencil || t->pass == kPassStencilBands) {
@@ -2760,6 +2788,7 @@ int main(int argc, char** argv) {
         else if (t->pass == kPassMips) g.ctx->GenerateMips(srv);
         else {
           g.ctx->OMSetRenderTargets(UINT(count), &rtvs[size_t((k & 1) * count)], dsv);
+          if (sourceView.size() > 1) g.ctx->PSSetShaderResources(0, 1, &sourceView[k % sourceView.size()]);
           g.ctx->Draw(bandsVs ? 12 : 3, 0);
         }
       };
@@ -2773,8 +2802,8 @@ int main(int argc, char** argv) {
         g.ctx->PSSetShaderResources(0, 1, &nullView);
       }
       release(sampler);
-      release(sourceView);
-      release(source);
+      for (auto*& s : sourceView) release(s);
+      for (auto*& s : source) release(s);
       release(ps);
       release(psMark);
       release(dsTest);
