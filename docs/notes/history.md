@@ -2092,6 +2092,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   each); ps and vs 4 of ~225, all fp16: mad16 0 / -1.9, half1 0 / -1.9, max16 18 / 5.5, mix16 16 / 2.7 (GTX 1660
   against RTX 2060 / 2070 / 2080). HalfCosts the same until they are per stage. The RTX 2050 (GA107) is Ampere now
   (MODEL_RULES had it as Turing); Steam shares from the September card list: GTX 16 5.22, RTX 20 3.92, Ampere +0.42.
+  TexBench fixes from topt's P13d (2026-10-23): (1) P3 and P5 both had tests named "4 reads" / "16 reads"; results are
+  kept by name, so P3's showed P5's time (RTX 2080: 4 reads 0.147 < 1 read 0.167). P5's renamed "exchange: ...", and
+  makeTests fails on duplicate names. (2) Pass chains: every unit's first draw read the same input, so a 1-pass
+  chain's draws overlapped (RTX 2080: 1 pass 0.0012 ms against ~0.0035 per pass in longer chains); draws now count
+  across units (each reads what the draw before wrote), also ping-pong and compute. GTX 1660 after: 1/64 chains
+  0.003 / 0.007 / 0.013 / 0.027 ms for 1 / 2 / 4 / 8 passes; reads 0.424 (1) ... 0.435 (4), 0.490 (6), 1.028 (16).
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.

@@ -44,6 +44,7 @@
 #include <map>
 #include <memory>
 #include <random>
+#include <set>
 
 namespace {
 
@@ -316,10 +317,12 @@ void makeBlurTests(std::vector<Test>& v) {
     }
     return b + "  return float4(s * 0.0625, 1.0);\n";
   };
-  blur("4 reads", p5, "RGBA8", 1, 1, 0, taps(4, false), "the base");
-  blur("16 reads", p5, "RGBA8", 1, 1, 0, taps(16, false), "16 bilinear reads");
+  // Own names: results are kept by name, and P3 has "4 reads" / "16 reads" too (topt, 2026-10-23: its 4 reads showed
+  // this section's time).
+  blur("exchange: 4 reads", p5, "RGBA8", 1, 1, 0, taps(4, false), "the base");
+  blur("exchange: 16 reads", p5, "RGBA8", 1, 1, 0, taps(16, false), "16 bilinear reads");
   Test& ex = blur("4 reads + 12 exchanges", p5, "RGBA8", 1, 1, 0, taps(4, true), "each read gives the quad's 3 neighbours");
-  ex.base = "4 reads", ex.count = 12, ex.per = "exchange";
+  ex.base = "exchange: 4 reads", ex.count = 12, ex.per = "exchange";
 
   // P6 noise sources, 1 and 8 per pixel, into R8 (little to write): textures (point, wrap), a table, ALU hashes.
   const std::string p6 = "Noise sources: per pixel into R8 3840 x 2160 (fma per lookup over none)";
@@ -1036,6 +1039,10 @@ std::vector<Test> makeTests() {
     cp(std::string("half 4 Load ") + fn, kPassDownLoad, "1920 x 1080 average of 2 x 2: 4 Loads + math");
   }
   makeBlurTests(v);
+  // Results are kept by name: two tests of one name would show one's time for both.
+  std::set<std::string> names;
+  for (const Test& t : v)
+    if (!names.insert(t.name).second) fail("two tests named " + t.name);
   return v;
 }
 
@@ -2600,10 +2607,13 @@ int main(int argc, char** argv) {
       D3D11_VIEWPORT vp = {0.0f, 0.0f, float(t->tw), float(t->th), 0.0f, 1.0f};
       g.ctx->RSSetViewports(1, &vp);
       // The output first: it unbinds the view the draw before read from, then the input (no longer an output).
+      // Chains: draw i (counted across units) reads what draw i - 1 wrote, also from one unit to the next (topt,
+      // 2026-10-23: a 1-pass "chain" read the same input in every unit, so its passes overlapped and looked cheaper).
       timeUnits(t, [&](UINT k) {
         for (int d = 0; d < t->chain; ++d) {
-          const int from = t->chainMode == 1 ? d : t->chainMode == 0 ? -1 : (d & 1);
-          const int to = t->chainMode == 1 ? d + 1 : t->chainMode == 0 ? int(k & 1) : 1 - (d & 1);
+          const int i = int(k) * t->chain + d, n = t->chainMode == 1 ? t->chain + 1 : 2;
+          const int from = t->chainMode == 0 ? -1 : i % n;
+          const int to = t->chainMode == 0 ? int(k & 1) : (i + 1) % n;
           ID3D11ShaderResourceView* in = from < 0 ? blurImage : srv[size_t(from)];
           if (cs) {
             g.ctx->CSSetUnorderedAccessViews(1, 1, &uavs[size_t(to)], nullptr);
