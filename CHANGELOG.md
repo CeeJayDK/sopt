@@ -15,7 +15,7 @@ docs/notes/history.md.
 
 ### GPU Blueprint
 - **StageBench has its own page** in the guide: what it measures, why, and how long it takes.
-- **TexBench, for blur makers:** blending in five more texture formats, very small passes, and reading from memory rather than from the graphics card's cache.
+- **TexBench, for blur makers:** blending in five more texture formats, very small passes, reading from memory rather than from the graphics card's cache, and how fast histograms and bokeh-style splats can be drawn.
 - **Fixed:** two TexBench measurements were off: a single small pass looked cheaper than it is, and "4 reads" in the reads-per-pixel test showed the time of another test with the same name.
 - **Fairer TexBench summary:** where TexBench compares compute shaders with a pixel shader, it now names the pixel shader as the best when no compute shader beats it.
 - **How long will it take?** The menu shows about how long the tests take on each of your graphics cards, each test says at its start how long it usually takes on cards like yours, and the window title counts down the time left. The times come from the reports people have sent.

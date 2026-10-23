@@ -2104,6 +2104,13 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   1920 x 1080 into 120 x 67 / 240 x 135 / 480 x 270). GTX 1660: chains 44 us per pass at 1/4, 12 us at 1/16; 64 reads
   0.164 / 0.196 / 0.111 ms (the small targets slower than 480 x 270: the GPU not filled); 6 sources = 1 (small L2);
   R16F plain / add blend / add shader 61.5 / 61.5 / 61.5, RG32F 152.4 / 150.6 / 228.3 (units per pixel).
+  topt P11 in D3D11 (2026-10-23; D3D9 / D3D10 not done: TexBench runs D3D11 only): scatter tests in the blur section
+  (Test::scatter: additive points from a vertex shader that reads its pixel of the image's 1920 x 1080 top-left; the
+  compute histogram with groupshared or global atomics; additive splat quads). GTX 1660 (ms): 1 bin 10.4, 16 bins 2.9,
+  256 bins 0.51 = own pixel 0.508 (contention gone at 256), every 4th / 16th 0.128 / 0.033, R16F 0.92 (slower than
+  R32F), RGBA16F 0.61, RGBA8 0.51, spread copies 2x2 / 4x4 / 4 apart 0.69 / 0.81 / 0.88 (no gain where 256 bins
+  already do not contend), compute groupshared 0.134 / global 0.81; splats 1/8: 0.19 / 0.27 / 0.29 (4 / 8 / 16 px),
+  1/16: 0.045 / 0.061 / 0.153.
   All 66 FFmpeg compute shaders fail to parse (no GLSL compute support yet: layout blocks, sampler / image arrays,
   imageStore, gl_GlobalInvocationID, push constants, buffers, _Pragma from #pragma unroll); owner's go to add it,
   libavfilter's 22 filters first, the codecs (integer bit coding) later if at all.
