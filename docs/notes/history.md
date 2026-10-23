@@ -2092,6 +2092,25 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   each); ps and vs 4 of ~225, all fp16: mad16 0 / -1.9, half1 0 / -1.9, max16 18 / 5.5, mix16 16 / 2.7 (GTX 1660
   against RTX 2060 / 2070 / 2080). HalfCosts the same until they are per stage. The RTX 2050 (GA107) is Ampere now
   (MODEL_RULES had it as Turing); Steam shares from the September card list: GTX 16 5.22, RTX 20 3.92, Ampere +0.42.
+  TexBench fixes from topt's P13d (2026-10-23): (1) P3 and P5 both had tests named "4 reads" / "16 reads"; results are
+  kept by name, so P3's showed P5's time (RTX 2080: 4 reads 0.147 < 1 read 0.167). P5's renamed "exchange: ...", and
+  makeTests fails on duplicate names. (2) Pass chains: every unit's first draw read the same input, so a 1-pass
+  chain's draws overlapped (RTX 2080: 1 pass 0.0012 ms against ~0.0035 per pass in longer chains); draws now count
+  across units (each reads what the draw before wrote), also ping-pong and compute. GTX 1660 after: 1/64 chains
+  0.003 / 0.007 / 0.013 / 0.027 ms for 1 / 2 / 4 / 8 passes; reads 0.424 (1) ... 0.435 (4), 0.490 (6), 1.028 (16).
+  topt P12 / P13a-c (2026-10-23): blending R8 / R16F / R32F / RG16F / RG32F (plain, add blend, add shader; needs
+  BLENDABLE), pass chains also at 1/4 and 1/16, "half bilinear RGBA8, 6 sources" (six 4K sources in turn, ~200 MB:
+  past every cache; Test::sources), under-filled passes (64 bilinear reads of a 16 x 16 block of the image's top-left
+  1920 x 1080 into 120 x 67 / 240 x 135 / 480 x 270). GTX 1660: chains 44 us per pass at 1/4, 12 us at 1/16; 64 reads
+  0.164 / 0.196 / 0.111 ms (the small targets slower than 480 x 270: the GPU not filled); 6 sources = 1 (small L2);
+  R16F plain / add blend / add shader 61.5 / 61.5 / 61.5, RG32F 152.4 / 150.6 / 228.3 (units per pixel).
+  topt P11 in D3D11 (2026-10-23; D3D9 / D3D10 not done: TexBench runs D3D11 only): scatter tests in the blur section
+  (Test::scatter: additive points from a vertex shader that reads its pixel of the image's 1920 x 1080 top-left; the
+  compute histogram with groupshared or global atomics; additive splat quads). GTX 1660 (ms): 1 bin 10.4, 16 bins 2.9,
+  256 bins 0.51 = own pixel 0.508 (contention gone at 256), every 4th / 16th 0.128 / 0.033, R16F 0.92 (slower than
+  R32F), RGBA16F 0.61, RGBA8 0.51, spread copies 2x2 / 4x4 / 4 apart 0.69 / 0.81 / 0.88 (no gain where 256 bins
+  already do not contend), compute groupshared 0.134 / global 0.81; splats 1/8: 0.19 / 0.27 / 0.29 (4 / 8 / 16 px),
+  1/16: 0.045 / 0.061 / 0.153.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one

@@ -44,6 +44,7 @@
 #include <map>
 #include <memory>
 #include <random>
+#include <set>
 
 namespace {
 
@@ -154,6 +155,10 @@ std::vector<uint8_t> texelData(const Format& f, size_t texels, std::mt19937& rng
 // Formats x filtering columns.
 const char* const kMatrixCols[] = {"Load", "point", "bilinear", "gather", "trilinear", "aniso 2x", "aniso 4x", "aniso 8x", "aniso 16x"};
 
+// Scatter tests (topt P11, 2026-10-23): additive points (a vertex-shader histogram), additive quads (splats), or the
+// histogram in a compute shader (groupshared atomics, then one global atomic per bin; or global atomics only).
+enum { kScatterNone, kScatterPoints, kScatterSplats, kScatterCompute };
+
 // Pass state tests (full-screen passes into 3840 x 2160, ms per pass).
 enum { kPassTargets = 1, kPassClear, kPassMips, kPassHeavy, kPassStencil, kPassDiscardTiles, kPassDiscardPixels,
        kPassCopySample, kPassCopyLoad, kPassDownBilinear, kPassDownLoad, kPassBands, kPassStencilBands,
@@ -197,6 +202,9 @@ struct Test {
   UINT needs = 0;            // D3D11_FORMAT_SUPPORT bits the format must have (else the test is left out)
   int count = 1;             // pass state test: render targets; interpolator test: float4 values
   int interp = kInterpNone;  // interpolator test: what the vertex shader hands the pixel shader
+  int sources = 1;           // copy / downsample passes: source textures read in turn (more than any cache holds)
+  // Scatter (topt P11, Stage::Blur): src is the vertex shader (points / splats) or the compute shader, drawn count times.
+  int scatter = 0;           // kScatter* below
   bool skipDep = false;      // runs in tput and lat only (dep equals tput for reads: see runsIn)
   bool psPixel = false;      // pixel shader: P is the pixel's own texel (1:1), scale is free for the step
   // Blur building blocks (Stage::Blur): one unit = chain draws of the shader src into tw x th targets. chainMode
@@ -278,14 +286,106 @@ void makeBlurTests(std::vector<Test>& v) {
   // P1 per-pass overhead: chains of dependent passes into small targets (1 read + write each); the slope is the cost
   // of one more pass. Distinct targets, and two targets in turn.
   const std::string p1 = "Pass overhead: chains of dependent passes (1 read + write, RGBA8)";
-  for (UINT div : {8u, 16u})
+  // Also at 1/4 and 1/16 of the screen (topt P13b, 2026-10-23: where small passes stop running from the caches).
+  for (UINT div : {2u, 4u, 8u, 16u})
     for (int k : {1, 2, 4, 8, 16, 32})
-      blur((div == 8 ? "1/64, " : "1/256, ") + std::to_string(k) + (k == 1 ? " pass" : " passes"), p1, "RGBA8", div, k, 1,
+      blur("1/" + std::to_string(div * div) + ", " + std::to_string(k) + (k == 1 ? " pass" : " passes"), p1, "RGBA8", div, k, 1,
            "  return T.Load(int3(pos.xy, 0));\n",
-           std::string(div == 8 ? "480 x 270" : "240 x 135") + ", each pass reads the one before");
+           std::to_string(kRtW / div) + " x " + std::to_string(kRtH / div) + ", each pass reads the one before");
   for (int k : {1, 2, 4, 8, 16, 32})
     blur("1/64 ping-pong, " + std::to_string(k), p1, "RGBA8", 8, k, 2, "  return T.Load(int3(pos.xy, 0));\n",
          "480 x 270, two targets in turn (A -> B -> A)");
+
+  // Under-filled passes with dense reads (topt P13c, 2026-10-23): each pixel averages a 16 x 16 block of a 1920 x 1080
+  // area (the image's top-left quarter: the same memory as a 1920 x 1080 source) with 64 bilinear reads, into targets
+  // too small to fill the GPU (120 x 67, 240 x 135) and one that is not (480 x 270; the blocks then overlap).
+  const std::string p13 = "Under-filled passes: 64 bilinear reads (a 16 x 16 block) per pixel of a 1920 x 1080 area";
+  for (UINT div : {32u, 16u, 8u}) {
+    const std::string stride = std::to_string(1920 / (kRtW / div)) + ".0";
+    blur("64 reads into " + std::to_string(kRtW / div) + " x " + std::to_string(kRtH / div), p13, "RGBA8", div, 1, 0,
+         "  float2 b = floor(pos.xy) * " + stride + ";\n  float4 s = 0.0;\n"
+         "  [unroll] for (int j = 0; j < 8; ++j) [unroll] for (int i = 0; i < 8; ++i)\n"
+         "    s += T.SampleLevel(L, (b + float2(2 * i + 1, 2 * j + 1))" + uv + ", 0.0);\n  return s * 0.015625;\n",
+         std::to_string(kRtW / div) + " x " + std::to_string(kRtH / div) + " pixels, " + stride.substr(0, stride.size() - 2) +
+             " texels apart");
+  }
+
+  // P11 scatter (D3D11; ReShade on D3D9 / D3D10 has no compute, so histograms there are drawn as points): each point
+  // reads its pixel of a 1920 x 1080 area of the image in the vertex shader and adds 1 into its bin (additive blend).
+  const std::string p11 = "Scatter: additive points (vertex-shader histogram) from a 1920 x 1080 area, and splats";
+  auto scat = [&](std::string name, int kind, const char* fn, UINT tw, UINT th, UINT count, std::string src, std::string note) {
+    Test t;
+    t.name = std::move(name);
+    t.section = p11;
+    t.stage = Stage::Blur;
+    t.format = formatByName(fn);
+    t.tw = tw, t.th = th;
+    t.scatter = kind;
+    t.count = int(count);
+    t.src = std::move(src);
+    t.note = std::move(note);
+    if (kind != kScatterCompute) t.needs = D3D11_FORMAT_SUPPORT_RENDER_TARGET | D3D11_FORMAT_SUPPORT_BLENDABLE;
+    v.push_back(std::move(t));
+  };
+  // A point per pixel (every stride-th pixel), into the bin bin(p, luma) of a tw x th target.
+  auto points = [](UINT stride, UINT tw, UINT th, const std::string& bin) {
+    return "Texture2D<float4> T : register(t0);\n"
+           "struct O { float4 pos : SV_Position; float4 c : COLOR; };\n"
+           "O main(uint v : SV_VertexID) {\n"
+           "  uint i = v * " + std::to_string(stride) + "u;\n  int2 p = int2(i % 1920u, i / 1920u);\n"
+           "  float4 c = T.Load(int3(p, 0));\n  float luma = dot(c.rgb, float3(0.2126, 0.7152, 0.0722));\n"
+           "  uint h = min(uint(luma * 256.0), 255u);\n  int2 b = " + bin + ";\n"
+           "  O o;\n  o.pos = float4((b + 0.5) * float2(" + std::to_string(2.0 / tw) + ", " + std::to_string(-2.0 / th) +
+           ") + float2(-1.0, 1.0), 0.0, 1.0);\n  o.c = 1.0;\n  return o;\n}\n";
+  };
+  const UINT all = 1920 * 1080;
+  scat("1 bin", kScatterPoints, "R32F", 1, 1, all, points(1, 1, 1, "int2(0, 0)"), "every pixel into one: all contend");
+  scat("16 bins", kScatterPoints, "R32F", 16, 1, all, points(1, 16, 1, "int2(h >> 4, 0)"), "luma in 16 bins");
+  scat("256 bins", kScatterPoints, "R32F", 256, 1, all, points(1, 256, 1, "int2(h, 0)"), "a luma histogram, 256 x 1");
+  scat("own pixel", kScatterPoints, "R32F", 1920, 1080, all, points(1, 1920, 1080, "p"), "no contention: the write rate");
+  for (UINT stride : {4u, 16u})
+    scat("256 bins, every " + std::to_string(stride) + "th", kScatterPoints, "R32F", 256, 1, all / stride,
+         points(stride, 256, 1, "int2(h, 0)"), "subsampled: every " + std::to_string(stride) + "th pixel");
+  for (const char* fn : {"R16F", "RGBA16F", "RGBA8"})
+    scat(std::string("256 bins ") + fn, kScatterPoints, fn, 256, 1, all, points(1, 256, 1, "int2(h, 0)"),
+         std::string("the histogram into ") + fn);
+  // Spread copies: each bin several times, the copy picked by the pixel's position, summed back later with one bilinear
+  // read (2 x 2) or by adding (far apart): less contention per address.
+  scat("256 bins, 2x2 copies", kScatterPoints, "R32F", 512, 2, all, points(1, 512, 2, "int2(h * 2u + (p.x & 1), p.y & 1)"),
+       "each bin a 2 x 2 block, the copy from the pixel's parity");
+  scat("256 bins, 4x4 copies", kScatterPoints, "R32F", 1024, 4, all, points(1, 1024, 4, "int2(h * 4u + (p.x & 3), p.y & 3)"),
+       "each bin a 4 x 4 block");
+  scat("256 bins, 4 apart", kScatterPoints, "R32F", 1024, 1, all,
+       points(1, 1024, 1, "int2(h + 256u * ((p.x & 1) + 2u * (p.y & 1)), 0)"), "four copies 256 apart");
+  // The compute shader reference: the same histogram with atomics.
+  const std::string cs = "Texture2D<float4> T : register(t0);\nRWStructuredBuffer<uint> G : register(u0);\n";
+  const std::string bin = "  float4 c = T.Load(int3(id.xy, 0));\n"
+                          "  uint h = min(uint(dot(c.rgb, float3(0.2126, 0.7152, 0.0722)) * 256.0), 255u);\n";
+  scat("compute: groupshared", kScatterCompute, "R32F", 256, 1, all,
+       cs + "groupshared uint H[256];\n[numthreads(16, 16, 1)] void main(uint3 id : SV_DispatchThreadID, uint li : SV_GroupIndex) {\n"
+            "  H[li] = 0;\n  GroupMemoryBarrierWithGroupSync();\n" + bin + "  InterlockedAdd(H[h], 1u);\n"
+            "  GroupMemoryBarrierWithGroupSync();\n  if (H[li] != 0u) InterlockedAdd(G[li], H[li]);\n}\n",
+       "16 x 16 groups: groupshared atomics, then one global atomic per bin");
+  scat("compute: global atomics", kScatterCompute, "R32F", 256, 1, all,
+       cs + "[numthreads(16, 16, 1)] void main(uint3 id : SV_DispatchThreadID) {\n" + bin + "  InterlockedAdd(G[h], 1u);\n}\n",
+       "every pixel's atomic on the global buffer");
+  // Splats (bokeh-style scatter): a quad per pixel of a small source, additive into RGBA16F at 3840 x 2160.
+  for (UINT div : {8u, 16u})
+    for (UINT size : {4u, 8u, 16u}) {
+      const UINT sw = 1920 / div, sh = 1080 / div;
+      const std::string src =
+          "Texture2D<float4> T : register(t0);\nstruct O { float4 pos : SV_Position; float4 c : COLOR; };\n"
+          "O main(uint v : SV_VertexID) {\n  uint q = v / 6u, k = v % 6u;\n"
+          "  int2 p = int2(q % " + std::to_string(sw) + "u, q / " + std::to_string(sw) + "u);\n"
+          "  float2 corner = float2(k == 1u || k == 2u || k == 4u ? 1.0 : 0.0, k == 2u || k == 4u || k == 5u ? 1.0 : 0.0);\n"
+          "  float2 px = (p + 0.5) * float2(" + std::to_string(3840.0 / sw) + ", " + std::to_string(2160.0 / sh) + ") + (corner - 0.5) * " +
+          std::to_string(size) + ".0;\n"
+          "  O o;\n  o.pos = float4(px * float2(2.0 / 3840.0, -2.0 / 2160.0) + float2(-1.0, 1.0), 0.0, 1.0);\n"
+          "  o.c = T.Load(int3(p * " + std::to_string(div) + ", 0)) * 0.0625;\n  return o;\n}\n";
+      scat("splats 1/" + std::to_string(div) + ", " + std::to_string(size) + " x " + std::to_string(size), kScatterSplats,
+           "RGBA16F", kRtW, kRtH, sw * sh * 6, src,
+           std::to_string(sw * sh) + " quads of " + std::to_string(size) + " x " + std::to_string(size) + " pixels, additive into RGBA16F");
+    }
 
   // P3 "free" fetches: N bilinear reads at fractional offsets within +-3 texels (R2 sequence), full size.
   const std::string p3 = "Bilinear reads per pixel: RGBA8 3840 x 2160 into RGBA8";
@@ -320,10 +420,12 @@ void makeBlurTests(std::vector<Test>& v) {
     }
     return b + "  return float4(s * 0.0625, 1.0);\n";
   };
-  blur("4 reads", p5, "RGBA8", 1, 1, 0, taps(4, false), "the base");
-  blur("16 reads", p5, "RGBA8", 1, 1, 0, taps(16, false), "16 bilinear reads");
+  // Own names: results are kept by name, and P3 has "4 reads" / "16 reads" too (topt, 2026-10-23: its 4 reads showed
+  // this section's time).
+  blur("exchange: 4 reads", p5, "RGBA8", 1, 1, 0, taps(4, false), "the base");
+  blur("exchange: 16 reads", p5, "RGBA8", 1, 1, 0, taps(16, false), "16 bilinear reads");
   Test& ex = blur("4 reads + 12 exchanges", p5, "RGBA8", 1, 1, 0, taps(4, true), "each read gives the quad's 3 neighbours");
-  ex.base = "4 reads", ex.count = 12, ex.per = "exchange";
+  ex.base = "exchange: 4 reads", ex.count = 12, ex.per = "exchange";
 
   // P6 noise sources, 1 and 8 per pixel, into R8 (little to write): textures (point, wrap), a table, ALU hashes.
   const std::string p6 = "Noise sources: per pixel into R8 3840 x 2160 (fma per lookup over none)";
@@ -989,10 +1091,12 @@ std::vector<Test> makeTests() {
   // Blending (ReShade pass states BlendEnable / BlendOp / SrcBlend / DestBlend): the output blended into
   // the target by the hardware against a shader that reads the target's content as a texture and does the
   // same math. Each pass first restores the target's content (noise) by a copy, timed alone and subtracted.
-  for (const char* fn : {"RGBA8", "RGB10A2", "RG11B10F", "RGBA16F", "RGBA32F"})
+  // One- and two-channel formats (topt P12, 2026-10-23: histograms and masks): plain and add only.
+  for (const char* fn : {"RGBA8", "RGB10A2", "RG11B10F", "RGBA16F", "RGBA32F", "R8", "R16F", "R32F", "RG16F", "RG32F"})
     for (int op = 0; op <= 4; ++op)
       for (bool shader : {false, true}) {
-        if (op == 0 && shader) continue;
+        const bool few = formatByName(fn)->channels < 3;
+        if ((op == 0 && shader) || (few && op > 1)) continue;
         static const char* const kOps[] = {"plain", "add", "lerp", "multiply", "min"};
         Test t;
         t.name = std::string(fn) + " " + kOps[op] + (op == 0 ? "" : shader ? " shader" : " blend");
@@ -1001,6 +1105,7 @@ std::vector<Test> makeTests() {
         t.format = formatByName(fn);
         t.blend = op;
         t.shaderBlend = shader;
+        if (few) t.needs = D3D11_FORMAT_SUPPORT_RENDER_TARGET | (shader ? 0u : UINT(D3D11_FORMAT_SUPPORT_BLENDABLE));
         add(t);
       }
 
@@ -1059,9 +1164,19 @@ std::vector<Test> makeTests() {
     cp(std::string("copy Sample ") + fn, kPassCopySample, "full-size copy, point Sample");
     cp(std::string("copy Load ") + fn, kPassCopyLoad, "full-size copy, Load");
     cp(std::string("half bilinear ") + fn, kPassDownBilinear, "1920 x 1080 average of 2 x 2: one bilinear read");
+    // From memory (topt P13a, 2026-10-23): one 33 MB source stays in large L2 / Infinity Caches; six in turn (~200 MB
+    // in RGBA8) cannot.
+    if (std::string(fn) == "RGBA8") {
+      cp("half bilinear RGBA8, 6 sources", kPassDownBilinear, "the same, six 3840 x 2160 sources in turn: from memory");
+      v.back().sources = 6;
+    }
     cp(std::string("half 4 Load ") + fn, kPassDownLoad, "1920 x 1080 average of 2 x 2: 4 Loads + math");
   }
   makeBlurTests(v);
+  // Results are kept by name: two tests of one name would show one's time for both.
+  std::set<std::string> names;
+  for (const Test& t : v)
+    if (!names.insert(t.name).second) fail("two tests named " + t.name);
   return v;
 }
 
@@ -2720,6 +2835,97 @@ int main(int argc, char** argv) {
           fail("cannot create the image for " + t->name);
         tex->Release();
       }
+      if (t->scatter) {
+        // One tw x th target of the format (points / splats, additive blending, no culling), or a 256-entry buffer for
+        // the atomics; the image is the source. One unit = one draw (count vertices) or one dispatch.
+        const bool csMode = t->scatter == kScatterCompute;
+        ID3D11Texture2D* rt = nullptr;
+        ID3D11RenderTargetView* rtv1 = nullptr;
+        ID3D11Buffer* buf = nullptr;
+        ID3D11UnorderedAccessView* uav1 = nullptr;
+        ID3D11VertexShader* vsh = nullptr;
+        ID3D11PixelShader* psh = nullptr;
+        ID3D11ComputeShader* csh = nullptr;
+        ID3D11BlendState* add = nullptr;
+        ID3D11RasterizerState* noCull = nullptr;
+        if (csMode) {
+          D3D11_BUFFER_DESC bd = {};
+          bd.ByteWidth = 256 * 4;
+          bd.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+          bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+          bd.StructureByteStride = 4;
+          D3D11_UNORDERED_ACCESS_VIEW_DESC ud = {};
+          ud.Format = DXGI_FORMAT_UNKNOWN;
+          ud.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+          ud.Buffer.NumElements = 256;
+          ID3DBlob* code = compile(t->src, t->name.c_str(), "cs_5_0");
+          if (FAILED(g.dev->CreateBuffer(&bd, nullptr, &buf)) || FAILED(g.dev->CreateUnorderedAccessView(buf, &ud, &uav1)) ||
+              FAILED(g.dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &csh)))
+            fail("cannot create " + t->name);
+          code->Release();
+          g.ctx->CSSetShader(csh, nullptr, 0);
+          g.ctx->CSSetShaderResources(0, 1, &blurImage);
+          g.ctx->CSSetUnorderedAccessViews(0, 1, &uav1, nullptr);
+          timeUnits(t, [&](UINT) { g.ctx->Dispatch(1920 / 16, (1080 + 15) / 16, 1); });
+          ID3D11UnorderedAccessView* nullUav = nullptr;
+          ID3D11ShaderResourceView* nullView = nullptr;
+          g.ctx->CSSetUnorderedAccessViews(0, 1, &nullUav, nullptr);
+          g.ctx->CSSetShaderResources(0, 1, &nullView);
+        } else {
+          D3D11_TEXTURE2D_DESC td = {};
+          td.Width = t->tw;
+          td.Height = t->th;
+          td.MipLevels = td.ArraySize = 1;
+          td.Format = t->format->dxgi;
+          td.SampleDesc.Count = 1;
+          td.BindFlags = D3D11_BIND_RENDER_TARGET;
+          D3D11_BLEND_DESC bd = {};
+          bd.RenderTarget[0] = {TRUE, D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_OP_ADD, D3D11_BLEND_ONE, D3D11_BLEND_ONE,
+                                D3D11_BLEND_OP_ADD, D3D11_COLOR_WRITE_ENABLE_ALL};
+          D3D11_RASTERIZER_DESC rd = {};
+          rd.FillMode = D3D11_FILL_SOLID;
+          rd.CullMode = D3D11_CULL_NONE;
+          rd.DepthClipEnable = TRUE;
+          const char* ps = "float4 main(float4 pos : SV_Position, float4 c : COLOR) : SV_Target { return c; }\n";
+          ID3DBlob* vcode = compile(t->src, t->name.c_str(), "vs_5_0");
+          ID3DBlob* pcode = compile(ps, "scatter ps", "ps_5_0");
+          if (FAILED(g.dev->CreateTexture2D(&td, nullptr, &rt)) || FAILED(g.dev->CreateRenderTargetView(rt, nullptr, &rtv1)) ||
+              FAILED(g.dev->CreateVertexShader(vcode->GetBufferPointer(), vcode->GetBufferSize(), nullptr, &vsh)) ||
+              FAILED(g.dev->CreatePixelShader(pcode->GetBufferPointer(), pcode->GetBufferSize(), nullptr, &psh)) ||
+              FAILED(g.dev->CreateBlendState(&bd, &add)) || FAILED(g.dev->CreateRasterizerState(&rd, &noCull)))
+            fail("cannot create " + t->name);
+          vcode->Release();
+          pcode->Release();
+          D3D11_VIEWPORT vp = {0.0f, 0.0f, float(t->tw), float(t->th), 0.0f, 1.0f};
+          g.ctx->RSSetViewports(1, &vp);
+          g.ctx->RSSetState(noCull);
+          g.ctx->OMSetBlendState(add, nullptr, 0xffffffff);
+          g.ctx->OMSetRenderTargets(1, &rtv1, nullptr);
+          g.ctx->VSSetShader(vsh, nullptr, 0);
+          g.ctx->VSSetShaderResources(0, 1, &blurImage);
+          g.ctx->PSSetShader(psh, nullptr, 0);
+          g.ctx->IASetPrimitiveTopology(t->scatter == kScatterPoints ? D3D11_PRIMITIVE_TOPOLOGY_POINTLIST
+                                                                     : D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+          timeUnits(t, [&](UINT) { g.ctx->Draw(UINT(t->count), 0); });
+          ID3D11ShaderResourceView* nullView = nullptr;
+          g.ctx->VSSetShaderResources(0, 1, &nullView);
+          g.ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+          g.ctx->VSSetShader(g.vs, nullptr, 0);
+          g.ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+          g.ctx->RSSetState(nullptr);
+          g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
+        }
+        release(noCull);
+        release(add);
+        release(csh);
+        release(psh);
+        release(vsh);
+        release(uav1);
+        release(buf);
+        release(rtv1);
+        release(rt);
+        return;
+      }
       // Targets: mode 1 one per pass plus the first source, else two (in turn).
       const int nTex = t->chainMode == 1 ? t->chain + 1 : 2;
       std::vector<ID3D11Texture2D*> tex(size_t(nTex), nullptr);
@@ -2787,10 +2993,13 @@ int main(int argc, char** argv) {
       D3D11_VIEWPORT vp = {0.0f, 0.0f, float(t->tw), float(t->th), 0.0f, 1.0f};
       g.ctx->RSSetViewports(1, &vp);
       // The output first: it unbinds the view the draw before read from, then the input (no longer an output).
+      // Chains: draw i (counted across units) reads what draw i - 1 wrote, also from one unit to the next (topt,
+      // 2026-10-23: a 1-pass "chain" read the same input in every unit, so its passes overlapped and looked cheaper).
       timeUnits(t, [&](UINT k) {
         for (int d = 0; d < t->chain; ++d) {
-          const int from = t->chainMode == 1 ? d : t->chainMode == 0 ? -1 : (d & 1);
-          const int to = t->chainMode == 1 ? d + 1 : t->chainMode == 0 ? int(k & 1) : 1 - (d & 1);
+          const int i = int(k) * t->chain + d, n = t->chainMode == 1 ? t->chain + 1 : 2;
+          const int from = t->chainMode == 0 ? -1 : i % n;
+          const int to = t->chainMode == 0 ? int(k & 1) : (i + 1) % n;
           ID3D11ShaderResourceView* in = from < 0 ? blurImage : srv[size_t(from)];
           if (cs) {
             g.ctx->CSSetUnorderedAccessViews(1, 1, &uavs[size_t(to)], nullptr);
@@ -2861,8 +3070,8 @@ int main(int argc, char** argv) {
       const bool half = t->pass == kPassDownBilinear || t->pass == kPassDownLoad;
       D3D11_VIEWPORT vp = {0.0f, 0.0f, float(half ? kRtW / 2 : kRtW), float(half ? kRtH / 2 : kRtH), 0.0f, 1.0f};
       g.ctx->RSSetViewports(1, &vp);
-      ID3D11Texture2D* source = nullptr;
-      ID3D11ShaderResourceView* sourceView = nullptr;
+      std::vector<ID3D11Texture2D*> source(size_t(t->sources), nullptr);
+      std::vector<ID3D11ShaderResourceView*> sourceView(size_t(t->sources), nullptr);
       ID3D11SamplerState* sampler = nullptr;
       if (copyPass) {
         // The source: random texels of the format, 3840 x 2160; point sampler for the copy, bilinear for the downsample.
@@ -2874,16 +3083,19 @@ int main(int argc, char** argv) {
         td.SampleDesc.Count = 1;
         td.Usage = D3D11_USAGE_IMMUTABLE;
         td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        const auto data = texelData(*t->format, size_t(kRtW) * kRtH, rng);
-        D3D11_SUBRESOURCE_DATA init = {data.data(), kRtW * UINT(t->format->bytes), 0};
-        if (FAILED(g.dev->CreateTexture2D(&td, &init, &source)) || FAILED(g.dev->CreateShaderResourceView(source, nullptr, &sourceView)))
-          fail("cannot create the source texture for " + t->name);
+        for (size_t s = 0; s < source.size(); ++s) {
+          const auto data = texelData(*t->format, size_t(kRtW) * kRtH, rng);
+          D3D11_SUBRESOURCE_DATA init = {data.data(), kRtW * UINT(t->format->bytes), 0};
+          if (FAILED(g.dev->CreateTexture2D(&td, &init, &source[s])) ||
+              FAILED(g.dev->CreateShaderResourceView(source[s], nullptr, &sourceView[s])))
+            fail("cannot create the source texture for " + t->name);
+        }
         D3D11_SAMPLER_DESC sd = {};
         sd.Filter = t->pass == kPassDownBilinear ? D3D11_FILTER_MIN_MAG_MIP_LINEAR : D3D11_FILTER_MIN_MAG_MIP_POINT;
         sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
         sd.MaxLOD = D3D11_FLOAT32_MAX;
         if (FAILED(g.dev->CreateSamplerState(&sd, &sampler))) fail("cannot create the sampler for " + t->name);
-        g.ctx->PSSetShaderResources(0, 1, &sourceView);
+        g.ctx->PSSetShaderResources(0, 1, &sourceView[0]);
         g.ctx->PSSetSamplers(0, 1, &sampler);
       }
       if (t->pass == kPassStencil || t->pass == kPassStencilBands) {
@@ -2938,6 +3150,7 @@ int main(int argc, char** argv) {
         else if (t->pass == kPassMips) g.ctx->GenerateMips(srv);
         else {
           g.ctx->OMSetRenderTargets(UINT(count), &rtvs[size_t((k & 1) * count)], dsv);
+          if (sourceView.size() > 1) g.ctx->PSSetShaderResources(0, 1, &sourceView[k % sourceView.size()]);
           g.ctx->Draw(t->pass == kPassBands ? 12 : 3, 0);
         }
       };
@@ -2951,8 +3164,8 @@ int main(int argc, char** argv) {
         g.ctx->PSSetShaderResources(0, 1, &nullView);
       }
       release(sampler);
-      release(sourceView);
-      release(source);
+      for (auto*& s : sourceView) release(s);
+      for (auto*& s : source) release(s);
       release(ps);
       release(psMark);
       release(dsTest);
