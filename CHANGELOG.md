@@ -5,7 +5,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.9.1
+## 0.9.2
 
 ### SweetOpt
 - **Fixed:** effects that include files from a sub-folder without naming it (BFBFX includes its files from `bfb_inc` this way) could not be read. SweetOpt now looks in every folder under reshade-shaders\Shaders, as ReShade does.
@@ -16,6 +16,7 @@ docs/notes/history.md.
 
 ### GPU Blueprint
 - **StageBench has its own page** in the guide: what it measures, why, and how long it takes.
+- **TexBench measures more:** how finely your graphics card can place a texture read between two pixels, whether reading a texture with a fixed detail level is faster than letting the card choose, and what values passed from the vertex shader cost.
 - **Fairer TexBench summary:** where TexBench compares compute shaders with a pixel shader, it now names the pixel shader as the best when no compute shader beats it.
 - **How long will it take?** The menu shows about how long the tests take on each of your graphics cards, each test says at its start how long it usually takes on cards like yours, and the window title counts down the time left. The times come from the reports people have sent.
 - **On the website:** the StageBench page has a table of every test on every card and small bars that show where pixel and vertex shaders cost differently; hovering a test shows the code it times; the cards list shows how long each test took per card; the colour tables have twice as many shades.

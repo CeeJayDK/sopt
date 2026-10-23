@@ -115,6 +115,26 @@ every card. Discarding every other pixel saves nothing (GPUs shade 2 × 2 quads)
 On NVIDIA (every generation tested) the fine derivatives cost half of the plain (coarse) ones: GTX 1660 3.0 vs 7.0, RTX
 4060 Ti 5.9 vs 12.7, RTX 5080 6.0 vs 12.9. On AMD and Intel they cost the same, so `ddx_fine` is never worse.
 
+### `SampleLevel(…, 0)` is never slower than `Sample`
+
+Measured first on a GTX 1660 and a UHD 630 (TexBench 0.9.2, 2026-10-22): in throughput a bilinear `Sample` and
+`SampleLevel` at level 0 or 1 cost the same (39.1 / 39.1 / 39.2 and 35.3 / 34.9 / 35.3); in a chain of reads that
+depend on each other `Sample` is about 3 units slower (42.1 vs 39.3 and 42.7 vs 39.6). Where the level is known, give
+it.
+
+### Sampling precision: 8 bits, rounded to the nearest
+
+The same two cards place a bilinear read in 1/256 steps between two texels (257 results from 65536 reads) and round a
+position to the nearest step (the first change at 1/512 texel), in RGBA8, RGBA16F and R32F alike: an offset of 1/257
+texel reads as 1/256. Inside one 8-bit colour step they keep all 257 levels.
+
+### Interpolators: one or two values are free, many are not
+
+GTX 1660 and UHD 630, a full-screen pass busy with math: a texture coordinate from the vertex shader costs the same
+as working it out in the pixel shader (one mad), and a float4 of which two values are read costs the same as a float2.
+In bulk each interpolated value costs about 0.5 fma per pixel on the GTX 1660 and about 2 on the UHD 630 (8 float4:
++0.05 ms and +2.7 ms at 3840 × 2160); `nointerpolation` values cost far less.
+
 ### Clears are free
 
 `ClearRenderTargets` costs nothing measurable on every card except Intel Gen7.5 (1.2 ms at 3840 × 2160): GPUs mark
