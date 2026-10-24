@@ -2111,6 +2111,18 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   R32F), RGBA16F 0.61, RGBA8 0.51, spread copies 2x2 / 4x4 / 4 apart 0.69 / 0.81 / 0.88 (no gain where 256 bins
   already do not contend), compute groupshared 0.134 / global 0.81; splats 1/8: 0.19 / 0.27 / 0.29 (4 / 8 / 16 px),
   1/16: 0.045 / 0.061 / 0.153.
+  Reports 2026-10-23 (intake Action): GT 1030 (owner's, Pascal, 0.9.2, driver 582.78): drift 30% (cs), 4th Pascal
+  card, differs only in arraywrite (874 vs 1406); first Pascal StageBench and current-tests run: Pascal now has run times
+  (112 / 101 / 325 s); sampling precision 8 bits, rounded to the nearest (as GTX 1660 / UHD 630); interpolators 1 value
+  free, 8 float4 +0.53 ms, flat +0.38 ms (Pascal saves little with nointerpolation); SampleLevel = Sample.
+  Intel HD Graphics 3000 (Sandy Bridge, Gen6, driver 8.17.10.1404, 0.9.2): no model (new family), drift 1.3%, OpBench
+  199 s, TexBench 540 s; sampling precision RGBA8 257 positions but only 9 levels inside one 8-bit step (RGBA16F / R32F
+  257): its UNORM8 filter keeps ~3 bits below the colour step, so FetchMore-style decoding cannot work there; first
+  change at 129/65536 (rounds half down), also on the Renoir report.
+  AMD Renoir (0x1636, 3rd report, 0.9.2): drift 141% (cs), TexBench 367%: unreliable. Cezanne (0x1638, Vega 8 iGPU,
+  new card, 0.9.0): drift 0.4%; was "family: none yet" (generic name): NAME_BY_DEVICE now maps 0x1638 to GCN 5.
+  RTX 2050 (GA107, 0.9.0, made before the Turing split: its header says Turing): differs from Turing exactly where
+  Ampere does (sqmax / fmamax 7.5 vs 4.4, min / max / step 4.5 vs 0.6): confirms the move to Ampere; OpBench 479 s.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one
