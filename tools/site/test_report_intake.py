@@ -64,6 +64,21 @@ def test_known():
     assert not ri.known("docs/opbench", "\n".join(lines) + "x")
 
 
+def test_pick():
+    # build.pick: the newest report, or the least drift among those with its version and driver.
+    import build
+    r = lambda v, drv, d: {"key": (v, 0), "driver": drv, "drift": d}
+    reps = [r((0, 9, 2), "1.0", "140%"), r((0, 9, 2), "1.0", "0.1%"), r((0, 9, 2), "2.0", "5%"), r((0, 9, 0), "1.0", "0%")]
+    k = lambda x: x["key"]
+    assert build.pick(reps[:2], k, lambda x: x)["drift"] == "0.1%"  # same version and driver: the cleaner run
+    assert build.pick([reps[0], reps[3]], k, lambda x: x)["drift"] == "140%"  # an older version is not a candidate
+    assert build.pick([reps[0], reps[2]], k, lambda x: x)["drift"] == "140%"  # another driver is not a candidate
+    # by_cleanest (per test, later wins): other drivers first, then the newest's driver from most to least drift,
+    # older versions included (the Renoir: a clean 0.7.0 run and a noisy 0.9.2 one with one driver).
+    order = [x["drift"] for x in build.by_cleanest([reps[0], reps[3], reps[2]], k, lambda x: x)]
+    assert order == ["5%", "140%", "0%"], order
+
+
 if __name__ == "__main__":
     for name, f in list(globals().items()):
         if name.startswith("test_"):

@@ -72,9 +72,16 @@ def main():
         neg = [float(r["units_vs_base"]) for r in rows if r["test"] == "neg"]
         if not neg or abs(neg[0]) > 0.3:
             continue
-        key = version_key(info, path[:-4])
-        if (name, stage) not in cards or key > cards[(name, stage)][0]:
-            cards[(name, stage)] = (key, model, rows)
+        cards.setdefault((name, stage), []).append((version_key(info, path[:-4]), model, rows, info))
+    # Per card and stage each test from the cleanest run of the newest report's driver (site.by_cleanest: later wins).
+    merged = {}
+    for k, v in cards.items():
+        rows = {}
+        for c in site.by_cleanest(v, lambda c: c[0], lambda c: c[3]):
+            rows.update((r["test"], r) for r in c[2])
+        top = max(v, key=lambda c: c[0])
+        merged[k] = (top[0], top[1], list(rows.values()))
+    cards = merged
     families = {}
     for (name, stage), (key, model, rows) in sorted(cards.items()):
         fam = families.setdefault((model, stage), {"cards": [], "values": {}})

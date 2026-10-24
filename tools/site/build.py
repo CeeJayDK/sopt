@@ -103,12 +103,41 @@ def read_report(path):
         m = re.match(r"# (gpu|vendor|device|driver|stage|run time): (.*)", line)
         if m:
             info[m.group(1)] = m.group(2).strip()
+        m = re.match(r"# reference drift(?: tput)?: (\S+)", line)
+        if m and "drift" not in info:
+            info["drift"] = m.group(1)
     info["rows"] = max(0, sum(1 for l in lines if l and not l.startswith("#")) - 1)  # tests (one header line)
     if "gpu" not in info:  # version 1: gpu,vendor,device,driver on every row
         rows = [r for r in csv.reader(l for l in lines if l and not l.startswith("#"))]
         if len(rows) > 1 and rows[0][:4] == ["gpu", "vendor", "device", "driver"]:
             info.update(gpu=rows[1][0], vendor=rows[1][1], device=rows[1][2], driver=rows[1][3], version="0.0")
     return info
+
+
+def drift_of(info):
+    try:
+        return float(info.get("drift", "").rstrip("%"))
+    except ValueError:
+        return float("inf")
+
+
+def pick(reports, key, info):
+    """Which of one card's reports to use (owner, 2026-10-24): the newest by key, or rather, among the reports with the
+    newest one's tool version (key[0]) and driver, the one whose clock moved least: a noisy rerun must not replace a
+    clean run. Other versions and drivers stay out (other tests, other measurements)."""
+    top = max(reports, key=key)
+    same = [r for r in reports if key(r)[0] == key(top)[0] and info(r).get("driver") == info(top).get("driver")]
+    return min(same, key=lambda r: drift_of(info(r)))
+
+
+def by_cleanest(reports, key, info):
+    """One card's reports in the order to read them test by test, later ones winning (owner, 2026-10-24: each test from
+    the cleanest run of the same driver; tests change between versions, and reading_valid already leaves out readings
+    of a test that changed): reports with another driver than the newest first (by key), then those with its driver
+    from the most to the least drift."""
+    drv = info(max(reports, key=key)).get("driver")
+    return sorted(reports, key=lambda r: (info(r).get("driver") == drv,
+                                          -drift_of(info(r)) if info(r).get("driver") == drv else 0.0, key(r)))
 
 
 def clean_name(name):
@@ -228,6 +257,7 @@ def opbench_extras():
         m = re.search(r"-v(\d+)$", base[:-4])
         key = (tuple(int(x) for x in info.get("version", "0").split(".") if x.isdigit()), int(m.group(1)) if m else 0)
         reps.append({"name": name, "model": model, "vendor": info.get("vendor", ""), "key": key,
+                     "driver": info.get("driver", ""), "drift": info.get("drift", ""),
                      "drv": tuple(int(x) for x in info["driver"].split(".") if x.isdigit()),
                      "label": driver_label(info["driver"], info.get("vendor", "")),
                      "vals": {t: v for t, v in vals.items() if not NOT_MATH.match(t)}, "all": vals, "steps": steps,
@@ -273,11 +303,8 @@ def opbench_extras():
         row["newerFaster"] = faster * 2 >= len(row["tests"])
         drivers.append(row)
 
-    # fp16: speed of min16float against the same work in fp32, family median over its cards (newest report each).
-    newest = {}
-    for r in reps:
-        if r["name"] not in newest or r["key"] > newest[r["name"]]["key"]:
-            newest[r["name"]] = r
+    # fp16: speed of min16float against the same work in fp32, family median over its cards (one report each: pick).
+    newest = best_reports(reps)
     pairs = {"fma": ("mad", "mad16"), "vec3": ("mad3v", "mad16v3"), "add": ("add", "add16"), "rcp": ("rcp", "rcp16")}
     fp16 = {}
     for r in newest.values():
@@ -307,11 +334,22 @@ def display_order():
     return sections
 
 
+def best_reports(reps):
+    """Card name -> its report to use (pick) among opbench_extras' reports."""
+    by = {}
+    for r in reps:
+        by.setdefault(r["name"], []).append(r)
+    return {name: pick(rs, lambda r: r["key"], lambda r: r) for name, rs in by.items()}
+
+
 def all_tests(reps):
     """Every OpBench test per family (owner, 2026-10-16): the family median of each card's newest clean reading, in fma
     units over the test's base, rows in OpBench's own order."""
     latest, steps = {}, {}  # (card, test) -> (model, value)
-    for r in sorted(reps, key=lambda r: r["key"]):
+    cards = {}
+    for r in reps:
+        cards.setdefault(r["name"], []).append(r)
+    for r in [r for rs in cards.values() for r in by_cleanest(rs, lambda r: r["key"], lambda r: r)]:
         for t, v in r["all"].items():
             latest[(r["name"], t)] = (r["model"], v)
             steps[t] = r["steps"][t]
@@ -346,10 +384,10 @@ def texbench_data(out):
         base = os.path.basename(path)[:-4]
         m = re.search(r"-v(\d+)$", base)
         rank = int(m.group(1)) if m else 0
-        if name not in best or rank > best[name][0]:
-            best[name] = (rank, path, base, info, rows, lines)
+        version = tuple(int(x) for x in info.get("version", "0").split(".") if x.isdigit())
+        best.setdefault(name, []).append(((version, rank), path, base, info, rows, lines))
     cards = []
-    for name, (rank, path, base, info, rows, lines) in sorted(best.items()):
+    for name, (rank, path, base, info, rows, lines) in sorted((n, pick(rs, lambda r: r[0], lambda r: r[3])) for n, rs in best.items()):
         hdr = {k: v for k, v in (re.match(r"# ([^:]+): (.*)", l).groups() for l in lines if re.match(r"# [^:]+: ", l))}
         version = tuple(int(x) for x in info.get("version", "0").split(".") if x.isdigit())
         col = {c: i for i, c in enumerate(rows[0])}
@@ -431,12 +469,9 @@ def stagebench_data():
             key = (tuple(int(x) for x in info.get("version", "0").split(".") if x.isdigit()), int(m.group(1)) if m else 1)
             name = clean_name(NAME_BY_DEVICE.get(info.get("device", "")) or info.get("gpu", ""))
             c = costs(path)
-            with open(path, encoding="utf-8", errors="replace") as f:
-                drift = re.search(r"^# reference drift(?: tput)?: (\S+)", f.read(), re.M)
-            info["drift"] = drift.group(1) if drift else ""
-            if name and c and (name not in best or key > best[name][0]):
-                best[name] = (key, c, info)
-        return best
+            if name and c:
+                best.setdefault(name, []).append((key, c, info))
+        return {name: pick(rs, lambda r: r[0], lambda r: r[2]) for name, rs in best.items()}
 
     ps, vs, cs = newest("stagebench", "ps"), newest("stagebench", "vs"), newest("opbench")
     cards = []
