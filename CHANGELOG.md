@@ -8,6 +8,7 @@ docs/notes/history.md.
 ## 0.9.2
 
 ### SweetOpt
+- **Fixed:** in easy mode (the menu's default), an effect where SweetOpt had to guess a value's range could come out with the same line written several times, so it no longer loaded (seen with SuperDepth3D).
 - **Fixed:** effects that include files from a sub-folder without naming it (BFBFX includes its files from `bfb_inc` this way) could not be read. SweetOpt now looks in every folder under reshade-shaders\Shaders, as ReShade does.
 - **Easier to use the results:** the faster copies in sopt-out are now in the same folders as the originals, so you can copy sopt-out over your Shaders folder and choose Replace. The guide now explains how to use the results, what the SOPT_ switches do and how to give value ranges.
 - **Fixed:** SweetOpt could close during the search without writing anything (seen with potatoFX), and two kinds of changes could make an effect stop loading (seen with fubax-shaders and dh-reshade-shaders). Found by testing SweetOpt on every effect package ReShade's installer offers.

@@ -2126,6 +2126,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   gen_expected and the site's all-tests table (the Renoir: a 0.06% 0.7.0 run and a 141% 0.9.2 run, one driver).
   Whole-report picks (TexBench page, StageBench page, fp16) take the least drift among the newest version and driver
   (build.pick). expected.hpp: 10 values moved > 25% / 1.5 units (8 of them obsolete omod tests).
+  SuperDepth3D (2026-10-24, its author reported "lots of warnings"): easy mode left every variant of a region with
+  likely (guessed) ranges in place (easyPicks skipped them, meant for switches), and clean writing put them in one
+  after another: "float2 TC" / "float S_UI" declared twice, 7 of 7 variant checks failed (since 0.9.0). easyPicks
+  now clears them. Test Host, ReShade 6.8.0, all six APIs: the original and SweetOpt's output (easy; expert at
+  SOPT_GROUP 0 / 1 / 2) give the same warnings (D3D11: 6 x X3571 pow of a maybe negative base, 3 x X4000 maybe
+  uninitialized variable): they are the effect's own.
   RTX 2050 (GA107, 0.9.0, made before the Turing split: its header says Turing): differs from Turing exactly where
   Ampere does (sqmax / fmamax 7.5 vs 4.4, min / max / step 4.5 vs 0.6): confirms the move to Ampere; OpBench 479 s.
   intel-gen6 (owner's go, 2026-10-24) from the HD 3000 report (his mother's laptop; the Renoir is his father's, the GT
