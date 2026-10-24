@@ -137,8 +137,13 @@ std::string variantStatement(const Region& r, const std::string& expr) {
 
 void easyPicks(std::vector<RegionResult>& results, std::vector<SourceRewrite>& rewrites, const EasyOptions& eo) {
   for (RegionResult& rr : results) {
-    // Likely ranges are guesses: their variants stay behind switches for the user to choose.
-    if (std::any_of(rr.region.facts.begin(), rr.region.facts.end(), [](const Fact& f) { return f.likely; })) continue;
+    // Likely ranges are guesses: never an easy pick; expert mode offers them behind switches. Cleared, not skipped: easy
+    // files have no switches, so every variant left here was written in one after another (SuperDepth3D.fx: "float2 TC"
+    // declared twice, 2026-10-24).
+    if (std::any_of(rr.region.facts.begin(), rr.region.facts.end(), [](const Fact& f) { return f.likely; })) {
+      rr.variants.clear();
+      continue;
+    }
     int best = -1;
     long bestKey = 0;
     for (size_t k = 0; k < rr.variants.size(); ++k) {
