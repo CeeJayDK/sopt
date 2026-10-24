@@ -184,6 +184,21 @@ const CostModel kIntelXe2{"intel-xe2",
    4, 4, 1},
   1, true};
 
+// Intel Gen6 (HD Graphics 3000, Sandy Bridge; docs/opbench/intel-hd-graphics-3000.csv, OpBench 0.9.2, clean: drift 1.3%;
+// one card, 2026-10-24), quarter units (4 = one fma, throughput). Unlike later Intel the mad is the dear one: add / sub /
+// mul / min / max / step / floor / frac / round 2.6 (3), so an add over a mul still contracts to one mad (3 + 1 = 4); abs
+// is not free (2.6); the math unit is slow: rcp / rsqrt / sqrt / exp2 / log2 / log / exp / div 10.6 (11), sin 16, cos 13.4,
+// pow 23.8; sign 10.9; compare + select 5.2 (3 + 2), lerp / clamp 5.2; dot3 8.9. Integers full rate: iadd / iand 2.6,
+// shifts 5.4, imul / itof / utof 8.1, ftou 2.9. No 16-bit min precision, no bfe.
+const CostModel kIntelGen6{"intel-gen6",
+  {0, 0, 1, 3, 1, 3, 3, 11, 11,
+   11, 11, 11, 11, 16, 13, 11, 11, 3, 3, 3, 3, 3, 3, 11, 3, 3, 3, 24,
+   3, 3, 3, 3, 3, 3, 4, 5, 5, 2, 1,
+   4, 15, 18, 18, 1, 1,
+   1, 1, 3, 3, 8, 8, 3, 3, 3, 5, 5, 5, 3, 3, 8,
+   3, 3, 1},
+  1, true};
+
 // Intel Gen7.5 (HD Graphics 4600, Haswell; docs/opbench/intel-hd-graphics-4600.csv, OpBench 0.5.0, clean: drift 0.6%;
 // one card), quarter units (4 = one fma, throughput). Unlike Gen9 the math unit is cheap: rcp / rsqrt / sqrt / exp2 /
 // log2 / sin / cos / log / div ~3.4-3.6 in tput, dep and lat alike (one op), exp 7 (mul + exp2), pow 11.5 (12); add / sub /
@@ -517,6 +532,7 @@ const CostModel& costNvidiaAda() { return kNvidiaAda; }
 const CostModel& costNvidiaBlackwell() { return kNvidiaBlackwell; }
 const CostModel& costIntelGen9() { return kIntelGen9; }
 const CostModel& costIntelGen75() { return kIntelGen75; }
+const CostModel& costIntelGen6() { return kIntelGen6; }
 const CostModel& costIntelGen12() { return kIntelGen12; }
 const CostModel& costIntelXe2() { return kIntelXe2; }
 const CostModel& costAmdRdna2() { return kAmdRdna2; }
@@ -535,7 +551,7 @@ const CostModel kRdna3NoFolds = [] {
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kRdna3Rga || &objective == &kNvidia ||
                  &objective == &kNvidiaMaxwell2 || &objective == &kNvidiaMaxwell1 || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaTuringRtx || &objective == &kNvidiaAda || &objective == &kNvidiaAmpere ||
-                 &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kIntelGen12 || &objective == &kIntelXe2 || &objective == &kAmdRdna2 ||
+                 &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kIntelGen6 || &objective == &kIntelGen12 || &objective == &kIntelXe2 || &objective == &kAmdRdna2 ||
                  &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
              ? kSearch
              : objective;
@@ -560,6 +576,7 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kNvidiaBlackwell.name) return &kNvidiaBlackwell;
   if (name == kIntelGen9.name) return &kIntelGen9;
   if (name == kIntelGen75.name) return &kIntelGen75;
+  if (name == kIntelGen6.name) return &kIntelGen6;
   if (name == kIntelGen12.name) return &kIntelGen12;
   if (name == kIntelXe2.name) return &kIntelXe2;
   if (name == kAmdRdna2.name) return &kAmdRdna2;

@@ -26,7 +26,7 @@ const Data& data() {
         {"nvidia-turing", "Turing GTX", "NVIDIA"}, {"nvidia-turing-rtx", "Turing RTX", "NVIDIA"},
         {"nvidia-ampere", "Ampere", "NVIDIA"},
         {"nvidia-ada", "Ada", "NVIDIA"},
-        {"nvidia-blackwell", "Blackwell", "NVIDIA"}, {"intel-gen7.5", "Gen7.5", "Intel"},
+        {"nvidia-blackwell", "Blackwell", "NVIDIA"}, {"intel-gen6", "Gen6", "Intel"}, {"intel-gen7.5", "Gen7.5", "Intel"},
         {"intel-gen9", "Gen9", "Intel"},      {"intel-gen12", "Gen12", "Intel"},
         {"intel-xe2", "Xe2", "Intel"},
     };

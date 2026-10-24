@@ -86,6 +86,7 @@ MODEL_RULES = [
     (r"Iris\S* Xe|UHD Graphics (7\d\d|\(Tiger Lake\))", "intel-gen12"),
     (r"Iris\S* (Graphics )?5\d\d|U?HD Graphics 6\d\d|HD Graphics 5\d\d", "intel-gen9"),
     (r"HD Graphics 4[2-6]\d\d|Iris\S* (Pro )?(Graphics )?5[12]00", "intel-gen7.5"),
+    (r"HD Graphics [23]000\b", "intel-gen6"),  # Sandy Bridge
 ]
 
 
