@@ -171,6 +171,8 @@ const CostModel& costNvidiaBlackwell();
 const CostModel& costIntelGen9();
 // intel-gen7.5: Intel Gen7.5 (HD Graphics 4600, Haswell) from OpBench timings, quarter units, math unit ~1 op.
 const CostModel& costIntelGen75();
+// intel-gen6: Intel Gen6 (HD Graphics 3000, Sandy Bridge) from OpBench timings, quarter units, mad dearer than add.
+const CostModel& costIntelGen6();
 // intel-gen12: Intel Gen12 / Xe-LP (Iris Xe) from OpBench timings, quarter units, math unit ~2.75 ops.
 const CostModel& costIntelGen12();
 // intel-xe2: Intel Xe2 / Battlemage (Arc B580) from OpBench timings, quarter units; sin / cos twice Gen12.
