@@ -12,6 +12,7 @@ docs/notes/history.md.
 - **Easier to use the results:** the faster copies in sopt-out are now in the same folders as the originals, so you can copy sopt-out over your Shaders folder and choose Replace. The guide now explains how to use the results, what the SOPT_ switches do and how to give value ranges.
 - **Fixed:** SweetOpt could close during the search without writing anything (seen with potatoFX), and two kinds of changes could make an effect stop loading (seen with fubax-shaders and dh-reshade-shaders). Found by testing SweetOpt on every effect package ReShade's installer offers.
 
+- **Older Intel laptops:** SweetOpt now knows what math costs on Intel HD Graphics 2000 / 3000 (Sandy Bridge).
 - **Turing cards in two groups:** GTX 16 cards (1650, 1660) and RTX 20 cards are now treated as two kinds of graphics card. They do the same math at the same speed, except half precision math in effects, which only RTX 20 cards run faster. The RTX 2050 now counts as the newer kind (RTX 30), which it really is.
 
 ### GPU Blueprint

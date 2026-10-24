@@ -2123,6 +2123,9 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   new card, 0.9.0): drift 0.4%; was "family: none yet" (generic name): NAME_BY_DEVICE now maps 0x1638 to GCN 5.
   RTX 2050 (GA107, 0.9.0, made before the Turing split: its header says Turing): differs from Turing exactly where
   Ampere does (sqmax / fmamax 7.5 vs 4.4, min / max / step 4.5 vs 0.6): confirms the move to Ampere; OpBench 479 s.
+  intel-gen6 (owner's go, 2026-10-24) from the HD 3000 report (his mother's laptop; the Renoir is his father's, the GT
+  1030 his media PC): add / mul / min / max / floor 2.6 against mad 4, abs 2.6 (not free), math unit 10.6, sin 16,
+  pow 24, integers full rate (iadd 2.6, imul 8.1); table in ops.cpp; MODEL_RULES "HD Graphics [23]000".
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one

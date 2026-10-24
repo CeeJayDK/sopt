@@ -393,6 +393,94 @@ inline const Family kFamilies[] = {
      "signsel2 3.7 sin 11.1 sincos 22.2 sinh 26.7 smoothstep 19.8 smoothstep-od 24.0 sqmax 7.6 "
      "sqmax-od 7.6 sqrt 11.1 sqrt16 10.4 sqrtnr0 7.9 step 7.9 sub 4.1 tan 37.9 tanh 43.1 trunc 3.8 "
      "udiv 146.2 umod 146.2 unitf 11.6 utof 4.0 xor3 15.4 "},
+    {"intel-gen6", "Gen6", 1, "cs",
+     "aAdd 20.4 aAdd1 392.8 aAnd 20.1 aAnd1 392.7 aCmpXchg 24.6 aCmpXchg1 397.0 aMax 20.1 aMax1 392.8 "
+     "aMin 20.3 aMin1 392.8 aOr 20.4 aOr1 392.8 aXchg 20.1 aXchg1 392.8 aXor 20.6 aXor1 392.9 abs 2.6 "
+     "acos 33.2 acos1 21.3 acos4 31.9 acosh 24.1 add 2.6 add16 2.6 addlshl 8.1 addmax 5.2 addscale3 2.8 "
+     "addscale4 2.8 all3and 24.1 andor 10.8 any3abs 19.2 any3max 19.2 any3or 24.1 any4abs 24.2 "
+     "any4max3 21.8 any4or 32.1 any4pairs 21.5 arraybase 14.1 arrayread 263.0 arraywrite 476.3 asin 35.9 "
+     "asinh 24.1 atan 45.7 atan2 65.0 atan2-od 61.2 atan2q 21.6 atan4 15.8 atan5a 26.7 atanh 24.1 "
+     "atombase 29.2 barrier 0.7 bfe 3.0 bitcast -0.0 bitor 2.6 bitrev 2.6 bitsel 16.1 branchdiv 166.1 "
+     "branchuni 94.8 ceil 2.6 clamp 5.2 clamp-od 5.2 constarray 45.8 contract 2.6 cos 13.4 cosh 24.3 "
+     "cross 16.3 cvt1 10.5 degrees 2.6 det3 41.3 distance 29.2 div 10.7 divxy 8.1 dot2 5.3 dot3 8.9 "
+     "dot4 16.0 exp 10.7 exp2 10.6 exp2_16 10.4 exp2ceil 23.9 exp2floor 23.9 f16round 23.7 f16tof32 2.9 "
+     "f32tof16 21.1 faceforward 19.3 fbh 11.9 fbl 5.3 floor 2.6 flooradd 13.3 fma+cvt -6.5 fma+fma -0.0 "
+     "fma+half -0.0 fma+int -1.2 fma+minmax -1.3 fma+rcp -6.6 fma1 4.0 fma4+rcp -7.6 fmamax 5.2 "
+     "fmascale0.25 2.9 fmascale3 2.9 fmascale4 2.9 fmod 13.7 fmod-od 16.5 frac 2.6 fracadd 13.3 frexp 24.0 "
+     "ftoitof 21.4 ftou 2.9 groupbarrier 0.9 gsbase 32.1 gsbase32 32.4 gsbase4 112.4 gsread 12.9 "
+     "gsread32 169.9 gsread4 167.6 gswrite 8.7 gswrite32 180.9 gswriteread 21.7 half1 0.0 iabs 5.4 "
+     "iadd 2.6 iadd3 10.8 iand 2.6 icmpsel 8.1 idiv 51.7 ilp1 16.5 ilp2 6.3 ilp3 3.0 ilp4 1.3 ilp5 0.6 "
+     "ilp6 0.2 imad 9.8 imin 2.6 imod 53.0 imul 8.1 ineg 1.6 int 2.5 irot 8.1 irot-od 8.3 isfinite 8.1 "
+     "ishl 5.4 ishr 5.4 isinf 8.1 isnan 5.2 itof 8.1 ixmul 10.5 ldexp 8.2 length 21.1 lerp 5.2 lerp-od 5.2 "
+     "log 10.6 log10 10.7 log2 10.6 log2_16 10.6 lshladd 8.1 mad 4.0 mad16 0.0 mad16v3 -0.1 mad2 2.6 "
+     "mad2v 2.8 mad3v 6.0 mad4v 8.7 madinl -0.1 madlit -0.1 madlit1 -0.1 madsatu -0.0 maj3 16.2 "
+     "matmul4 52.6 max 2.6 max16 2.6 max3 2.6 membarrier -1.3 min 2.6 minmax 2.6 minmax1 2.6 mix16 2.6 "
+     "mod 9.0 modf 7.9 mul 2.6 mul16 2.6 mulxx 2.6 neg -0.0 negabs 2.6 normalize 20.0 or3 10.8 popc 5.3 "
+     "pow 23.8 pow2ceil 5.1 pow2floor 2.6 radians 2.6 rcp 10.6 rcp1 10.6 rcp16 10.6 rcpnr0 2.6 rcpnr1 7.9 "
+     "reflect 19.4 refract 58.6 round 2.6 roundadd 5.2 rsqrt 10.6 rsqrtnr0 5.1 rsqrtnr1 15.8 satmad -0.0 "
+     "saturate 0.2 scale0.0625 2.8 scale0.125 2.8 scale0.25 2.8 scale16 2.8 scale2 2.8 scale2-od 2.8 "
+     "scale3 2.8 scale4 2.8 scale4-od 2.8 scale8 2.8 scalehalf 2.8 scaleneg0.5 2.8 scaleneg4 2.8 "
+     "scaleneg8 2.8 select 5.2 selectboth 137.5 shladd5 8.1 shladd5-od 5.6 sign 10.9 sign-od 10.9 "
+     "signbits 5.3 signclamp 8.0 signmad 5.3 signsat 8.1 signsel 10.7 signsel2 5.3 sin 16.1 sincos 21.8 "
+     "sinh 24.3 smoothstep 15.0 smoothstep-od 19.3 sqmax 5.2 sqmax-od 5.2 sqrt 10.6 sqrt16 10.5 "
+     "sqrtnr0 5.2 step 2.6 sub 2.6 tan 35.2 tanh 37.3 trunc 2.6 udiv 34.0 umod 33.2 unitf 8.0 utof 8.1 "
+     "xor3 10.8 "},
+    {"intel-gen6", "Gen6", 1, "ps",
+     "abs 2.1 acos 31.8 acos1 18.9 acos4 28.9 acosh 23.5 add 3.3 add16 3.1 addlshl 6.4 addmax 4.8 "
+     "addscale3 2.6 addscale4 2.6 all3and 23.4 andor 8.9 any3abs 17.2 any3max 17.2 any3or 22.9 "
+     "any4abs 22.5 any4max3 19.8 any4or 30.3 any4pairs 19.8 arraybase 11.9 arrayread 239.4 "
+     "arraywrite 437.9 asin 35.5 asinh 23.5 atan 45.6 atan2 71.8 atan2-od 62.2 atan2q 20.8 atan4 13.5 "
+     "atan5a 25.2 atanh 23.5 bfe 1.7 bitcast 0.0 bitor 1.9 bitrev 1.4 bitsel 14.2 branchdiv 178.4 "
+     "branchuni 95.8 ceil 1.9 clamp 5.8 clamp-od 5.6 clip 57.3 constarray 38.6 contract 3.1 cos 11.9 "
+     "cosh 23.6 cross 15.4 cvt1 9.5 ddx 42.8 ddx_coarse 42.8 ddx_fine 42.8 ddy 42.8 ddy_coarse 42.8 "
+     "ddy_fine 42.8 degrees 3.1 det3 43.8 distance 30.6 div 9.3 divxy 6.0 dot2 5.6 dot3 10.9 dot4 11.5 "
+     "exp 9.3 exp2 9.2 exp2_16 9.2 exp2ceil 23.4 exp2floor 23.4 f16round 24.0 f16tof32 2.5 f32tof16 20.4 "
+     "faceforward 22.6 fbh 5.9 fbl 0.9 floor 1.9 flooradd 12.0 fma+cvt -6.4 fma+fma 0.0 fma+half 0.0 "
+     "fma+int -1.5 fma+minmax -1.0 fma+rcp -6.2 fma1 4.0 fma4+rcp -7.1 fmamax 4.7 fmascale0.25 2.6 "
+     "fmascale3 2.6 fmascale4 2.6 fmod 12.3 fmod-od 15.9 frac 1.9 fracadd 11.9 frexp 24.5 ftoitof 20.1 "
+     "ftou 2.6 fwidth 102.6 half1 0.0 iabs 3.9 iadd 3.1 iadd3 8.9 iand 3.1 icmpsel 6.4 idiv 54.1 ilp1 13.6 "
+     "ilp2 5.0 ilp3 2.1 ilp4 0.7 ilp5 -0.2 ilp6 0.2 imad 6.4 imin 3.1 imod 58.4 imul 6.4 ineg 0.4 int 3.0 "
+     "irot 6.4 irot-od 6.4 isfinite 6.9 ishl 3.9 ishr 3.9 isinf 6.9 isnan 4.8 itof 6.4 ixmul 9.5 ldexp 6.3 "
+     "length 22.5 lerp 5.8 lerp-od 5.6 log 9.3 log10 9.3 log2 9.2 log2_16 9.2 lshladd 6.4 mad 4.0 "
+     "mad16 0.0 mad16v3 -0.0 mad2 3.3 mad2v 2.3 mad3v 5.1 mad4v 7.8 madinl -0.6 madlit -0.0 madlit1 0.0 "
+     "madsatu -0.0 maj3 14.1 matmul4 56.0 max 3.3 max16 3.1 max3 2.4 min 3.3 minmax 2.4 minmax1 3.1 "
+     "mix16 3.1 mod 7.4 modf 6.9 mul 3.3 mul16 3.1 mulxx 2.1 neg 0.2 negabs 2.1 normalize 22.7 or3 8.9 "
+     "popc 0.9 pow 23.4 pow2ceil 4.4 pow2floor 1.9 radians 3.1 rcp 9.2 rcp1 9.2 rcp16 9.2 rcpnr0 1.9 "
+     "rcpnr1 6.9 reflect 22.6 refract 55.3 round 1.9 roundadd 4.4 rsqrt 9.2 rsqrtnr0 4.4 rsqrtnr1 14.7 "
+     "satmad -0.0 saturate 0.2 scale0.0625 2.6 scale0.125 2.6 scale0.25 2.6 scale16 2.6 scale2 2.7 "
+     "scale2-od 2.5 scale3 2.6 scale4 2.6 scale4-od 2.5 scale8 2.6 scalehalf 2.6 scaleneg0.5 2.6 "
+     "scaleneg4 2.6 scaleneg8 2.6 select 6.1 selectboth 127.3 shladd5 6.4 shladd5-od 4.0 sign 8.8 "
+     "sign-od 11.7 signbits 4.0 signclamp 6.3 signmad 4.0 signsat 6.3 signsel 8.8 signsel2 4.0 sin 14.4 "
+     "sincos 19.5 sinh 23.6 smoothstep 12.6 smoothstep-od 17.9 sqmax 4.8 sqmax-od 4.5 sqrt 9.2 sqrt16 9.2 "
+     "sqrtnr0 4.4 step 3.3 sub 3.1 tan 34.5 tanh 36.9 trunc 1.9 udiv 40.4 umod 47.3 unitf 6.4 utof 6.4 "
+     "xor3 8.9 "},
+    {"intel-gen6", "Gen6", 1, "vs",
+     "abs 0.7 acos 19.4 acos1 12.3 acos4 18.9 acosh 13.5 add 0.7 add16 0.7 addlshl 4.7 addmax 1.9 "
+     "addscale3 1.6 addscale4 1.6 all3and 13.0 andor 6.2 any3abs 10.1 any3max 10.1 any3or 13.0 "
+     "any4abs 13.1 any4max3 11.7 any4or 17.9 any4pairs 11.5 arraybase 7.2 arrayread 158.2 arraywrite 286.6 "
+     "asin 21.2 asinh 13.5 atan 26.4 atan2 37.7 atan2-od 71.0 atan2q 11.7 atan4 9.1 atan5a 14.7 atanh 13.0 "
+     "bfe 1.6 bitcast 0.0 bitor 0.7 bitrev 1.4 bitsel 9.5 branchdiv 159.2 branchuni 94.2 ceil 0.7 "
+     "clamp 1.9 clamp-od 2.0 constarray 36.3 contract 0.7 cos 6.8 cosh 13.6 cross 9.6 cvt1 4.8 degrees 0.3 "
+     "det3 25.0 distance 17.3 div 5.0 divxy 4.4 dot2 3.0 dot3 10.9 dot4 9.5 exp 5.0 exp2 4.9 exp2_16 4.9 "
+     "exp2ceil 12.8 exp2floor 12.8 f16round 12.8 f16tof32 1.4 f32tof16 12.1 faceforward 26.9 fbh 6.9 "
+     "fbl 3.0 floor 0.7 flooradd 6.7 fma+cvt -3.7 fma+fma 0.0 fma+half 0.0 fma+int -0.4 fma+minmax -0.7 "
+     "fma+rcp -3.8 fma1 4.0 fma4+rcp -2.5 fmamax 1.8 fmascale0.25 1.8 fmascale3 1.8 fmascale4 1.8 fmod 6.9 "
+     "fmod-od 8.8 frac 0.7 fracadd 6.8 frexp 13.1 ftoitof 12.2 ftou 1.9 half1 0.0 iabs 3.1 iadd 1.4 "
+     "iadd3 6.1 iand 1.4 icmpsel 4.7 idiv 30.6 ilp1 28.0 ilp2 12.0 ilp3 6.7 ilp4 4.0 ilp5 2.4 ilp6 1.3 "
+     "imad 5.6 imin 1.4 imod 31.7 imul 4.5 ineg 0.7 int 0.4 irot 4.8 irot-od 5.0 isfinite 3.6 ishl 3.0 "
+     "ishr 3.0 isinf 3.6 isnan 1.9 itof 4.4 ixmul 4.9 ldexp 4.5 length 12.8 lerp 1.9 lerp-od 3.6 log 5.1 "
+     "log10 5.1 log2 4.9 log2_16 4.9 lshladd 4.7 mad 4.0 mad16 -0.0 mad16v3 0.0 mad2 0.7 mad2v 0.7 "
+     "mad3v 2.3 mad4v 4.0 madinl -0.0 madlit -0.0 madlit1 -0.0 madsatu 0.0 maj3 9.5 matmul4 33.6 max 0.7 "
+     "max16 0.7 max3 1.2 min 0.7 minmax 1.2 minmax1 0.7 mix16 0.7 mod 4.0 modf 3.3 mul 0.7 mul16 0.7 "
+     "mulxx 0.7 neg 0.0 negabs 0.7 normalize 18.8 or3 6.2 popc 2.9 pow 12.8 pow2ceil 1.9 pow2floor 0.3 "
+     "radians 0.4 rcp 4.9 rcp1 4.9 rcp16 4.9 rcpnr0 0.3 rcpnr1 3.4 reflect 26.9 refract 66.9 round 0.7 "
+     "roundadd 1.9 rsqrt 4.9 rsqrtnr0 1.9 rsqrtnr1 8.2 satmad -0.0 saturate 0.0 scale0.0625 1.6 "
+     "scale0.125 1.6 scale0.25 1.6 scale16 1.6 scale2 1.6 scale2-od 1.6 scale3 1.6 scale4 1.6 "
+     "scale4-od 1.7 scale8 1.6 scalehalf 1.6 scaleneg0.5 1.5 scaleneg4 1.6 scaleneg8 1.6 select 1.9 "
+     "selectboth 113.1 shladd5 4.4 shladd5-od 3.3 sign 6.1 sign-od 6.3 signbits 2.7 signclamp 4.4 "
+     "signmad 2.8 signsat 4.5 signsel 5.9 signsel2 2.8 sin 8.2 sincos 12.6 sinh 13.6 smoothstep 7.7 "
+     "smoothstep-od 12.0 sqmax 1.9 sqmax-od 2.0 sqrt 4.9 sqrt16 4.9 sqrtnr0 1.9 step 0.7 sub 0.7 tan 20.6 "
+     "tanh 21.0 trunc 0.7 udiv 19.9 umod 19.6 unitf 4.5 utof 4.6 xor3 6.1 "},
     {"intel-gen7.5", "Gen7.5", 1, "cs",
      "aAdd 47.7 aAdd1 201.7 aAnd 45.7 aAnd1 240.6 aCmpXchg 70.0 aCmpXchg1 238.5 aMax 47.7 aMax1 238.1 "
      "aMin 47.7 aMin1 241.2 aOr 45.7 aOr1 240.0 aXchg 45.7 aXchg1 240.4 aXor 45.7 aXor1 242.3 abs -0.0 "
@@ -1394,6 +1482,7 @@ inline const Rule kRules[] = {
     {R"(Iris\S* Xe|UHD Graphics (7\d\d|\(Tiger Lake\)))", "intel-gen12"},
     {R"(Iris\S* (Graphics )?5\d\d|U?HD Graphics 6\d\d|HD Graphics 5\d\d)", "intel-gen9"},
     {R"(HD Graphics 4[2-6]\d\d|Iris\S* (Pro )?(Graphics )?5[12]00)", "intel-gen7.5"},
+    {R"(HD Graphics [23]000\b)", "intel-gen6"},
 };
 
 // Generic names that only the device ID tells apart.
@@ -1431,6 +1520,9 @@ inline const RunTime kRunTimes[] = {
     {"intel-gen12", "OpBench", 80, 1},
     {"intel-gen12", "StageBench", 65, 1},
     {"intel-gen12", "TexBench", 252, 1},
+    {"intel-gen6", "OpBench", 199, 1},
+    {"intel-gen6", "StageBench", 178, 1},
+    {"intel-gen6", "TexBench", 540, 1},
     {"intel-gen7.5", "OpBench", 117, 1},
     {"intel-gen7.5", "StageBench", 138, 1},
     {"intel-gen7.5", "TexBench", 291, 1},
