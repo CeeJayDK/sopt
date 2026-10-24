@@ -2121,6 +2121,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   change at 129/65536 (rounds half down), also on the Renoir report.
   AMD Renoir (0x1636, 3rd report, 0.9.2): drift 141% (cs), TexBench 367%: unreliable. Cezanne (0x1638, Vega 8 iGPU,
   new card, 0.9.0): drift 0.4%; was "family: none yet" (generic name): NAME_BY_DEVICE now maps 0x1638 to GCN 5.
+  Report choice (owner, 2026-10-24): each test per card from the cleanest run (least reference drift) among the card's
+  reports with the newest one's driver, any version (reading_valid drops changed tests): build.by_cleanest in
+  gen_expected and the site's all-tests table (the Renoir: a 0.06% 0.7.0 run and a 141% 0.9.2 run, one driver).
+  Whole-report picks (TexBench page, StageBench page, fp16) take the least drift among the newest version and driver
+  (build.pick). expected.hpp: 10 values moved > 25% / 1.5 units (8 of them obsolete omod tests).
   RTX 2050 (GA107, 0.9.0, made before the Turing split: its header says Turing): differs from Turing exactly where
   Ampere does (sqmax / fmamax 7.5 vs 4.4, min / max / step 4.5 vs 0.6): confirms the move to Ampere; OpBench 479 s.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
