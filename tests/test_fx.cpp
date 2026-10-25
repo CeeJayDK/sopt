@@ -1156,6 +1156,25 @@ TEST(fx_include_from_subfolder) {
   fs::remove_all(root.parent_path().parent_path(), ec);
 }
 
+TEST(fx_pragma_once_one_spelling) {
+  // a.fx includes h.fxh, and inc/b.fxh includes it through an include path: on Windows "Pack/h.fxh" and "Pack\h.fxh"
+  // were two files to #pragma once, so h.fxh came twice ("redefinition", BFBFX's OpenRSF.fxh, 2026-10-25).
+  const fs::path root = fs::temp_directory_path() / "sopt-test-once" / "reshade-shaders" / "Shaders";
+  fs::create_directories(root / "Pack" / "inc");
+  std::ofstream(root / "Pack" / "h.fxh") << "#pragma once\ntexture TexH { Width = 1; Height = 1; };\nfloat K() { return 0.5; }\n";
+  std::ofstream(root / "Pack" / "inc" / "b.fxh") << "#include \"h.fxh\"\n";
+  std::ofstream(root / "Pack" / "a.fx") << "#include \"h.fxh\"\n#include \"inc/b.fxh\"\n"
+                                           "float4 VS(uint id : SV_VertexID) : SV_Position { return K(); }\n"
+                                           "float4 PS(float4 p : SV_Position) : SV_Target { return p * K(); }\n"
+                                           "technique T { pass { VertexShader = VS; PixelShader = PS; } }\n";
+  std::string err;
+  auto e = fx::loadEffect((root / "Pack").generic_string() + "/a.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) std::printf("  %s\n", err.c_str());
+  std::error_code ec;
+  fs::remove_all(root.parent_path().parent_path(), ec);
+}
+
 TEST(fx_likely_ranges) {
   // A value read from a texture in plain HLSL (format unknown: c = gColor.Sample(...)) gets the likely range [0, 1],
   // also where it is used later (c.x); --no-likely: the assumed default.

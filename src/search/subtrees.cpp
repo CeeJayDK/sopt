@@ -44,6 +44,7 @@ Options partOptions(const Options& opt, double seconds) {
   Options inner = opt;
   inner.subtrees = false;
   inner.cuts = false;
+  inner.previous.clear();  // the region's earlier finds: over its inputs, not the part's
   inner.v3 = false;  // only the region's own variants get a proof
   inner.search.diskDir.clear();  // parts are small: RAM only
   inner.accuracyVariants = false;

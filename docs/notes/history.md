@@ -2132,6 +2132,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   now clears them. Test Host, ReShade 6.8.0, all six APIs: the original and SweetOpt's output (easy; expert at
   SOPT_GROUP 0 / 1 / 2) give the same warnings (D3D11: 6 x X3571 pow of a maybe negative base, 3 x X4000 maybe
   uninitialized variable): they are the effect's own.
+  Rerun crash (2026-10-25, the effect-packages run with easy mode: 28 of 45 packages exit -11 on Linux): any run
+  with an existing sopt-cache.txt handed the region's earlier finds (Options::previous) to its specialized program
+  (optimizeSpecialized) and its subtree / cut parts, which have fewer inputs: PointSet::slotOf read past the points
+  (AddressSanitizer, BFBFX). The driver skips finds with inputs the program lacks; generalize and partOptions
+  clear them. #pragma once: include paths are normalized (lexically_normal + make_preferred) before the cache and
+  recursion check: "Pack/h.fxh" and "Pack\h.fxh" were two files on Windows (BFBFX's AO.fx given with '/').
   RTX 2050 (GA107, 0.9.0, made before the Turing split: its header says Turing): differs from Turing exactly where
   Ampere does (sqmax / fmamax 7.5 vs 4.4, min / max / step 4.5 vs 0.6): confirms the move to Ampere; OpBench 479 s.
   intel-gen6 (owner's go, 2026-10-24) from the HD 3000 report (his mother's laptop; the Renoir is his father's, the GT

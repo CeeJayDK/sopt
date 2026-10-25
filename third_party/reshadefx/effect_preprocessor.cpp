@@ -807,6 +807,10 @@ void reshadefx::preprocessor::parse_include()
 	}
 #endif
 
+	// sopt: one spelling per file, so "#pragma once" and the recursion check see "dir/x.fxh" and "dir\x.fxh" as one
+	// (a file given with '/' on Windows included BFBFX's OpenRSF.fxh twice: "redefinition of 'FOV'", 2026-10-25).
+	file_path = file_path.lexically_normal();
+	file_path.make_preferred();
 	const std::string file_path_string = file_path.u8string();
 
 	// Detect recursive include and abort to avoid infinite loop
