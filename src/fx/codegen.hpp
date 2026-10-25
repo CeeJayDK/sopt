@@ -85,6 +85,9 @@ class Codegen final : public reshadefx::codegen {
   std::vector<std::unique_ptr<Function>> functions;  // in definition order
   std::unordered_map<std::string, reshadefx::shader_type> entryPoints;  // unique name -> type
   std::vector<std::pair<uint32_t, uint32_t>> loops;  // [first, last] seq of each loop
+  // Conditions (value ids, outermost first) a block runs under; 0 = unknown (switch case, loop continue block).
+  // Conservative: a block after an if or loop inside another branch keeps that branch's conditions.
+  std::unordered_map<uint32_t, std::vector<uint32_t>> blockConds;
 
   std::string structMemberName(uint32_t structId, uint32_t index) const;
   std::string structMemberSemantic(uint32_t structId, uint32_t index) const;
@@ -131,13 +134,16 @@ class Codegen final : public reshadefx::codegen {
                          const std::vector<reshadefx::expression>& args) override;
   id emit_construct(const reshadefx::location& loc, const reshadefx::type& type,
                     const std::vector<reshadefx::expression>& args) override;
-  void emit_if(const reshadefx::location&, id, id, id, id, unsigned int) override {}
+  void emit_if(const reshadefx::location&, id, id condition_block, id, id, unsigned int) override {
+    blockConds[_current_block] = blockConds[condition_block];  // the merge block: no longer under the condition
+  }
   id emit_phi(const reshadefx::location& loc, id condition_value, id condition_block,
               id true_value, id true_statement_block, id false_value, id false_statement_block,
               const reshadefx::type& type) override;
-  void emit_loop(const reshadefx::location&, id, id, id header, id, id, id, unsigned int) override {
+  void emit_loop(const reshadefx::location&, id, id prev_block, id header, id, id, id, unsigned int) override {
     const auto it = blockSeq_.find(header);
     loops.emplace_back(it == blockSeq_.end() ? 0 : it->second, seq_);
+    blockConds[_current_block] = blockConds[prev_block];  // after the loop
   }
   void emit_switch(const reshadefx::location&, id, id, id, id, const std::vector<id>&,
                    const std::vector<id>&, unsigned int) override {}
@@ -146,6 +152,10 @@ class Codegen final : public reshadefx::codegen {
   void enter_block(id id) override {
     _current_block = id;
     blockSeq_.emplace(id, seq_);
+    // A block no branch named: a function's first (no condition), else a switch case or a loop's continue
+    // block (condition unknown: 0, never a value).
+    if (!blockConds.count(id)) blockConds[id] = freshFunction_ ? std::vector<uint32_t>{} : std::vector<uint32_t>{0};
+    freshFunction_ = false;
   }
   id leave_block_and_kill() override;
   id leave_block_and_return(id value) override;
@@ -157,6 +167,7 @@ class Codegen final : public reshadefx::codegen {
   Function* current_ = nullptr;
   uint32_t seq_ = 0;
   std::unordered_map<uint32_t, uint32_t> blockSeq_;  // block id -> seq when first entered
+  bool freshFunction_ = false;
 };
 
 // Name of a reshadefx intrinsic id ("lerp", "tex2D", ...).

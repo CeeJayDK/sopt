@@ -1270,6 +1270,24 @@ TEST(fx_window_same_block) {
   CHECK(inner);
 }
 
+TEST(fx_per_draw_locals) {
+  // A local computed from uniforms only (also under an if on a uniform) is a constant in performance mode, one set
+  // under a per-pixel condition is not (LumaSharpen's sharp_strength_luma, owner 2026-10-25).
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_perdraw.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  int w = -1, k = -1;
+  for (const auto& r : fx::extractRegions(*e, nullptr, ro, sk))
+    for (const auto& d : r.prog.inputs) {
+      if (r.line == 15 && d.name == "w") w = d.rate == InputDecl::Rate::Uniform;
+      if (r.line == 16 && d.name == "k") k = d.rate == InputDecl::Rate::Uniform;
+    }
+  CHECK(w == 1 && k == 0);
+}
+
 TEST(fx_output_keeps_folders) {
   // sopt-out keeps the folders below the input folder, so it can be copied over the Shaders folder (2026-10-21);
   // files outside every input folder (ReShade.fxh above a pack's folder) keep their name only.

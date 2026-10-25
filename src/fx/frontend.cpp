@@ -1049,6 +1049,12 @@ class Extractor {
   Range leafRange(uint32_t valueId);
   std::unordered_set<uint32_t> varBusy_;
   std::unordered_set<uint64_t> localBusy_;  // (variable, load seq)
+  std::vector<const Statement*> reaching(uint32_t var, uint32_t seq, uint32_t block, bool& killed) const;
+  // The same for every pixel of a draw: a constant in ReShade's performance mode.
+  bool perDraw(uint32_t valueId);
+  bool chainPerDraw(const std::vector<reshadefx::expression::operation>& chain);
+  std::unordered_map<uint32_t, bool> perDrawMemo_;
+  std::unordered_set<uint32_t> perDrawBusy_;
 
   // current region
   std::vector<Leaf> leaves_;
@@ -1842,27 +1848,8 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         if (any && r.known && r.why != "constant") r.why = "call sites";
         return any ? r : Range::unknown();
       };
-      const auto di = defs_.find(var);
-      if (di == defs_.end()) return entry();
-      // Reaching definitions: the last one before the load if it is in the load's
-      // block (it kills the others), else all earlier ones plus those later in a loop
-      // around the load, plus the entry value.
-      std::vector<const Statement*> reach;
-      const Statement* last = nullptr;
-      for (const Statement* d : di->second)
-        if (d->seq < seq && (!last || d->seq > last->seq)) last = d;
       bool killed = false;
-      if (last && last->block == block && last->chain.empty()) {
-        reach.push_back(last);
-        killed = true;
-      } else {
-        for (const Statement* d : di->second) {
-          bool inLoop = false;
-          for (const auto& [lo, hi] : cg_.loops)
-            inLoop = inLoop || (lo <= seq && seq <= hi && lo <= d->seq && d->seq <= hi);
-          if (d->seq < seq || inLoop) reach.push_back(d);
-        }
-      }
+      const std::vector<const Statement*> reach = reaching(var, seq, block, killed);
       if (reach.empty()) return entry();
       const uint64_t key = (uint64_t(var) << 32) | seq;
       if (!localBusy_.insert(key).second) return Range::unknown();
@@ -1887,6 +1874,88 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
       break;
   }
   return Range::unknown();
+}
+
+// Reaching definitions of a load: the last one before it if it is in the load's block (it kills the others), else
+// all earlier ones plus those later in a loop around the load (and the entry value, the caller's part).
+std::vector<const Statement*> Extractor::reaching(uint32_t var, uint32_t seq, uint32_t block, bool& killed) const {
+  std::vector<const Statement*> reach;
+  killed = false;
+  const auto di = defs_.find(var);
+  if (di == defs_.end()) return reach;
+  const Statement* last = nullptr;
+  for (const Statement* d : di->second)
+    if (d->seq < seq && (!last || d->seq > last->seq)) last = d;
+  if (last && last->block == block && last->chain.empty()) {
+    reach.push_back(last);
+    killed = true;
+    return reach;
+  }
+  for (const Statement* d : di->second) {
+    bool inLoop = false;
+    for (const auto& [lo, hi] : cg_.loops) inLoop = inLoop || (lo <= seq && seq <= hi && lo <= d->seq && d->seq <= hi);
+    if (d->seq < seq || inLoop) reach.push_back(d);
+  }
+  return reach;
+}
+
+bool Extractor::chainPerDraw(const std::vector<reshadefx::expression::operation>& chain) {
+  for (const auto& op : chain)
+    if (op.op == reshadefx::expression::operation::op_dynamic_index && !perDraw(op.index)) return false;
+  return true;
+}
+
+// Constants, uniforms without a source annotation, preprocessor values, static const globals, and math of them;
+// a local counts when every store reaching the read is such a value under such conditions (LumaSharpen's
+// sharp_strength_luma = CoefLuma * sharp_strength, scaled under if (pattern == 2); owner, 2026-10-25). Function
+// parameters and calls do not (conservative).
+bool Extractor::perDraw(uint32_t id) {
+  if (const auto m = perDrawMemo_.find(id); m != perDrawMemo_.end()) return m->second;
+  const auto it = cg_.values.find(id);
+  if (it == cg_.values.end() || !perDrawBusy_.insert(id).second) return false;
+  const Value& v = it->second;
+  bool r = true;
+  switch (v.kind) {
+    case Value::Kind::Const: break;
+    case Value::Kind::Call: r = false; break;
+    case Value::Kind::Chain: r = perDraw(v.base) && chainPerDraw(v.chain); break;
+    case Value::Kind::Load: {
+      const auto vi = cg_.variables.find(v.base);
+      r = vi != cg_.variables.end() && chainPerDraw(v.chain);
+      if (!r || isSymbolic(v.base)) break;
+      const Variable& var = vi->second;
+      switch (var.kind) {
+        case Variable::Kind::Uniform:
+          for (const auto& a : var.annotations) r = r && a.name != "source";
+          break;
+        case Variable::Kind::Global:
+          r = var.type.has(reshadefx::type::q_const) && var.initializer && perDraw(var.initializer);
+          break;
+        case Variable::Kind::Param: r = false; break;
+        case Variable::Kind::Local: {
+          bool killed = false;
+          const std::vector<const Statement*> reach = reaching(v.base, v.seq, v.block, killed);
+          bool full = false;
+          for (const Statement* d : reach) {
+            full = full || d->chain.empty();
+            r = r && perDraw(d->value) && chainPerDraw(d->chain);
+            if (const auto c = cg_.blockConds.find(d->block); c == cg_.blockConds.end()) r = false;
+            else
+              for (const uint32_t cond : c->second) r = r && perDraw(cond);
+          }
+          r = r && full;
+          break;
+        }
+      }
+      break;
+    }
+    default:
+      for (const uint32_t a : v.args) r = r && perDraw(a);
+      break;
+  }
+  perDrawBusy_.erase(id);
+  perDrawMemo_[id] = r;
+  return r;
 }
 
 bool Extractor::outOnly(const Variable& v) {
@@ -2315,6 +2384,8 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
         bool source = false;
         for (const auto& a : uv->second.annotations) source = source || a.name == "source";
         if (!source) d.rate = InputDecl::Rate::Uniform;
+      } else if (!fx_.hlsl && !d.compileTime && perDraw(l.loadValue)) {
+        d.rate = InputDecl::Rate::Uniform;  // a local computed from uniforms only
       }
       Range r = d.compileTime ? range(l.loadValue) : leafRange(l.loadValue);
       Fact fact;

@@ -169,6 +169,10 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
   can come out one ulp off.
 - Also not faster: ~8 against clamp 7.8 on Blackwell and ~8 on Intel; worse on Turing (clamp 4.1,
   min / max nearly free) and on AMD (clamp is one v_med3). Only Ampere gains a little (8 vs 10).
+- LumaSharpen 1.5 (2013) folds the scale into its luma dot, `saturate(dot(float4(sharp, 1), float4(w * (0.5 / c), 0.5)))`,
+  which saves the clamp when w and c are compile-time constants (SweetFX 1.x #defines). With sliders the scale is
+  per-pixel math (fxc, D3D9 and D3D11: 9 instructions against dp3 + max + min); even in performance mode it only
+  trades the clamp for a mad. Checked 2026-10-25; the library check rejects it near 0 (cancellation, abs error c * 6e-8).
 
 ### Reassociating additions: `(a + b) + c -> a + (b + c)` and the like
 - **What's wrong:** where two terms nearly cancel, the order decides the result
