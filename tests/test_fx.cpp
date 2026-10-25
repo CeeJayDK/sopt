@@ -1438,6 +1438,12 @@ TEST(fx_easy_mode) {
   eo.tooExact = true;
   fx::easyPicks(tooExact, rewrites, eo);
   CHECK(tooExact[0].variants.size() == 1 && tooExact[0].variants[0].text == "4.0");
+  // A guessed (likely) range: nothing in easy mode, not every variant one after another (SuperDepth3D.fx, 2026-10-24).
+  std::vector<fx::RegionResult> guessed = {rr};
+  if (guessed[0].region.facts.empty()) guessed[0].region.facts.resize(1);
+  guessed[0].region.facts[0].likely = true;
+  fx::easyPicks(guessed, rewrites, fx::EasyOptions{});
+  CHECK(guessed[0].variants.empty());
   // Same on the chosen card, faster on some GPU families (owner, 2026-10-09): taken only when the Steam-share
   // weighted change is negative; among equals the one that helps the world most.
   {
