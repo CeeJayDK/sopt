@@ -1,0 +1,16 @@
+uniform float Strength < ui_type = "slider"; ui_min = 0.0; ui_max = 2.0; > = 1.0;
+texture InTex { Width = 64; Height = 64; Format = RGBA8; };
+sampler InSamp { Texture = InTex; };
+float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
+float Sq(float x) { const float y = x * x; return y; }
+float Branchy(float x) { if (x > 0.5) return 1.0; return x; }
+float4 InVS(uint id : SV_VertexID) : SV_Position { return 0; }
+float4 InPS(float4 p : SV_Position) : SV_Target
+{
+	float3 c = tex2D(InSamp, p.xy).rgb;
+	float a = Luma(c) * Strength + Luma(c.bgr) * c.g;
+	float b = Sq(Luma(c)) * c.r + c.b;
+	float d = Branchy(c.r) * c.g + c.b;
+	return float4(a, b, d, 1);
+}
+technique In { pass { VertexShader = InVS; PixelShader = InPS; } }

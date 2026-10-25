@@ -8,6 +8,7 @@
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -1062,6 +1063,17 @@ class Extractor {
   bool usesPow_ = false;
   std::unordered_map<uint32_t, uint32_t> inline_;  // temporary variable -> its value
   std::unordered_map<uint32_t, uint32_t> inlineLoad_;  // load -> value of its (chain) definition
+  // A call of a small pure helper, seen through (owner, 2026-10-26): its return value with the parameters bound to
+  // the arguments and its single-assignment locals to their values (inline_), while the scope lives.
+  class CallScope {
+   public:
+    CallScope(Extractor& x, const Value& call);
+    ~CallScope();
+    uint32_t ret = 0;  // the callee's return value
+   private:
+    Extractor& x_;
+    std::vector<std::pair<uint32_t, std::optional<uint32_t>>> saved_;
+  };
   bool findChain(const Statement& s, size_t length, std::vector<const Statement*>& defs);
   bool leavesUnchanged(const Statement& s, const std::vector<const Statement*>& defs) const;
   bool writesBetween(uint32_t var, uint32_t after, uint32_t before,
@@ -1209,6 +1221,60 @@ uint32_t chainMask(const std::vector<reshadefx::expression::operation>& chain, s
   throw Unsupported("access chain");
 }
 
+Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
+  const Function* f = x.cg_.function(call.name);
+  if (!f) throw Unsupported("function call");
+  if (f->params.size() != call.args.size()) throw Unsupported("function call: arguments");
+  // ReShade passes each argument through a temporary variable (call.args): its last store before the call.
+  std::vector<uint32_t> args;
+  for (size_t k = 0; k < f->params.size(); ++k) {
+    const auto pv = x.cg_.variables.find(f->params[k]);
+    if (pv == x.cg_.variables.end() || pv->second.type.has(reshadefx::type::q_out))
+      throw Unsupported("function call: out parameter");
+    if (pv->second.type.is_object()) throw Unsupported("function call: texture or sampler argument");
+    const Statement* st = nullptr;
+    if (const auto d = x.defs_.find(call.args[k]); d != x.defs_.end())
+      for (const Statement* s : d->second)
+        if (s->seq < call.seq && (!st || s->seq > st->seq)) st = s;
+    if (!st || !st->chain.empty()) throw Unsupported("function call: arguments");
+    args.push_back(st->value);
+  }
+  // Locals assigned once, then one return, all outside branches and loops.
+  std::unordered_set<uint32_t> assigned;
+  for (size_t i = 0; i < f->stmts.size(); ++i) {
+    const Statement& s = f->stmts[i];
+    const auto c = x.cg_.blockConds.find(s.block);
+    if (c == x.cg_.blockConds.end() || !c->second.empty()) throw Unsupported("function call: branches");
+    for (const auto& [lo, hi] : x.cg_.loops)
+      if (lo <= s.seq && s.seq <= hi) throw Unsupported("function call: loop");
+    if (s.kind == Statement::Kind::Return) {
+      if (i + 1 != f->stmts.size()) throw Unsupported("function call: early return");
+      ret = s.value;
+    } else if (s.kind == Statement::Kind::Write) {
+      throw Unsupported("function call: writes a resource");
+    } else if (!s.chain.empty() || !assigned.insert(s.var).second || !x.cg_.variables.count(s.var) ||
+               x.cg_.variables.at(s.var).kind != Variable::Kind::Local) {
+      throw Unsupported("function call: reassigns a variable");
+    }
+  }
+  if (!ret) throw Unsupported("function call: no return value");
+  auto bind = [&](uint32_t var, uint32_t value) {
+    const auto old = x_.inline_.find(var);
+    saved_.emplace_back(var, old == x_.inline_.end() ? std::nullopt : std::optional<uint32_t>(old->second));
+    x_.inline_[var] = value;
+  };
+  for (size_t k = 0; k < f->params.size(); ++k) bind(f->params[k], args[k]);
+  for (const Statement& s : f->stmts)
+    if (s.kind != Statement::Kind::Return) bind(s.var, s.value);
+}
+
+Extractor::CallScope::~CallScope() {
+  for (auto it = saved_.rbegin(); it != saved_.rend(); ++it) {
+    if (it->second) x_.inline_[it->first] = *it->second;
+    else x_.inline_.erase(it->first);
+  }
+}
+
 void Extractor::collect(uint32_t id) {
   const auto it = cg_.values.find(id);
   if (it == cg_.values.end()) throw Unsupported("value");
@@ -1332,7 +1398,11 @@ void Extractor::collect(uint32_t id) {
         collect(a);
       }
       return;
-    case K::Call: throw Unsupported("function call");
+    case K::Call: {
+      const CallScope scope(*this, v);
+      collect(scope.ret);
+      return;
+    }
     case K::Phi: throw Unsupported("short-circuit or branch value");
   }
 }
@@ -1528,6 +1598,16 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         m[nm++] = identity ? src : b.swizzle(src, sw, cnt);
       }
       r = nm == 1 ? m[0] : b.construct(m, nm);
+      break;
+    }
+    case K::Call: {
+      // The callee's values are shared by every call: built with this call's bindings in a map of their own (the
+      // DAG merges what the calls have in common).
+      const CallScope scope(*this, v);
+      auto outer = std::move(built_);
+      built_.clear();
+      r = build(scope.ret, b);
+      built_ = std::move(outer);
       break;
     }
     default: throw Unsupported("value");

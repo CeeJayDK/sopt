@@ -126,7 +126,11 @@ TEST(fx_regions_and_facts) {
   // Statements that cannot be regions, and why.
   CHECK(skippedAt(l, 29, "uses a macro"));
   CHECK(skippedAt(l, 30, "depends on BUFFER_WIDTH/HEIGHT"));
-  CHECK(skippedAt(l, 28, "function call"));
+  // A call of a small helper is seen through (2026-10-26; was "function call").
+  bool call = false;
+  for (const auto& r : l.regions)
+    call = call || (r.line == 28 && toString(r.prog.target, r.prog.inputs) == "color * 0.5 + color * 0.5");
+  CHECK(call);
   // Header function reached from the pixel shader, parameter range from its call site.
   bool helper = false;
   for (const auto& r : l.regions)
@@ -1286,6 +1290,30 @@ TEST(fx_per_draw_locals) {
       if (r.line == 16 && d.name == "k") k = d.rate == InputDecl::Rate::Uniform;
     }
   CHECK(w == 1 && k == 0);
+}
+
+TEST(fx_inline_calls) {
+  // Calls of small pure helpers are seen through (owner, 2026-10-26): parameters bound per call (Luma twice with
+  // different arguments), single-assignment locals, nested calls; a helper with a branch stays a skip.
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_inline.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  sk.keepDetails = true;
+  const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+  const fx::Region* a = regionOn(regions, 11);
+  const fx::Region* b = regionOn(regions, 12);
+  CHECK(a && b && !regionOn(regions, 13));
+  if (!a || !b) return;
+  const std::string ta = toString(a->prog.target, a->prog.inputs), tb = toString(b->prog.target, b->prog.inputs);
+  std::printf("  %s\n  %s\n", ta.c_str(), tb.c_str());
+  CHECK(ta.find("Strength") != std::string::npos && ta.find(".zyx") != std::string::npos);
+  CHECK(tb.find("dot(") != std::string::npos);
+  bool branchy = false;
+  for (const auto& d : sk.details) branchy = branchy || d.find(":13: function call: branches") != std::string::npos;
+  CHECK(branchy);
 }
 
 TEST(fx_output_keeps_folders) {
