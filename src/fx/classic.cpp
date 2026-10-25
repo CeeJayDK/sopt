@@ -251,7 +251,8 @@ std::optional<SourceRewrite> tableRewrite(const Codegen& cg, const Function& f, 
   r.line = declLine;
   r.function = f.name;
   r.kind = "static const table";
-  const std::string table = "sopt_" + f.name + "_" + var.name;
+  // The declaration line too: overloads of one function name (SHADERDECK's AtlasBlurV) got the same helper twice.
+  const std::string table = "sopt_" + f.name + "_" + var.name + "_L" + std::to_string(declLine);
   std::vector<std::pair<size_t, std::string>> otherEntries;  // (index, expression)
   for (size_t k = 0; k < elems.size(); ++k)
     if (!isConst[k]) otherEntries.push_back({k, s.substr(elems[k].first, elems[k].second - elems[k].first)});

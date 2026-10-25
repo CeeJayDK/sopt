@@ -119,6 +119,7 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
 
   Options inner = opt;
   inner.specialize = false;
+  inner.previous.clear();  // over the full program's inputs, not spec's
   RunResult res;
   res.targetCost = dagCost(prog.target, *opt.search.model, prog.inputs);
   res.targetText = toString(prog.target, prog.inputs);

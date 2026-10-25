@@ -220,6 +220,10 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   // bound the search starts with.
   std::vector<Candidate> prevCands;
   for (const Expr& e : opt.previous) {
+    // Only finds over this program's inputs (2026-10-25: a rerun with sopt-cache.txt handed the region's finds to its
+    // specialized program and parts, which have fewer inputs: reads past the points, a crash on Linux).
+    const auto foreign = [&](const Node& n) { return n.op == Op::Input && n.input >= prog.inputs.size(); };
+    if (std::any_of(e.nodes.begin(), e.nodes.end(), foreign)) continue;
     const uint32_t c = dagCost(e, *opt.search.model, prog.inputs);
     if (c < res.targetCost && compare(prog, e, stage2, kProfileRef, 1, &stage2Target, s2x, s2s).pass &&
         (res.previousBest == 0 || c < res.previousBest)) {
