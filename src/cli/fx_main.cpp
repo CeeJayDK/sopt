@@ -79,6 +79,7 @@ void usage() {
       "  --v1 N            verification sample points (default 262144)\n"
       "  --jobs N          regions searched in parallel (default: all cores)\n"
       "  --max-inputs N    skip statements reading more variables (default 4)\n"
+      "  --max-slots N     ... or more input components (default 8; a float3 is 3)\n"
       "  --max-ops N       skip regions with more operations (default 24)\n"
       "  --max-statements N  statements per window: a statement with the single-use\n"
       "                    temporaries it reads or the statements before it that compute\n"
@@ -296,6 +297,7 @@ int main(int argc, char** argv) {
     else if (a == "--variants") numVariants = std::strtoul(next(), nullptr, 10);
     else if (a == "--jobs") jobs = std::max(1ul, std::strtoul(next(), nullptr, 10));
     else if (a == "--max-inputs") ropt.maxInputs = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
+    else if (a == "--max-slots") ropt.maxSlots = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--max-ops") ropt.maxOps = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
     else if (a == "--max-statements")
       ropt.maxStatements = std::max<uint32_t>(1, static_cast<uint32_t>(std::strtoul(next(), nullptr, 10)));

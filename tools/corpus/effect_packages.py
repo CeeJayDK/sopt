@@ -13,7 +13,7 @@ which are then only there for the includes and not run unless asked for.
 Setup's rule (setup/MainWindow.xaml.cs): the archive's first folder named Shaders, else the shortest folder holding an
 .fx file, is copied to the package's InstallPath; DenyEffectFiles are removed. Textures are not needed by sopt.
 """
-import configparser, io, json, os, re, shutil, subprocess, sys, tempfile, time, urllib.request, zipfile
+import configparser, glob, io, json, os, re, shlex, shutil, subprocess, sys, tempfile, time, urllib.request, zipfile
 
 
 def packages(ini):
@@ -80,7 +80,16 @@ def summary_of(log):
     return parsed, checks, saved
 
 
-def run(dest, sopt, out, secs, timeout):
+def skip_reasons(log):
+    # "skip <file>:<line>: [window: ]<reason>": why sopt left code out (fewer than minOps is not giving up)
+    counts = {}
+    for m in re.finditer(r"^skip .*?:\d+: (.*)$", log, re.M):
+        r = re.sub(r"'[^']*'|\"[^\"]*\"", "...", m.group(1).strip())  # names out, so reasons group
+        counts[r] = counts.get(r, 0) + 1
+    return counts
+
+
+def run(dest, sopt, out, secs, timeout, args=""):
     pk = json.load(open(os.path.join(dest, "packages.json")))
     os.makedirs(out, exist_ok=True)
     rows, bad = [], 0
@@ -91,7 +100,8 @@ def run(dest, sopt, out, secs, timeout):
             rows.append(f"| {p['id']} | [{p['name']}]({p['url']}) | 0 | | | | | {p['error'] or 'no effects'} |")
             continue
         o = os.path.join(out, p["id"])
-        cmd = [sopt, "-o", os.path.join(o, "sopt-out"), "--time", str(secs)] + [os.path.join(dest, e) for e in p["effects"]]
+        cmd = ([sopt, "-o", os.path.join(o, "sopt-out"), "--time", str(secs)] + shlex.split(args) +
+               [os.path.join(dest, e) for e in p["effects"]])
 
         def one(extra):
             try:
@@ -107,7 +117,9 @@ def run(dest, sopt, out, secs, timeout):
         # folder, so its cache skips the search and only the files are written and checked again.
         easy_log, easy_code = one(["--easy"])
         secs_used = time.time() - t0
+        skips_log, _ = one(["--list", "--skips"])
         os.makedirs(o, exist_ok=True)
+        json.dump(skip_reasons(skips_log), open(os.path.join(o, "skips.json"), "w"), indent=1)
         open(os.path.join(o, "log.txt"), "w", encoding="utf-8").write(log)
         open(os.path.join(o, "log-easy.txt"), "w", encoding="utf-8").write(easy_log)
         for f in ("sopt-report.md", "sopt-found.txt", "sopt-facts.txt"):  # reports only: the shaders stay their authors'
@@ -152,6 +164,14 @@ def summary(dirs):
     rows.sort(key=lambda r: r.split("|")[1].strip())
     print("# sopt-fx on ReShade's effect packages\n\n| # | package | effects | parsed / failed | regions | saved | time | problems |\n"
           "|---|---|---|---|---|---|---|---|\n" + "\n".join(rows))
+    skips = {}
+    for d in dirs:
+        for f in glob.glob(os.path.join(d, "**", "skips.json"), recursive=True):
+            for r, n in json.load(open(f)).items():
+                skips[r] = skips.get(r, 0) + n
+    if skips:
+        print("\n## Why sopt left code out (all packages)\n\n| count | reason |\n|---|---|\n" +
+              "\n".join(f"| {n} | {r} |" for r, n in sorted(skips.items(), key=lambda x: -x[1])))
     return any("**" in r for r in rows)
 
 
@@ -165,6 +185,7 @@ if __name__ == "__main__":
         install(a[1], a[2], a[3] if len(a) > 3 else "")
     elif a[:1] == ["run"]:
         opt = dict(zip(a[4::2], a[5::2]))
-        sys.exit(1 if run(a[1], a[2], a[3], float(opt.get("--time", 1)), float(opt.get("--timeout", 1800))) else 0)
+        sys.exit(1 if run(a[1], a[2], a[3], float(opt.get("--time", 1)), float(opt.get("--timeout", 1800)),
+                          opt.get("--args", "")) else 0)
     else:
         sys.exit(__doc__)

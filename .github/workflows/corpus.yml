@@ -11,6 +11,9 @@ on:
       packages:
         description: package ids, comma separated (empty = all)
         default: ""
+      args:
+        description: extra sopt-fx arguments (A/B runs, e.g. --max-inputs 8 --max-slots 16)
+        default: ""
   schedule:
     - cron: "0 3 6 * *"  # monthly
   push:
@@ -57,7 +60,7 @@ jobs:
           chmod +x build/sopt-fx
           python3 -I tools/corpus/effect_packages.py install EffectPackages.ini "$RUNNER_TEMP/corpus" "${{ matrix.id }}"
           python3 -I tools/corpus/effect_packages.py run "$RUNNER_TEMP/corpus" build/sopt-fx "out/${{ matrix.id }}" \
-            --time "${{ inputs.time || '1' }}" --timeout 6000
+            --time "${{ inputs.time || '1' }}" --timeout 6000 --args "${{ inputs.args }}"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
