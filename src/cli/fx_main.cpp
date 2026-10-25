@@ -164,7 +164,12 @@ void usage() {
       "  --easy-too-exact  easy mode may also pick \"too exact\" variants\n"
       "  --easy-rewrites R classical rewrites in easy mode: none, safe (default: tables, vertex\n"
       "                    shader) or all (blend stage too)\n"
-      "  --no-v3           no V3 (default: prove a formal error bound by interval subdivision\n"
+      "  --easy-identical  easy mode picks only variants with identical results (bit-exact or\n"
+      "                    the same 8-bit output); easy mode always skips picks fxc compiles\n"
+      "                    to the original's code when sopt-fxc is found\n"
+      "  --one-version     table rewrites without vendor branches: the select tree on every GPU\n"
+      "                    (D3D9: the static const table)\n"
+      "  --no-v3          no V3 (default: prove a formal error bound by interval subdivision\n"
       "                    for the cheapest 3 alternatives where V2 does not apply, --v3-time S\n"
       "                    each, default 2; sopt-fx: for the written variants)\n"
       "  --no-overflow     stop a region's search when the bank is full (default: keep\n"
@@ -244,6 +249,7 @@ int main(int argc, char** argv) {
   opt.loose = 100;
   // Only the cheapest few variants per region are written: verifying 50 wastes time.
   opt.maxAlternatives = 20;
+  bool oneVersion = false;  // --one-version: no vendor branches in rewrites
   bool isa = false, sass = false, backends = false, allowAssumed = false, ask = false, symbolic = true,
        bufferInputs = true;
   fs::path factsFile, exportSpirv;
@@ -319,6 +325,8 @@ int main(int argc, char** argv) {
     else if (a == "--all-platforms") allPlatforms = true;
     else if (a == "--no-cache") useCache = false;
     else if (a == "--easy-switches") easy = true, easyWrite.allOn = true;
+    else if (a == "--easy-identical") easyOpt.identicalOnly = true;
+    else if (a == "--one-version") oneVersion = true;
     else if (a == "--easy-too-exact") easyOpt.tooExact = true;
     else if (a == "--easy-rewrites") {
       const std::string v = next();
@@ -1221,8 +1229,13 @@ int main(int argc, char** argv) {
 
   // Backend normalization: counts after the compilers' optimizers, and whether a variant's
   // code is the original's there ("the compiler already does it" on that backend).
-  if (backends) {
-    info.spirv = true;
+  // Easy mode compares each region's code after fxc by itself (sopt-fxc ships next to sopt-fx): a pick that compiles
+  // to the original's DXBC only changes the code's look (easyPicks leaves it out). DXBC only, not SPIR-V.
+  const bool easyDxbc = easy && !backends && !backCfg.fxc.empty();
+  if (backends || easyDxbc) {
+    BackendConfig cfg = backCfg;
+    if (easyDxbc) cfg.fxstat.clear(), cfg.spirvDis.clear();
+    info.spirv = backends;
     info.dxbc = !backCfg.fxc.empty();
     for (auto& rr : results) {
       if (rr.variants.empty()) continue;
@@ -1230,7 +1243,7 @@ int main(int argc, char** argv) {
       for (size_t k = 0; k < ins.size(); ++k) ins[k].name = "sopt_in" + std::to_string(k);
       std::vector<const Expr*> exprs = {&rr.region.prog.target};
       for (const auto& v : rr.variants) exprs.push_back(&v.expr);
-      const auto m = measureBackends(exprs, ins, backCfg);
+      const auto m = measureBackends(exprs, ins, cfg);
       if (!m[0].error.empty()) std::fprintf(stderr, "%s:%u: backends: %s\n", rr.region.file.c_str(), rr.region.line, m[0].error.c_str());
       rr.targetSpirv = m[0].spirv;
       rr.targetDxbc = m[0].dxbc;
@@ -1480,6 +1493,10 @@ int main(int argc, char** argv) {
     easyResults = results;
     easyRewrites = rewrites;
     fx::easyPicks(easyResults, easyRewrites, easyOpt);
+  }
+  if (oneVersion) {
+    fx::oneVersionForAllGpus(rewrites);
+    fx::oneVersionForAllGpus(easyRewrites);
   }
   const auto& wResults = easy ? easyResults : results;
   const auto& wRewrites = easy ? easyRewrites : rewrites;

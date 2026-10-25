@@ -2146,6 +2146,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   easy mode skips guarded regions, expert writes them under the condition. spanGuard no longer gives up on a whole
   file for a #define over several lines (SuperDepth3D 317 -> 386 regions), joins #if conditions over lines.
   (3) "within budget" and per-vendor table rewrites: options asked (identical-only easy mode, one form for all GPUs).
+  Easy options (owner, 2026-10-25): --easy-identical (EasyOptions.identicalOnly: bit-exact / 8-bit identical only);
+  easy mode leaves out picks fxc compiles to the original's DXBC (v.dxbcSame; fx_main runs measureBackends DXBC-only in
+  easy mode when sopt-fxc is found; without fxstat, emitEffect(hlsl) writes the HLSL itself: "it changes my code
+  style, not performance"; SuperDepth3D 38 -> 34 picks, e.g. smoothstep with constant edges written out); --one-version
+  (oneVersionForAllGpus, classic.cpp): the table rewrite's select tree on every GPU from D3D10 (D3D9: static const),
+  no Intel exception; costs Intel ~2x against the original array (TexBench UHD 630 126 vs 64). Menu: E, options 3 / 4.
   effect-packages with easy mode found: table helpers named after the function collided for overloads (SHADERDECK's
   AtlasBlurV: sopt_<f>_<array>_L<line>_at now); the variant check loaded a changed header next to its original
   through another include (FXShaders' Common.fxh: ScaleCoord twice): it now loads each effect from an overlay of

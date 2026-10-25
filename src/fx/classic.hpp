@@ -72,5 +72,8 @@ std::string rewriteSwitch(const SourceRewrite& r);
 // "&& __VENDOR__ != 0x8086". Other entries are picked as (i == k ? value : table_at(i)). Only arrays
 // never written after their initializer, read only by index, with all text on plain source lines.
 std::vector<SourceRewrite> tableRewrites(const Effect& fx);
+// One version for all GPUs (owner, 2026-10-25): the table rewrites without vendor branches (the select tree on every GPU
+// from D3D10 on, the static const table on D3D9).
+void oneVersionForAllGpus(std::vector<SourceRewrite>& rewrites);
 
 }  // namespace sopt::fx

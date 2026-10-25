@@ -113,18 +113,26 @@ std::vector<BackendCode> measureBackends(const std::vector<const Expr*>& exprsIn
     int status = 0;
     // SPIR-V: optimized counts, and the optimized module for the identity check.
     const fs::path spv = dir / (stem + "_spv");
-    const std::string json =
-        runCommand(quote(cfg.fxstat) + " --json --dump " + quote(spv.string()) + " " + quote(file.string()) + " 2>&1", status);
-    c.spirv = pixelAlu(json);
-    if (c.spirv < 0) c.error = "spirv: " + firstLines(json, 3);
-    if (!cfg.spirvDis.empty() && fs::exists(spv / "E__SoptPS.spv"))
-      c.spirvCode = canonicalSpirv(
-          runCommand(quote(cfg.spirvDis) + " --raw-id " + quote((spv / "E__SoptPS.spv").string()) + " 2>&1", status));
+    if (!cfg.fxstat.empty()) {
+      const std::string json = runCommand(
+          quote(cfg.fxstat) + " --json --dump " + quote(spv.string()) + " " + quote(file.string()) + " 2>&1", status);
+      c.spirv = pixelAlu(json);
+      if (c.spirv < 0) c.error = "spirv: " + firstLines(json, 3);
+      if (!cfg.spirvDis.empty() && fs::exists(spv / "E__SoptPS.spv"))
+        c.spirvCode = canonicalSpirv(
+            runCommand(quote(cfg.spirvDis) + " --raw-id " + quote((spv / "E__SoptPS.spv").string()) + " 2>&1", status));
+    }
     // DXBC: ReShade's HLSL through Microsoft's fxc at -O3.
     if (!cfg.fxc.empty()) {
       const fs::path hl = dir / (stem + "_hlsl");
-      runCommand(quote(cfg.fxstat) + " --hlsl --dump " + quote(hl.string()) + " " + quote(file.string()) + " 2>&1", status);
       const fs::path src = hl / (stem + ".hlsl");
+      if (!cfg.fxstat.empty()) {
+        runCommand(quote(cfg.fxstat) + " --hlsl --dump " + quote(hl.string()) + " " + quote(file.string()) + " 2>&1", status);
+      } else {  // sopt-fx's package has sopt-fxc but no fxstat: sopt writes the HLSL itself
+        std::error_code ec;
+        fs::create_directories(hl, ec);
+        std::ofstream(src, std::ios::binary) << emitEffect(*sp.exprs[i], sp.inputs, true);
+      }
       if (!fs::exists(src)) {
         if (c.error.empty()) c.error = "dxbc: fxstat wrote no HLSL";
         return;

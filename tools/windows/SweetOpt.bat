@@ -17,6 +17,8 @@ rem variant behind switches. Easy settings default to the safe choices.
 set "MODE=easy"
 set "TOOEXACT=no"
 set "REWRITES=safe"
+set "IDENTICAL=no"
+set "ONEVERSION=no"
 rem Other GPU families (owner, 2026-10-09): variants are always costed for every family; "yes" also searches with the
 rem AMD RDNA 3 / NVIDIA Turing / Ampere / Intel Gen9 models (sopt-fx --all-platforms, about 4x the time).
 set "ALLPLAT=no"
@@ -210,15 +212,19 @@ if "%TOOEXACT%"=="yes" echo   %E%[1;93m1%E%[0m  "Too exact" changes      %E%[97m
 if "%REWRITES%"=="safe" echo   %E%[1;93m2%E%[0m  Bigger rewrites          %E%[97mtables and vertex shader moves%E%[0m %E%[90m(default)%E%[0m
 if "%REWRITES%"=="all" echo   %E%[1;93m2%E%[0m  Bigger rewrites          %E%[97mall, blends to the blend stage too%E%[0m %E%[90m(check those in ReShade)%E%[0m
 if "%REWRITES%"=="none" echo   %E%[1;93m2%E%[0m  Bigger rewrites          %E%[97mnone%E%[0m
-echo   %E%[1;93m3%E%[0m  Back to the safe defaults
+echo   %E%[1;93m3%E%[0m  Identical results only   %E%[97m%IDENTICAL%%E%[0m %E%[90m(yes: no change that rounds differently)%E%[0m
+echo   %E%[1;93m4%E%[0m  One version for all GPUs %E%[97m%ONEVERSION%%E%[0m %E%[90m(yes: no code per graphics card maker)%E%[0m
+echo   %E%[1;93m5%E%[0m  Back to the safe defaults
 echo   %E%[1;93m0%E%[0m  Back
 echo.
-choice /c 1230 /n /m "  Press a number: "
+choice /c 123450 /n /m "  Press a number: "
 set "k=%errorlevel%"
-if "%k%"=="4" exit /b
-if "%k%"=="3" set "TOOEXACT=no" & set "REWRITES=safe"
+if "%k%"=="6" exit /b
+if "%k%"=="5" set "TOOEXACT=no" & set "REWRITES=safe" & set "IDENTICAL=no" & set "ONEVERSION=no"
 if "%k%"=="1" goto toggleTooExact
 if "%k%"=="2" goto toggleRewrites
+if "%k%"=="3" if "%IDENTICAL%"=="no" (set "IDENTICAL=yes") else (set "IDENTICAL=no")
+if "%k%"=="4" if "%ONEVERSION%"=="no" (set "ONEVERSION=yes") else (set "ONEVERSION=no")
 goto easySettings
 :toggleTooExact
 if "%TOOEXACT%"=="no" (set "TOOEXACT=yes") else (set "TOOEXACT=no")
@@ -242,6 +248,8 @@ if "%MODE%"=="easy" set "EASY=--easy"
 if "%MODE%"=="easy-switches" set "EASY=--easy-switches"
 if not "%MODE%"=="expert" if "%TOOEXACT%"=="yes" set "EASY=%EASY% --easy-too-exact"
 if not "%MODE%"=="expert" set "EASY=%EASY% --easy-rewrites %REWRITES%"
+if not "%MODE%"=="expert" if "%IDENTICAL%"=="yes" set "EASY=%EASY% --easy-identical"
+if "%ONEVERSION%"=="yes" set "EASY=%EASY% --one-version"
 if "%ALLPLAT%"=="yes" set "EASY=%EASY% --all-platforms"
 cls
 "%~dp0bin\sopt-fx.exe" %INC% -o "%~dp0sopt-out" --time %SECONDS% --cost-model %MODEL% %FACTS% %EASY% "%WHAT%"
@@ -322,5 +330,7 @@ if not exist "bin" mkdir "bin"
 >>"bin\SweetOpt.ini" echo MODE=%MODE%
 >>"bin\SweetOpt.ini" echo TOOEXACT=%TOOEXACT%
 >>"bin\SweetOpt.ini" echo REWRITES=%REWRITES%
+>>"bin\SweetOpt.ini" echo IDENTICAL=%IDENTICAL%
+>>"bin\SweetOpt.ini" echo ONEVERSION=%ONEVERSION%
 >>"bin\SweetOpt.ini" echo ALLPLAT=%ALLPLAT%
 exit /b
