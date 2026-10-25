@@ -1493,7 +1493,11 @@ int main(int argc, char** argv) {
   for (const auto& r : wResults)
     if (!r.variants.empty()) changed.insert(r.region.file);
   for (const auto& rw : wRewrites) changed.insert(rw.file);
-  std::vector<std::pair<fs::path, fs::path>> effectsOut;  // written effect, its original
+  struct EffectOut {
+    fs::path written, original;
+    std::vector<std::string> sources;  // every file the original effect read
+  };
+  std::vector<EffectOut> effectsOut;
   for (const auto& [p, srcs] : effectFiles) {
     bool uses = false;
     for (const auto& f : srcs) uses = uses || changed.count(f);
@@ -1506,13 +1510,30 @@ int main(int argc, char** argv) {
       if (ec) errors += "cannot copy " + p.string() + "\n";
       else files.push_back(dst);
     }
-    effectsOut.emplace_back(dst, p);
+    effectsOut.push_back({dst, p, srcs});
   }
 
   console::section(con, "Writing");
   // Every variant must still parse: SOPT_GROUP = k selects variant k where it exists.
   size_t checks = 0, checkFailures = 0;
-  for (const auto& [e, original] : effectsOut) {
+  // The output as installed (sopt-out copied over the originals): a folder per effect with every file it reads, the
+  // written ones laid over them (2026-10-25, FXShaders: a changed Common.fxh in the output and the original one, both
+  // reached through different includes, defined ScaleCoord twice; real installs have one of them).
+  // shortcut: files outside the input folders (ReShade.fxh above a pack) still come from the originals' folders.
+  const std::set<fs::path> writtenFiles(files.begin(), files.end());
+  const fs::path checkDir = outDir / ".sopt-check";
+  for (size_t i = 0; i < effectsOut.size(); ++i) {
+    const fs::path& original = effectsOut[i].original;
+    const fs::path dir = checkDir / std::to_string(i);
+    std::error_code ec;
+    std::vector<std::string> srcs = effectsOut[i].sources;
+    srcs.push_back(fx::pathString(original));
+    for (const std::string& f : srcs) {
+      const fs::path rel = fx::outputName(f, roots), out = outDir / rel;
+      fs::create_directories((dir / rel).parent_path(), ec);
+      fs::copy_file(writtenFiles.count(out) ? out : fs::path(f), dir / rel, fs::copy_options::overwrite_existing, ec);
+    }
+    const fs::path e = dir / fx::outputName(original, roots);
     for (size_t k = 0; k <= 2 * numVariants; ++k) {
       fx::LoadOptions lo = loadFor(e);
       // The variant files are meant to lie over the original folder: headers and `#if exists` tests
@@ -1525,9 +1546,13 @@ int main(int argc, char** argv) {
       ++checks;
       if (!fx::loadEffect(e, lo, err)) {
         ++checkFailures;
-        errors += e.string() + " (SOPT_GROUP=" + std::to_string(k) + ") does not parse:\n" + err;
+        errors += effectsOut[i].written.string() + " (SOPT_GROUP=" + std::to_string(k) + ") does not parse:\n" + err;
       }
     }
+  }
+  {
+    std::error_code ec;
+    fs::remove_all(checkDir, ec);
   }
   info.rewrites = &rewrites;
   info.checks = checks;
@@ -1600,10 +1625,17 @@ int main(int argc, char** argv) {
     }
     if (regions) {
       auto pct = [](long t, long c) { return t > 0 ? 100.0 * (c - t) / t : 0.0; };
-      std::printf("\n%sSweetOpt saved:%s %zu region%s in %zu file%s, cost %ld -> %ld (%s%.0f%%%s) on %s\n",
-                  con.c("\x1b[1;92m"), con.reset(), regions, regions == 1 ? "" : "s", filesHit.size(),
+      // The saving on the changed statements, and what that is of all the math searched (an effect's author, 2026-10-25:
+      // "33%" read as the whole shader). Texture reads, writes and the rest of the effect are not in either.
+      long all = 0;
+      for (const auto& r : wResults) all += r.targetCompiled;
+      std::printf("\n%sSweetOpt saved:%s %zu of %zu statements in %zu file%s cheaper: %ld -> %ld (%s%.0f%%%s) on %s\n"
+                  "  that is %.0f%% of the math in all %zu statements searched; texture reads and the rest of the effect\n"
+                  "  are not counted, so the effect as a whole gains less\n",
+                  con.c("\x1b[1;92m"), con.reset(), regions, wResults.size(), filesHit.size(),
                   filesHit.size() == 1 ? "" : "s", tc, vc, con.c("\x1b[1;92m"), pct(tc, vc), con.reset(),
-                  opt.search.model ? std::string(opt.search.model->name).c_str() : "?");
+                  opt.search.model ? std::string(opt.search.model->name).c_str() : "?",
+                  all > 0 ? 100.0 * double(tc - vc) / double(all) : 0.0, wResults.size());
       std::string faster, slower;
       char cell[96];
       double lo = 0, hi = -1e9;
