@@ -92,16 +92,24 @@ def run(dest, sopt, out, secs, timeout):
             continue
         o = os.path.join(out, p["id"])
         cmd = [sopt, "-o", os.path.join(o, "sopt-out"), "--time", str(secs)] + [os.path.join(dest, e) for e in p["effects"]]
+
+        def one(extra):
+            try:
+                r = subprocess.run(cmd + extra, capture_output=True, text=True, errors="replace", timeout=timeout)
+                return r.stdout + r.stderr, r.returncode
+            except subprocess.TimeoutExpired as e:
+                part = e.stdout or b""  # bytes even with text=True
+                return part.decode(errors="replace") if isinstance(part, bytes) else part, "timeout"
+
         t0 = time.time()
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)
-            log, code = r.stdout + r.stderr, r.returncode
-        except subprocess.TimeoutExpired as e:
-            part = e.stdout or b""  # bytes even with text=True
-            log, code = part.decode(errors="replace") if isinstance(part, bytes) else part, "timeout"
+        log, code = one([])
+        # Easy mode too, what the menu does by default (2026-10-25: an easy-only bug broke SuperDepth3D): the same
+        # folder, so its cache skips the search and only the files are written and checked again.
+        easy_log, easy_code = one(["--easy"])
         secs_used = time.time() - t0
         os.makedirs(o, exist_ok=True)
         open(os.path.join(o, "log.txt"), "w", encoding="utf-8").write(log)
+        open(os.path.join(o, "log-easy.txt"), "w", encoding="utf-8").write(easy_log)
         for f in ("sopt-report.md", "sopt-found.txt", "sopt-facts.txt"):  # reports only: the shaders stay their authors'
             if os.path.exists(os.path.join(o, "sopt-out", f)):
                 shutil.copyfile(os.path.join(o, "sopt-out", f), os.path.join(o, f))
@@ -112,10 +120,16 @@ def run(dest, sopt, out, secs, timeout):
             problem.append(f"**exit {code}**")
         if checks and checks[0] != "0":
             problem.append(f"**{checks[0]} of {checks[1]} variant checks failed**")
+        _, easy_checks, _ = summary_of(easy_log)
+        if easy_code != 0:
+            problem.append(f"**easy: exit {easy_code}**")
+        if easy_checks and easy_checks[0] != "0":
+            problem.append(f"**easy: {easy_checks[0]} of {easy_checks[1]} checks failed**")
         bad += bool(problem)
         if problem:  # the reasons into the job's log, so they are there without the reports
             print(f"--- {p['id']} {p['name']}: {', '.join(problem)}")
-            print("\n".join([l for l in log.splitlines() if "does not parse" in l or "error" in l.lower()][:60]), flush=True)
+            for lg in (log, easy_log):
+                print("\n".join([l for l in lg.splitlines() if "does not parse" in l or "error" in l.lower()][:60]), flush=True)
         save = f"{saved[0]} regions, {saved[1]} -> {saved[2]}" if saved else ""
         rows.append(f"| {p['id']} | [{p['name']}]({p['url']}) | {len(p['effects'])} | {parsed[0] + ' / ' + parsed[1] if parsed else '?'}"
                     f" | {parsed[2] if parsed else '?'} | {save} | {secs_used:.0f} s | {', '.join(problem)} |")
@@ -123,7 +137,7 @@ def run(dest, sopt, out, secs, timeout):
     open(os.path.join(out, "rows.md"), "w", encoding="utf-8").write("\n".join(rows) + "\n")
     md = ("# sopt-fx on ReShade's effect packages\n\nParsed / failed: effects; savings: regions with written variants,"
           " cost on the default model. Problems: sopt-fx exited with an error (crash, timeout) or a written variant"
-          " does not parse.\n\n| # | package | effects | parsed / failed | regions | saved | time | problems |\n"
+          " does not parse, in expert mode or (\"easy:\") in easy mode, the menu's default.\n\n| # | package | effects | parsed / failed | regions | saved | time | problems |\n"
           "|---|---|---|---|---|---|---|---|\n" + "\n".join(rows) + "\n")
     open(os.path.join(out, "summary.md"), "w", encoding="utf-8").write(md)
     return bad
