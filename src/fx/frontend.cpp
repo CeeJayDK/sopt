@@ -756,7 +756,49 @@ bool sameBlock(const std::string& file, uint32_t first, uint32_t last) {
 }
 
 bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32_t last,
-               std::string& guard, std::string& why) {
+               std::string& guard, std::string& why, bool enclosing = false);
+
+// Constants a statement names that are declared inside #if / #else (owner, 2026-10-25, SuperDepth3D: Luma_Dark is a
+// static const = 0.15 in one build and a uniform slider in the other). ReShade's parser puts a static const's value in
+// place, so a variant would carry 0.15 into the slider build: the region gets the declaration's condition as its guard
+// (the variant only for this build; easy mode leaves guarded regions alone). False: the condition cannot be worked out.
+bool constGuard(const Effect& fx, Region& r, std::string& why) {
+  // Per file: each static const's name and line (one pass per file).
+  static std::map<std::string, std::map<std::string, uint32_t>> declared;
+  auto it = declared.find(r.file);
+  if (it == declared.end()) {
+    std::map<std::string, uint32_t> names;
+    if (const std::vector<std::string>* lines = sourceLines(r.file)) {
+      static const std::regex decl(R"(\bstatic\s+const\b)"), name(R"(([A-Za-z_]\w*)\s*=(?!=))");
+      for (uint32_t l = 1; l <= lines->size(); ++l) {
+        const std::string& s = (*lines)[l - 1];
+        std::smatch m;
+        if (!std::regex_search(s, m, decl)) continue;
+        const std::string rest = m.suffix();
+        for (auto n = std::sregex_iterator(rest.begin(), rest.end(), name); n != std::sregex_iterator(); ++n)
+          names.emplace((*n)[1], l);
+      }
+    }
+    it = declared.emplace(r.file, std::move(names)).first;
+  }
+  if (it->second.empty()) return true;
+  static const std::regex ident(R"([A-Za-z_]\w*)");
+  std::set<std::string> guards;
+  for (auto n = std::sregex_iterator(r.original.begin(), r.original.end(), ident); n != std::sregex_iterator(); ++n) {
+    const auto d = it->second.find(n->str());
+    if (d == it->second.end()) continue;
+    std::string g;
+    if (!spanGuard(fx, r.file, d->second, d->second, g, why, true)) return false;
+    if (!g.empty()) guards.insert(g);
+  }
+  for (const std::string& g : guards) r.guard = r.guard.empty() ? g : "(" + r.guard + ") && (" + g + ")";
+  return true;
+}
+
+// enclosing: also the conditions of the #if groups around the span (the branch a declaration is in), not only of
+// those with a directive inside it (a window across #if lines).
+bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32_t last,
+               std::string& guard, std::string& why, bool enclosing) {
   guard.clear();
   const std::vector<std::string>* lines = sourceLines(file);
   if (!lines) { why = "no source text"; return false; }
@@ -772,7 +814,16 @@ bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32
   for (uint32_t l = 1; l <= lines->size(); ++l) {
     std::string word, arg;
     if (!directiveOf((*lines)[l - 1], word, arg)) continue;
-    if (!arg.empty() && arg.back() == '\\') { why = "preprocessor line continuation"; return false; }
+    if (!arg.empty() && arg.back() == '\\') {
+      // A #define over several lines is no condition (2026-10-25: one in a file made every region there give up,
+      // SuperDepth3D 317 -> 172 regions); a condition over several lines is joined.
+      if (word != "if" && word != "elif") continue;
+      while (!arg.empty() && arg.back() == '\\' && l < lines->size()) {
+        arg.pop_back();
+        arg += " " + (*lines)[l++];
+        while (!arg.empty() && std::isspace(static_cast<unsigned char>(arg.back()))) arg.pop_back();
+      }
+    }
     if (word == "if" || word == "ifdef" || word == "ifndef") {
       const std::string c = word == "if" ? "(" + arg + ")"
                             : word == "ifdef" ? "defined(" + arg + ")" : "!defined(" + arg + ")";
@@ -800,6 +851,7 @@ bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32
   for (const Group& g : groups) {
     bool touched = g.end >= first && g.end <= last;
     for (const Branch& b : g.branches) touched = touched || (b.line >= first && b.line <= last);
+    if (enclosing) touched = touched || (g.branches.front().line < first && last < g.end);
     if (!touched) continue;
     auto end = [&](size_t k) { return k + 1 < g.branches.size() ? g.branches[k + 1].line : g.end; };
     // Condition of taking branch k: the earlier ones false, its own true.
@@ -2682,7 +2734,8 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
         single.prog.budget.errorScale = false;  // the rounding is wanted, not noise
           single.budgetReason += "; precise: float math only";
         }
-        out.push_back(single);
+        if (constGuard(fx_, single, why)) out.push_back(single);
+        else SKIPADD("constant: " + why);
       } else {
         SKIPADD(why);
       }
@@ -2738,7 +2791,8 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
           win.prog.budget.errorScale = false;  // the rounding is wanted, not noise
             win.budgetReason += "; precise: float math only";
           }
-          out.push_back(std::move(win));
+          if (constGuard(fx_, win, why)) out.push_back(std::move(win));
+          else SKIPADD("window constant: " + why);
         } else {
           SKIPADD("window: " + why);
         }

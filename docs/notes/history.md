@@ -2138,6 +2138,18 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   (AddressSanitizer, BFBFX). The driver skips finds with inputs the program lacks; generalize and partOptions
   clear them. #pragma once: include paths are normalized (lexically_normal + make_preferred) before the cache and
   recursion check: "Pack/h.fxh" and "Pack\h.fxh" were two files on Windows (BFBFX's AO.fx given with '/').
+  SuperDepth3D's author (2026-10-25): (1) "33%" read as the whole shader: the summary now says "N of M statements
+  cheaper" and the share of all searched math (SuperDepth3D: -35% on the changed ones = 15% of all searched).
+  (2) Luma_Dark is static const = 0.15 in one build and a uniform slider in the other (#if / #else); the parser puts
+  the constant in place, so a variant carried 0.15 into the slider build. constGuard (frontend.cpp): a region naming
+  a static const declared inside #if / #else gets that branch's condition as its guard (spanGuard(..., enclosing));
+  easy mode skips guarded regions, expert writes them under the condition. spanGuard no longer gives up on a whole
+  file for a #define over several lines (SuperDepth3D 317 -> 386 regions), joins #if conditions over lines.
+  (3) "within budget" and per-vendor table rewrites: options asked (identical-only easy mode, one form for all GPUs).
+  effect-packages with easy mode found: table helpers named after the function collided for overloads (SHADERDECK's
+  AtlasBlurV: sopt_<f>_<array>_L<line>_at now); the variant check loaded a changed header next to its original
+  through another include (FXShaders' Common.fxh: ScaleCoord twice): it now loads each effect from an overlay of
+  every file it reads with the written ones on top, as installed.
   RTX 2050 (GA107, 0.9.0, made before the Turing split: its header says Turing): differs from Turing exactly where
   Ampere does (sqmax / fmamax 7.5 vs 4.4, min / max / step 4.5 vs 0.6): confirms the move to Ampere; OpBench 479 s.
   intel-gen6 (owner's go, 2026-10-24) from the HD 3000 report (his mother's laptop; the Renoir is his father's, the GT

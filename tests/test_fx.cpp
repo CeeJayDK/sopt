@@ -1059,7 +1059,7 @@ TEST(fx_table_rewrite) {
   bool use = false;
   for (const auto& ed : rw[0].edits)
     for (const auto& l : ed.lines)
-      use = use || l.find("(Preset == 0 ? Custom : sopt_TablePS_Coefficients_at(Preset))") != std::string::npos;
+      use = use || l.find("(Preset == 0 ? Custom : sopt_TablePS_Coefficients_L19_at(Preset))") != std::string::npos;
   CHECK(use);
   // Per vendor (owner, 2026-10-17): a select tree for NVIDIA, the table for the rest, Intel keeps the array.
   bool tree = false, intelOff = true;
@@ -1173,6 +1173,24 @@ TEST(fx_pragma_once_one_spelling) {
   if (!e) std::printf("  %s\n", err.c_str());
   std::error_code ec;
   fs::remove_all(root.parent_path().parent_path(), ec);
+}
+
+TEST(fx_const_guard) {
+  // Line 20 names Dark, a static const here but a slider when SLIDERS is 1: its variants only for this build (a guard,
+  // which easy mode leaves alone). Line 21 names no such constant: no guard. A #define over two lines (11) must not
+  // make the file's regions give up (SuperDepth3D, 2026-10-25).
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_constguard.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+  const fx::Region* t = regionOn(regions, 20);
+  const fx::Region* u = regionOn(regions, 21);
+  CHECK(t != nullptr && u != nullptr);
+  if (t) CHECK(t->guard.find("SLIDERS") != std::string::npos);
+  if (u) CHECK(u->guard.empty());
 }
 
 TEST(fx_likely_ranges) {
