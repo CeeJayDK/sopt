@@ -154,6 +154,9 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 10. Stage-aware costs (owner, 2026-10-16): pixel shader costs for pixel shaders, compute for compute (StageBench,
    docs/stagebench); investigate every cs / ps / vs difference (fxc or driver?) before modelling it (history: mulpre).
    Owner's go, waiting on data: once an AMD report has the shladd5 pair, cost (x << k) + x as fxc's imul in HLSL mode.
+11. Re-optimize what sopt found (owner, 2026-10-25, for when sopt has improved): run the current sopt on every found
+   rule's original (library/found/, 1165 from the 0.6.4 corpus run; library/rewrites.txt's "found by sopt" rules) and
+   compare with the found replacement; owner, sopt and Claude then try to beat them by hand too. An Action, not tokens.
 9. Flags --library-regroup / --fp-coincidence (2026-10-11): off; the bench shows no difference (no || chains in it).
    Add bench problems with any() / all() if they should earn the default.
 7. sign() fast forms (owner, 2026-10-10): one (mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0), 2.25 on every model so far)

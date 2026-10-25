@@ -76,7 +76,7 @@ def summary_of(log):
         return m.groups() if m else None
     parsed = grab(r"(\d+) effects parsed, (\d+) failed, (\d+) regions")
     checks = grab(r"variant check: (\d+) of (\d+) parses failed")
-    saved = grab(r"SweetOpt saved: (\d+) regions? in \d+ files?, cost (\d+) -> (\d+)")
+    saved = grab(r"SweetOpt saved:\S* (\d+) of \d+ statements in \d+ files? cheaper: (\d+) -> (\d+)")
     return parsed, checks, saved
 
 
