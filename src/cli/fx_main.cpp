@@ -148,6 +148,8 @@ void usage() {
       "                    moves to the vertex shader, switch SOPT_<file>_V<line>; kept where --isa\n"
       "                    measures a gain)\n"
       "  --no-hoist        no moving to the vertex shader (the table rewrites stay)\n"
+      "  --no-setting-paths  only the code the effect's current settings compile (default: also each\n"
+      "                    value its #if lines test a setting for, variants under that #if)\n"
       "  --no-blend-stage  no final back buffer blends as blend states (default: a pixel shader\n"
       "                    that returns lerp / multiply / add / screen / min / max of the back buffer\n"
       "                    at its pixel returns the blend's source, switch SOPT_<file>_B<line>)\n"
@@ -230,6 +232,7 @@ int main(int argc, char** argv) {
   bool formatChecks = true;  // back buffer formats: 10-bit and scRGB checks, see below
   bool classic = true;       // classical source rewrites (fx/classic.hpp), --no-classic
   bool hoist = true;         // ... and moving math to the vertex shader (fx/hoist.hpp), --no-hoist
+  bool settingPaths = true;  // code other values of the effect's settings compile, --no-setting-paths
   bool blendStage = true;    // ... and final back buffer blends as blend states (fx/blend.hpp), --no-blend-stage
   // Easy mode (owner, 2026-10-08): ready files with our recommended picks (fx::easyPicks).
   bool easy = false;
@@ -322,6 +325,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-format-checks") formatChecks = false;
     else if (a == "--no-classic") classic = false;
     else if (a == "--no-hoist") hoist = false;
+    else if (a == "--no-setting-paths") settingPaths = false;
     else if (a == "--no-blend-stage") blendStage = false;
     else if (a == "--easy") easy = true, easyWrite.clean = true;
     else if (a == "--all-platforms") allPlatforms = true;
@@ -393,6 +397,7 @@ int main(int argc, char** argv) {
   info.perfFirst = opt.perfFirst;
   std::vector<fx::RegionResult> results;
   std::vector<std::pair<fs::path, std::vector<std::string>>> effectFiles;  // effect, its sources
+  std::map<fs::path, std::vector<std::pair<std::string, std::string>>> settingConfigs;  // settings that gave regions
   std::vector<fx::SourceRewrite> rewrites;  // classical rewrites (--no-classic)
   std::vector<fs::path> rewriteEffects;     // the effect each one was found in
   // Plain HLSL by extension (or --hlsl), with the entry point.
@@ -414,6 +419,7 @@ int main(int argc, char** argv) {
     info.skipped.keepDetails = skips;
     results.clear();
     effectFiles.clear();
+    settingConfigs.clear();
     rewrites.clear();
     rewriteEffects.clear();
     std::set<std::pair<std::string, std::string>> rewriteSeen;  // (file, switch tag + line)
@@ -477,8 +483,30 @@ int main(int argc, char** argv) {
           hdr.emplace(std::make_tuple(h.file, h.line, h.removed.size()), std::move(h));
       }
       std::vector<fx::Region> effectRegions;  // for the vertex shader rewrites
-      for (auto& r : fx::extractRegions(*fx, fx2.get(), ropt, info.skipped)) {
-        if (classic && hoist && !fx->hlsl) effectRegions.push_back(r);
+      std::vector<fx::Region> found = fx::extractRegions(*fx, fx2.get(), ropt, info.skipped);
+      // Code other values of the settings compile (owner, 2026-10-26): one parse per value an #if tests, regions on
+      // lines the default parse leaves out, each under its #if (not moved to the vertex shader: hoist sees only
+      // the default parse).
+      const size_t defaultRegions = found.size();
+      if (settingPaths && !load.hlsl && !load.glsl)
+        for (const auto& [name, value] : fx::settingValues(*fx)) {
+          fx::LoadOptions c = sym;
+          c.macros.emplace_back(name, value);
+          c.symbolic.erase(name);
+          std::string cErr;
+          auto cfx = fx::loadEffect(p, c, cErr);
+          if (!cfx) continue;
+          fx::LoadOptions ca = c;
+          ca.width = fx::kAltWidth;
+          ca.height = fx::kAltHeight;
+          auto cfx2 = fx::loadEffect(p, ca, cErr);
+          auto more = fx::settingRegions(*fx, *cfx, cfx2.get(), ropt);
+          if (!more.empty()) settingConfigs[p].emplace_back(name, value);
+          for (auto& r : more) found.push_back(std::move(r));
+        }
+      for (size_t i = 0; i < found.size(); ++i) {
+        fx::Region& r = found[i];
+        if (i < defaultRegions && classic && hoist && !fx->hlsl) effectRegions.push_back(r);
         if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
         fx::RegionResult rr;
         rr.effect = p.string();
@@ -1553,8 +1581,14 @@ int main(int argc, char** argv) {
       fs::copy_file(writtenFiles.count(out) ? out : fs::path(f), dir / rel, fs::copy_options::overwrite_existing, ec);
     }
     const fs::path e = dir / fx::outputName(original, roots);
-    for (size_t k = 0; k <= 2 * numVariants; ++k) {
+    // Also with each setting value that gave regions: their variants only compile then.
+    std::vector<std::pair<std::string, std::string>> configs = {{"", ""}};
+    if (const auto sc = settingConfigs.find(original); sc != settingConfigs.end())
+      configs.insert(configs.end(), sc->second.begin(), sc->second.end());
+    for (size_t k = 0; k <= 2 * numVariants; ++k)
+    for (const auto& [setName, setValue] : configs) {
       fx::LoadOptions lo = loadFor(e);
+      if (!setName.empty()) lo.macros.emplace_back(setName, setValue);
       // The variant files are meant to lie over the original folder: headers and `#if exists` tests
       // that are not in the output directory resolve there (SuperDepth3D's AXAA.fxh).
       lo.includePaths.insert(lo.includePaths.begin(), original.parent_path());
@@ -1565,7 +1599,8 @@ int main(int argc, char** argv) {
       ++checks;
       if (!fx::loadEffect(e, lo, err)) {
         ++checkFailures;
-        errors += effectsOut[i].written.string() + " (SOPT_GROUP=" + std::to_string(k) + ") does not parse:\n" + err;
+        errors += effectsOut[i].written.string() + " (SOPT_GROUP=" + std::to_string(k) +
+                  (setName.empty() ? "" : ", " + setName + "=" + setValue) + ") does not parse:\n" + err;
       }
     }
   }

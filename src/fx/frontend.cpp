@@ -3427,4 +3427,78 @@ std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const Re
   return kept;
 }
 
+std::vector<std::pair<std::string, std::string>> settingValues(const Effect& fx) {
+  static const std::regex cmp(R"(\b([A-Za-z_]\w*)\s*(==|!=|>=|<=|>|<)\s*(-?\d+(?:\.\d+)?)\b)"),
+      rcmp(R"((-?\d+(?:\.\d+)?)\s*(==|!=|>=|<=|>|<)\s*([A-Za-z_]\w*)\b)"), ident(R"([A-Za-z_]\w*)");
+  std::set<std::pair<std::string, double>> values;
+  auto add = [&](const std::string& name, const std::string& op, double n, bool flipped) {
+    if (!fx.userMacros.count(name)) return;
+    std::string o = op;
+    if (flipped) o = op == ">" ? "<" : op == "<" ? ">" : op == ">=" ? "<=" : op == "<=" ? ">=" : op;
+    values.insert({name, o == ">" ? n + 1 : o == "<" ? n - 1 : n});  // a value that makes the test true
+  };
+  for (const std::string& file : fx.sourceFiles) {
+    const std::vector<std::string>* lines = sourceLines(file);
+    if (!lines) continue;
+    for (const std::string& l : *lines) {
+      std::string word, arg;
+      if (!directiveOf(l, word, arg) || (word != "if" && word != "elif")) continue;
+      std::set<std::string> compared;
+      for (auto m = std::sregex_iterator(arg.begin(), arg.end(), cmp); m != std::sregex_iterator(); ++m) {
+        add((*m)[1], (*m)[2], std::stod((*m)[3]), false);
+        compared.insert((*m)[1]);
+      }
+      for (auto m = std::sregex_iterator(arg.begin(), arg.end(), rcmp); m != std::sregex_iterator(); ++m) {
+        add((*m)[3], (*m)[2], std::stod((*m)[1]), true);
+        compared.insert((*m)[3]);
+      }
+      // A setting tested as true / false: the other one.
+      for (auto m = std::sregex_iterator(arg.begin(), arg.end(), ident); m != std::sregex_iterator(); ++m) {
+        const std::string n = m->str();
+        const auto u = fx.userMacros.find(n);
+        if (u == fx.userMacros.end() || compared.count(n)) continue;
+        values.insert({n, std::strtod(u->second.c_str(), nullptr) != 0.0 ? 0.0 : 1.0});
+      }
+    }
+  }
+  std::vector<std::pair<std::string, std::string>> out;
+  for (const auto& [name, v] : values) {
+    const std::string& now = fx.userMacros.at(name);
+    char* end = nullptr;
+    const double cur = std::strtod(now.c_str(), &end);
+    if (end != now.c_str() && cur == v) continue;  // the current value
+    std::ostringstream s;
+    s << v;
+    out.emplace_back(name, s.str());
+    if (out.size() == 32) break;  // shortcut: a cap on extra parses per effect; raise if effects test more
+  }
+  return out;
+}
+
+std::vector<Region> settingRegions(const Effect& def, const Effect& cfg, const Effect* alt, const RegionOptions& opt) {
+  // Every code line of the region (and of the temporaries it inlines) is one the default parse leaves out.
+  auto off = [&](const std::string& file, uint32_t a, uint32_t b) {
+    const std::vector<std::string>* lines = sourceLines(file);
+    if (!lines) return false;
+    for (uint32_t l = a; l <= b && l <= lines->size(); ++l) {
+      if (tokens((*lines)[l - 1]).empty()) continue;
+      const auto it = def.ppLines.find({file, l});
+      if (it != def.ppLines.end() && !tokens(it->second).empty()) return false;
+    }
+    return true;
+  };
+  SkipCount ignored;  // the lines both parses have are counted with the default parse
+  std::vector<Region> out;
+  for (Region& r : extractRegions(cfg, alt, opt, ignored)) {
+    bool all = off(r.file, r.line, r.lastLine);
+    for (const auto& [a, b] : r.removed) all = all && off(r.file, a, b);
+    if (!all) continue;
+    std::string g, why;
+    if (!spanGuard(cfg, r.file, r.line, r.lastLine, g, why, true) || g.empty()) continue;
+    r.guard = r.guard.empty() ? g : "(" + r.guard + ") && (" + g + ")";
+    out.push_back(std::move(r));
+  }
+  return out;
+}
+
 }  // namespace sopt::fx

@@ -1389,6 +1389,27 @@ TEST(fx_oneline_if) {
   if (r10) CHECK(r10->lhs == "else pos.y =");
 }
 
+TEST(fx_setting_paths) {
+  // Code only other values of a setting compile (owner, 2026-10-26): the values the #if lines test, and the regions
+  // of such a parse on lines the default leaves out, under their #if.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_settings.fx";
+  std::string err;
+  auto def = fx::loadEffect(file, fx::LoadOptions(), err);
+  CHECK(def != nullptr);
+  if (!def) return;
+  const auto values = fx::settingValues(*def);
+  CHECK(values.size() == 2 && values[0] == std::make_pair(std::string("SETTING_MODE"), std::string("2")) &&
+        values[1] == std::make_pair(std::string("SETTING_MODE"), std::string("4")));
+  fx::LoadOptions lo;
+  lo.macros.emplace_back("SETTING_MODE", "4");
+  auto cfg = fx::loadEffect(file, lo, err);
+  CHECK(cfg != nullptr);
+  if (!cfg) return;
+  const auto regions = fx::settingRegions(*def, *cfg, nullptr, fx::RegionOptions());
+  CHECK(regions.size() == 1 && regions[0].line == 15 &&
+        regions[0].guard.find("(SETTING_MODE > 3)") != std::string::npos);
+}
+
 TEST(fx_output_keeps_folders) {
   // sopt-out keeps the folders below the input folder, so it can be copied over the Shaders folder (2026-10-21);
   // files outside every input folder (ReShade.fxh above a pack's folder) keep their name only.
