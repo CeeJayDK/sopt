@@ -1367,6 +1367,22 @@ TEST(fx_select_conditions) {
   }
 }
 
+TEST(fx_oneline_if) {
+  // A one-line if / else in front of an assignment stays as written, the value is the region (FXAA, 2026-10-26).
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_oneline_if.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+  const fx::Region* r9 = regionOn(regions, 9);
+  const fx::Region* r10 = regionOn(regions, 10);
+  CHECK(r9 && r10 && regionOn(regions, 11));
+  if (r9) CHECK(r9->lhs == "if (c.z > 0.5) pos.x =");
+  if (r10) CHECK(r10->lhs == "else pos.y =");
+}
+
 TEST(fx_output_keeps_folders) {
   // sopt-out keeps the folders below the input folder, so it can be copied over the Shaders folder (2026-10-21);
   // files outside every input folder (ReShade.fxh above a pack's folder) keep their name only.

@@ -518,7 +518,14 @@ bool statementAt(const std::vector<std::string>& lines, uint32_t line, Statement
       if (c == '"') { why = "string literal"; return false; }
       if (c == '(' || c == '[') ++depth;
       if (c == ')' || c == ']') --depth;
-      if (c == '{' || c == '}') { why = "not a simple statement"; return false; }
+      if (c == '{' || c == '}') {
+        const size_t h = text.find_first_not_of(" \t");
+        const std::string head = h == std::string::npos ? std::string() : text.substr(h);
+        why = head.rfind("for", 0) == 0 || head.rfind("while", 0) == 0 ? "loop header"
+              : c == '{' && head.find('=') != std::string::npos      ? "array initializer"
+                                                                     : "not a simple statement";
+        return false;
+      }
       if (c == ';' && depth == 0) {
         // Only blanks or a comment may follow on this line.
         const std::string rest = s.substr(i + 1);
@@ -2497,8 +2504,22 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
       }
       reg.kind = Region::Kind::Init;
     } else {
-      if (lhs.compare(0, name.size(), name) != 0 || (lhs.size() > name.size() && isIdent(lhs[name.size()])) ||
-          lhs.find('(') != std::string::npos) {
+      // A one-line if / else in front stays as written (FXAA: "if(!doneP) posP.x += ..."; 2026-10-26): only the
+      // value is rewritten, so it still runs under the same condition.
+      std::string target = lhs;
+      if (target.rfind("else", 0) == 0 && target.size() > 4 && !isIdent(target[4])) target = trim(target.substr(4));
+      if (target.rfind("if", 0) == 0 && target.size() > 2 && !isIdent(target[2])) {
+        const size_t open = target.find_first_not_of(" \t", 2);
+        int depth = 0;
+        size_t close = std::string::npos;
+        for (size_t i = open; open != std::string::npos && target[open] == '(' && i < target.size(); ++i) {
+          if (target[i] == '(') ++depth;
+          if (target[i] == ')' && --depth == 0) { close = i; break; }
+        }
+        if (close != std::string::npos) target = trim(target.substr(close + 1));
+      }
+      if (target.compare(0, name.size(), name) != 0 || (target.size() > name.size() && isIdent(target[name.size()])) ||
+          target.find('(') != std::string::npos) {
         why = "assignment shape";
         return false;
       }
