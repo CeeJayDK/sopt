@@ -177,16 +177,6 @@ def run(dest, sopt, out, secs, timeout, args=""):
         for f in ("sopt-report.md", "sopt-found.txt", "sopt-facts.txt"):  # reports only: the shaders stay their authors'
             if os.path.exists(os.path.join(o, "sopt-out", f)):
                 shutil.copyfile(os.path.join(o, "sopt-out", f), os.path.join(o, f))
-        # The written lines around each check error (a few lines of the variant, so a failure can be found from the log)
-        context, seen = [], set()
-        for m in re.finditer(r"^(\S+\.fxh?)\((\d+), \d+\): error", log + "\n" + easy_log, re.M):
-            if (m.group(1), m.group(2)) in seen or len(seen) >= 8 or not os.path.exists(m.group(1)):
-                continue
-            seen.add((m.group(1), m.group(2)))
-            lines = open(m.group(1), encoding="utf-8", errors="replace").read().splitlines()
-            n = int(m.group(2))
-            context.append(f"{m.group(1)}:{n}:")
-            context += [f"  {k}: {lines[k - 1]}" for k in range(max(1, n - 4), min(len(lines), n + 1) + 1)]
         shutil.rmtree(os.path.join(o, "sopt-out"), ignore_errors=True)
         parsed, checks, saved = summary_of(log)
         problem = []
@@ -203,7 +193,8 @@ def run(dest, sopt, out, secs, timeout, args=""):
         if problem:  # the reasons into the job's log, so they are there without the reports
             print(f"--- {p['id']} {p['name']}: {', '.join(problem)}")
             for lg in (log, easy_log):
-                print("\n".join([l for l in lg.splitlines() if "does not parse" in l or "error" in l.lower()][:60]), flush=True)
+                print("\n".join([l for l in lg.splitlines()
+                             if "does not parse" in l or "error" in l.lower() or re.match(r"  \d+: ", l)][:90]), flush=True)
             print("\n".join(context), flush=True)
         save = f"{saved[0]} regions, {saved[1]} -> {saved[2]}" if saved else ""
         rows.append(f"| {p['id']} | [{p['name']}]({p['url']}) | {len(p['effects'])} | {parsed[0] + ' / ' + parsed[1] if parsed else '?'}"

@@ -1601,6 +1601,17 @@ int main(int argc, char** argv) {
         ++checkFailures;
         errors += effectsOut[i].written.string() + " (SOPT_GROUP=" + std::to_string(k) +
                   (setName.empty() ? "" : ", " + setName + "=" + setValue) + ") does not parse:\n" + err;
+        // The written lines before each of the first errors (the check copies are removed below).
+        static const std::regex at(R"((\S+\.fxh?)\((\d+), \d+\): error)");
+        int shown = 0;
+        for (auto m = std::sregex_iterator(err.begin(), err.end(), at); m != std::sregex_iterator() && shown < 3;
+             ++m, ++shown) {
+          std::ifstream in(fx::pathFrom((*m)[1].str()));
+          const int n = std::stoi((*m)[2].str());
+          std::string line;
+          for (int l = 1; std::getline(in, line) && l <= n; ++l)
+            if (l > n - 5) errors += "  " + std::to_string(l) + ": " + line + "\n";
+        }
       }
     }
   }
