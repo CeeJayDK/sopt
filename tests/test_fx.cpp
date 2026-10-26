@@ -1438,6 +1438,26 @@ TEST(fx_setting_paths) {
         regions[0].guard.find("(SETTING_MODE > 3)") != std::string::npos);
 }
 
+TEST(fx_int_inputs) {
+  // Integer variables read as float (owner, 2026-10-26): inputs written float(x), a loop counter in [A, B] from its
+  // for header (B: its value after the loop), an int slider on whole numbers.
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_intinputs.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  bool loop = false, slider = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
+    if (!r.removed.empty()) continue;
+    for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
+      const auto& d = r.prog.inputs[k];
+      loop = loop || (r.line == 12 && d.name == "float(i)" && d.lo == 0 && d.hi == 4 && !r.facts[k].assumed);
+      slider = slider || (r.line == 13 && d.name == "float(Steps)" && d.lo == 1 && d.hi == 8 && d.grid == 7);
+    }
+  }
+  CHECK(loop && slider);
+}
+
 TEST(fx_call_inputs) {
   // A pure helper sopt cannot inline (a texture read, a loop) is an input named by its call text, its range from the
   // helper's returns (2026-10-26).

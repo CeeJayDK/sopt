@@ -2242,6 +2242,13 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   Such statements are never part of a window (a variant removes whole lines) or a blend-stage rewrite. The declaration
   location is its "=", not the name. Sample: "not a simple statement" 317 -> 57 (the rest: integer for headers, now
   "loop header"), regions 3562 -> 3648.
+  Integers (owner, 2026-10-26, after 1 and 2): the non-float reasons now name the type. Sample: variable (int) 219,
+  (uint) 46; arithmetic (int) 200, (uint) 66, (min16float) 114 (Barbatos' hfloat: the fp16 plan's step 2); selects /
+  intrinsics / bools ~50. (a) Any integer variable read converted to float is an input written float(x) (was: compute
+  thread IDs only); loop counters get [A, B] from "for (int i = A; i < B; i++)" (<=, counting down; A / B numbers or
+  uniforms with ranges, from the preprocessed line, every store to i in the header; B is its value after the loop:
+  loopRange), int sliders a whole-number grid. Sample: "non-float variable (int)" 219 -> 0, regions 3648 -> 3854.
+  Open: (b) int + - * converted to float as float math (exact while |values| < 2^24), (c) min16float regions.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one
