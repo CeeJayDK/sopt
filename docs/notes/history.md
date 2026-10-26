@@ -2174,6 +2174,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   (+213), arguments 76, out parameter 40. It broke Rendepth.fx: the vertex shader move put its wrapper between
   [shader("pixel")] and the pixel shader (the attribute went to the wrapper); attribute lines now stay with the
   pixel shader.
+  Skips explained (owner, 2026-10-26): "copy or constant" and "too small" are mostly not give-ups. ReShade's copies
+  of call arguments (nameless temporaries) now skip as "ReShade's copy of a call argument" (they had inflated "copy
+  or constant", "assignment shape" and "no assignment"); a single helper of several instructions (smoothstep, lerp,
+  sign, pow, dot, length, ...) is searched alone (compoundOp); swizzles / constructs no longer count as operations;
+  one instruction skips with its uses ("value used several times": material for regions with several results);
+  a macro left of the = (FXAA's FxaaFloat) no longer stops a region. SuperDepth3D + SweetFX: 912 -> 1066 regions.
+  The corpus summary splits "where sopt gave up" from "nothing to do", with a plain explanation per reason.
+  Helpers that assign a variable or parameter again (x = x * 2; y *= x;) are inlined: each read is bound to the
+  store before it (inlineLoad_); partial writes (c.rgb = ...) and globals still skip.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one

@@ -1303,16 +1303,23 @@ TEST(fx_inline_calls) {
   fx::SkipCount sk;
   sk.keepDetails = true;
   const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
-  const fx::Region* a = regionOn(regions, 11);
-  const fx::Region* b = regionOn(regions, 12);
-  CHECK(a && b && !regionOn(regions, 13));
+  const fx::Region* a = regionOn(regions, 12);
+  const fx::Region* b = regionOn(regions, 13);
+  CHECK(a && b && !regionOn(regions, 14));
+  // One helper of several instructions is searched alone, a macro left of the = does not matter (2026-10-26); one
+  // instruction is not, with how often its value is read.
+  CHECK(regionOn(regions, 15) != nullptr && !regionOn(regions, 16));
+  bool used = false;
+  for (const auto& d : sk.details) used = used || d.find(":16: one instruction (value used several times)") != std::string::npos;
+  CHECK(used);
   if (!a || !b) return;
   const std::string ta = toString(a->prog.target, a->prog.inputs), tb = toString(b->prog.target, b->prog.inputs);
   std::printf("  %s\n  %s\n", ta.c_str(), tb.c_str());
   CHECK(ta.find("Strength") != std::string::npos && ta.find(".zyx") != std::string::npos);
   CHECK(tb.find("dot(") != std::string::npos);
+  CHECK(tb.find("c.z * 2.0 * (c.z * 2.0 + 1.0)") != std::string::npos);  // Twice: x and y assigned again
   bool branchy = false;
-  for (const auto& d : sk.details) branchy = branchy || d.find(":13: function call: branches") != std::string::npos;
+  for (const auto& d : sk.details) branchy = branchy || d.find(":14: function call: branches") != std::string::npos;
   CHECK(branchy);
 }
 

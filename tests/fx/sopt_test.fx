@@ -30,7 +30,7 @@ float4 SoptPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	float edge = texcoord.x * PX + luma;
 	float3 mixed = lerp(color, other, Strength * 0.5);
 	mixed = mixed * 0.5 + tex2D(BackBuffer, texcoord + BUFFER_RCP_WIDTH).rgb * 0.5;
-	return float4(mixed * scaled, 1.0);
+	return float4(mixed * scaled + 0.0625, 1.0);  // two operations: one alone is not searched
 }
 
 technique SoptTest

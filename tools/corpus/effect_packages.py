@@ -80,6 +80,55 @@ def summary_of(log):
     return parsed, checks, saved
 
 
+# Skip reasons in plain words (owner, 2026-10-26: "be better about saying why"). (prefix, nothing to do?, meaning);
+# the first prefix that matches wins. "window: " (a multi-line piece) is stripped first.
+EXPLAIN = [
+    ("copy or constant", True, "no math: a copy, a constant or a table entry"),
+    ("ReShade's copy of a call argument", True, "ReShade copies every argument of a function call; not the effect's own code"),
+    ("one instruction (value used several times)", False,
+     "one GPU instruction whose value several statements read: only a piece with several results could share a better form"),
+    ("one instruction", True, "one GPU instruction: nothing cheaper exists"),
+    ("input is a constant", True, "the compiler already works it out"),
+    ("compile-time constant expression", True, "the compiler already works it out"),
+    ("constant expression", True, "the compiler already works it out"),
+    ("boolean value", False, "a true / false result: sopt searches only number results"),
+    ("more than maxOps", False, "too much math in one piece for the search"),
+    ("vector logic", False, "&& / || / ! on vectors"),
+    ("function call: reassigns a variable", False, "a helper that changes a variable after setting it (x = ...; x *= ...;)"),
+    ("function call: branches", False, "a helper with an if (or a ?: on whole statements)"),
+    ("function call: loop", False, "a helper with a loop"),
+    ("function call: early return", False, "a helper that returns before its end"),
+    ("function call: texture or sampler argument", False, "a helper that reads a texture passed to it"),
+    ("function call: out parameter", False, "a helper that writes to one of its parameters"),
+    ("function call: ", False, "a helper function sopt cannot look into yet"),
+    ("function call", False, "a function call sopt cannot look into"),
+    ("uses a macro", False, "a #define in the math: sopt would have to write the variant around the macro"),
+    ("assignment shape", False, "an assignment sopt cannot rewrite in place (mostly one-line ifs)"),
+    ("not a simple statement", False, "a loop header, one-line if or array initializer"),
+    ("several declarators", False, "several variables declared in one statement (float a = ..., b = ...;)"),
+    ("several statements on one line", False, "several statements on one line"),
+    ("too many inputs", False, "reads more values than the search handles (--max-inputs / --max-slots)"),
+    ("non-float", False, "integer math, which sopt only searches in a few forms"),
+    ("vector select", False, "a ? b : c with a vector condition"),
+    ("access chain", False, "an array element at a computed index, or a struct member sopt cannot follow"),
+    ("no assignment", False, "a value set without = in the source (x++, a call's out argument)"),
+    ("intrinsic", False, "an intrinsic sopt does not model yet (a texture read inside a helper, isnan, mul, ...)"),
+    ("declaration shape", False, "a declaration sopt cannot rewrite in place (an array, a semantic, ...)"),
+    ("matrix", False, "a matrix or integer vector is built"),
+    ("depends on BUFFER", False, "depends on the screen size in a way sopt does not cover"),
+    ("return value not at statement start", False, "a return whose value starts on another line"),
+    ("string literal", True, "text, not math"),
+]
+
+
+def explain(reason):
+    r = reason[len("window: "):] if reason.startswith("window: ") else reason
+    for prefix, nothing, text in EXPLAIN:
+        if r.startswith(prefix):
+            return nothing, text
+    return False, ""
+
+
 def skip_reasons(log):
     # "skip <file>:<line>: [window: ]<reason>": why sopt left code out (fewer than minOps is not giving up)
     counts = {}
@@ -170,8 +219,11 @@ def summary(dirs):
             for r, n in json.load(open(f)).items():
                 skips[r] = skips.get(r, 0) + n
     if skips:
-        print("\n## Why sopt left code out (all packages)\n\n| count | reason |\n|---|---|\n" +
-              "\n".join(f"| {n} | {r} |" for r, n in sorted(skips.items(), key=lambda x: -x[1])))
+        ranked = sorted(skips.items(), key=lambda x: -x[1])
+        for title, want in (("Where sopt gave up (all packages)", False), ("Nothing to do (all packages)", True)):
+            rows = [f"| {n} | {r} | {explain(r)[1]} |" for r, n in ranked if explain(r)[0] == want]
+            print(f"\n## {title}\n\n\"window\": a piece of several lines.\n\n| count | reason | what it means |\n"
+                  "|---|---|---|\n" + "\n".join(rows))
     return any("**" in r for r in rows)
 
 

@@ -897,6 +897,17 @@ bool computeSemantic(const std::string& semantic) {
   return s == "SV_DISPATCHTHREADID" || s == "SV_GROUPTHREADID" || s == "SV_GROUPID" || s == "SV_GROUPINDEX";
 }
 
+// Ops that are several instructions on the GPU (helpers and their like): one of them alone can get cheaper.
+bool compoundOp(Op op) {
+  switch (op) {
+    case Op::Sign: case Op::Exp: case Op::Log: case Op::Div: case Op::Step: case Op::Pow: case Op::Lerp:
+    case Op::Clamp: case Op::Smoothstep: case Op::Dot: case Op::Length: case Op::Normalize: case Op::Distance:
+      return true;
+    default:
+      return false;
+  }
+}
+
 bool isFloatType(const reshadefx::type& t) {
   return (t.base == reshadefx::type::t_float) && t.cols == 1 && t.rows >= 1 && t.rows <= 4 &&
          !t.is_array();
@@ -1051,6 +1062,8 @@ class Extractor {
   std::unordered_set<uint32_t> varBusy_;
   std::unordered_set<uint64_t> localBusy_;  // (variable, load seq)
   std::vector<const Statement*> reaching(uint32_t var, uint32_t seq, uint32_t block, bool& killed) const;
+  int usesOf(const Statement& s);  // loads that read what s stores
+  std::unordered_map<uint32_t, std::vector<uint32_t>> loadsByVar_;
   // The same for every pixel of a draw: a constant in ReShade's performance mode.
   bool perDraw(uint32_t valueId);
   bool chainPerDraw(const std::vector<reshadefx::expression::operation>& chain);
@@ -1071,8 +1084,12 @@ class Extractor {
     ~CallScope();
     uint32_t ret = 0;  // the callee's return value
    private:
+    struct Saved {
+      uint32_t key;
+      std::optional<uint32_t> old;
+    };
     Extractor& x_;
-    std::vector<std::pair<uint32_t, std::optional<uint32_t>>> saved_;
+    std::vector<Saved> saved_, savedLoads_;  // inline_ / inlineLoad_ entries before the scope
   };
   bool findChain(const Statement& s, size_t length, std::vector<const Statement*>& defs);
   bool leavesUnchanged(const Statement& s, const std::vector<const Statement*>& defs) const;
@@ -1239,8 +1256,9 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
     if (!st || !st->chain.empty()) throw Unsupported("function call: arguments");
     args.push_back(st->value);
   }
-  // Locals assigned once, then one return, all outside branches and loops.
-  std::unordered_set<uint32_t> assigned;
+  // Whole assignments of its locals and parameters (also again: x *= 2), then one return, all outside branches and
+  // loops: every read is the store before it in the one block (2026-10-26), or the parameter's argument.
+  std::unordered_set<uint32_t> vars(f->params.begin(), f->params.end());
   for (size_t i = 0; i < f->stmts.size(); ++i) {
     const Statement& s = f->stmts[i];
     const auto c = x.cg_.blockConds.find(s.block);
@@ -1252,27 +1270,50 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
       ret = s.value;
     } else if (s.kind == Statement::Kind::Write) {
       throw Unsupported("function call: writes a resource");
-    } else if (!s.chain.empty() || !assigned.insert(s.var).second || !x.cg_.variables.count(s.var) ||
-               x.cg_.variables.at(s.var).kind != Variable::Kind::Local) {
-      throw Unsupported("function call: reassigns a variable");
+    } else {
+      const auto sv = x.cg_.variables.find(s.var);
+      if (sv == x.cg_.variables.end() ||
+          (sv->second.kind != Variable::Kind::Local && sv->second.kind != Variable::Kind::Param))
+        throw Unsupported("function call: writes a global");
+      if (!s.chain.empty()) throw Unsupported("function call: writes part of a variable");
+      vars.insert(s.var);
     }
   }
   if (!ret) throw Unsupported("function call: no return value");
-  auto bind = [&](uint32_t var, uint32_t value) {
-    const auto old = x_.inline_.find(var);
-    saved_.emplace_back(var, old == x_.inline_.end() ? std::nullopt : std::optional<uint32_t>(old->second));
-    x_.inline_[var] = value;
+  auto bind = [&](std::unordered_map<uint32_t, uint32_t>& m, std::vector<Saved>& saved, uint32_t key, uint32_t value) {
+    const auto old = m.find(key);
+    saved.push_back({key, old == m.end() ? std::nullopt : std::optional<uint32_t>(old->second)});
+    m[key] = value;
   };
-  for (size_t k = 0; k < f->params.size(); ++k) bind(f->params[k], args[k]);
-  for (const Statement& s : f->stmts)
-    if (s.kind != Statement::Kind::Return) bind(s.var, s.value);
+  if (x.loadsByVar_.empty())
+    for (const auto& [id, v] : x.cg_.values)
+      if (v.kind == Value::Kind::Load) x.loadsByVar_[v.base].push_back(id);
+  std::vector<std::pair<uint32_t, uint32_t>> loads;  // load -> the store it reads
+  for (const uint32_t var : vars) {
+    const auto lv = x.loadsByVar_.find(var);
+    if (lv == x.loadsByVar_.end()) continue;
+    const bool param = std::find(f->params.begin(), f->params.end(), var) != f->params.end();
+    for (const uint32_t id : lv->second) {
+      const Value& v = x.cg_.values.at(id);
+      bool killed = false;
+      const std::vector<const Statement*> reach = x.reaching(var, v.seq, v.block, killed);
+      if (killed) loads.emplace_back(id, reach[0]->value);
+      else if (!reach.empty() || !param) throw Unsupported("function call: reads an unset variable");
+    }
+  }
+  for (size_t k = 0; k < f->params.size(); ++k) bind(x_.inline_, saved_, f->params[k], args[k]);
+  for (const auto& [load, value] : loads) bind(x_.inlineLoad_, savedLoads_, load, value);
 }
 
 Extractor::CallScope::~CallScope() {
-  for (auto it = saved_.rbegin(); it != saved_.rend(); ++it) {
-    if (it->second) x_.inline_[it->first] = *it->second;
-    else x_.inline_.erase(it->first);
-  }
+  auto restore = [](std::unordered_map<uint32_t, uint32_t>& m, const std::vector<Saved>& saved) {
+    for (auto it = saved.rbegin(); it != saved.rend(); ++it) {
+      if (it->old) m[it->key] = *it->old;
+      else m.erase(it->key);
+    }
+  };
+  restore(x_.inline_, saved_);
+  restore(x_.inlineLoad_, savedLoads_);
 }
 
 void Extractor::collect(uint32_t id) {
@@ -1979,6 +2020,20 @@ std::vector<const Statement*> Extractor::reaching(uint32_t var, uint32_t seq, ui
   return reach;
 }
 
+int Extractor::usesOf(const Statement& s) {
+  if (loadsByVar_.empty())
+    for (const auto& [id, v] : cg_.values)
+      if (v.kind == Value::Kind::Load) loadsByVar_[v.base].push_back(id);
+  int n = 0;
+  if (const auto it = loadsByVar_.find(s.var); it != loadsByVar_.end())
+    for (const uint32_t id : it->second) {
+      const Value& v = cg_.values.at(id);
+      bool killed = false;
+      for (const Statement* d : reaching(s.var, v.seq, v.block, killed)) n += d == &s;
+    }
+  return n;
+}
+
 bool Extractor::chainPerDraw(const std::vector<reshadefx::expression::operation>& chain) {
   for (const auto& op : chain)
     if (op.op == reshadefx::expression::operation::op_dynamic_index && !perDraw(op.index)) return false;
@@ -2357,11 +2412,28 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
     if (it == fx_.ppLines.end()) { why = "uses a macro"; return false; }
     pp += it->second + '\n';
   }
-  std::vector<std::string> ppTokens = tokens(withoutFetches(pp));
+  std::vector<std::string> ppTokens = tokens(withoutFetches(pp)), srcTokens = sourceTokens(withoutFetches(src));
   const size_t prefixLen = std::strlen(kSymbolicPrefix);
   for (auto& t : ppTokens)
     if (t.rfind(kSymbolicPrefix, 0) == 0) t.erase(0, prefixLen);  // symbolic definitions
-  if (sourceTokens(withoutFetches(src)) != ppTokens) { why = "uses a macro"; return false; }
+  // Only the value is rewritten: a macro left of the assignment stays as written (FXAA's "FxaaFloat x = ...",
+  // 2026-10-26).
+  auto valueOnly = [&](std::vector<std::string>& t) {
+    for (size_t i = 0; i < t.size(); ++i) {
+      const bool assign = t[i] == "=" && (i == 0 || (t[i - 1] != "=" && t[i - 1] != "!" && t[i - 1] != "<" &&
+                                                     t[i - 1] != ">")) &&
+                          (i + 1 == t.size() || t[i + 1] != "=");
+      if (assign || (reg.kind == Region::Kind::Return && t[i] == "return")) {
+        t.erase(t.begin(), t.begin() + static_cast<std::ptrdiff_t>(i) + 1);
+        return;
+      }
+    }
+  };
+  if (reg.kind == Region::Kind::Init || reg.kind == Region::Kind::Store || reg.kind == Region::Kind::Return) {
+    valueOnly(ppTokens);
+    valueOnly(srcTokens);
+  }
+  if (srcTokens != ppTokens) { why = "uses a macro"; return false; }
   return true;
 }
 
@@ -2546,8 +2618,22 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   const Type rt = reg.prog.target.nodes[reg.prog.target.root].type;
   if (!isFloat(rt)) { why = "boolean value"; return false; }
   uint32_t ops = 0;
-  for (const auto& n : reg.prog.target.nodes) ops += n.op != Op::Input && n.op != Op::Const;
-  if (ops < opt_.minOps) { why = "fewer than minOps operations"; return false; }
+  bool compound = false;
+  for (const auto& n : reg.prog.target.nodes) {
+    ops += n.op != Op::Input && n.op != Op::Const && n.op != Op::Swizzle && n.op != Op::Construct;  // those are free
+    compound = compound || compoundOp(n.op);
+  }
+  // A single helper of several instructions (smoothstep, lerp, sign, pow, ...) can get cheaper alone (owner,
+  // 2026-10-26); a single instruction cannot. Its uses tell whether a region with several results could help.
+  if (ops < opt_.minOps && !(ops == 1 && compound)) {
+    if (ops == 0) { why = "copy or constant"; return false; }
+    const int uses = s.kind == Statement::Kind::Return ? -1 : usesOf(s);
+    why = uses < 0    ? "one instruction (returned)"
+          : uses == 0 ? "one instruction (value not used)"
+          : uses == 1 ? "one instruction (value used once)"
+                      : "one instruction (value used several times)";
+    return false;
+  }
   if (ops > opt_.maxOps) { why = "more than maxOps operations"; return false; }
   if (reg.prog.inputs.empty()) { why = "constant expression"; return false; }
   bool runtime = false;
@@ -2864,6 +2950,13 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
         f.uniqueName.compare(f.uniqueName.size() - f.name.size(), f.name.size(), f.name) == 0)
       fnNs_ = f.uniqueName.substr(1, f.uniqueName.size() - 1 - f.name.size());
     for (const Statement& s : f.stmts) {
+      // ReShade copies each argument of a call into a nameless temporary: not code of the effect's own.
+      if (const auto tv = cg_.variables.find(s.var);
+          s.kind != Statement::Kind::Return && s.kind != Statement::Kind::Write && tv != cg_.variables.end() &&
+          tv->second.kind == Variable::Kind::Local && tv->second.name.empty()) {
+        SKIPADD("ReShade's copy of a call argument");
+        continue;
+      }
       const auto val = cg_.values.find(s.value);
       if (val != cg_.values.end() &&
           (val->second.kind == Value::Kind::Load || val->second.kind == Value::Kind::Const)) {
