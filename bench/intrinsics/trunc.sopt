@@ -1,0 +1,4 @@
+# trunc: the intrinsic alone
+input x : float in [-1000, 1000]
+output r = trunc(x)
+budget r : exact

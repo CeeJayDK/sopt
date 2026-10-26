@@ -1,0 +1,4 @@
+# tan: the intrinsic alone
+input x : float in [-1.5, 1.5]
+output r = sin(x) / cos(x)
+budget r : rel 1e-6

@@ -1,0 +1,5 @@
+# dot3: the intrinsic alone
+input a : float3 in [-10, 10]
+input b : float3 in [-10, 10]
+output r = dot(a, b)
+budget r : rel 1e-6

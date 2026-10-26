@@ -1,0 +1,5 @@
+# step: the intrinsic alone
+input e : float in [-100, 100]
+input x : float in [-100, 100]
+output r = step(e, x)
+budget r : exact

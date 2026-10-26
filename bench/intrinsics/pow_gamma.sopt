@@ -1,0 +1,4 @@
+# pow_gamma: the intrinsic alone
+input x : float in [0, 1]
+output r = pow(x, 2.2)
+budget r : rel 1e-6

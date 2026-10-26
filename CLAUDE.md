@@ -56,6 +56,8 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - effect-packages.yml (monthly / manual): sopt-fx on every package in ReShade's EffectPackages.ini; fails on crashes,
   timeouts and variants that do not parse. Check its summary before a release.
 - Bot pushes (report-intake, steam-survey, optimize-pngs) start no CI run; release.yml runs the tests itself.
+- intrinsics.yml (manual, or on changes to bench/intrinsics): each intrinsic alone searched deep per model (default
+  1800 s, 4 models, one job each); bench/intrinsics/summary.py prints what got cheaper and how deep each search got.
 
 ## GPU Blueprint report intake (only when the owner says "check Dropbox")
 The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 2026-10-09: tokens). Procedure:

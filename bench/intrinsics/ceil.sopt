@@ -1,0 +1,4 @@
+# ceil: the intrinsic alone
+input x : float in [-1000, 1000]
+output r = ceil(x)
+budget r : exact
