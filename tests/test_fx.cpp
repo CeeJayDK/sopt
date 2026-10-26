@@ -124,7 +124,7 @@ TEST(fx_regions_and_facts) {
     CHECK(found);
   }
   // Statements that cannot be regions, and why.
-  CHECK(skippedAt(l, 29, "uses a macro"));
+  CHECK(at(l, 29) != nullptr);  // SCALE: one value for every user, spelled out (2026-10-26; was "uses a macro")
   CHECK(skippedAt(l, 30, "depends on BUFFER_WIDTH/HEIGHT"));
   // A call of a small helper is seen through (2026-10-26; was "function call").
   bool call = false;
@@ -313,10 +313,23 @@ TEST(fx_macro_inputs) {
     CHECK(dagCost(r.prog.target, m, r.prog.inputs) == uint32_t(m[Op::Mul] + m.fusedAdd + m[Op::Div]));
   }
   CHECK(found);
-  // #if still uses the value (the region exists), FIXED is still a plain macro.
-  bool fixedSkipped = false;
-  for (const auto& d : sk.details) fixedSkipped = fixedSkipped || d.find("sopt_macros.fx:25: uses a macro") != std::string::npos;
-  CHECK(fixedSkipped);
+  // #if still uses the value (the region exists); FIXED has one value for every user: spelled out (2026-10-26).
+  bool fixed = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
+    fixed = fixed || (r.line == 25 && toString(r.prog.target, r.prog.inputs) == "d * 3.0 + 1.0");
+  CHECK(fixed);
+  // A macro defined inside #if depends on a setting: still skipped; the include guard does not count.
+  auto f = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_fixedmacro.fx", fx::LoadOptions(), err);
+  CHECK(f != nullptr);
+  if (!f) return;
+  fx::SkipCount sf;
+  sf.keepDetails = true;
+  bool lit = false;
+  for (const auto& r : fx::extractRegions(*f, nullptr, fx::RegionOptions(), sf))
+    lit = lit || (r.line == 20 && toString(r.prog.target, r.prog.inputs).find("0.75") != std::string::npos);
+  bool cond = false;
+  for (const auto& d : sf.details) cond = cond || d.find("sopt_fixedmacro.fx:21: uses a macro") != std::string::npos;
+  CHECK(lit && cond);
 }
 
 TEST(fx_buffer_inputs) {
@@ -1308,7 +1321,8 @@ TEST(fx_per_draw_locals) {
 
 TEST(fx_inline_calls) {
   // Calls of small pure helpers are seen through (owner, 2026-10-26): parameters bound per call (Luma twice with
-  // different arguments), single-assignment locals, nested calls; a helper with a branch stays a skip.
+  // different arguments), variables assigned again, nested calls, ifs and early returns (selects), components
+  // written (c.rg *= 0.5).
   std::string err;
   auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_inline.fx", fx::LoadOptions(), err);
   CHECK(e != nullptr);
@@ -1319,7 +1333,15 @@ TEST(fx_inline_calls) {
   const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
   const fx::Region* a = regionOn(regions, 12);
   const fx::Region* b = regionOn(regions, 13);
-  CHECK(a && b && !regionOn(regions, 14));
+  const fx::Region* d = regionOn(regions, 14);
+  CHECK(a && b && d);
+  if (d) {
+    const std::string td = toString(d->prog.target, d->prog.inputs);
+    std::printf("  %s\n", td.c_str());
+    CHECK(td.find("(c.x > 0.5 ? 1.0 : c.x) * c.y") != std::string::npos);  // Branchy: the early return
+    CHECK(td.find("!(c.y > 0.5) ? c.z * 3.0 : (c.y > 0.5 ? c.y * 2.0 : c.z)") != std::string::npos);  // SideB
+    CHECK(td.find("(0.5 * c.xy).y") != std::string::npos);  // Tint: v.rg *= 0.5
+  }
   // One helper of several instructions is searched alone, a macro left of the = does not matter (2026-10-26); one
   // instruction is not, with how often its value is read.
   CHECK(regionOn(regions, 15) != nullptr && !regionOn(regions, 16));
@@ -1332,9 +1354,39 @@ TEST(fx_inline_calls) {
   CHECK(ta.find("Strength") != std::string::npos && ta.find(".zyx") != std::string::npos);
   CHECK(tb.find("dot(") != std::string::npos);
   CHECK(tb.find("c.z * 2.0 * (c.z * 2.0 + 1.0)") != std::string::npos);  // Twice: x and y assigned again
-  bool branchy = false;
-  for (const auto& d : sk.details) branchy = branchy || d.find(":14: function call: branches") != std::string::npos;
-  CHECK(branchy);
+}
+
+TEST(fx_select_conditions) {
+  // A scalar condition HLSL widens to vector branches, a bool / int slider or a float as the condition itself
+  // (2026-10-26: "vector select" was mostly these): all regions, the non-bool ones tested against 0.
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_select.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+  for (uint32_t line = 9; line <= 15; ++line) {
+    const fx::Region* r = regionOn(regions, line);
+    CHECK(r != nullptr);
+    if (r && line == 10) CHECK(toString(r->prog.target, r->prog.inputs).rfind("float(Flag) != 0.0 ?", 0) == 0);
+  }
+}
+
+TEST(fx_oneline_if) {
+  // A one-line if / else in front of an assignment stays as written, the value is the region (FXAA, 2026-10-26).
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_oneline_if.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+  const fx::Region* r9 = regionOn(regions, 9);
+  const fx::Region* r10 = regionOn(regions, 10);
+  CHECK(r9 && r10 && regionOn(regions, 11));
+  if (r9) CHECK(r9->lhs == "if (c.z > 0.5) pos.x =");
+  if (r10) CHECK(r10->lhs == "else pos.y =");
 }
 
 TEST(fx_output_keeps_folders) {

@@ -518,7 +518,14 @@ bool statementAt(const std::vector<std::string>& lines, uint32_t line, Statement
       if (c == '"') { why = "string literal"; return false; }
       if (c == '(' || c == '[') ++depth;
       if (c == ')' || c == ']') --depth;
-      if (c == '{' || c == '}') { why = "not a simple statement"; return false; }
+      if (c == '{' || c == '}') {
+        const size_t h = text.find_first_not_of(" \t");
+        const std::string head = h == std::string::npos ? std::string() : text.substr(h);
+        why = head.rfind("for", 0) == 0 || head.rfind("while", 0) == 0 ? "loop header"
+              : c == '{' && head.find('=') != std::string::npos      ? "array initializer"
+                                                                     : "not a simple statement";
+        return false;
+      }
       if (c == ';' && depth == 0) {
         // Only blanks or a comment may follow on this line.
         const std::string rest = s.substr(i + 1);
@@ -997,6 +1004,13 @@ class Extractor {
   // Pass 1 / 2 over the value tree.
   void collect(uint32_t id);
   uint32_t build(uint32_t id, ExprBuilder& b);
+  // A select's condition as a scalar test (2026-10-26): HLSL widens a scalar condition to the branches' size, and a
+  // bool / int / float can be the condition itself (then "!= 0"). Returns the value to use as is, or 0 for cond:
+  // a copy of the load / chain without the widening cast, numeric when it is not a bool.
+  uint32_t condOf(uint32_t id, Value& cond, bool& numeric);
+  void collectCond(uint32_t id);
+  uint32_t buildCond(uint32_t id, ExprBuilder& b);
+  bool numberLeaf_ = false;  // leafOf: a bool / int variable read as a float (a condition)
   // Splits a load into leaf prefix and the vector part of the chain.
   Leaf& leafOf(const Value& v, size_t& vecStart);
   uint32_t applyVectorChain(uint32_t node, const std::vector<reshadefx::expression::operation>& chain,
@@ -1036,6 +1050,8 @@ class Extractor {
   }
   void suggest(const Leaf& l, Fact& f) const;
   std::vector<std::string> sourceTokens(const std::string& src) const;
+  bool fixedMacro(const std::string& name) const;
+  mutable std::unordered_map<std::string, std::pair<int, bool>> macroDefs_;  // name -> (definitions, any in #if)
   Range outParamRange(const Function& g, size_t index);
   Range pixelInputRange(const Function& ps, const std::string& semantic);
   struct OutArg {
@@ -1073,11 +1089,31 @@ class Extractor {
   // current region
   std::vector<Leaf> leaves_;
   std::unordered_map<uint32_t, uint32_t> built_;
+  std::unordered_set<uint32_t> collected_;  // collect(): values seen in this scope
   bool usesPow_ = false;
   std::unordered_map<uint32_t, uint32_t> inline_;  // temporary variable -> its value
   std::unordered_map<uint32_t, uint32_t> inlineLoad_;  // load -> value of its (chain) definition
+  // Values the frontend makes itself, for a helper's variables (2026-10-26): after an if (Select: a when every one of
+  // conds holds, else b; | kCondFalse: the false side) or after a partial store (Merge: b with a written into
+  // chain's components). Ids from kSynthFirst up; collect() / build() look here first.
+  struct Synth {
+    enum class Kind { Select, Merge } kind = Kind::Select;
+    std::vector<uint32_t> conds;
+    uint32_t a = 0, b = 0;
+    std::vector<reshadefx::expression::operation> chain;
+    unsigned rows = 1;
+  };
+  static constexpr uint32_t kSynthFirst = 0x40000000;
+  std::unordered_map<uint32_t, Synth> synth_;
+  uint32_t nextSynth_ = kSynthFirst;
+  uint32_t addSynth(Synth s) {
+    synth_[nextSynth_] = std::move(s);
+    return nextSynth_++;
+  }
+  void collectSynth(const Synth& s);
+  uint32_t buildSynth(const Synth& s, ExprBuilder& b);
   // A call of a small pure helper, seen through (owner, 2026-10-26): its return value with the parameters bound to
-  // the arguments and its single-assignment locals to their values (inline_), while the scope lives.
+  // the arguments and its variables' reads to their values (inline_ / inlineLoad_), while the scope lives.
   class CallScope {
    public:
     CallScope(Extractor& x, const Value& call);
@@ -1181,6 +1217,10 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
       intSource = true;
     }
   }
+  if (numberLeaf_ && i == v.chain.size() && t.is_scalar() && (t.is_boolean() || t.is_integral())) {
+    t.base = reshadefx::type::t_float;  // written float(x): a select's condition tests it against 0
+    intSource = true;
+  }
   if (!isFloatType(t)) throw Unsupported("non-float variable");
   for (auto& l : leaves_)
     if (l.var == v.base && l.prefix == text) return l;
@@ -1256,18 +1296,24 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
     if (!st || !st->chain.empty()) throw Unsupported("function call: arguments");
     args.push_back(st->value);
   }
-  // Whole assignments of its locals and parameters (also again: x *= 2), then one return, all outside branches and
-  // loops: every read is the store before it in the one block (2026-10-26), or the parameter's argument.
+  // Stores to its locals and parameters (whole, or components: c.rgb = ...) and returns, also under ifs (2026-10-26),
+  // not in loops or switches: each read is what the stores before it on its path leave, a select where an if decides.
+  using O = reshadefx::expression::operation;
+  auto condsOf = [&](uint32_t block) -> const std::vector<uint32_t>& {
+    const auto c = x.cg_.blockConds.find(block);
+    if (c == x.cg_.blockConds.end() || std::find(c->second.begin(), c->second.end(), 0u) != c->second.end())
+      throw Unsupported("function call: switch");
+    return c->second;
+  };
   std::unordered_set<uint32_t> vars(f->params.begin(), f->params.end());
-  for (size_t i = 0; i < f->stmts.size(); ++i) {
-    const Statement& s = f->stmts[i];
-    const auto c = x.cg_.blockConds.find(s.block);
-    if (c == x.cg_.blockConds.end() || !c->second.empty()) throw Unsupported("function call: branches");
+  std::unordered_map<uint32_t, std::vector<const Statement*>> stores;  // var -> stores in order
+  std::vector<const Statement*> returns;
+  for (const Statement& s : f->stmts) {
+    condsOf(s.block);
     for (const auto& [lo, hi] : x.cg_.loops)
       if (lo <= s.seq && s.seq <= hi) throw Unsupported("function call: loop");
     if (s.kind == Statement::Kind::Return) {
-      if (i + 1 != f->stmts.size()) throw Unsupported("function call: early return");
-      ret = s.value;
+      returns.push_back(&s);
     } else if (s.kind == Statement::Kind::Write) {
       throw Unsupported("function call: writes a resource");
     } else {
@@ -1275,11 +1321,65 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
       if (sv == x.cg_.variables.end() ||
           (sv->second.kind != Variable::Kind::Local && sv->second.kind != Variable::Kind::Param))
         throw Unsupported("function call: writes a global");
-      if (!s.chain.empty()) throw Unsupported("function call: writes part of a variable");
+      // Components only: one swizzle or constant index of a vector.
+      if (!s.chain.empty() && (s.chain.size() != 1 || sv->second.type.is_matrix() || sv->second.type.is_array() ||
+                               (s.chain[0].op != O::op_swizzle && s.chain[0].op != O::op_constant_index)))
+        throw Unsupported("function call: writes part of a variable");
       vars.insert(s.var);
+      stores[s.var].push_back(&s);
     }
   }
-  if (!ret) throw Unsupported("function call: no return value");
+  if (returns.empty()) throw Unsupported("function call: no return value");
+  // The value a read sees: fold the stores before it; one on the other side of an if the read is in does not reach
+  // it, one under conditions the read is not under is a select.
+  auto valueAt = [&](uint32_t var, const Value& load, uint32_t entry) -> uint32_t {
+    const std::vector<uint32_t>& lc = condsOf(load.block);
+    uint32_t v = entry;
+    const auto st = stores.find(var);
+    if (st == stores.end()) return v;
+    for (const Statement* d : st->second) {
+      if (d->seq >= load.seq) break;
+      const std::vector<uint32_t>& dc = condsOf(d->block);
+      size_t k = 0;
+      while (k < dc.size() && k < lc.size() && dc[k] == lc[k]) ++k;
+      if (k < dc.size() && k < lc.size() && (dc[k] & ~kCondFalse) == (lc[k] & ~kCondFalse)) continue;
+      uint32_t nv = d->value;
+      if (!d->chain.empty()) {
+        if (!v) throw Unsupported("function call: reads an unset variable");
+        Synth m;
+        m.kind = Synth::Kind::Merge;
+        m.a = d->value;
+        m.b = v;
+        m.chain = d->chain;
+        m.rows = x.cg_.variables.at(var).type.rows;
+        nv = x.addSynth(std::move(m));
+      }
+      if (k == dc.size() || !v) {
+        v = nv;  // on every path to the read (or the first value: an unset variable is read only where it was set)
+      } else {
+        Synth s;
+        s.conds.assign(dc.begin() + static_cast<std::ptrdiff_t>(k), dc.end());
+        s.a = nv;
+        s.b = v;
+        v = x.addSynth(std::move(s));
+      }
+    }
+    return v;
+  };
+  // An earlier return wins where its conditions hold.
+  ret = returns.back()->value;
+  for (size_t i = returns.size() - 1; i-- > 0;) {
+    const std::vector<uint32_t>& rc = condsOf(returns[i]->block);
+    if (rc.empty()) {
+      ret = returns[i]->value;
+      continue;
+    }
+    Synth s;
+    s.conds = rc;
+    s.a = returns[i]->value;
+    s.b = ret;
+    ret = x.addSynth(std::move(s));
+  }
   auto bind = [&](std::unordered_map<uint32_t, uint32_t>& m, std::vector<Saved>& saved, uint32_t key, uint32_t value) {
     const auto old = m.find(key);
     saved.push_back({key, old == m.end() ? std::nullopt : std::optional<uint32_t>(old->second)});
@@ -1288,17 +1388,16 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
   if (x.loadsByVar_.empty())
     for (const auto& [id, v] : x.cg_.values)
       if (v.kind == Value::Kind::Load) x.loadsByVar_[v.base].push_back(id);
-  std::vector<std::pair<uint32_t, uint32_t>> loads;  // load -> the store it reads
+  std::vector<std::pair<uint32_t, uint32_t>> loads;  // load -> the value it reads
   for (const uint32_t var : vars) {
     const auto lv = x.loadsByVar_.find(var);
     if (lv == x.loadsByVar_.end()) continue;
-    const bool param = std::find(f->params.begin(), f->params.end(), var) != f->params.end();
+    const auto pk = std::find(f->params.begin(), f->params.end(), var);
+    const uint32_t entry = pk == f->params.end() ? 0 : args[static_cast<size_t>(pk - f->params.begin())];
     for (const uint32_t id : lv->second) {
-      const Value& v = x.cg_.values.at(id);
-      bool killed = false;
-      const std::vector<const Statement*> reach = x.reaching(var, v.seq, v.block, killed);
-      if (killed) loads.emplace_back(id, reach[0]->value);
-      else if (!reach.empty() || !param) throw Unsupported("function call: reads an unset variable");
+      const uint32_t v = valueAt(var, x.cg_.values.at(id), entry);
+      if (!v) throw Unsupported("function call: reads an unset variable");
+      loads.emplace_back(id, v);
     }
   }
   for (size_t k = 0; k < f->params.size(); ++k) bind(x_.inline_, saved_, f->params[k], args[k]);
@@ -1316,7 +1415,96 @@ Extractor::CallScope::~CallScope() {
   restore(x_.inlineLoad_, savedLoads_);
 }
 
+uint32_t Extractor::condOf(uint32_t id, Value& cond, bool& numeric) {
+  const Value& c = cg_.values.at(id);
+  using O = reshadefx::expression::operation;
+  // reshadefx widens with a swizzle (.xx) and then casts to bool (int2 -> bool2): both come off.
+  Value s = c;
+  bool stripped = false;
+  if ((s.kind == Value::Kind::Load || s.kind == Value::Kind::Chain) && !s.chain.empty() &&
+      s.chain.back().op == O::op_cast && s.chain.back().to.is_boolean()) {
+    numeric = numeric || !s.chain.back().from.is_boolean();
+    s.type = s.chain.back().from;
+    s.chain.pop_back();
+    stripped = true;
+  }
+  if ((s.kind == Value::Kind::Load || s.kind == Value::Kind::Chain) && !s.chain.empty() &&
+      s.chain.back().op == O::op_swizzle && s.chain.back().from.is_scalar() && (stripped || s.type.is_boolean())) {
+    s.type = s.chain.back().from;
+    s.chain.pop_back();
+    stripped = true;
+  }
+  if (stripped) {
+    const reshadefx::type from = s.type;
+    if (!from.is_scalar()) throw Unsupported("vector select");
+    cond = s;
+    if (cond.kind == Value::Kind::Chain && cond.chain.empty()) {  // the widened value itself
+      if (from.is_boolean()) return condOf(cond.base, cond, numeric);
+      return cond.base;
+    }
+    return 0;
+  }
+  if (!c.type.is_scalar()) throw Unsupported("vector select");
+  if (c.kind == Value::Kind::Load && c.type.is_boolean()) {  // a bool variable
+    cond = c;
+    numeric = true;
+    return 0;
+  }
+  return id;
+}
+
+void Extractor::collectCond(uint32_t id) {
+  Value c;
+  bool numeric = false;
+  if (const uint32_t use = condOf(id, c, numeric)) { collect(use); return; }
+  if (c.kind == Value::Kind::Chain) {
+    collect(c.base);
+    chainMask(c.chain, 0, 4);  // validates
+    return;
+  }
+  if (inlineLoad_.count(id) || inline_.count(c.base)) {
+    collect(inlineLoad_.count(id) ? inlineLoad_.at(id) : inline_.at(c.base));
+    return;
+  }
+  size_t vs = 0;
+  numberLeaf_ = true;
+  Leaf& l = leafOf(c, vs);
+  numberLeaf_ = false;
+  l.mask |= chainMask(c.chain, vs, l.type.rows);
+  if (!l.loadValue) l.loadValue = id;
+}
+
+uint32_t Extractor::buildCond(uint32_t id, ExprBuilder& b) {
+  Value c;
+  bool numeric = false;
+  const uint32_t use = condOf(id, c, numeric);
+  uint32_t r = 0;
+  if (use) {
+    r = build(use, b);
+  } else if (c.kind == Value::Kind::Chain) {
+    r = applyVectorChain(build(c.base, b), c.chain, 0, b, nullptr);
+  } else if (inlineLoad_.count(id) || inline_.count(c.base)) {
+    r = applyVectorChain(build(inlineLoad_.count(id) ? inlineLoad_.at(id) : inline_.at(c.base), b), c.chain, 0, b,
+                         nullptr);
+  } else {
+    size_t vs = 0;
+    numberLeaf_ = true;
+    const Leaf& l = leafOf(c, vs);
+    numberLeaf_ = false;
+    r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), c.chain, vs, b, &l);
+    numeric = true;  // a variable is read as a float, also a bool one
+  }
+  return numeric ? b.op(Op::Ne, r, b.constant(0.0f)) : r;
+}
+
 void Extractor::collect(uint32_t id) {
+  // Each value once per scope: a value read several times (a helper's parameter, a shared temporary) would otherwise
+  // be walked again for every path to it, exponentially in nested helpers (CRT.fx, 2026-10-26).
+  if (!collected_.insert(id).second) return;
+  if (const auto s = synth_.find(id); s != synth_.end()) {
+    collectSynth(s->second);
+    return;
+  }
   const auto it = cg_.values.find(id);
   if (it == cg_.values.end()) throw Unsupported("value");
   const Value& v = it->second;
@@ -1388,10 +1576,10 @@ void Extractor::collect(uint32_t id) {
       return;
     }
     case K::Ternary: {
-      const auto& c = cg_.values.at(v.args[0]);
-      if (!(c.type.is_boolean() && c.type.is_scalar())) throw Unsupported("vector select");
       if (!isFloatType(v.type)) throw Unsupported("non-float select");
-      for (uint32_t a : v.args) collect(a);
+      collectCond(v.args[0]);
+      collect(v.args[1]);
+      collect(v.args[2]);
       return;
     }
     case K::Intrinsic: {
@@ -1441,7 +1629,10 @@ void Extractor::collect(uint32_t id) {
       return;
     case K::Call: {
       const CallScope scope(*this, v);
+      auto outer = std::move(collected_);
+      collected_.clear();
       collect(scope.ret);
+      collected_ = std::move(outer);
       return;
     }
     case K::Phi: throw Unsupported("short-circuit or branch value");
@@ -1501,8 +1692,61 @@ void scalarizeConstants(uint32_t* a, size_t n, ExprBuilder& b) {
   }
 }
 
+void Extractor::collectSynth(const Synth& s) {
+  for (const uint32_t c : s.conds) collectCond(c & ~kCondFalse);
+  collect(s.a);
+  collect(s.b);
+  if (s.kind == Synth::Kind::Merge) chainMask(s.chain, 0, 4);  // validates
+}
+
+uint32_t Extractor::buildSynth(const Synth& s, ExprBuilder& b) {
+  if (s.kind == Synth::Kind::Select) {
+    uint32_t c = 0;
+    for (const uint32_t k : s.conds) {
+      uint32_t n = buildCond(k & ~kCondFalse, b);
+      if (k & kCondFalse) n = b.op(Op::LNot, n);
+      c = c ? b.op(Op::LAnd, c, n) : n;
+    }
+    uint32_t x[2] = {build(s.a, b), build(s.b, b)};
+    scalarizeConstants(x, 2, b);
+    return b.op(Op::Select, c, x[0], x[1]);
+  }
+  // Merge: the old value's components, the written ones from the new value (a swizzle or one index).
+  const uint32_t old = build(s.b, b), nw = build(s.a, b);
+  const reshadefx::expression::operation& op = s.chain[0];
+  int from[4] = {-1, -1, -1, -1};  // component -> component of the new value, -1: the old one
+  if (op.op == reshadefx::expression::operation::op_constant_index) {
+    if (op.index >= s.rows) throw Unsupported("function call: writes part of a variable");
+    from[op.index] = 0;
+  } else {
+    for (int k = 0; k < 4 && op.swizzle[k] >= 0; ++k) {
+      if (op.swizzle[k] >= static_cast<int>(s.rows)) throw Unsupported("function call: writes part of a variable");
+      from[op.swizzle[k]] = k;
+    }
+  }
+  const unsigned newRows = width(b.nodes()[nw].type), oldRows = width(b.nodes()[old].type);
+  uint32_t parts[4];
+  for (unsigned j = 0; j < s.rows; ++j) {
+    const bool written = from[j] >= 0;
+    const uint32_t src = written ? nw : old;
+    const unsigned comp = written ? static_cast<unsigned>(from[j]) : j;
+    if ((written ? newRows : oldRows) == 1) {
+      parts[j] = src;  // a scalar (broadcast)
+    } else {
+      const uint8_t c = static_cast<uint8_t>(comp);
+      parts[j] = b.swizzle(src, &c, 1);
+    }
+  }
+  return s.rows == 1 ? parts[0] : b.construct(parts, s.rows);
+}
+
 uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
   if (auto it = built_.find(id); it != built_.end()) return it->second;
+  if (const auto s = synth_.find(id); s != synth_.end()) {
+    const uint32_t r = buildSynth(s->second, b);
+    built_[id] = r;
+    return r;
+  }
   const Value& v = cg_.values.at(id);
   using K = Value::Kind;
   uint32_t r = 0;
@@ -1572,7 +1816,7 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
     case K::Ternary: {
       uint32_t a[2] = {build(v.args[1], b), build(v.args[2], b)};
       scalarizeConstants(a, 2, b);
-      r = b.op(Op::Select, build(v.args[0], b), a[0], a[1]);
+      r = b.op(Op::Select, buildCond(v.args[0], b), a[0], a[1]);
       break;
     }
     case K::Intrinsic: {
@@ -1930,6 +2174,7 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
       if (std::isfinite(lo) && std::isfinite(hi))
         return Range::of(std::min(lo, hi), std::max(lo, hi), "ui_min/ui_max");
       if (uiType == "color") return Range::of(0, 1, "ui_type = color");
+      if (v.type.is_boolean()) return Range::of(0, 1, "bool", 1);
       return Range::unknown();
     }
     case Variable::Kind::Param:
@@ -2076,7 +2321,7 @@ bool Extractor::perDraw(uint32_t id) {
             r = r && perDraw(d->value) && chainPerDraw(d->chain);
             if (const auto c = cg_.blockConds.find(d->block); c == cg_.blockConds.end()) r = false;
             else
-              for (const uint32_t cond : c->second) r = r && perDraw(cond);
+              for (const uint32_t cond : c->second) r = r && perDraw(cond & ~kCondFalse);
           }
           r = r && full;
           break;
@@ -2394,8 +2639,22 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
       }
       reg.kind = Region::Kind::Init;
     } else {
-      if (lhs.compare(0, name.size(), name) != 0 || (lhs.size() > name.size() && isIdent(lhs[name.size()])) ||
-          lhs.find('(') != std::string::npos) {
+      // A one-line if / else in front stays as written (FXAA: "if(!doneP) posP.x += ..."; 2026-10-26): only the
+      // value is rewritten, so it still runs under the same condition.
+      std::string target = lhs;
+      if (target.rfind("else", 0) == 0 && target.size() > 4 && !isIdent(target[4])) target = trim(target.substr(4));
+      if (target.rfind("if", 0) == 0 && target.size() > 2 && !isIdent(target[2])) {
+        const size_t open = target.find_first_not_of(" \t", 2);
+        int depth = 0;
+        size_t close = std::string::npos;
+        for (size_t i = open; open != std::string::npos && target[open] == '(' && i < target.size(); ++i) {
+          if (target[i] == '(') ++depth;
+          if (target[i] == ')' && --depth == 0) { close = i; break; }
+        }
+        if (close != std::string::npos) target = trim(target.substr(close + 1));
+      }
+      if (target.compare(0, name.size(), name) != 0 || (target.size() > name.size() && isIdent(target[name.size()])) ||
+          target.find('(') != std::string::npos) {
         why = "assignment shape";
         return false;
       }
@@ -2467,11 +2726,22 @@ std::vector<std::string> Extractor::sourceTokens(const std::string& src) const {
           if (!expand(u, depth + 1, out, sym)) return false;
         return true;
       };
+  // A macro with one value for every user (2026-10-26: FXAA_SUBPIX_CAP, SMAA_AREATEX_PIXEL_SIZE): expanded too, when
+  // every macro in it is such a one; a variant then spells out the value.
+  std::function<bool(const std::string&, int)> fixedAll = [&](const std::string& t, int depth) {
+    if (symbolicName(t)) return true;
+    const auto it = fx_.objectMacros.find(t);
+    if (it == fx_.objectMacros.end()) return true;
+    if (depth > 16 || !fixedMacro(t)) return false;
+    for (const auto& u : tokens(it->second))
+      if (!fixedAll(u, depth + 1)) return false;
+    return true;
+  };
   std::vector<std::string> out;
   for (const auto& t : tokens(src)) {
     std::vector<std::string> e;
     bool sym = false;
-    if (!symbolicName(t) && fx_.objectMacros.count(t) && expand(t, 0, e, sym) && sym)
+    if (!symbolicName(t) && fx_.objectMacros.count(t) && expand(t, 0, e, sym) && (sym || fixedAll(t, 0)))
       out.insert(out.end(), e.begin(), e.end());
     else
       out.push_back(t);
@@ -2479,11 +2749,55 @@ std::vector<std::string> Extractor::sourceTokens(const std::string& src) const {
   return out;
 }
 
+// Not a setting the user can change (ReShade's preprocessor definitions are the ones the effect tests with #ifdef /
+// #ifndef), and defined once, outside #if blocks (a header's include guard does not count), or not in the sources
+// at all (ReShade's own).
+bool Extractor::fixedMacro(const std::string& name) const {
+  if (fx_.userMacros.count(name)) return false;
+  if (macroDefs_.empty()) {
+    macroDefs_[""] = {0, false};  // scanned
+    for (const auto& file : fx_.sourceFiles) {
+      const std::vector<std::string>* lines = sourceLines(file);
+      if (!lines) continue;
+      std::vector<bool> conditional;  // per open #if: does it make code conditional?
+      std::string guard;              // the first directive's #ifndef name (an include guard candidate)
+      bool first = true;
+      for (const std::string& raw : *lines) {
+        const std::string l = trim(raw);
+        if (l.empty() || l[0] != '#') continue;
+        std::istringstream in(l.substr(1));
+        std::string d, arg;
+        in >> d >> arg;
+        const std::string candidate = first && d == "ifndef" ? arg : std::string();
+        if (d == "if" || d == "ifdef" || d == "ifndef") {
+          conditional.push_back(true);
+        } else if (d == "endif") {
+          if (!conditional.empty()) conditional.pop_back();
+        } else if (d == "define") {
+          const std::string n = arg.substr(0, arg.find('('));
+          if (!guard.empty() && n == guard && conditional.size() == 1) {
+            conditional.back() = false;  // #ifndef X / #define X: the include guard
+          } else {
+            auto& def = macroDefs_[n];
+            ++def.first;
+            for (const bool c : conditional) def.second = def.second || c;
+          }
+        }
+        guard = candidate;  // only the directive right after it may complete the guard
+        first = false;
+      }
+    }
+  }
+  const auto it = macroDefs_.find(name);
+  return it == macroDefs_.end() || (it->second.first == 1 && !it->second.second);
+}
+
 // IR of a statement's value (with the temporaries in inline_ replaced by their
 // definitions), inputs and facts.
 bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   leaves_.clear();
   built_.clear();
+  collected_.clear();
   usesPow_ = false;
   reg.prog.inputs.clear();
   reg.facts.clear();

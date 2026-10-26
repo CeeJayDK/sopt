@@ -12,6 +12,8 @@ namespace sopt::fx {
 // What the reshadefx parser emits for one effect, recorded as a dataflow graph: every
 // SSA value with its type, source location and basic block, plus the statements that
 // store values into variables. Regions are read from this (see frontend.hpp).
+inline constexpr uint32_t kCondFalse = 1u << 31;  // blockConds: the condition's false side
+
 struct Value {
   enum class Kind { Const, Load, Chain, Unary, Binary, Ternary, Intrinsic, Call, Construct, Phi };
   Kind kind = Kind::Const;
@@ -85,7 +87,8 @@ class Codegen final : public reshadefx::codegen {
   std::vector<std::unique_ptr<Function>> functions;  // in definition order
   std::unordered_map<std::string, reshadefx::shader_type> entryPoints;  // unique name -> type
   std::vector<std::pair<uint32_t, uint32_t>> loops;  // [first, last] seq of each loop
-  // Conditions (value ids, outermost first) a block runs under; 0 = unknown (switch case, loop continue block).
+  // Conditions (value ids, outermost first) a block runs under, | kCondFalse on the false side; 0 = unknown (switch
+  // case, loop continue block).
   // Conservative: a block after an if or loop inside another branch keeps that branch's conditions.
   std::unordered_map<uint32_t, std::vector<uint32_t>> blockConds;
 
