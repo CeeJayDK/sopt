@@ -2169,6 +2169,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   branches and loops, without out / texture parameters, is inlined into the region (CallScope: parameters bound to
   the values stored into ReShade's argument temporaries; the callee's values built per call). Other helpers give a
   reason of their own ("function call: branches", ": loop", ": early return", ": reassigns a variable", ...).
+  Corpus (8 / 16, 1 s): inlining saved 21026 -> 26709 (+27%), changed 1317 -> 1524, time 11697 -> 14211 s. Still
+  skipped calls: reassigns a variable 1628 (+433 windows), branches 1207 (+175), texture / sampler argument 1068
+  (+213), arguments 76, out parameter 40. It broke Rendepth.fx: the vertex shader move put its wrapper between
+  [shader("pixel")] and the pixel shader (the attribute went to the wrapper); attribute lines now stay with the
+  pixel shader.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one

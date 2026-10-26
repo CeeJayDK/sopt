@@ -427,7 +427,15 @@ std::optional<SourceRewrite> hoistShader(const Effect& fx, const Function& ps, c
                 " : " + sem;
       psParams += std::string(", ") + (s.flat ? "nointerpolation " : "") + "float4 " + s.name + " : " + sem;
     }
-    LineEdit e{ps.loc.line, headLast, {}, renderer};
+    // Attribute lines above the header ([shader("pixel")], Rendepth.fx 2026-10-26) stay with the pixel shader: the
+    // wrapper goes above them.
+    uint32_t first = ps.loc.line;
+    while (first > 1) {
+      const std::string a = trim((*lines)[first - 2]);
+      if (a.size() < 2 || a.front() != '[' || a.back() != ']') break;
+      --first;
+    }
+    LineEdit e{first, headLast, {}, renderer};
     e.lines.push_back("void " + wrapper + "(" + params + ")");
     e.lines.push_back("{");
     std::string call = vsText + "(";
@@ -438,6 +446,7 @@ std::optional<SourceRewrite> hoistShader(const Effect& fx, const Function& ps, c
       if (!h.slot.empty()) e.lines.push_back("\t" + h.slot + " = " + h.text + ";");
     e.lines.push_back("}");
     e.lines.push_back("");
+    for (uint32_t l = first; l < ps.loc.line; ++l) e.lines.push_back((*lines)[l - 1]);
     // The header lines with the inputs added before the closing parenthesis.
     std::string headText;
     for (uint32_t l = ps.loc.line; l <= headLast; ++l) headText += (l > ps.loc.line ? "\n" : "") + (*lines)[l - 1];
