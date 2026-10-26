@@ -35,7 +35,8 @@ struct IsaCost {
 // FX effect whose pixel shader reads the inputs from a texture (so the compiler
 // cannot constant-fold them) and returns the expression. The expression is a
 // function sopt_region(<inputs>), ready to paste into a shader.
-std::string emitEffect(const Expr& e, const std::vector<InputDecl>& inputs);
+// hlsl: plain HLSL for fxc instead (entry F__SoptPS, as fxstat --hlsl names it), when fxstat is not installed.
+std::string emitEffect(const Expr& e, const std::vector<InputDecl>& inputs, bool hlsl = false);
 
 // The same as a GLSL 4.50 fragment shader (inputs from textures, toGlsl's syntax).
 std::string emitGlsl(const Expr& e, const std::vector<InputDecl>& inputs);

@@ -1072,23 +1072,37 @@ TEST(fx_table_rewrite) {
     for (const auto& l : ed.lines) tree = tree || l.find("(i & 2) != 0 ?") != std::string::npos;
   }
   CHECK(tree && intelOff);
+  // One version for all GPUs (owner, 2026-10-25): no vendor in any edit, the tree from D3D10 on.
+  std::vector<fx::SourceRewrite> one = rw;
+  fx::oneVersionForAllGpus(one);
+  bool anyVendor = false, d3d10 = false;
+  for (const auto& ed : one[0].edits) {
+    anyVendor = anyVendor || ed.extra.find("__VENDOR__") != std::string::npos;
+    for (const auto& l : ed.lines) {
+      anyVendor = anyVendor || l.find("__VENDOR__") != std::string::npos;
+      d3d10 = d3d10 || l == "#if __RENDERER__ >= 0xa000";
+    }
+  }
+  CHECK(!anyVendor && d3d10 && one[0].description.find("every GPU") != std::string::npos);
   // Written and parsed with the switch off and on, as each vendor (and D3D9 for NVIDIA) compiles it.
-  const fs::path out = fs::temp_directory_path() / "sopt-test-table";
-  std::string errors;
-  const auto files = fx::writeVariants({}, out, errors, rw);
-  CHECK(files.size() == 1 && errors.empty());
-  for (const char* on : {"0", "1"})
-    for (const char* vendor : {"0x10DE", "0x1002", "0x8086"})
-      for (const char* renderer : {"0xb000", "0x9000"}) {
-        fx::LoadOptions l2;
-        l2.macros.emplace_back(fx::rewriteSwitch(rw[0]), on);
-        l2.macros.emplace_back("__VENDOR__", vendor);
-        l2.macros.emplace_back("__RENDERER__", renderer);
-        std::string err2;
-        CHECK(fx::loadEffect(out / "sopt_table.fx", l2, err2) != nullptr);
-        if (!err2.empty()) std::printf("  %s %s %s: %s\n", on, vendor, renderer, err2.c_str());
-      }
-  fs::remove_all(out);
+  for (const std::vector<fx::SourceRewrite>* set : {&rw, static_cast<const std::vector<fx::SourceRewrite>*>(&one)}) {
+    const fs::path out = fs::temp_directory_path() / "sopt-test-table";
+    std::string errors;
+    const auto files = fx::writeVariants({}, out, errors, *set);
+    CHECK(files.size() == 1 && errors.empty());
+    for (const char* on : {"0", "1"})
+      for (const char* vendor : {"0x10DE", "0x1002", "0x8086"})
+        for (const char* renderer : {"0xb000", "0x9000"}) {
+          fx::LoadOptions l2;
+          l2.macros.emplace_back(fx::rewriteSwitch((*set)[0]), on);
+          l2.macros.emplace_back("__VENDOR__", vendor);
+          l2.macros.emplace_back("__RENDERER__", renderer);
+          std::string err2;
+          CHECK(fx::loadEffect(out / "sopt_table.fx", l2, err2) != nullptr);
+          if (!err2.empty()) std::printf("  %s %s %s: %s\n", on, vendor, renderer, err2.c_str());
+        }
+    fs::remove_all(out);
+  }
 }
 
 TEST(fx_int_conversions) {
@@ -1528,6 +1542,20 @@ TEST(fx_easy_mode) {
   eo.tooExact = true;
   fx::easyPicks(tooExact, rewrites, eo);
   CHECK(tooExact[0].variants.size() == 1 && tooExact[0].variants[0].text == "4.0");
+  // Identical results only (owner, 2026-10-25): a faster "within budget" variant gives way to the bit-exact one; and a
+  // pick fxc compiles to the original's code is a change of style only, never picked.
+  fx::RegionResult rw = rr;
+  rw.variants = {variant("3.0", Klass::Within, 1), variant("1.0", Klass::BitExact, 2)};
+  std::vector<fx::RegionResult> within = {rw}, identical = {rw}, same = {rw};
+  fx::easyPicks(within, rewrites, fx::EasyOptions{});
+  CHECK(within[0].variants.size() == 1 && within[0].variants[0].text == "3.0");
+  fx::EasyOptions io;
+  io.identicalOnly = true;
+  fx::easyPicks(identical, rewrites, io);
+  CHECK(identical[0].variants.size() == 1 && identical[0].variants[0].text == "1.0");
+  same[0].variants[0].dxbcSame = true;
+  fx::easyPicks(same, rewrites, fx::EasyOptions{});
+  CHECK(same[0].variants.size() == 1 && same[0].variants[0].text == "1.0");
   // A guessed (likely) range: nothing in easy mode, not every variant one after another (SuperDepth3D.fx, 2026-10-24).
   std::vector<fx::RegionResult> guessed = {rr};
   if (guessed[0].region.facts.empty()) guessed[0].region.facts.resize(1);
