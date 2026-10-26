@@ -1,7 +1,7 @@
 // Test effect for test_fx: pixel shader math moved to the vertex shader (fx/hoist.hpp). The
 // rotation of the texture coordinate is affine in uv (interpolated), its sin / cos of a uniform are
 // constant per draw (flat).
-// Line numbers are checked in test_fx.
+// Line numbers are checked in test_fx. The attribute above HoistPS stays on it (Rendepth.fx, 2026-10-26).
 uniform float Angle < ui_type = "slider"; ui_min = 0.0; ui_max = 6.28; > = 0.5;
 uniform float Zoom < ui_type = "slider"; ui_min = 0.5; ui_max = 2.0; > = 1.0;
 uniform float Strength < ui_type = "slider"; ui_min = 0.0; ui_max = 1.0; > = 0.5;
@@ -14,7 +14,7 @@ void HoistVS(in uint id : SV_VertexID, out float4 pos : SV_Position, out float2 
 	uv = float2(id == 2 ? 2.0 : 0.0, id == 1 ? 2.0 : 0.0);
 	pos = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
 }
-
+[shader("pixel")]
 float4 HoistPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0 // a comment after the last parameter (fubax)
 	) : SV_Target
 {

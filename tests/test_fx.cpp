@@ -126,7 +126,11 @@ TEST(fx_regions_and_facts) {
   // Statements that cannot be regions, and why.
   CHECK(skippedAt(l, 29, "uses a macro"));
   CHECK(skippedAt(l, 30, "depends on BUFFER_WIDTH/HEIGHT"));
-  CHECK(skippedAt(l, 28, "function call"));
+  // A call of a small helper is seen through (2026-10-26; was "function call").
+  bool call = false;
+  for (const auto& r : l.regions)
+    call = call || (r.line == 28 && toString(r.prog.target, r.prog.inputs) == "color * 0.5 + color * 0.5");
+  CHECK(call);
   // Header function reached from the pixel shader, parameter range from its call site.
   bool helper = false;
   for (const auto& r : l.regions)
@@ -1282,6 +1286,55 @@ TEST(fx_window_same_block) {
       inner = inner || !r.removed.empty();
     }
   CHECK(inner);
+}
+
+TEST(fx_per_draw_locals) {
+  // A local computed from uniforms only (also under an if on a uniform) is a constant in performance mode, one set
+  // under a per-pixel condition is not (LumaSharpen's sharp_strength_luma, owner 2026-10-25).
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_perdraw.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  int w = -1, k = -1;
+  for (const auto& r : fx::extractRegions(*e, nullptr, ro, sk))
+    for (const auto& d : r.prog.inputs) {
+      if (r.line == 15 && d.name == "w") w = d.rate == InputDecl::Rate::Uniform;
+      if (r.line == 16 && d.name == "k") k = d.rate == InputDecl::Rate::Uniform;
+    }
+  CHECK(w == 1 && k == 0);
+}
+
+TEST(fx_inline_calls) {
+  // Calls of small pure helpers are seen through (owner, 2026-10-26): parameters bound per call (Luma twice with
+  // different arguments), single-assignment locals, nested calls; a helper with a branch stays a skip.
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_inline.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  sk.keepDetails = true;
+  const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+  const fx::Region* a = regionOn(regions, 12);
+  const fx::Region* b = regionOn(regions, 13);
+  CHECK(a && b && !regionOn(regions, 14));
+  // One helper of several instructions is searched alone, a macro left of the = does not matter (2026-10-26); one
+  // instruction is not, with how often its value is read.
+  CHECK(regionOn(regions, 15) != nullptr && !regionOn(regions, 16));
+  bool used = false;
+  for (const auto& d : sk.details) used = used || d.find(":16: one instruction (value used several times)") != std::string::npos;
+  CHECK(used);
+  if (!a || !b) return;
+  const std::string ta = toString(a->prog.target, a->prog.inputs), tb = toString(b->prog.target, b->prog.inputs);
+  std::printf("  %s\n  %s\n", ta.c_str(), tb.c_str());
+  CHECK(ta.find("Strength") != std::string::npos && ta.find(".zyx") != std::string::npos);
+  CHECK(tb.find("dot(") != std::string::npos);
+  CHECK(tb.find("c.z * 2.0 * (c.z * 2.0 + 1.0)") != std::string::npos);  // Twice: x and y assigned again
+  bool branchy = false;
+  for (const auto& d : sk.details) branchy = branchy || d.find(":14: function call: branches") != std::string::npos;
+  CHECK(branchy);
 }
 
 TEST(fx_output_keeps_folders) {

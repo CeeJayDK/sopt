@@ -2161,6 +2161,34 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   intel-gen6 (owner's go, 2026-10-24) from the HD 3000 report (his mother's laptop; the Renoir is his father's, the GT
   1030 his media PC): add / mul / min / max / floor 2.6 against mad 4, abs 2.6 (not free), math unit 10.6, sin 16,
   pow 24, integers full rate (iadd 2.6, imul 8.1); table in ops.cpp; MODEL_RULES "HD Graphics [23]000".
+  Where sopt gives up (owner, 2026-10-25: "why do we even have these small limits?"): corpus.yml counts the skip
+  reasons over all packages (effect_packages.py skip_reasons; extra sopt-fx arguments for A/B runs). Corpus at 1 s,
+  4 / 8 vs 8 / 16 inputs / components: regions 9711 -> 11293, statements changed 1250 -> 1317, cost saved 20333 ->
+  21026 (+3.4%; 17 packages gain, none loses), time 9716 -> 11697 s (+20%), no problems: defaults raised to 8 / 16
+  (--max-slots new). Skips (default limits): function call 7924 (with windows), assignment shape 2751, macro 2726,
+  not a simple statement 2561, too many inputs 2307 (324 at 8 / 16), non-float ~1600, no assignment 1038, vector
+  select 1009, access chain 768, several declarators 416 (copy or constant 30910 and fewer than minOps 9193 are not
+  give-ups). Performance mode: locals computed from uniforms only count as uniforms (perDraw in frontend.cpp; the
+  codegen records each block's conditions, blockConds). LumaSharpen 1.5's clamp-by-scaling checked: sopt cannot
+  find it (search depth) and the library check rejects it near 0; see inexact-tricks.md.
+  Function calls seen through (owner, 2026-10-26): a helper whose locals are assigned once, then one return, outside
+  branches and loops, without out / texture parameters, is inlined into the region (CallScope: parameters bound to
+  the values stored into ReShade's argument temporaries; the callee's values built per call). Other helpers give a
+  reason of their own ("function call: branches", ": loop", ": early return", ": reassigns a variable", ...).
+  Corpus (8 / 16, 1 s): inlining saved 21026 -> 26709 (+27%), changed 1317 -> 1524, time 11697 -> 14211 s. Still
+  skipped calls: reassigns a variable 1628 (+433 windows), branches 1207 (+175), texture / sampler argument 1068
+  (+213), arguments 76, out parameter 40. It broke Rendepth.fx: the vertex shader move put its wrapper between
+  [shader("pixel")] and the pixel shader (the attribute went to the wrapper); attribute lines now stay with the
+  pixel shader.
+  Skips explained (owner, 2026-10-26): "copy or constant" and "too small" are mostly not give-ups. ReShade's copies
+  of call arguments (nameless temporaries) now skip as "ReShade's copy of a call argument" (they had inflated "copy
+  or constant", "assignment shape" and "no assignment"); a single helper of several instructions (smoothstep, lerp,
+  sign, pow, dot, length, ...) is searched alone (compoundOp); swizzles / constructs no longer count as operations;
+  one instruction skips with its uses ("value used several times": material for regions with several results);
+  a macro left of the = (FXAA's FxaaFloat) no longer stops a region. SuperDepth3D + SweetFX: 912 -> 1066 regions.
+  The corpus summary splits "where sopt gave up" from "nothing to do", with a plain explanation per reason.
+  Helpers that assign a variable or parameter again (x = x * 2; y *= x;) are inlined: each read is bound to the
+  store before it (inlineLoad_); partial writes (c.rgb = ...) and globals still skip.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one

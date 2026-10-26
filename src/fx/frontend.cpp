@@ -8,6 +8,7 @@
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -896,6 +897,17 @@ bool computeSemantic(const std::string& semantic) {
   return s == "SV_DISPATCHTHREADID" || s == "SV_GROUPTHREADID" || s == "SV_GROUPID" || s == "SV_GROUPINDEX";
 }
 
+// Ops that are several instructions on the GPU (helpers and their like): one of them alone can get cheaper.
+bool compoundOp(Op op) {
+  switch (op) {
+    case Op::Sign: case Op::Exp: case Op::Log: case Op::Div: case Op::Step: case Op::Pow: case Op::Lerp:
+    case Op::Clamp: case Op::Smoothstep: case Op::Dot: case Op::Length: case Op::Normalize: case Op::Distance:
+      return true;
+    default:
+      return false;
+  }
+}
+
 bool isFloatType(const reshadefx::type& t) {
   return (t.base == reshadefx::type::t_float) && t.cols == 1 && t.rows >= 1 && t.rows <= 4 &&
          !t.is_array();
@@ -1049,6 +1061,14 @@ class Extractor {
   Range leafRange(uint32_t valueId);
   std::unordered_set<uint32_t> varBusy_;
   std::unordered_set<uint64_t> localBusy_;  // (variable, load seq)
+  std::vector<const Statement*> reaching(uint32_t var, uint32_t seq, uint32_t block, bool& killed) const;
+  int usesOf(const Statement& s);  // loads that read what s stores
+  std::unordered_map<uint32_t, std::vector<uint32_t>> loadsByVar_;
+  // The same for every pixel of a draw: a constant in ReShade's performance mode.
+  bool perDraw(uint32_t valueId);
+  bool chainPerDraw(const std::vector<reshadefx::expression::operation>& chain);
+  std::unordered_map<uint32_t, bool> perDrawMemo_;
+  std::unordered_set<uint32_t> perDrawBusy_;
 
   // current region
   std::vector<Leaf> leaves_;
@@ -1056,6 +1076,21 @@ class Extractor {
   bool usesPow_ = false;
   std::unordered_map<uint32_t, uint32_t> inline_;  // temporary variable -> its value
   std::unordered_map<uint32_t, uint32_t> inlineLoad_;  // load -> value of its (chain) definition
+  // A call of a small pure helper, seen through (owner, 2026-10-26): its return value with the parameters bound to
+  // the arguments and its single-assignment locals to their values (inline_), while the scope lives.
+  class CallScope {
+   public:
+    CallScope(Extractor& x, const Value& call);
+    ~CallScope();
+    uint32_t ret = 0;  // the callee's return value
+   private:
+    struct Saved {
+      uint32_t key;
+      std::optional<uint32_t> old;
+    };
+    Extractor& x_;
+    std::vector<Saved> saved_, savedLoads_;  // inline_ / inlineLoad_ entries before the scope
+  };
   bool findChain(const Statement& s, size_t length, std::vector<const Statement*>& defs);
   bool leavesUnchanged(const Statement& s, const std::vector<const Statement*>& defs) const;
   bool writesBetween(uint32_t var, uint32_t after, uint32_t before,
@@ -1203,6 +1238,84 @@ uint32_t chainMask(const std::vector<reshadefx::expression::operation>& chain, s
   throw Unsupported("access chain");
 }
 
+Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
+  const Function* f = x.cg_.function(call.name);
+  if (!f) throw Unsupported("function call");
+  if (f->params.size() != call.args.size()) throw Unsupported("function call: arguments");
+  // ReShade passes each argument through a temporary variable (call.args): its last store before the call.
+  std::vector<uint32_t> args;
+  for (size_t k = 0; k < f->params.size(); ++k) {
+    const auto pv = x.cg_.variables.find(f->params[k]);
+    if (pv == x.cg_.variables.end() || pv->second.type.has(reshadefx::type::q_out))
+      throw Unsupported("function call: out parameter");
+    if (pv->second.type.is_object()) throw Unsupported("function call: texture or sampler argument");
+    const Statement* st = nullptr;
+    if (const auto d = x.defs_.find(call.args[k]); d != x.defs_.end())
+      for (const Statement* s : d->second)
+        if (s->seq < call.seq && (!st || s->seq > st->seq)) st = s;
+    if (!st || !st->chain.empty()) throw Unsupported("function call: arguments");
+    args.push_back(st->value);
+  }
+  // Whole assignments of its locals and parameters (also again: x *= 2), then one return, all outside branches and
+  // loops: every read is the store before it in the one block (2026-10-26), or the parameter's argument.
+  std::unordered_set<uint32_t> vars(f->params.begin(), f->params.end());
+  for (size_t i = 0; i < f->stmts.size(); ++i) {
+    const Statement& s = f->stmts[i];
+    const auto c = x.cg_.blockConds.find(s.block);
+    if (c == x.cg_.blockConds.end() || !c->second.empty()) throw Unsupported("function call: branches");
+    for (const auto& [lo, hi] : x.cg_.loops)
+      if (lo <= s.seq && s.seq <= hi) throw Unsupported("function call: loop");
+    if (s.kind == Statement::Kind::Return) {
+      if (i + 1 != f->stmts.size()) throw Unsupported("function call: early return");
+      ret = s.value;
+    } else if (s.kind == Statement::Kind::Write) {
+      throw Unsupported("function call: writes a resource");
+    } else {
+      const auto sv = x.cg_.variables.find(s.var);
+      if (sv == x.cg_.variables.end() ||
+          (sv->second.kind != Variable::Kind::Local && sv->second.kind != Variable::Kind::Param))
+        throw Unsupported("function call: writes a global");
+      if (!s.chain.empty()) throw Unsupported("function call: writes part of a variable");
+      vars.insert(s.var);
+    }
+  }
+  if (!ret) throw Unsupported("function call: no return value");
+  auto bind = [&](std::unordered_map<uint32_t, uint32_t>& m, std::vector<Saved>& saved, uint32_t key, uint32_t value) {
+    const auto old = m.find(key);
+    saved.push_back({key, old == m.end() ? std::nullopt : std::optional<uint32_t>(old->second)});
+    m[key] = value;
+  };
+  if (x.loadsByVar_.empty())
+    for (const auto& [id, v] : x.cg_.values)
+      if (v.kind == Value::Kind::Load) x.loadsByVar_[v.base].push_back(id);
+  std::vector<std::pair<uint32_t, uint32_t>> loads;  // load -> the store it reads
+  for (const uint32_t var : vars) {
+    const auto lv = x.loadsByVar_.find(var);
+    if (lv == x.loadsByVar_.end()) continue;
+    const bool param = std::find(f->params.begin(), f->params.end(), var) != f->params.end();
+    for (const uint32_t id : lv->second) {
+      const Value& v = x.cg_.values.at(id);
+      bool killed = false;
+      const std::vector<const Statement*> reach = x.reaching(var, v.seq, v.block, killed);
+      if (killed) loads.emplace_back(id, reach[0]->value);
+      else if (!reach.empty() || !param) throw Unsupported("function call: reads an unset variable");
+    }
+  }
+  for (size_t k = 0; k < f->params.size(); ++k) bind(x_.inline_, saved_, f->params[k], args[k]);
+  for (const auto& [load, value] : loads) bind(x_.inlineLoad_, savedLoads_, load, value);
+}
+
+Extractor::CallScope::~CallScope() {
+  auto restore = [](std::unordered_map<uint32_t, uint32_t>& m, const std::vector<Saved>& saved) {
+    for (auto it = saved.rbegin(); it != saved.rend(); ++it) {
+      if (it->old) m[it->key] = *it->old;
+      else m.erase(it->key);
+    }
+  };
+  restore(x_.inline_, saved_);
+  restore(x_.inlineLoad_, savedLoads_);
+}
+
 void Extractor::collect(uint32_t id) {
   const auto it = cg_.values.find(id);
   if (it == cg_.values.end()) throw Unsupported("value");
@@ -1326,7 +1439,11 @@ void Extractor::collect(uint32_t id) {
         collect(a);
       }
       return;
-    case K::Call: throw Unsupported("function call");
+    case K::Call: {
+      const CallScope scope(*this, v);
+      collect(scope.ret);
+      return;
+    }
     case K::Phi: throw Unsupported("short-circuit or branch value");
   }
 }
@@ -1522,6 +1639,16 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         m[nm++] = identity ? src : b.swizzle(src, sw, cnt);
       }
       r = nm == 1 ? m[0] : b.construct(m, nm);
+      break;
+    }
+    case K::Call: {
+      // The callee's values are shared by every call: built with this call's bindings in a map of their own (the
+      // DAG merges what the calls have in common).
+      const CallScope scope(*this, v);
+      auto outer = std::move(built_);
+      built_.clear();
+      r = build(scope.ret, b);
+      built_ = std::move(outer);
       break;
     }
     default: throw Unsupported("value");
@@ -1842,27 +1969,8 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         if (any && r.known && r.why != "constant") r.why = "call sites";
         return any ? r : Range::unknown();
       };
-      const auto di = defs_.find(var);
-      if (di == defs_.end()) return entry();
-      // Reaching definitions: the last one before the load if it is in the load's
-      // block (it kills the others), else all earlier ones plus those later in a loop
-      // around the load, plus the entry value.
-      std::vector<const Statement*> reach;
-      const Statement* last = nullptr;
-      for (const Statement* d : di->second)
-        if (d->seq < seq && (!last || d->seq > last->seq)) last = d;
       bool killed = false;
-      if (last && last->block == block && last->chain.empty()) {
-        reach.push_back(last);
-        killed = true;
-      } else {
-        for (const Statement* d : di->second) {
-          bool inLoop = false;
-          for (const auto& [lo, hi] : cg_.loops)
-            inLoop = inLoop || (lo <= seq && seq <= hi && lo <= d->seq && d->seq <= hi);
-          if (d->seq < seq || inLoop) reach.push_back(d);
-        }
-      }
+      const std::vector<const Statement*> reach = reaching(var, seq, block, killed);
       if (reach.empty()) return entry();
       const uint64_t key = (uint64_t(var) << 32) | seq;
       if (!localBusy_.insert(key).second) return Range::unknown();
@@ -1887,6 +1995,102 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
       break;
   }
   return Range::unknown();
+}
+
+// Reaching definitions of a load: the last one before it if it is in the load's block (it kills the others), else
+// all earlier ones plus those later in a loop around the load (and the entry value, the caller's part).
+std::vector<const Statement*> Extractor::reaching(uint32_t var, uint32_t seq, uint32_t block, bool& killed) const {
+  std::vector<const Statement*> reach;
+  killed = false;
+  const auto di = defs_.find(var);
+  if (di == defs_.end()) return reach;
+  const Statement* last = nullptr;
+  for (const Statement* d : di->second)
+    if (d->seq < seq && (!last || d->seq > last->seq)) last = d;
+  if (last && last->block == block && last->chain.empty()) {
+    reach.push_back(last);
+    killed = true;
+    return reach;
+  }
+  for (const Statement* d : di->second) {
+    bool inLoop = false;
+    for (const auto& [lo, hi] : cg_.loops) inLoop = inLoop || (lo <= seq && seq <= hi && lo <= d->seq && d->seq <= hi);
+    if (d->seq < seq || inLoop) reach.push_back(d);
+  }
+  return reach;
+}
+
+int Extractor::usesOf(const Statement& s) {
+  if (loadsByVar_.empty())
+    for (const auto& [id, v] : cg_.values)
+      if (v.kind == Value::Kind::Load) loadsByVar_[v.base].push_back(id);
+  int n = 0;
+  if (const auto it = loadsByVar_.find(s.var); it != loadsByVar_.end())
+    for (const uint32_t id : it->second) {
+      const Value& v = cg_.values.at(id);
+      bool killed = false;
+      for (const Statement* d : reaching(s.var, v.seq, v.block, killed)) n += d == &s;
+    }
+  return n;
+}
+
+bool Extractor::chainPerDraw(const std::vector<reshadefx::expression::operation>& chain) {
+  for (const auto& op : chain)
+    if (op.op == reshadefx::expression::operation::op_dynamic_index && !perDraw(op.index)) return false;
+  return true;
+}
+
+// Constants, uniforms without a source annotation, preprocessor values, static const globals, and math of them;
+// a local counts when every store reaching the read is such a value under such conditions (LumaSharpen's
+// sharp_strength_luma = CoefLuma * sharp_strength, scaled under if (pattern == 2); owner, 2026-10-25). Function
+// parameters and calls do not (conservative).
+bool Extractor::perDraw(uint32_t id) {
+  if (const auto m = perDrawMemo_.find(id); m != perDrawMemo_.end()) return m->second;
+  const auto it = cg_.values.find(id);
+  if (it == cg_.values.end() || !perDrawBusy_.insert(id).second) return false;
+  const Value& v = it->second;
+  bool r = true;
+  switch (v.kind) {
+    case Value::Kind::Const: break;
+    case Value::Kind::Call: r = false; break;
+    case Value::Kind::Chain: r = perDraw(v.base) && chainPerDraw(v.chain); break;
+    case Value::Kind::Load: {
+      const auto vi = cg_.variables.find(v.base);
+      r = vi != cg_.variables.end() && chainPerDraw(v.chain);
+      if (!r || isSymbolic(v.base)) break;
+      const Variable& var = vi->second;
+      switch (var.kind) {
+        case Variable::Kind::Uniform:
+          for (const auto& a : var.annotations) r = r && a.name != "source";
+          break;
+        case Variable::Kind::Global:
+          r = var.type.has(reshadefx::type::q_const) && var.initializer && perDraw(var.initializer);
+          break;
+        case Variable::Kind::Param: r = false; break;
+        case Variable::Kind::Local: {
+          bool killed = false;
+          const std::vector<const Statement*> reach = reaching(v.base, v.seq, v.block, killed);
+          bool full = false;
+          for (const Statement* d : reach) {
+            full = full || d->chain.empty();
+            r = r && perDraw(d->value) && chainPerDraw(d->chain);
+            if (const auto c = cg_.blockConds.find(d->block); c == cg_.blockConds.end()) r = false;
+            else
+              for (const uint32_t cond : c->second) r = r && perDraw(cond);
+          }
+          r = r && full;
+          break;
+        }
+      }
+      break;
+    }
+    default:
+      for (const uint32_t a : v.args) r = r && perDraw(a);
+      break;
+  }
+  perDrawBusy_.erase(id);
+  perDrawMemo_[id] = r;
+  return r;
 }
 
 bool Extractor::outOnly(const Variable& v) {
@@ -2208,11 +2412,28 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
     if (it == fx_.ppLines.end()) { why = "uses a macro"; return false; }
     pp += it->second + '\n';
   }
-  std::vector<std::string> ppTokens = tokens(withoutFetches(pp));
+  std::vector<std::string> ppTokens = tokens(withoutFetches(pp)), srcTokens = sourceTokens(withoutFetches(src));
   const size_t prefixLen = std::strlen(kSymbolicPrefix);
   for (auto& t : ppTokens)
     if (t.rfind(kSymbolicPrefix, 0) == 0) t.erase(0, prefixLen);  // symbolic definitions
-  if (sourceTokens(withoutFetches(src)) != ppTokens) { why = "uses a macro"; return false; }
+  // Only the value is rewritten: a macro left of the assignment stays as written (FXAA's "FxaaFloat x = ...",
+  // 2026-10-26).
+  auto valueOnly = [&](std::vector<std::string>& t) {
+    for (size_t i = 0; i < t.size(); ++i) {
+      const bool assign = t[i] == "=" && (i == 0 || (t[i - 1] != "=" && t[i - 1] != "!" && t[i - 1] != "<" &&
+                                                     t[i - 1] != ">")) &&
+                          (i + 1 == t.size() || t[i + 1] != "=");
+      if (assign || (reg.kind == Region::Kind::Return && t[i] == "return")) {
+        t.erase(t.begin(), t.begin() + static_cast<std::ptrdiff_t>(i) + 1);
+        return;
+      }
+    }
+  };
+  if (reg.kind == Region::Kind::Init || reg.kind == Region::Kind::Store || reg.kind == Region::Kind::Return) {
+    valueOnly(ppTokens);
+    valueOnly(srcTokens);
+  }
+  if (srcTokens != ppTokens) { why = "uses a macro"; return false; }
   return true;
 }
 
@@ -2315,6 +2536,8 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
         bool source = false;
         for (const auto& a : uv->second.annotations) source = source || a.name == "source";
         if (!source) d.rate = InputDecl::Rate::Uniform;
+      } else if (!fx_.hlsl && !d.compileTime && perDraw(l.loadValue)) {
+        d.rate = InputDecl::Rate::Uniform;  // a local computed from uniforms only
       }
       Range r = d.compileTime ? range(l.loadValue) : leafRange(l.loadValue);
       Fact fact;
@@ -2395,8 +2618,22 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   const Type rt = reg.prog.target.nodes[reg.prog.target.root].type;
   if (!isFloat(rt)) { why = "boolean value"; return false; }
   uint32_t ops = 0;
-  for (const auto& n : reg.prog.target.nodes) ops += n.op != Op::Input && n.op != Op::Const;
-  if (ops < opt_.minOps) { why = "fewer than minOps operations"; return false; }
+  bool compound = false;
+  for (const auto& n : reg.prog.target.nodes) {
+    ops += n.op != Op::Input && n.op != Op::Const && n.op != Op::Swizzle && n.op != Op::Construct;  // those are free
+    compound = compound || compoundOp(n.op);
+  }
+  // A single helper of several instructions (smoothstep, lerp, sign, pow, ...) can get cheaper alone (owner,
+  // 2026-10-26); a single instruction cannot. Its uses tell whether a region with several results could help.
+  if (ops < opt_.minOps && !(ops == 1 && compound)) {
+    if (ops == 0) { why = "copy or constant"; return false; }
+    const int uses = s.kind == Statement::Kind::Return ? -1 : usesOf(s);
+    why = uses < 0    ? "one instruction (returned)"
+          : uses == 0 ? "one instruction (value not used)"
+          : uses == 1 ? "one instruction (value used once)"
+                      : "one instruction (value used several times)";
+    return false;
+  }
   if (ops > opt_.maxOps) { why = "more than maxOps operations"; return false; }
   if (reg.prog.inputs.empty()) { why = "constant expression"; return false; }
   bool runtime = false;
@@ -2713,6 +2950,13 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
         f.uniqueName.compare(f.uniqueName.size() - f.name.size(), f.name.size(), f.name) == 0)
       fnNs_ = f.uniqueName.substr(1, f.uniqueName.size() - 1 - f.name.size());
     for (const Statement& s : f.stmts) {
+      // ReShade copies each argument of a call into a nameless temporary: not code of the effect's own.
+      if (const auto tv = cg_.variables.find(s.var);
+          s.kind != Statement::Kind::Return && s.kind != Statement::Kind::Write && tv != cg_.variables.end() &&
+          tv->second.kind == Variable::Kind::Local && tv->second.name.empty()) {
+        SKIPADD("ReShade's copy of a call argument");
+        continue;
+      }
       const auto val = cg_.values.find(s.value);
       if (val != cg_.values.end() &&
           (val->second.kind == Value::Kind::Load || val->second.kind == Value::Kind::Const)) {

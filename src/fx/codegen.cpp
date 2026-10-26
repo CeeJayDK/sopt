@@ -133,6 +133,7 @@ reshadefx::codegen::id Codegen::define_variable(const reshadefx::location& loc,
 reshadefx::codegen::id Codegen::define_function(const reshadefx::location& loc,
                                                 reshadefx::function& info) {
   const id res = info.id = make_id();
+  freshFunction_ = true;
   auto f = std::make_unique<Function>();
   f->id = res;
   f->name = info.name;
@@ -338,13 +339,18 @@ reshadefx::codegen::id Codegen::leave_block_and_switch(id, id) {
   return set_block(0);
 }
 
-reshadefx::codegen::id Codegen::leave_block_and_branch(id, unsigned int) {
+reshadefx::codegen::id Codegen::leave_block_and_branch(id target, unsigned int) {
   if (!is_in_block()) return _last_block;
+  if (!blockConds.count(target)) blockConds[target] = blockConds[_current_block];
   return set_block(0);
 }
 
-reshadefx::codegen::id Codegen::leave_block_and_branch_conditional(id, id, id) {
+reshadefx::codegen::id Codegen::leave_block_and_branch_conditional(id condition, id true_target, id false_target) {
   if (!is_in_block()) return _last_block;
+  std::vector<uint32_t> c = blockConds[_current_block];
+  c.push_back(condition);
+  blockConds[true_target] = c;
+  blockConds[false_target] = c;
   return set_block(0);
 }
 

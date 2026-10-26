@@ -13,7 +13,7 @@ which are then only there for the includes and not run unless asked for.
 Setup's rule (setup/MainWindow.xaml.cs): the archive's first folder named Shaders, else the shortest folder holding an
 .fx file, is copied to the package's InstallPath; DenyEffectFiles are removed. Textures are not needed by sopt.
 """
-import configparser, io, json, os, re, shutil, subprocess, sys, tempfile, time, urllib.request, zipfile
+import configparser, glob, io, json, os, re, shlex, shutil, subprocess, sys, tempfile, time, urllib.request, zipfile
 
 
 def packages(ini):
@@ -76,11 +76,69 @@ def summary_of(log):
         return m.groups() if m else None
     parsed = grab(r"(\d+) effects parsed, (\d+) failed, (\d+) regions")
     checks = grab(r"variant check: (\d+) of (\d+) parses failed")
-    saved = grab(r"SweetOpt saved: (\d+) regions? in \d+ files?, cost (\d+) -> (\d+)")
+    saved = grab(r"SweetOpt saved:\S* (\d+) of \d+ statements in \d+ files? cheaper: (\d+) -> (\d+)")
     return parsed, checks, saved
 
 
-def run(dest, sopt, out, secs, timeout):
+# Skip reasons in plain words (owner, 2026-10-26: "be better about saying why"). (prefix, nothing to do?, meaning);
+# the first prefix that matches wins. "window: " (a multi-line piece) is stripped first.
+EXPLAIN = [
+    ("copy or constant", True, "no math: a copy, a constant or a table entry"),
+    ("ReShade's copy of a call argument", True, "ReShade copies every argument of a function call; not the effect's own code"),
+    ("one instruction (value used several times)", False,
+     "one GPU instruction whose value several statements read: only a piece with several results could share a better form"),
+    ("one instruction", True, "one GPU instruction: nothing cheaper exists"),
+    ("input is a constant", True, "the compiler already works it out"),
+    ("compile-time constant expression", True, "the compiler already works it out"),
+    ("constant expression", True, "the compiler already works it out"),
+    ("boolean value", False, "a true / false result: sopt searches only number results"),
+    ("more than maxOps", False, "too much math in one piece for the search"),
+    ("vector logic", False, "&& / || / ! on vectors"),
+    ("function call: reassigns a variable", False, "a helper that changes a variable after setting it (x = ...; x *= ...;)"),
+    ("function call: branches", False, "a helper with an if (or a ?: on whole statements)"),
+    ("function call: loop", False, "a helper with a loop"),
+    ("function call: early return", False, "a helper that returns before its end"),
+    ("function call: texture or sampler argument", False, "a helper that reads a texture passed to it"),
+    ("function call: out parameter", False, "a helper that writes to one of its parameters"),
+    ("function call: ", False, "a helper function sopt cannot look into yet"),
+    ("function call", False, "a function call sopt cannot look into"),
+    ("uses a macro", False, "a #define in the math: sopt would have to write the variant around the macro"),
+    ("assignment shape", False, "an assignment sopt cannot rewrite in place (mostly one-line ifs)"),
+    ("not a simple statement", False, "a loop header, one-line if or array initializer"),
+    ("several declarators", False, "several variables declared in one statement (float a = ..., b = ...;)"),
+    ("several statements on one line", False, "several statements on one line"),
+    ("too many inputs", False, "reads more values than the search handles (--max-inputs / --max-slots)"),
+    ("non-float", False, "integer math, which sopt only searches in a few forms"),
+    ("vector select", False, "a ? b : c with a vector condition"),
+    ("access chain", False, "an array element at a computed index, or a struct member sopt cannot follow"),
+    ("no assignment", False, "a value set without = in the source (x++, a call's out argument)"),
+    ("intrinsic", False, "an intrinsic sopt does not model yet (a texture read inside a helper, isnan, mul, ...)"),
+    ("declaration shape", False, "a declaration sopt cannot rewrite in place (an array, a semantic, ...)"),
+    ("matrix", False, "a matrix or integer vector is built"),
+    ("depends on BUFFER", False, "depends on the screen size in a way sopt does not cover"),
+    ("return value not at statement start", False, "a return whose value starts on another line"),
+    ("string literal", True, "text, not math"),
+]
+
+
+def explain(reason):
+    r = reason[len("window: "):] if reason.startswith("window: ") else reason
+    for prefix, nothing, text in EXPLAIN:
+        if r.startswith(prefix):
+            return nothing, text
+    return False, ""
+
+
+def skip_reasons(log):
+    # "skip <file>:<line>: [window: ]<reason>": why sopt left code out (fewer than minOps is not giving up)
+    counts = {}
+    for m in re.finditer(r"^skip .*?:\d+: (.*)$", log, re.M):
+        r = re.sub(r"'[^']*'|\"[^\"]*\"", "...", m.group(1).strip())  # names out, so reasons group
+        counts[r] = counts.get(r, 0) + 1
+    return counts
+
+
+def run(dest, sopt, out, secs, timeout, args=""):
     pk = json.load(open(os.path.join(dest, "packages.json")))
     os.makedirs(out, exist_ok=True)
     rows, bad = [], 0
@@ -91,7 +149,8 @@ def run(dest, sopt, out, secs, timeout):
             rows.append(f"| {p['id']} | [{p['name']}]({p['url']}) | 0 | | | | | {p['error'] or 'no effects'} |")
             continue
         o = os.path.join(out, p["id"])
-        cmd = [sopt, "-o", os.path.join(o, "sopt-out"), "--time", str(secs)] + [os.path.join(dest, e) for e in p["effects"]]
+        cmd = ([sopt, "-o", os.path.join(o, "sopt-out"), "--time", str(secs)] + shlex.split(args) +
+               [os.path.join(dest, e) for e in p["effects"]])
 
         def one(extra):
             try:
@@ -107,7 +166,9 @@ def run(dest, sopt, out, secs, timeout):
         # folder, so its cache skips the search and only the files are written and checked again.
         easy_log, easy_code = one(["--easy"])
         secs_used = time.time() - t0
+        skips_log, _ = one(["--list", "--skips"])
         os.makedirs(o, exist_ok=True)
+        json.dump(skip_reasons(skips_log), open(os.path.join(o, "skips.json"), "w"), indent=1)
         open(os.path.join(o, "log.txt"), "w", encoding="utf-8").write(log)
         open(os.path.join(o, "log-easy.txt"), "w", encoding="utf-8").write(easy_log)
         for f in ("sopt-report.md", "sopt-found.txt", "sopt-facts.txt"):  # reports only: the shaders stay their authors'
@@ -152,6 +213,17 @@ def summary(dirs):
     rows.sort(key=lambda r: r.split("|")[1].strip())
     print("# sopt-fx on ReShade's effect packages\n\n| # | package | effects | parsed / failed | regions | saved | time | problems |\n"
           "|---|---|---|---|---|---|---|---|\n" + "\n".join(rows))
+    skips = {}
+    for d in dirs:
+        for f in glob.glob(os.path.join(d, "**", "skips.json"), recursive=True):
+            for r, n in json.load(open(f)).items():
+                skips[r] = skips.get(r, 0) + n
+    if skips:
+        ranked = sorted(skips.items(), key=lambda x: -x[1])
+        for title, want in (("Where sopt gave up (all packages)", False), ("Nothing to do (all packages)", True)):
+            rows = [f"| {n} | {r} | {explain(r)[1]} |" for r, n in ranked if explain(r)[0] == want]
+            print(f"\n## {title}\n\n\"window\": a piece of several lines.\n\n| count | reason | what it means |\n"
+                  "|---|---|---|\n" + "\n".join(rows))
     return any("**" in r for r in rows)
 
 
@@ -165,6 +237,7 @@ if __name__ == "__main__":
         install(a[1], a[2], a[3] if len(a) > 3 else "")
     elif a[:1] == ["run"]:
         opt = dict(zip(a[4::2], a[5::2]))
-        sys.exit(1 if run(a[1], a[2], a[3], float(opt.get("--time", 1)), float(opt.get("--timeout", 1800))) else 0)
+        sys.exit(1 if run(a[1], a[2], a[3], float(opt.get("--time", 1)), float(opt.get("--timeout", 1800)),
+                          opt.get("--args", "")) else 0)
     else:
         sys.exit(__doc__)

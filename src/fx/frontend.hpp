@@ -154,8 +154,8 @@ struct RegionOptions {
   uint32_t minOps = 2;        // skip statements with fewer IR operations
   uint32_t maxOps = 24;       // ... or more
   uint32_t maxStatements = 4; // statements per window (1 = single statements only)
-  uint32_t maxInputs = 4;     // skip statements reading more distinct variables
-  uint32_t maxSlots = 8;      // ... or more input components
+  uint32_t maxInputs = 8;     // skip statements reading more distinct variables (corpus 2026-10-25: 4 / 8 -> 8 / 16
+  uint32_t maxSlots = 16;     // ... or more input components                 +3.4% saved, +20% time)
   double defaultLo = -1000.0, defaultHi = 1000.0;  // range when nothing is known
   bool likelyRanges = true;   // use a reasoned suggestion as the range (Fact::likely); --no-likely: off
   double relEps = 1e-6;       // budget for values with a general use
