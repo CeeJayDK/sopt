@@ -132,7 +132,7 @@ int vendorPick(const RegionResult& rr, Vendor vendor, bool dx) {
 }
 
 std::string variantStatement(const Region& r, const std::string& expr) {
-  return r.lhs + " " + expr + r.rhs + ";";
+  return r.prefix + r.lhs + " " + expr + r.rhs + r.tail;
 }
 
 void easyPicks(std::vector<RegionResult>& results, std::vector<SourceRewrite>& rewrites, const EasyOptions& eo) {

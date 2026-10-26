@@ -276,8 +276,23 @@ std::unique_ptr<Effect> loadEffect(const fs::path& path, const LoadOptions& opt,
   fx->glsl = opt.glsl;
   fx->hlslFetchNames.insert(parser.sopt_hlsl_fetch_names.begin(), parser.sopt_hlsl_fetch_names.end());
   fx->hlslBuffers.insert(parser.sopt_hlsl_buffer_names.begin(), parser.sopt_hlsl_buffer_names.end());
-  for (const auto& [name, m] : pp.sopt_macros())
-    if (!m.is_function_like) fx->objectMacros[name] = m.replacement_list;
+  for (const auto& [name, m] : pp.sopt_macros()) {
+    if (!m.is_function_like) {
+      fx->objectMacros[name] = m.replacement_list;
+      continue;
+    }
+    // Parameters are encoded as '\0' '\xFD' <index>; '\xFE' (#) and '\xFF' (##) are left out.
+    std::string body;
+    bool ok = !m.is_variadic;
+    for (size_t i = 0; ok && i < m.replacement_list.size(); ++i) {
+      if (m.replacement_list[i] != '\0') { body += m.replacement_list[i]; continue; }
+      const size_t idx = i + 2 < m.replacement_list.size() ? static_cast<unsigned char>(m.replacement_list[i + 2]) : 0;
+      ok = i + 2 < m.replacement_list.size() && m.replacement_list[i + 1] == '\xFD' && idx < m.parameters.size();
+      if (ok) body += " " + m.parameters[idx] + " ";
+      i += 2;
+    }
+    if (ok) fx->functionMacros[name] = {m.parameters, body};
+  }
   fx->sourceFiles.push_back(pathString(path));
   for (const auto& f : pp.included_files()) fx->sourceFiles.push_back(pathString(f));
   return fx;
@@ -420,6 +435,36 @@ std::vector<std::string> tokens(const std::string& s) {
 
 bool isIdent(char c);
 
+// Tokens with member accesses split off ("c.rgb.x" -> "c" ".rgb" ".x"), so text with and without spaces before a
+// swizzle compares equal (a macro argument followed by .x in its body).
+std::vector<std::string> splitMembers(const std::vector<std::string>& in) {
+  std::vector<std::string> out;
+  for (const std::string& t : in) {
+    if (std::isdigit(static_cast<unsigned char>(t[0])) || (t[0] == '.' && t.size() > 1 && std::isdigit(static_cast<unsigned char>(t[1])))) {
+      out.push_back(t);  // a number
+      continue;
+    }
+    size_t a = 0;
+    for (size_t d = t.find('.', 1); d != std::string::npos; d = t.find('.', d + 1)) {
+      out.push_back(t.substr(a, d - a));
+      a = d;
+    }
+    out.push_back(t.substr(a));
+  }
+  return out;
+}
+std::vector<std::string> memberTokens(const std::string& s) { return splitMembers(tokens(s)); }
+
+// Index of the bracket closing the one at `open` ('(' or '['), or npos.
+size_t closeOf(const std::string& t, size_t open) {
+  int depth = 0;
+  for (size_t k = open; k < t.size(); ++k) {
+    if (t[k] == '(' || t[k] == '[') ++depth;
+    if ((t[k] == ')' || t[k] == ']') && --depth == 0) return k;
+  }
+  return std::string::npos;
+}
+
 // The '(' of a texture fetch call at i: ReShade FX "tex2D(", "tex2Dlod (", ... or an HLSL
 // texture method call "tex.Sample(", "gColor.SampleLevel (", ...; npos if there is none.
 // Plain HLSL resources whose elements are read as Name[index] (set while extracting from an
@@ -427,12 +472,19 @@ bool isIdent(char c);
 thread_local const std::set<std::string>* tlBracketFetches = nullptr;
 // GLSL texture lookups (texture(s, uv), texelFetch(...), ...): set while extracting from GLSL.
 thread_local bool tlGlslFetches = false;
+// Function-like macros whose whole body is one texture fetch (getColor(uv) = tex2Dlod(...)): set while extracting.
+thread_local const std::set<std::string>* tlMacroFetches = nullptr;
 
 size_t fetchOpen(const std::string& t, size_t i) {
   if (i >= t.size() || (i && isIdent(t[i - 1])) || !isIdent(t[i]) || std::isdigit(static_cast<unsigned char>(t[i])))
     return std::string::npos;
   size_t j = i;
   while (j < t.size() && isIdent(t[j])) ++j;
+  if (tlMacroFetches && tlMacroFetches->count(t.substr(i, j - i))) {
+    size_t k = j;
+    while (k < t.size() && (t[k] == ' ' || t[k] == '\t')) ++k;
+    return k < t.size() && t[k] == '(' ? k : std::string::npos;
+  }
   const bool fx = j - i >= 5 && t.compare(i, 3, "tex") == 0 && std::isdigit(static_cast<unsigned char>(t[i + 3])) &&
                   t[i + 4] == 'D' && t.compare(i + 5, 5, "store") != 0;
   if (!fx && tlGlslFetches) {
@@ -493,20 +545,28 @@ struct StatementText {
   uint32_t first = 0, last = 0;  // 1-based lines
   std::string text;              // comments removed, lines joined with ' ', up to ';'
   std::string original;          // original lines joined with '\n'
+  std::string prefix, tail = ";";  // see Region
 };
 
-// The statement starting at the first non-blank character of `line`, ending with the
-// first ';' at bracket depth 0. It must be alone on its lines (besides comments).
-bool statementAt(const std::vector<std::string>& lines, uint32_t line, StatementText& st,
-                 std::string& why) {
+// The statement starting at column `start` of `line` (0-based; at most the first non-blank character), ending with the
+// first ';' at bracket depth 0 (or ',' with `declarator`: one declarator of a declaration). Code before it on its
+// first line and after it on its last line goes to st.prefix / st.tail.
+bool statementAt(const std::vector<std::string>& lines, uint32_t line, StatementText& st, std::string& why,
+                 size_t start = 0, bool declarator = false) {
   if (line == 0 || line > lines.size()) { why = "line out of range"; return false; }
   st.first = line;
+  {
+    const std::string& s = lines[line - 1];
+    const size_t b = s.find_first_not_of(" \t");
+    st.prefix = b != std::string::npos && start > b ? s.substr(b, start - b) : std::string();
+    if (b == std::string::npos || start < b) start = 0;
+  }
   int depth = 0;
   bool inBlock = false;
   std::string text;
   for (uint32_t l = line; l <= lines.size() && l < line + 24; ++l) {
     const std::string& s = lines[l - 1];
-    for (size_t i = 0; i < s.size(); ++i) {
+    for (size_t i = l == line ? start : 0; i < s.size(); ++i) {
       const char c = s[i];
       if (inBlock) {
         if (c == '*' && i + 1 < s.size() && s[i + 1] == '/') { inBlock = false; ++i; }
@@ -517,7 +577,7 @@ bool statementAt(const std::vector<std::string>& lines, uint32_t line, Statement
       if (c == '/' && i + 1 < s.size() && s[i + 1] == '*') { inBlock = true; ++i; text += ' '; continue; }
       if (c == '"') { why = "string literal"; return false; }
       if (c == '(' || c == '[') ++depth;
-      if (c == ')' || c == ']') --depth;
+      if ((c == ')' || c == ']') && --depth < 0) { why = "loop header"; return false; }  // in a for (...)
       if (c == '{' || c == '}') {
         const size_t h = text.find_first_not_of(" \t");
         const std::string head = h == std::string::npos ? std::string() : text.substr(h);
@@ -526,18 +586,17 @@ bool statementAt(const std::vector<std::string>& lines, uint32_t line, Statement
                                                                      : "not a simple statement";
         return false;
       }
-      if (c == ';' && depth == 0) {
-        // Only blanks or a comment may follow on this line.
+      if ((c == ';' || (declarator && c == ',')) && depth == 0) {
+        // Blanks or a comment after it: the line is the statement's own; other code stays in the tail.
         const std::string rest = s.substr(i + 1);
         const size_t k = rest.find_first_not_of(" \t");
-        if (k != std::string::npos && rest.compare(k, 2, "//") != 0) {
+        bool own = k == std::string::npos || rest.compare(k, 2, "//") == 0;
+        if (!own && rest.compare(k, 2, "/*") == 0) {
           const size_t e = rest.find("*/", k);
-          if (rest.compare(k, 2, "/*") != 0 || e == std::string::npos ||
-              rest.find_first_not_of(" \t", e + 2) != std::string::npos) {
-            why = "several statements on one line";
-            return false;
-          }
+          own = e != std::string::npos && rest.find_first_not_of(" \t", e + 2) == std::string::npos;
         }
+        st.tail = own ? std::string(1, c) : s.substr(i);
+        while (!st.tail.empty() && std::isspace(static_cast<unsigned char>(st.tail.back()))) st.tail.pop_back();
         st.last = l;
         st.text = text;
         st.original.clear();
@@ -764,7 +823,7 @@ bool sameBlock(const std::string& file, uint32_t first, uint32_t last) {
 }
 
 bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32_t last,
-               std::string& guard, std::string& why, bool enclosing = false);
+               std::string& guard, std::string& why, bool enclosing = false, uint32_t takenLine = 0);
 
 // Whether `name` appears as an identifier in the text from line `from` to the end of its block, outside the lines
 // `removed` and [first, last] (code of every setting counts: the text is not preprocessed).
@@ -823,9 +882,10 @@ bool constGuard(const Effect& fx, Region& r, std::string& why) {
 }
 
 // enclosing: also the conditions of the #if groups around the span (the branch a declaration is in), not only of
-// those with a directive inside it (a window across #if lines).
+// those with a directive inside it (a window across #if lines). takenLine: a line known to be compiled now (a #define
+// in effect), whose branch is then the taken one.
 bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32_t last,
-               std::string& guard, std::string& why, bool enclosing) {
+               std::string& guard, std::string& why, bool enclosing, uint32_t takenLine) {
   guard.clear();
   const std::vector<std::string>* lines = sourceLines(file);
   if (!lines) { why = "no source text"; return false; }
@@ -874,8 +934,21 @@ bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32
     }
     return false;
   };
+  // An include guard (#ifndef X right before #define X) is no condition: X is defined wherever its code is.
+  auto includeGuard = [&](const Group& g) {
+    const std::string& c = g.branches[0].cond;
+    if (g.branches.size() != 1 || c.rfind("!defined(", 0) != 0) return false;
+    for (uint32_t l = g.branches[0].line + 1; l < g.end; ++l) {
+      std::string w, a;
+      if (directiveOf((*lines)[l - 1], w, a))
+        return w == "define" && a.substr(0, a.find_first_of(" \t")) == c.substr(9, c.size() - 10);
+      if (!tokens((*lines)[l - 1]).empty()) return false;
+    }
+    return false;
+  };
   std::vector<std::string> terms;
   for (const Group& g : groups) {
+    if (includeGuard(g)) continue;
     bool touched = g.end >= first && g.end <= last;
     for (const Branch& b : g.branches) touched = touched || (b.line >= first && b.line <= last);
     if (enclosing) touched = touched || (g.branches.front().line < first && last < g.end);
@@ -890,7 +963,8 @@ bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32
     };
     int taken = -1;
     for (size_t k = 0; k < g.branches.size() && taken < 0; ++k)
-      if (lineIn(g.branches[k].line, end(k), true)) taken = static_cast<int>(k);
+      if ((g.branches[k].line < takenLine && takenLine < end(k)) || lineIn(g.branches[k].line, end(k), true))
+        taken = static_cast<int>(k);
     if (taken >= 0) {
       for (auto& t : takes(taken)) terms.push_back(t);
       continue;
@@ -948,6 +1022,7 @@ class Extractor {
   ~Extractor() {
     tlBracketFetches = nullptr;
     tlGlslFetches = false;
+    tlMacroFetches = nullptr;
   }
   // all(v) / any(v) of a float vector: the parser casts v to boolN first (!= 0, as all / any expand it); the float v.
   uint32_t floatBeforeBoolCast(uint32_t id) const {
@@ -972,6 +1047,15 @@ class Extractor {
   Extractor(const Effect& fx, const RegionOptions& opt) : fx_(fx), cg_(*fx.cg), opt_(opt) {
     tlBracketFetches = fx.hlsl ? &fx.hlslFetchNames : nullptr;
     tlGlslFetches = fx.glsl;
+    // A fixed macro that is one fetch (owner, 2026-10-26: getColor, GetLod, getColorSampler ...) reads as a fetch: the
+    // input keeps the macro call.
+    for (const auto& [name, m] : fx.functionMacros) {
+      std::string b = trim(m.second);
+      while (b.size() > 1 && b.front() == '(' && closeOf(b, 0) + 1 == b.size()) b = trim(b.substr(1, b.size() - 2));
+      const size_t open = fetchOpen(b, 0);
+      if (open != std::string::npos && closeOf(b, open) + 1 == b.size() && fixedMacro(name)) macroFetches_.insert(name);
+    }
+    tlMacroFetches = &macroFetches_;
     for (const auto& [id, v] : cg_.values)
       for (uint32_t a : v.args) users_[a].push_back(id);
     for (const auto& [id, v] : cg_.values)
@@ -1069,9 +1153,16 @@ class Extractor {
            it->second.name.rfind(kSymbolicPrefix, 0) == 0;
   }
   void suggest(const Leaf& l, Fact& f) const;
-  std::vector<std::string> sourceTokens(const std::string& src) const;
+  std::vector<std::string> sourceTokens(const std::string& src, std::set<std::string>& guards) const;
   bool fixedMacro(const std::string& name) const;
-  mutable std::unordered_map<std::string, std::pair<int, bool>> macroDefs_;  // name -> (definitions, any in #if)
+  bool macroUsable(const std::string& name, std::set<std::string>& guards) const;
+  struct MacroDefs {
+    int count = 0;
+    bool inIf = false, undef = false;
+    std::vector<std::pair<std::string, uint32_t>> at;  // file, line of each #define
+  };
+  mutable std::unordered_map<std::string, MacroDefs> macroDefs_;
+  std::set<std::string> macroFetches_;  // see tlMacroFetches
   Range outParamRange(const Function& g, size_t index);
   Range pixelInputRange(const Function& ps, const std::string& semantic);
   struct OutArg {
@@ -2635,11 +2726,6 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
   if (val == cg_.values.end()) { why = "value is a variable"; return false; }
   reg.file = file;
   reg.line = s.loc.line;
-  StatementText st;
-  if (!statementAt(*lines, s.loc.line, st, why)) return false;
-  reg.lastLine = st.last;
-  reg.original = st.original;
-  reg.text = st.text;
   std::string name;
   if (hasVar(s)) {
     const auto vi = cg_.variables.find(s.var);
@@ -2649,6 +2735,59 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
     }
     name = vi->second.name;
   }
+  // Where the statement starts on its line (the location is the parsed text's: used when the source has the expected
+  // word there): Init at its type before the name (or the name, after "," of a declarator list), Store at the
+  // variable, Return at "return", Write at the call. 0: the line's first non-blank character.
+  size_t start = 0;
+  bool declarator = false;
+  if (s.loc.line >= 1 && s.loc.line <= lines->size()) {
+    const std::string& l = (*lines)[s.loc.line - 1];
+    auto wordAt = [&](size_t at, const std::string& w) {
+      return !w.empty() && l.compare(at, w.size(), w) == 0 && (at == 0 || !isIdent(l[at - 1])) &&
+             (at + w.size() >= l.size() || !isIdent(l[at + w.size()]));
+    };
+    // The word w at or before the location (a declaration's location is its "="). The parsed line may be indented
+    // differently (included files): the same text, shifted. Another parsed text (macros): the word if the line has
+    // it once.
+    const auto pl = fx_.ppLines.find({file, s.loc.line});
+    const bool same = s.loc.column >= 1 && pl != fx_.ppLines.end() && trim(pl->second) == trim(l);
+    const size_t col = !same ? std::string::npos
+                             : s.loc.column - 1 + l.find_first_not_of(" \t") -
+                                   std::min<size_t>(pl->second.find_first_not_of(" \t"), s.loc.column - 1);
+    auto find = [&](const std::string& w) {
+      size_t at = w.empty() ? std::string::npos : l.rfind(w, col);
+      if (same) {
+        while (at != std::string::npos && !wordAt(at, w)) at = at ? l.rfind(w, at - 1) : std::string::npos;
+        return at;
+      }
+      size_t found = std::string::npos;
+      for (; at != std::string::npos; at = at ? l.rfind(w, at - 1) : std::string::npos)
+        if (wordAt(at, w)) {
+          if (found != std::string::npos) return std::string::npos;  // twice
+          found = at;
+        }
+      return found;
+    };
+    const size_t at = find(s.kind == Statement::Kind::Return ? "return" : name);
+    if (at != std::string::npos && (s.kind == Statement::Kind::Store || s.kind == Statement::Kind::Return)) {
+      start = at;
+    } else if (at != std::string::npos && s.kind == Statement::Kind::Init) {
+      size_t k = at;
+      while (k > 0 && (isIdent(l[k - 1]) || l[k - 1] == ' ' || l[k - 1] == '\t')) --k;
+      declarator = k > 0 && l[k - 1] == ',';
+      start = l.find_first_not_of(" \t", k);
+    } else if (same && s.kind == Statement::Kind::Write && !fx_.hlsl && l.compare(col, 3, "tex") == 0 &&
+               (col == 0 || !isIdent(l[col - 1]))) {
+      start = col;
+    }
+  }
+  StatementText st;
+  if (!statementAt(*lines, s.loc.line, st, why, start, s.kind == Statement::Kind::Init)) return false;
+  reg.lastLine = st.last;
+  reg.original = st.original;
+  reg.text = st.text;
+  reg.prefix = st.prefix;
+  reg.tail = st.tail;
   const std::string& body = st.text;
   if (s.kind == Statement::Kind::Write && fx_.hlsl) {
     // HLSL: Name[index] = <value>; (or op=, then the region is Name[index] op (<value>)).
@@ -2703,10 +2842,11 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
     const std::string lhs = trim(body.substr(0, eq));
     if (hasDepth0Comma(body)) { why = "several declarators"; return false; }
     if (s.kind == Statement::Kind::Init) {
-      // "type name", possibly with qualifiers; name last.
+      // "type name", possibly with qualifiers; name last (only the name after "," in a declarator list).
       if (lhs.size() < name.size() || lhs.compare(lhs.size() - name.size(), name.size(), name) != 0 ||
-          lhs.size() == name.size() || isIdent(lhs[lhs.size() - name.size() - 1]) || compound ||
-          lhs.find_first_of("[]:(") != std::string::npos) {
+          (declarator ? lhs.size() != name.size()
+                      : lhs.size() == name.size() || isIdent(lhs[lhs.size() - name.size() - 1])) ||
+          compound || lhs.find_first_of("[]:(") != std::string::npos) {
         why = "declaration shape";
         return false;
       }
@@ -2744,7 +2884,9 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
     if (it == fx_.ppLines.end()) { why = "uses a macro"; return false; }
     pp += it->second + '\n';
   }
-  std::vector<std::string> ppTokens = tokens(withoutFetches(pp)), srcTokens = sourceTokens(withoutFetches(src));
+  std::set<std::string> guards;
+  std::vector<std::string> ppTokens = memberTokens(withoutFetches(pp));
+  std::vector<std::string> srcTokens = sourceTokens(withoutFetches(src), guards);
   const size_t prefixLen = std::strlen(kSymbolicPrefix);
   for (auto& t : ppTokens)
     if (t.rfind(kSymbolicPrefix, 0) == 0) t.erase(0, prefixLen);  // symbolic definitions
@@ -2765,15 +2907,28 @@ bool Extractor::shapeOf(const Statement& s, Region& reg, std::string& why) {
     valueOnly(ppTokens);
     valueOnly(srcTokens);
   }
-  if (srcTokens != ppTokens) { why = "uses a macro"; return false; }
+  if (srcTokens != ppTokens) {
+    // Which macro and of what kind (corpus summaries group the reasons with the name taken out).
+    size_t i = 0;
+    while (i < srcTokens.size() && i < ppTokens.size() && srcTokens[i] == ppTokens[i]) ++i;
+    const std::string m = i < srcTokens.size() ? srcTokens[i] : std::string();
+    const char* kind = fx_.userMacros.count(m)                                 ? "a setting"
+                       : fx_.objectMacros.count(m)                             ? "object-like"
+                       : i + 1 < srcTokens.size() && srcTokens[i + 1] == "(" ? "function-like"
+                                                                               : "other";
+    why = std::string("uses a macro (") + kind + ") '" + m + "'";
+    return false;
+  }
+  for (const std::string& g : guards) reg.guard = reg.guard.empty() ? g : "(" + reg.guard + ") && (" + g + ")";
   return true;
 }
 
-// Tokens of source text with object-like macros such as BUFFER_SCREEN_SIZE or
-// BUFFER_RCP_WIDTH expanded when they consist of symbolic definitions, numbers, float
-// types and punctuation only (so the region's IR keeps them symbolic and a variant can
-// spell them out). Other macros stay as they are (the statement is then skipped).
-std::vector<std::string> Extractor::sourceTokens(const std::string& src) const {
+// Tokens of source text with macros expanded where a variant can spell them out: object-like ones such as
+// BUFFER_SCREEN_SIZE or BUFFER_RCP_WIDTH made of symbolic definitions, numbers, float types and punctuation (the
+// region's IR keeps them symbolic), and macros usable as written (macroUsable: fixed ones, or ones defined inside #if,
+// whose condition joins `guards`), function-like ones too (owner, 2026-10-26: maxOf3, AF1_). Other macros stay as
+// they are (the statement is then skipped).
+std::vector<std::string> Extractor::sourceTokens(const std::string& src, std::set<std::string>& guards) const {
   auto symbolicName = [&](const std::string& t) {
     return fx_.symbolic.count(t) || (fx_.bufferSymbolic && isBufferSizeMacro(t));
   };
@@ -2782,8 +2937,64 @@ std::vector<std::string> Extractor::sourceTokens(const std::string& src) const {
     if (!std::isalpha(static_cast<unsigned char>(t[0])) && t[0] != '_') return true;  // number, punctuation
     return t == "float" || t == "float2" || t == "float3" || t == "float4" || t == "int";
   };
-  std::function<bool(const std::string&, int, std::vector<std::string>&, bool&)> expand =
-      [&](const std::string& t, int depth, std::vector<std::string>& out, bool& sym) {
+  // Function-like macros, in the text: arguments substituted as written, the result scanned again.
+  std::function<std::string(const std::string&, int)> calls = [&](const std::string& t, int depth) {
+    std::string out;
+    for (size_t i = 0; i < t.size(); ++i) {
+      if (!isIdent(t[i]) || (i && (isIdent(t[i - 1]) || t[i - 1] == '.'))) {
+        out += t[i];
+        continue;
+      }
+      size_t j = i;
+      while (j < t.size() && isIdent(t[j])) ++j;
+      const std::string name = t.substr(i, j - i);
+      const auto m = fx_.functionMacros.find(name);
+      const size_t open = t.find_first_not_of(" \t\n", j);
+      const size_t close = open == std::string::npos || t[open] != '(' ? std::string::npos : closeOf(t, open);
+      std::vector<std::string> args;
+      if (m != fx_.functionMacros.end() && close != std::string::npos) {
+        int d = 0;
+        size_t a = open + 1;
+        for (size_t k = open + 1; k < close; ++k) {
+          if (t[k] == '(' || t[k] == '[') ++d;
+          if (t[k] == ')' || t[k] == ']') --d;
+          if (t[k] == ',' && d == 0) {
+            args.push_back(t.substr(a, k - a));
+            a = k + 1;
+          }
+        }
+        args.push_back(t.substr(a, close - a));
+        if (m->second.first.empty() && args.size() == 1 && trim(args[0]).empty()) args.clear();
+      }
+      std::set<std::string> g;
+      if (m == fx_.functionMacros.end() || close == std::string::npos || depth > 16 ||
+          args.size() != m->second.first.size() || !macroUsable(name, g)) {
+        out += name;
+        i = j - 1;
+        continue;
+      }
+      guards.insert(g.begin(), g.end());
+      const std::vector<std::string>& params = m->second.first;
+      const std::string& b = m->second.second;
+      std::string body;
+      for (size_t k = 0; k < b.size(); ++k) {
+        if (!isIdent(b[k]) || (k && (isIdent(b[k - 1]) || b[k - 1] == '.'))) {
+          body += b[k];
+          continue;
+        }
+        size_t e = k;
+        while (e < b.size() && isIdent(b[e])) ++e;
+        const auto p = std::find(params.begin(), params.end(), b.substr(k, e - k));
+        body += p == params.end() ? b.substr(k, e - k) : " " + args[static_cast<size_t>(p - params.begin())] + " ";
+        k = e - 1;
+      }
+      out += " " + calls(body, depth + 1) + " ";
+      i = close;
+    }
+    return out;
+  };
+  std::function<bool(const std::string&, int, std::vector<std::string>&, bool&, bool&)> expand =
+      [&](const std::string& t, int depth, std::vector<std::string>& out, bool& sym, bool& plainAll) {
         if (symbolicName(t)) {
           out.push_back(t);
           sym = true;
@@ -2792,34 +3003,40 @@ std::vector<std::string> Extractor::sourceTokens(const std::string& src) const {
         const auto it = fx_.objectMacros.find(t);
         if (it == fx_.objectMacros.end()) {
           out.push_back(t);
-          return plain(t);
+          plainAll = plainAll && plain(t);
+          return true;
         }
         if (depth > 16) return false;
         for (const auto& u : tokens(it->second))
-          if (!expand(u, depth + 1, out, sym)) return false;
+          if (!expand(u, depth + 1, out, sym, plainAll)) return false;
         return true;
       };
-  // A macro with one value for every user (2026-10-26: FXAA_SUBPIX_CAP, SMAA_AREATEX_PIXEL_SIZE): expanded too, when
-  // every macro in it is such a one; a variant then spells out the value.
-  std::function<bool(const std::string&, int)> fixedAll = [&](const std::string& t, int depth) {
-    if (symbolicName(t)) return true;
-    const auto it = fx_.objectMacros.find(t);
-    if (it == fx_.objectMacros.end()) return true;
-    if (depth > 16 || !fixedMacro(t)) return false;
-    for (const auto& u : tokens(it->second))
-      if (!fixedAll(u, depth + 1)) return false;
-    return true;
-  };
+  // Every macro in it usable as written (2026-10-26: FXAA_SUBPIX_CAP, SMAA_AREATEX_PIXEL_SIZE); a variant then
+  // spells out the value.
+  std::function<bool(const std::string&, int, std::set<std::string>&)> usableAll =
+      [&](const std::string& t, int depth, std::set<std::string>& g) {
+        if (symbolicName(t)) return true;
+        const auto it = fx_.objectMacros.find(t);
+        if (it == fx_.objectMacros.end()) return true;
+        if (depth > 16 || !macroUsable(t, g)) return false;
+        for (const auto& u : tokens(it->second))
+          if (!usableAll(u, depth + 1, g)) return false;
+        return true;
+      };
   std::vector<std::string> out;
-  for (const auto& t : tokens(src)) {
+  for (const auto& t : tokens(withoutFetches(calls(src, 0)))) {
     std::vector<std::string> e;
-    bool sym = false;
-    if (!symbolicName(t) && fx_.objectMacros.count(t) && expand(t, 0, e, sym) && (sym || fixedAll(t, 0)))
+    std::set<std::string> g;
+    bool sym = false, plainAll = true;
+    if (!symbolicName(t) && fx_.objectMacros.count(t) && expand(t, 0, e, sym, plainAll) &&
+        ((sym && plainAll) || usableAll(t, 0, g))) {
       out.insert(out.end(), e.begin(), e.end());
-    else
+      guards.insert(g.begin(), g.end());
+    } else {
       out.push_back(t);
+    }
   }
-  return out;
+  return splitMembers(out);
 }
 
 // Not a setting the user can change (ReShade's preprocessor definitions are the ones the effect tests with #ifdef /
@@ -2828,14 +3045,16 @@ std::vector<std::string> Extractor::sourceTokens(const std::string& src) const {
 bool Extractor::fixedMacro(const std::string& name) const {
   if (fx_.userMacros.count(name)) return false;
   if (macroDefs_.empty()) {
-    macroDefs_[""] = {0, false};  // scanned
+    macroDefs_[""] = {};  // scanned
     for (const auto& file : fx_.sourceFiles) {
       const std::vector<std::string>* lines = sourceLines(file);
       if (!lines) continue;
       std::vector<bool> conditional;  // per open #if: does it make code conditional?
       std::string guard;              // the first directive's #ifndef name (an include guard candidate)
       bool first = true;
+      uint32_t lineNo = 0;
       for (const std::string& raw : *lines) {
+        ++lineNo;
         const std::string l = trim(raw);
         if (l.empty() || l[0] != '#') continue;
         std::istringstream in(l.substr(1));
@@ -2852,9 +3071,12 @@ bool Extractor::fixedMacro(const std::string& name) const {
             conditional.back() = false;  // #ifndef X / #define X: the include guard
           } else {
             auto& def = macroDefs_[n];
-            ++def.first;
-            for (const bool c : conditional) def.second = def.second || c;
+            ++def.count;
+            for (const bool c : conditional) def.inIf = def.inIf || c;
+            def.at.emplace_back(file, lineNo);
           }
+        } else if (d == "undef") {
+          macroDefs_[arg].undef = true;
         }
         guard = candidate;  // only the directive right after it may complete the guard
         first = false;
@@ -2862,7 +3084,39 @@ bool Extractor::fixedMacro(const std::string& name) const {
     }
   }
   const auto it = macroDefs_.find(name);
-  return it == macroDefs_.end() || (it->second.first == 1 && !it->second.second);
+  return it == macroDefs_.end() || (it->second.count == 1 && !it->second.inIf && !it->second.undef);
+}
+
+// A macro whose expansion a variant may spell out: fixed, or defined inside #if blocks (owner, 2026-10-26:
+// _NOISE_DITHERING), then the condition of the definition in effect joins `guards` (the variant only for that build).
+// Never a setting the user changes (those are inputs or kept).
+bool Extractor::macroUsable(const std::string& name, std::set<std::string>& guards) const {
+  if (fixedMacro(name)) return true;
+  const auto it = macroDefs_.find(name);
+  if (fx_.userMacros.count(name) || it == macroDefs_.end() || it->second.undef) return false;
+  // The definition in effect: the one whose replacement list is the current one (redefinitions are errors).
+  const auto fm = fx_.functionMacros.find(name);
+  const auto om = fx_.objectMacros.find(name);
+  if (fm == fx_.functionMacros.end() && om == fx_.objectMacros.end()) return false;
+  const std::vector<std::string> want = memberTokens(fm != fx_.functionMacros.end() ? fm->second.second : om->second);
+  int found = 0;
+  std::string guard;
+  for (const auto& [file, line] : it->second.at) {
+    const std::vector<std::string>* lines = sourceLines(file);
+    if (!lines || line > lines->size()) return false;
+    const std::string& text = (*lines)[line - 1];
+    if (!text.empty() && text.back() == '\\') continue;  // over several lines: not compared
+    size_t p = text.find(name, text.find("define"));
+    if (p == std::string::npos) return false;
+    p += name.size();
+    if (fm != fx_.functionMacros.end() && (p = text.find(')', p)) != std::string::npos) ++p;
+    if (p == std::string::npos || memberTokens(text.substr(p)) != want) continue;
+    std::string why;
+    if (++found > 1 || !spanGuard(fx_, file, line, line, guard, why, true, line) || guard.empty()) return false;
+  }
+  if (found != 1) return false;
+  guards.insert(guard);
+  return true;
 }
 
 // IR of a statement's value (with the temporaries in inline_ replaced by their
@@ -3267,7 +3521,7 @@ void Extractor::findTemps(const Statement& use, std::vector<const Statement*>& d
     if (!stable) continue;
     Region shape;
     std::string why;
-    if (!shapeOf(*d, shape, why)) continue;
+    if (!shapeOf(*d, shape, why) || shape.sharesLines()) continue;  // a variant removes its lines
     if (defs.size() >= opt_.maxStatements - 1) return;
     inline_[v.base] = d->value;
     defs.push_back(d);
@@ -3317,7 +3571,7 @@ bool Extractor::findChain(const Statement& s, size_t length, std::vector<const S
     }
     Region shape;
     std::string why;
-    if (!shapeOf(*d, shape, why)) return false;
+    if (!shapeOf(*d, shape, why) || shape.sharesLines()) return false;
     for (uint32_t l : loads) inlineLoad_[l] = d->value;
     defs.push_back(d);
     cur = d;
@@ -3442,7 +3696,7 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
       // Windows: the statement with the single-use temporaries it reads, and with the
       // statements before it that compute its variable (chains of 1, 2, ...), each also
       // with the temporaries of the chain.
-      if (opt_.maxStatements < 2) continue;
+      if (opt_.maxStatements < 2 || reg.sharesLines()) continue;
       for (size_t length = 0; length < opt_.maxStatements; ++length) {
         std::vector<const Statement*> defs;
         inline_.clear();
@@ -3472,11 +3726,14 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
           continue;
         }
         std::string text;
+        std::vector<std::string> macroGuards;  // of the macros its statements spell out (shapeOf)
+        if (!reg.guard.empty()) macroGuards.push_back(reg.guard);
         for (const Statement* d : defs) {
           Region shape;
           shapeOf(*d, shape, why);
           win.removed.emplace_back(shape.line, shape.lastLine);
           text += shape.original + "\n";
+          if (!shape.guard.empty()) macroGuards.push_back(shape.guard);
         }
         win.original = text + reg.original;
         // A temporary the variant removes must have no other use in its scope's text, whatever the settings: its
@@ -3498,6 +3755,9 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
           SKIPADD("window: " + why);
           continue;
         }
+        for (const std::string& g : macroGuards)
+          if (win.guard.find(g) == std::string::npos)
+            win.guard = win.guard.empty() ? g : "(" + win.guard + ") && (" + g + ")";
         window_ = defs;
         if (buildRegion(s, win, why)) {
           win.prog.budget = budgetFor(f, s, win.budgetReason);
