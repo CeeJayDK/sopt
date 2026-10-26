@@ -1431,6 +1431,24 @@ TEST(fx_call_inputs) {
   CHECK(sum);
 }
 
+TEST(fx_window_temp_other_settings) {
+  // e is read once with the default settings and once more with TEMP_FIX: no window removes its declaration
+  // (ArcaneBloom.fx, 2026-10-26).
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_settingtemp.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  sk.keepDetails = true;
+  bool removes = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, ro, sk))
+    for (const auto& [a, b] : r.removed) removes = removes || (a <= 13 && 13 <= b);
+  bool reason = false;
+  for (const auto& d : sk.details) reason = reason || d.find(":14: window: a temporary is used under other settings") != std::string::npos;
+  CHECK(!removes && reason);
+}
+
 TEST(fx_output_keeps_folders) {
   // sopt-out keeps the folders below the input folder, so it can be copied over the Shaders folder (2026-10-21);
   // files outside every input folder (ReShade.fxh above a pack's folder) keep their name only.

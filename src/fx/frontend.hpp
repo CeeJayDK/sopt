@@ -202,6 +202,8 @@ std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const Re
 // Paths the effect's settings switch on (owner, 2026-10-26): the values #if / #elif lines test its user-changeable
 // definitions for (MODE == 2, QUALITY > 1, a bare FLAG), other than the current ones, as (name, value) pairs.
 std::vector<std::pair<std::string, std::string>> settingValues(const Effect& fx);
+// Whether lines [first, last] of `file` are inside an #if group (or the groups cannot be told).
+bool underCondition(const Effect& fx, const std::string& file, uint32_t first, uint32_t last);
 // Regions of `cfg` (a parse with one setting changed) on lines `def` (the default parse) leaves out, each guarded by
 // the #if conditions it is under in cfg (variants apply only with that setting).
 std::vector<Region> settingRegions(const Effect& def, const Effect& cfg, const Effect* alt, const RegionOptions& opt);

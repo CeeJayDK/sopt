@@ -210,6 +210,9 @@ std::optional<SourceRewrite> hoistShader(const Effect& fx, const Function& ps, c
   for (const Span& s : chosen) {
     const Region& r = *s.r;
     const Program& p = r.prog;
+    // Not from inside #if: the vertex shader is compiled with every setting, the statement only with some (MBMB.fx
+    // 2026-10-26: fBlur_Sigma exists only with MBMB_GAUSSIAN).
+    if (underCondition(fx, r.file, r.line, r.lastLine)) continue;
     std::vector<int> inputDeg(p.inputs.size(), -1);
     bool any = false;
     for (size_t k = 0; k < p.inputs.size(); ++k) {
