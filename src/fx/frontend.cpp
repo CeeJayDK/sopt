@@ -766,6 +766,25 @@ bool sameBlock(const std::string& file, uint32_t first, uint32_t last) {
 bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32_t last,
                std::string& guard, std::string& why, bool enclosing = false);
 
+// Whether `name` appears as an identifier in the text from line `from` to the end of its block, outside the lines
+// `removed` and [first, last] (code of every setting counts: the text is not preprocessed).
+bool nameInScope(const std::string& file, const std::string& name, uint32_t from,
+                 const std::vector<std::pair<uint32_t, uint32_t>>& removed, uint32_t first, uint32_t last) {
+  const std::vector<std::string>* lines = sourceLines(file);
+  if (!lines || name.empty()) return true;
+  int depth = 0;
+  for (uint32_t l = from; l <= lines->size(); ++l) {
+    bool skip = l >= first && l <= last;
+    for (const auto& [a, b] : removed) skip = skip || (l >= a && l <= b);
+    for (const std::string& t : tokens((*lines)[l - 1])) {
+      if (t == "{") ++depth;
+      if (t == "}" && --depth < 0) return false;  // the end of the block the temporary was declared in
+      if (!skip && (t == name || t.rfind(name + ".", 0) == 0)) return true;
+    }
+  }
+  return false;
+}
+
 // Constants a statement names that are declared inside #if / #else (owner, 2026-10-25, SuperDepth3D: Luma_Dark is a
 // static const = 0.15 in one build and a uniform slider in the other). ReShade's parser puts a static const's value in
 // place, so a variant would carry 0.15 into the slider build: the region gets the declaration's condition as its guard
@@ -996,6 +1015,7 @@ class Extractor {
     uint32_t input = 0;          // IR input index
     std::vector<uint8_t> remap;  // component -> input component
     bool fetch = false;          // texture fetch: prefix is its call text
+    bool call = false;           // ... or a helper call read as an input (fetch too)
     std::string semantic;        // of the struct member the prefix ends in, if any
     bool intSource = false;      // a compute shader's integer thread ID, read converted to float
   };
@@ -1134,6 +1154,12 @@ class Extractor {
   std::unordered_map<uint32_t, std::string> fetchText_;  // fetch value -> call text
   std::vector<const Statement*> window_;  // statements inlined into the current region
   void mapFetches(const Statement& s, const std::string& text);
+  // Helper calls of a statement, by their text (a call that cannot be inlined is then an input, 2026-10-26).
+  void mapCalls(const Statement& s, const std::string& text);
+  std::unordered_map<uint32_t, std::string> callText_;
+  std::unordered_set<uint32_t> callLeaf_;  // calls read as inputs
+  bool pureCall(const std::string& uniqueName, int depth = 0) const;
+  std::unordered_set<std::string> callBusy_;  // range(): helpers being followed
 };
 
 std::string Extractor::varText(uint32_t var, bool relative) const {
@@ -1628,11 +1654,37 @@ void Extractor::collect(uint32_t id) {
       }
       return;
     case K::Call: {
-      const CallScope scope(*this, v);
-      auto outer = std::move(collected_);
-      collected_.clear();
-      collect(scope.ret);
-      collected_ = std::move(outer);
+      // Inlined if it can be; else a pure call written in the statement is an input by its text, like a texture read
+      // (a helper reading a texture, with a loop, ...; 2026-10-26).
+      const std::vector<Leaf> before = leaves_;
+      auto outer = collected_;
+      try {
+        const CallScope scope(*this, v);
+        collected_.clear();
+        collect(scope.ret);
+        collected_ = std::move(outer);
+      } catch (const Unsupported&) {
+        const auto t = callText_.find(id);
+        if (t == callText_.end() || !isFloatType(v.type) || !pureCall(v.name)) throw;
+        leaves_ = before;
+        collected_ = std::move(outer);
+        collected_.insert(id);
+        callLeaf_.insert(id);
+        Leaf* l = nullptr;
+        for (auto& x : leaves_)
+          if (x.fetch && x.prefix == t->second) l = &x;
+        if (!l) {
+          Leaf n;
+          n.prefix = t->second;
+          n.type = v.type;
+          n.loadValue = id;
+          n.fetch = true;  // named by its text, its range from the helper's returns
+          n.call = true;
+          leaves_.push_back(n);
+          l = &leaves_.back();
+        }
+        l->mask |= (1u << l->type.rows) - 1;
+      }
       return;
     }
     case K::Phi: throw Unsupported("short-circuit or branch value");
@@ -1888,6 +1940,14 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
     case K::Call: {
       // The callee's values are shared by every call: built with this call's bindings in a map of their own (the
       // DAG merges what the calls have in common).
+      if (callLeaf_.count(id)) {
+        const auto t = callText_.find(id);
+        const Leaf* l = nullptr;
+        for (const auto& x : leaves_)
+          if (x.fetch && x.prefix == t->second) l = &x;
+        r = b.input(l->input, floatType(std::popcount(l->mask)));
+        break;
+      }
       const CallScope scope(*this, v);
       auto outer = std::move(built_);
       built_.clear();
@@ -2074,7 +2134,20 @@ Range Extractor::range(uint32_t id) {
       }
       break;
     }
-    case K::Call: break;
+    case K::Call: {
+      // What its returns can give (its parameters' ranges are the union over its call sites).
+      const Function* f = cg_.function(v.name);
+      if (!f || !callBusy_.insert(v.name).second) break;
+      bool any = false;
+      for (const Statement& s : f->stmts)
+        if (s.kind == Statement::Kind::Return) {
+          const Range x = range(s.value);
+          r = any ? unite(r, x) : x;
+          any = true;
+        }
+      callBusy_.erase(v.name);
+      break;
+    }
   }
   if (r.known && !(std::isfinite(r.lo) && std::isfinite(r.hi))) r = Range::unknown();
   // Integer values truncate (casts, integer division: int(1.5) = 3 / 2 = 1): widen to whole numbers.
@@ -2802,14 +2875,20 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   reg.prog.inputs.clear();
   reg.facts.clear();
   fetchText_.clear();
+  callText_.clear();
+  callLeaf_.clear();
   // A resource write's text starts with the call and its coordinate (HLSL: Name[index] =): only the
   // value is the region. An HLSL compound write (Name[index] += v) reads the element first, as its text does.
   const size_t lhsAt = reg.kind == Region::Kind::Write ? reg.text.find(reg.lhs) : std::string::npos;
   mapFetches(s, lhsAt != std::string::npos ? reg.text.substr(lhsAt + reg.lhs.size()) : reg.text);
+  mapCalls(s, lhsAt != std::string::npos ? reg.text.substr(lhsAt + reg.lhs.size()) : reg.text);
   for (const Statement* d : window_) {
     Region shape;
     std::string w;
-    if (shapeOf(*d, shape, w)) mapFetches(*d, shape.text);
+    if (shapeOf(*d, shape, w)) {
+      mapFetches(*d, shape.text);
+      mapCalls(*d, shape.text);
+    }
   }
   try {
     collect(s.value);
@@ -2859,7 +2938,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       const bool plainVar = !l.fetch && cg_.variables.count(l.var) && l.prefix == varText(l.var);
       fact.key = plainVar ? varKey(l.var) : std::string();
       // Plain HLSL: a read of a texture is keyed by the texture (its range applies to every read).
-      if (fx_.hlsl && l.fetch) {
+      if (fx_.hlsl && l.fetch && !l.call) {
         const auto fv = cg_.values.find(l.loadValue);
         const auto sv = fv == cg_.values.end() || fv->second.args.empty() ? cg_.values.end()
                                                                            : cg_.values.find(fv->second.args[0]);
@@ -2989,6 +3068,68 @@ void Extractor::mapFetches(const Statement& s, const std::string& text) {
   for (size_t k = 0; k < calls.size(); ++k) fetchText_[fetches[k].second] = calls[k];
 }
 
+void Extractor::mapCalls(const Statement& s, const std::string& text) {
+  std::unordered_set<uint32_t> tree;
+  treeValues(s.value, tree);
+  std::vector<std::pair<uint32_t, uint32_t>> calls;  // seq, id
+  for (uint32_t id : tree)
+    if (const auto it = cg_.values.find(id); it != cg_.values.end() && it->second.kind == Value::Kind::Call)
+      calls.emplace_back(it->second.seq, id);
+  if (calls.empty()) return;
+  std::sort(calls.begin(), calls.end());
+  // The calls' names in the text in order, outermost only (an argument's calls are not in the tree: arguments are
+  // passed through variables).
+  std::vector<std::string> texts;
+  size_t c = 0;
+  for (size_t i = 0; i < text.size() && c < calls.size(); ++i) {
+    const Function* f = cg_.function(cg_.values.at(calls[c].second).name);
+    if (!f) return;
+    const std::string& name = f->name;
+    if (text.compare(i, name.size(), name) != 0 || (i > 0 && (isIdent(text[i - 1]) || text[i - 1] == '.'))) continue;
+    size_t j = text.find_first_not_of(" \t", i + name.size());
+    if (j == std::string::npos || text[j] != '(') continue;
+    size_t start = i;  // a namespace in front belongs to the call (ReShade::GetLinearizedDepth)
+    while (start >= 2 && text.compare(start - 2, 2, "::") == 0) {
+      start -= 2;
+      while (start > 0 && isIdent(text[start - 1])) --start;
+    }
+    int depth = 0;
+    size_t k = j;
+    for (; k < text.size(); ++k) {
+      if (text[k] == '(' || text[k] == '[') ++depth;
+      if ((text[k] == ')' || text[k] == ']') && --depth == 0) break;
+    }
+    if (k >= text.size()) return;
+    texts.push_back(text.substr(start, k + 1 - start));
+    ++c;
+    i = k;
+  }
+  if (texts.size() != calls.size()) return;
+  for (size_t k = 0; k < texts.size(); ++k) callText_[calls[k].second] = texts[k];
+}
+
+// No writes outside its own locals and parameters, no out parameters, in it and in the helpers it calls: the same
+// value for the same arguments (texture reads are fine).
+bool Extractor::pureCall(const std::string& uniqueName, int depth) const {
+  const Function* f = cg_.function(uniqueName);
+  if (!f || depth > 16) return false;
+  for (const uint32_t p : f->params)
+    if (const auto v = cg_.variables.find(p); v == cg_.variables.end() || v->second.type.has(reshadefx::type::q_out))
+      return false;
+  for (const Statement& s : f->stmts) {
+    if (s.kind == Statement::Kind::Write) return false;
+    if (hasVar(s)) {
+      const auto v = cg_.variables.find(s.var);
+      if (v == cg_.variables.end() ||
+          (v->second.kind != Variable::Kind::Local && v->second.kind != Variable::Kind::Param))
+        return false;
+    }
+  }
+  for (const std::string& g : f->calls)
+    if (!pureCall(g, depth + 1)) return false;
+  return true;
+}
+
 // A range to suggest for an input without facts, from its name, a uniform's default
 // value or the texture it is read from.
 void Extractor::suggest(const Leaf& l, Fact& f) const {
@@ -3006,6 +3147,7 @@ void Extractor::suggest(const Leaf& l, Fact& f) const {
     f.suggestHi = hi;
     f.suggestWhy = why;
   };
+  if (l.call) return;  // a helper's result: no guess
   if (l.fetch) return set(0, 1, "texture read (float format)");
   std::string semantic = l.semantic;
   if (const auto it = cg_.variables.find(l.var); semantic.empty() && it != cg_.variables.end())
@@ -3337,6 +3479,21 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
           text += shape.original + "\n";
         }
         win.original = text + reg.original;
+        // A temporary the variant removes must have no other use in its scope's text, whatever the settings: its
+        // single use is counted in this parse only (ArcaneBloom.fx 2026-10-26: "exposure" read once more under
+        // ARCANE_BLOOM_WHITE_POINT_FIX).
+        bool usedElsewhere = false;
+        for (const Statement* d : defs) {
+          if (std::find(chainDefs.begin(), chainDefs.end(), d) != chainDefs.end()) continue;
+          const auto dv = cg_.variables.find(d->var);
+          if (dv != cg_.variables.end())
+            usedElsewhere = usedElsewhere || nameInScope(reg.file, dv->second.name, d->loc.line, win.removed,
+                                                         reg.line, reg.lastLine);
+        }
+        if (usedElsewhere) {
+          SKIPADD("window: a temporary is used under other settings");
+          continue;
+        }
         if (!spanGuard(fx_, reg.file, win.removed.front().first, reg.lastLine, win.guard, why)) {
           SKIPADD("window: " + why);
           continue;
@@ -3425,6 +3582,85 @@ std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const Re
     kept.push_back(std::move(r));
   }
   return kept;
+}
+
+bool underCondition(const Effect& fx, const std::string& file, uint32_t first, uint32_t last) {
+  std::string g, why;
+  return !spanGuard(fx, file, first, last, g, why, true) || !g.empty();
+}
+
+std::vector<std::pair<std::string, std::string>> settingValues(const Effect& fx) {
+  static const std::regex cmp(R"(\b([A-Za-z_]\w*)\s*(==|!=|>=|<=|>|<)\s*(-?\d+(?:\.\d+)?)\b)"),
+      rcmp(R"((-?\d+(?:\.\d+)?)\s*(==|!=|>=|<=|>|<)\s*([A-Za-z_]\w*)\b)"), ident(R"([A-Za-z_]\w*)");
+  std::set<std::pair<std::string, double>> values;
+  auto add = [&](const std::string& name, const std::string& op, double n, bool flipped) {
+    if (!fx.userMacros.count(name)) return;
+    std::string o = op;
+    if (flipped) o = op == ">" ? "<" : op == "<" ? ">" : op == ">=" ? "<=" : op == "<=" ? ">=" : op;
+    values.insert({name, o == ">" ? n + 1 : o == "<" ? n - 1 : n});  // a value that makes the test true
+  };
+  for (const std::string& file : fx.sourceFiles) {
+    const std::vector<std::string>* lines = sourceLines(file);
+    if (!lines) continue;
+    for (const std::string& l : *lines) {
+      std::string word, arg;
+      if (!directiveOf(l, word, arg) || (word != "if" && word != "elif")) continue;
+      std::set<std::string> compared;
+      for (auto m = std::sregex_iterator(arg.begin(), arg.end(), cmp); m != std::sregex_iterator(); ++m) {
+        add((*m)[1], (*m)[2], std::stod((*m)[3]), false);
+        compared.insert((*m)[1]);
+      }
+      for (auto m = std::sregex_iterator(arg.begin(), arg.end(), rcmp); m != std::sregex_iterator(); ++m) {
+        add((*m)[3], (*m)[2], std::stod((*m)[1]), true);
+        compared.insert((*m)[3]);
+      }
+      // A setting tested as true / false: the other one.
+      for (auto m = std::sregex_iterator(arg.begin(), arg.end(), ident); m != std::sregex_iterator(); ++m) {
+        const std::string n = m->str();
+        const auto u = fx.userMacros.find(n);
+        if (u == fx.userMacros.end() || compared.count(n)) continue;
+        values.insert({n, std::strtod(u->second.c_str(), nullptr) != 0.0 ? 0.0 : 1.0});
+      }
+    }
+  }
+  std::vector<std::pair<std::string, std::string>> out;
+  for (const auto& [name, v] : values) {
+    const std::string& now = fx.userMacros.at(name);
+    char* end = nullptr;
+    const double cur = std::strtod(now.c_str(), &end);
+    if (end != now.c_str() && cur == v) continue;  // the current value
+    std::ostringstream s;
+    s << v;
+    out.emplace_back(name, s.str());
+    if (out.size() == 32) break;  // shortcut: a cap on extra parses per effect; raise if effects test more
+  }
+  return out;
+}
+
+std::vector<Region> settingRegions(const Effect& def, const Effect& cfg, const Effect* alt, const RegionOptions& opt) {
+  // Every code line of the region (and of the temporaries it inlines) is one the default parse leaves out.
+  auto off = [&](const std::string& file, uint32_t a, uint32_t b) {
+    const std::vector<std::string>* lines = sourceLines(file);
+    if (!lines) return false;
+    for (uint32_t l = a; l <= b && l <= lines->size(); ++l) {
+      if (tokens((*lines)[l - 1]).empty()) continue;
+      const auto it = def.ppLines.find({file, l});
+      if (it != def.ppLines.end() && !tokens(it->second).empty()) return false;
+    }
+    return true;
+  };
+  SkipCount ignored;  // the lines both parses have are counted with the default parse
+  std::vector<Region> out;
+  for (Region& r : extractRegions(cfg, alt, opt, ignored)) {
+    bool all = off(r.file, r.line, r.lastLine);
+    for (const auto& [a, b] : r.removed) all = all && off(r.file, a, b);
+    if (!all) continue;
+    std::string g, why;
+    if (!spanGuard(cfg, r.file, r.line, r.lastLine, g, why, true) || g.empty()) continue;
+    r.guard = r.guard.empty() ? g : "(" + r.guard + ") && (" + g + ")";
+    out.push_back(std::move(r));
+  }
+  return out;
 }
 
 }  // namespace sopt::fx

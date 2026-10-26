@@ -1389,6 +1389,66 @@ TEST(fx_oneline_if) {
   if (r10) CHECK(r10->lhs == "else pos.y =");
 }
 
+TEST(fx_setting_paths) {
+  // Code only other values of a setting compile (owner, 2026-10-26): the values the #if lines test, and the regions
+  // of such a parse on lines the default leaves out, under their #if.
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_settings.fx";
+  std::string err;
+  auto def = fx::loadEffect(file, fx::LoadOptions(), err);
+  CHECK(def != nullptr);
+  if (!def) return;
+  const auto values = fx::settingValues(*def);
+  CHECK(values.size() == 2 && values[0] == std::make_pair(std::string("SETTING_MODE"), std::string("2")) &&
+        values[1] == std::make_pair(std::string("SETTING_MODE"), std::string("4")));
+  fx::LoadOptions lo;
+  lo.macros.emplace_back("SETTING_MODE", "4");
+  auto cfg = fx::loadEffect(file, lo, err);
+  CHECK(cfg != nullptr);
+  if (!cfg) return;
+  const auto regions = fx::settingRegions(*def, *cfg, nullptr, fx::RegionOptions());
+  CHECK(regions.size() == 1 && regions[0].line == 15 &&
+        regions[0].guard.find("(SETTING_MODE > 3)") != std::string::npos);
+}
+
+TEST(fx_call_inputs) {
+  // A pure helper sopt cannot inline (a texture read, a loop) is an input named by its call text, its range from the
+  // helper's returns (2026-10-26).
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_calls.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+  const fx::Region* a = regionOn(regions, 11);
+  const fx::Region* b = regionOn(regions, 12);
+  CHECK(a && b);
+  if (!a || !b) return;
+  CHECK(a->prog.inputs.size() == 1 && a->prog.inputs[0].name == "GetLuma(p.xy)" && !a->facts[0].assumed &&
+        a->prog.inputs[0].lo == 0.0 && a->prog.inputs[0].hi >= 1.0);
+  bool sum = false;
+  for (size_t k = 0; k < b->prog.inputs.size(); ++k) sum = sum || b->prog.inputs[k].name == "Sum(c.r)";
+  CHECK(sum);
+}
+
+TEST(fx_window_temp_other_settings) {
+  // e is read once with the default settings and once more with TEMP_FIX: no window removes its declaration
+  // (ArcaneBloom.fx, 2026-10-26).
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_settingtemp.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  sk.keepDetails = true;
+  bool removes = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, ro, sk))
+    for (const auto& [a, b] : r.removed) removes = removes || (a <= 13 && 13 <= b);
+  bool reason = false;
+  for (const auto& d : sk.details) reason = reason || d.find(":14: window: a temporary is used under other settings") != std::string::npos;
+  CHECK(!removes && reason);
+}
+
 TEST(fx_output_keeps_folders) {
   // sopt-out keeps the folders below the input folder, so it can be copied over the Shaders folder (2026-10-21);
   // files outside every input folder (ReShade.fxh above a pack's folder) keep their name only.
