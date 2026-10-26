@@ -1321,7 +1321,8 @@ TEST(fx_per_draw_locals) {
 
 TEST(fx_inline_calls) {
   // Calls of small pure helpers are seen through (owner, 2026-10-26): parameters bound per call (Luma twice with
-  // different arguments), single-assignment locals, nested calls; a helper with a branch stays a skip.
+  // different arguments), variables assigned again, nested calls, ifs and early returns (selects), components
+  // written (c.rg *= 0.5).
   std::string err;
   auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_inline.fx", fx::LoadOptions(), err);
   CHECK(e != nullptr);
@@ -1332,7 +1333,15 @@ TEST(fx_inline_calls) {
   const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
   const fx::Region* a = regionOn(regions, 12);
   const fx::Region* b = regionOn(regions, 13);
-  CHECK(a && b && !regionOn(regions, 14));
+  const fx::Region* d = regionOn(regions, 14);
+  CHECK(a && b && d);
+  if (d) {
+    const std::string td = toString(d->prog.target, d->prog.inputs);
+    std::printf("  %s\n", td.c_str());
+    CHECK(td.find("(c.x > 0.5 ? 1.0 : c.x) * c.y") != std::string::npos);  // Branchy: the early return
+    CHECK(td.find("!(c.y > 0.5) ? c.z * 3.0 : (c.y > 0.5 ? c.y * 2.0 : c.z)") != std::string::npos);  // SideB
+    CHECK(td.find("(0.5 * c.xy).y") != std::string::npos);  // Tint: v.rg *= 0.5
+  }
   // One helper of several instructions is searched alone, a macro left of the = does not matter (2026-10-26); one
   // instruction is not, with how often its value is read.
   CHECK(regionOn(regions, 15) != nullptr && !regionOn(regions, 16));
@@ -1345,9 +1354,6 @@ TEST(fx_inline_calls) {
   CHECK(ta.find("Strength") != std::string::npos && ta.find(".zyx") != std::string::npos);
   CHECK(tb.find("dot(") != std::string::npos);
   CHECK(tb.find("c.z * 2.0 * (c.z * 2.0 + 1.0)") != std::string::npos);  // Twice: x and y assigned again
-  bool branchy = false;
-  for (const auto& d : sk.details) branchy = branchy || d.find(":14: function call: branches") != std::string::npos;
-  CHECK(branchy);
 }
 
 TEST(fx_select_conditions) {

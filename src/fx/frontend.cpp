@@ -1093,8 +1093,27 @@ class Extractor {
   bool usesPow_ = false;
   std::unordered_map<uint32_t, uint32_t> inline_;  // temporary variable -> its value
   std::unordered_map<uint32_t, uint32_t> inlineLoad_;  // load -> value of its (chain) definition
+  // Values the frontend makes itself, for a helper's variables (2026-10-26): after an if (Select: a when every one of
+  // conds holds, else b; | kCondFalse: the false side) or after a partial store (Merge: b with a written into
+  // chain's components). Ids from kSynthFirst up; collect() / build() look here first.
+  struct Synth {
+    enum class Kind { Select, Merge } kind = Kind::Select;
+    std::vector<uint32_t> conds;
+    uint32_t a = 0, b = 0;
+    std::vector<reshadefx::expression::operation> chain;
+    unsigned rows = 1;
+  };
+  static constexpr uint32_t kSynthFirst = 0x40000000;
+  std::unordered_map<uint32_t, Synth> synth_;
+  uint32_t nextSynth_ = kSynthFirst;
+  uint32_t addSynth(Synth s) {
+    synth_[nextSynth_] = std::move(s);
+    return nextSynth_++;
+  }
+  void collectSynth(const Synth& s);
+  uint32_t buildSynth(const Synth& s, ExprBuilder& b);
   // A call of a small pure helper, seen through (owner, 2026-10-26): its return value with the parameters bound to
-  // the arguments and its single-assignment locals to their values (inline_), while the scope lives.
+  // the arguments and its variables' reads to their values (inline_ / inlineLoad_), while the scope lives.
   class CallScope {
    public:
     CallScope(Extractor& x, const Value& call);
@@ -1277,18 +1296,24 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
     if (!st || !st->chain.empty()) throw Unsupported("function call: arguments");
     args.push_back(st->value);
   }
-  // Whole assignments of its locals and parameters (also again: x *= 2), then one return, all outside branches and
-  // loops: every read is the store before it in the one block (2026-10-26), or the parameter's argument.
+  // Stores to its locals and parameters (whole, or components: c.rgb = ...) and returns, also under ifs (2026-10-26),
+  // not in loops or switches: each read is what the stores before it on its path leave, a select where an if decides.
+  using O = reshadefx::expression::operation;
+  auto condsOf = [&](uint32_t block) -> const std::vector<uint32_t>& {
+    const auto c = x.cg_.blockConds.find(block);
+    if (c == x.cg_.blockConds.end() || std::find(c->second.begin(), c->second.end(), 0u) != c->second.end())
+      throw Unsupported("function call: switch");
+    return c->second;
+  };
   std::unordered_set<uint32_t> vars(f->params.begin(), f->params.end());
-  for (size_t i = 0; i < f->stmts.size(); ++i) {
-    const Statement& s = f->stmts[i];
-    const auto c = x.cg_.blockConds.find(s.block);
-    if (c == x.cg_.blockConds.end() || !c->second.empty()) throw Unsupported("function call: branches");
+  std::unordered_map<uint32_t, std::vector<const Statement*>> stores;  // var -> stores in order
+  std::vector<const Statement*> returns;
+  for (const Statement& s : f->stmts) {
+    condsOf(s.block);
     for (const auto& [lo, hi] : x.cg_.loops)
       if (lo <= s.seq && s.seq <= hi) throw Unsupported("function call: loop");
     if (s.kind == Statement::Kind::Return) {
-      if (i + 1 != f->stmts.size()) throw Unsupported("function call: early return");
-      ret = s.value;
+      returns.push_back(&s);
     } else if (s.kind == Statement::Kind::Write) {
       throw Unsupported("function call: writes a resource");
     } else {
@@ -1296,11 +1321,65 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
       if (sv == x.cg_.variables.end() ||
           (sv->second.kind != Variable::Kind::Local && sv->second.kind != Variable::Kind::Param))
         throw Unsupported("function call: writes a global");
-      if (!s.chain.empty()) throw Unsupported("function call: writes part of a variable");
+      // Components only: one swizzle or constant index of a vector.
+      if (!s.chain.empty() && (s.chain.size() != 1 || sv->second.type.is_matrix() || sv->second.type.is_array() ||
+                               (s.chain[0].op != O::op_swizzle && s.chain[0].op != O::op_constant_index)))
+        throw Unsupported("function call: writes part of a variable");
       vars.insert(s.var);
+      stores[s.var].push_back(&s);
     }
   }
-  if (!ret) throw Unsupported("function call: no return value");
+  if (returns.empty()) throw Unsupported("function call: no return value");
+  // The value a read sees: fold the stores before it; one on the other side of an if the read is in does not reach
+  // it, one under conditions the read is not under is a select.
+  auto valueAt = [&](uint32_t var, const Value& load, uint32_t entry) -> uint32_t {
+    const std::vector<uint32_t>& lc = condsOf(load.block);
+    uint32_t v = entry;
+    const auto st = stores.find(var);
+    if (st == stores.end()) return v;
+    for (const Statement* d : st->second) {
+      if (d->seq >= load.seq) break;
+      const std::vector<uint32_t>& dc = condsOf(d->block);
+      size_t k = 0;
+      while (k < dc.size() && k < lc.size() && dc[k] == lc[k]) ++k;
+      if (k < dc.size() && k < lc.size() && (dc[k] & ~kCondFalse) == (lc[k] & ~kCondFalse)) continue;
+      uint32_t nv = d->value;
+      if (!d->chain.empty()) {
+        if (!v) throw Unsupported("function call: reads an unset variable");
+        Synth m;
+        m.kind = Synth::Kind::Merge;
+        m.a = d->value;
+        m.b = v;
+        m.chain = d->chain;
+        m.rows = x.cg_.variables.at(var).type.rows;
+        nv = x.addSynth(std::move(m));
+      }
+      if (k == dc.size() || !v) {
+        v = nv;  // on every path to the read (or the first value: an unset variable is read only where it was set)
+      } else {
+        Synth s;
+        s.conds.assign(dc.begin() + static_cast<std::ptrdiff_t>(k), dc.end());
+        s.a = nv;
+        s.b = v;
+        v = x.addSynth(std::move(s));
+      }
+    }
+    return v;
+  };
+  // An earlier return wins where its conditions hold.
+  ret = returns.back()->value;
+  for (size_t i = returns.size() - 1; i-- > 0;) {
+    const std::vector<uint32_t>& rc = condsOf(returns[i]->block);
+    if (rc.empty()) {
+      ret = returns[i]->value;
+      continue;
+    }
+    Synth s;
+    s.conds = rc;
+    s.a = returns[i]->value;
+    s.b = ret;
+    ret = x.addSynth(std::move(s));
+  }
   auto bind = [&](std::unordered_map<uint32_t, uint32_t>& m, std::vector<Saved>& saved, uint32_t key, uint32_t value) {
     const auto old = m.find(key);
     saved.push_back({key, old == m.end() ? std::nullopt : std::optional<uint32_t>(old->second)});
@@ -1309,17 +1388,16 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
   if (x.loadsByVar_.empty())
     for (const auto& [id, v] : x.cg_.values)
       if (v.kind == Value::Kind::Load) x.loadsByVar_[v.base].push_back(id);
-  std::vector<std::pair<uint32_t, uint32_t>> loads;  // load -> the store it reads
+  std::vector<std::pair<uint32_t, uint32_t>> loads;  // load -> the value it reads
   for (const uint32_t var : vars) {
     const auto lv = x.loadsByVar_.find(var);
     if (lv == x.loadsByVar_.end()) continue;
-    const bool param = std::find(f->params.begin(), f->params.end(), var) != f->params.end();
+    const auto pk = std::find(f->params.begin(), f->params.end(), var);
+    const uint32_t entry = pk == f->params.end() ? 0 : args[static_cast<size_t>(pk - f->params.begin())];
     for (const uint32_t id : lv->second) {
-      const Value& v = x.cg_.values.at(id);
-      bool killed = false;
-      const std::vector<const Statement*> reach = x.reaching(var, v.seq, v.block, killed);
-      if (killed) loads.emplace_back(id, reach[0]->value);
-      else if (!reach.empty() || !param) throw Unsupported("function call: reads an unset variable");
+      const uint32_t v = valueAt(var, x.cg_.values.at(id), entry);
+      if (!v) throw Unsupported("function call: reads an unset variable");
+      loads.emplace_back(id, v);
     }
   }
   for (size_t k = 0; k < f->params.size(); ++k) bind(x_.inline_, saved_, f->params[k], args[k]);
@@ -1423,6 +1501,10 @@ void Extractor::collect(uint32_t id) {
   // Each value once per scope: a value read several times (a helper's parameter, a shared temporary) would otherwise
   // be walked again for every path to it, exponentially in nested helpers (CRT.fx, 2026-10-26).
   if (!collected_.insert(id).second) return;
+  if (const auto s = synth_.find(id); s != synth_.end()) {
+    collectSynth(s->second);
+    return;
+  }
   const auto it = cg_.values.find(id);
   if (it == cg_.values.end()) throw Unsupported("value");
   const Value& v = it->second;
@@ -1610,8 +1692,61 @@ void scalarizeConstants(uint32_t* a, size_t n, ExprBuilder& b) {
   }
 }
 
+void Extractor::collectSynth(const Synth& s) {
+  for (const uint32_t c : s.conds) collectCond(c & ~kCondFalse);
+  collect(s.a);
+  collect(s.b);
+  if (s.kind == Synth::Kind::Merge) chainMask(s.chain, 0, 4);  // validates
+}
+
+uint32_t Extractor::buildSynth(const Synth& s, ExprBuilder& b) {
+  if (s.kind == Synth::Kind::Select) {
+    uint32_t c = 0;
+    for (const uint32_t k : s.conds) {
+      uint32_t n = buildCond(k & ~kCondFalse, b);
+      if (k & kCondFalse) n = b.op(Op::LNot, n);
+      c = c ? b.op(Op::LAnd, c, n) : n;
+    }
+    uint32_t x[2] = {build(s.a, b), build(s.b, b)};
+    scalarizeConstants(x, 2, b);
+    return b.op(Op::Select, c, x[0], x[1]);
+  }
+  // Merge: the old value's components, the written ones from the new value (a swizzle or one index).
+  const uint32_t old = build(s.b, b), nw = build(s.a, b);
+  const reshadefx::expression::operation& op = s.chain[0];
+  int from[4] = {-1, -1, -1, -1};  // component -> component of the new value, -1: the old one
+  if (op.op == reshadefx::expression::operation::op_constant_index) {
+    if (op.index >= s.rows) throw Unsupported("function call: writes part of a variable");
+    from[op.index] = 0;
+  } else {
+    for (int k = 0; k < 4 && op.swizzle[k] >= 0; ++k) {
+      if (op.swizzle[k] >= static_cast<int>(s.rows)) throw Unsupported("function call: writes part of a variable");
+      from[op.swizzle[k]] = k;
+    }
+  }
+  const unsigned newRows = width(b.nodes()[nw].type), oldRows = width(b.nodes()[old].type);
+  uint32_t parts[4];
+  for (unsigned j = 0; j < s.rows; ++j) {
+    const bool written = from[j] >= 0;
+    const uint32_t src = written ? nw : old;
+    const unsigned comp = written ? static_cast<unsigned>(from[j]) : j;
+    if ((written ? newRows : oldRows) == 1) {
+      parts[j] = src;  // a scalar (broadcast)
+    } else {
+      const uint8_t c = static_cast<uint8_t>(comp);
+      parts[j] = b.swizzle(src, &c, 1);
+    }
+  }
+  return s.rows == 1 ? parts[0] : b.construct(parts, s.rows);
+}
+
 uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
   if (auto it = built_.find(id); it != built_.end()) return it->second;
+  if (const auto s = synth_.find(id); s != synth_.end()) {
+    const uint32_t r = buildSynth(s->second, b);
+    built_[id] = r;
+    return r;
+  }
   const Value& v = cg_.values.at(id);
   using K = Value::Kind;
   uint32_t r = 0;
@@ -2186,7 +2321,7 @@ bool Extractor::perDraw(uint32_t id) {
             r = r && perDraw(d->value) && chainPerDraw(d->chain);
             if (const auto c = cg_.blockConds.find(d->block); c == cg_.blockConds.end()) r = false;
             else
-              for (const uint32_t cond : c->second) r = r && perDraw(cond);
+              for (const uint32_t cond : c->second) r = r && perDraw(cond & ~kCondFalse);
           }
           r = r && full;
           break;

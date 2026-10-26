@@ -350,6 +350,7 @@ reshadefx::codegen::id Codegen::leave_block_and_branch_conditional(id condition,
   std::vector<uint32_t> c = blockConds[_current_block];
   c.push_back(condition);
   blockConds[true_target] = c;
+  c.back() |= kCondFalse;
   blockConds[false_target] = c;
   return set_block(0);
 }

@@ -2196,6 +2196,13 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   own) are expanded in the source-token check (fixedMacro), so the region spells the value out: "uses a macro" 319
   -> 268, regions 1066 -> 1145. collect() now visits each value once per scope: nested helpers reading a parameter
   several times made it exponential (CRT.fx hung the listing once the regions grew).
+  One-line if / else in front of an assignment ("if(!doneP) posP.x += ...", FXAA): the prefix stays as written, the
+  value is the region. "not a simple statement" split into loop header / array initializer (nothing to do).
+  Helpers with ifs, early returns and component writes are inlined: blockConds marks the false side (kCondFalse);
+  CallScope folds each variable's stores before a read (a store on the other side of an if the read is in does not
+  reach it; one under extra conditions is a select), returns become selects (an earlier return wins), c.rg = ... a
+  merge of components. The selects and merges are frontend-made values (Synth, ids from 0x40000000) that collect()
+  and build() look up first. Loops and switches in helpers still skip.
   Deep intrinsics run (30 min per problem and model): the same known forms, plus tan = sin * rsqrt(abs(1 - sin^2))
   (less accurate, cos > 0 only; inexact-tricks.md). Searches reach about the same cost levels as at 30 s (cross 11 of
   30, normalize 13 of 47, pow 15 of 51): the bank's size, not the time, limits them; complete only for the cheap ones.
