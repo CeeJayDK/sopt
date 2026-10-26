@@ -1,0 +1,4 @@
+# exp: the intrinsic alone
+input x : float in [-20, 20]
+output r = exp(x)
+budget r : rel 1e-6

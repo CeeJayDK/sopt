@@ -1,0 +1,4 @@
+# sqrt: the intrinsic alone
+input x : float in [0, 1000000]
+output r = sqrt(x)
+budget r : rel 1e-6

@@ -1,0 +1,6 @@
+# smoothstep: the intrinsic alone
+input a : float in [-10, 0]
+input b : float in [1, 10]
+input x : float in [-20, 20]
+output r = smoothstep(a, b, x)
+budget r : rel 1e-6

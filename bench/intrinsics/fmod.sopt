@@ -1,0 +1,5 @@
+# fmod: the intrinsic alone
+input x : float in [-100, 100]
+input y : float in [0.1, 100]
+output r = x - y * trunc(x / y)
+budget r : rel 1e-6

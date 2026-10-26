@@ -1,0 +1,6 @@
+# clamp: the intrinsic alone
+input x : float in [-100, 100]
+input a : float in [-100, 0]
+input b : float in [0, 100]
+output r = clamp(x, a, b)
+budget r : exact

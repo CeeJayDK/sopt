@@ -1,0 +1,4 @@
+# smoothstep_const: the intrinsic alone
+input x : float in [-2, 2]
+output r = smoothstep(0.2, 0.8, x)
+budget r : rel 1e-6

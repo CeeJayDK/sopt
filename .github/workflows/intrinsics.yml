@@ -1,0 +1,91 @@
+name: intrinsics
+# Each intrinsic alone (bench/intrinsics/*.sopt), searched deep per GPU family: can sopt beat the compilers' own
+# lowering? (owner, 2026-10-26: "if we do it would be a big win"). One job per intrinsic and model; runs by hand
+# or when the problems / this file change (then with the defaults).
+on:
+  push:
+    paths: [bench/intrinsics/**, .github/workflows/intrinsics.yml]
+  workflow_dispatch:
+    inputs:
+      time:
+        description: search seconds per problem (sopt --time)
+        default: "1800"
+      models:
+        description: cost models, comma separated
+        default: "nvidia-ampere,nvidia-turing,rdna3,intel-gen9"
+      problems:
+        description: problem names, comma separated (empty = all in bench/intrinsics)
+        default: ""
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      problems: ${{ steps.list.outputs.problems }}
+      models: ${{ steps.list.outputs.models }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel --target sopt
+      - id: list
+        run: |
+          python3 -I - "${{ inputs.problems }}" "${{ inputs.models || 'nvidia-ampere,nvidia-turing,rdna3,intel-gen9' }}" >> "$GITHUB_OUTPUT" <<'EOF'
+          import json, os, sys
+          names = [p.strip() for p in sys.argv[1].split(",") if p.strip()] or \
+                  sorted(f[:-5] for f in os.listdir("bench/intrinsics") if f.endswith(".sopt"))
+          print("problems=" + json.dumps(names))
+          print("models=" + json.dumps([m.strip() for m in sys.argv[2].split(",") if m.strip()]))
+          EOF
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sopt
+          path: build/sopt
+
+  search:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        problem: ${{ fromJson(needs.prepare.outputs.problems) }}
+        model: ${{ fromJson(needs.prepare.outputs.models) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: sopt
+          path: build
+      - name: Search
+        run: |
+          chmod +x build/sopt
+          mkdir -p out
+          build/sopt "bench/intrinsics/${{ matrix.problem }}.sopt" --time "${{ inputs.time || '1800' }}" \
+            --cost-model "${{ matrix.model }}" > "out/${{ matrix.problem }}.${{ matrix.model }}.txt" 2>&1 || true
+          tail -5 "out/${{ matrix.problem }}.${{ matrix.model }}.txt"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: log-${{ matrix.problem }}-${{ matrix.model }}
+          path: out
+
+  summary:
+    needs: search
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: log-*
+          merge-multiple: true
+          path: out
+      - name: Summary
+        run: python3 -I bench/intrinsics/summary.py out | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: intrinsics-logs
+          path: out

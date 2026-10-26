@@ -1,0 +1,4 @@
+# log: the intrinsic alone
+input x : float in [0.000001, 1000000]
+output r = log(x)
+budget r : rel 1e-6

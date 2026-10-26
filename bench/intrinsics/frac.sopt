@@ -1,0 +1,4 @@
+# frac: the intrinsic alone
+input x : float in [-1000, 1000]
+output r = frac(x)
+budget r : exact

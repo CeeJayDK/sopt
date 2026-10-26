@@ -1,0 +1,5 @@
+# pow: the intrinsic alone
+input x : float in [0.001, 100]
+input y : float in [-4, 4]
+output r = pow(x, y)
+budget r : rel 1e-6

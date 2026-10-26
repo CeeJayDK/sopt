@@ -1,0 +1,4 @@
+# sign: the intrinsic alone
+input x : float in [-100, 100]
+output r = sign(x)
+budget r : exact

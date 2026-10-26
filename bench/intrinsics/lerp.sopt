@@ -1,0 +1,6 @@
+# lerp: the intrinsic alone
+input a : float in [-100, 100]
+input b : float in [-100, 100]
+input t : float in [0, 1]
+output r = lerp(a, b, t)
+budget r : rel 1e-6

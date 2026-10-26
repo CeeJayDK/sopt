@@ -1,0 +1,4 @@
+# length3: the intrinsic alone
+input v : float3 in [-10, 10]
+output r = length(v)
+budget r : rel 1e-6
