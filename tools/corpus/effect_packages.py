@@ -195,7 +195,6 @@ def run(dest, sopt, out, secs, timeout, args=""):
             for lg in (log, easy_log):
                 print("\n".join([l for l in lg.splitlines()
                              if "does not parse" in l or "error" in l.lower() or re.match(r"  \d+: ", l)][:90]), flush=True)
-            print("\n".join(context), flush=True)
         save = f"{saved[0]} regions, {saved[1]} -> {saved[2]}" if saved else ""
         rows.append(f"| {p['id']} | [{p['name']}]({p['url']}) | {len(p['effects'])} | {parsed[0] + ' / ' + parsed[1] if parsed else '?'}"
                     f" | {parsed[2] if parsed else '?'} | {save} | {secs_used:.0f} s | {', '.join(problem)} |")
