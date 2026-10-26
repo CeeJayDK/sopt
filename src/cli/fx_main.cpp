@@ -326,6 +326,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-classic") classic = false;
     else if (a == "--no-hoist") hoist = false;
     else if (a == "--no-setting-paths") settingPaths = false;
+    else if (a == "--multi-result-test") ropt.multiResultTest = true;
     else if (a == "--no-blend-stage") blendStage = false;
     else if (a == "--easy") easy = true, easyWrite.clean = true;
     else if (a == "--all-platforms") allPlatforms = true;
@@ -507,7 +508,7 @@ int main(int argc, char** argv) {
       for (size_t i = 0; i < found.size(); ++i) {
         fx::Region& r = found[i];
         if (i < defaultRegions && classic && hoist && !fx->hlsl) effectRegions.push_back(r);
-        if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
+        if (r.groupLines.empty() && !seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
         fx::RegionResult rr;
         rr.effect = p.string();
         if (formatChecks) {
@@ -1560,6 +1561,46 @@ int main(int argc, char** argv) {
     effectsOut.push_back({dst, p, srcs});
   }
 
+  // Experiment (--multi-result-test): the saving of a value's readers searched together against their own savings
+  // (the shared value's cost is the joint original minus theirs). The groups are never written.
+  if (ropt.multiResultTest) {
+    auto best = [](const fx::RegionResult& rr) {
+      uint32_t c = rr.targetCost;
+      for (const auto& v : rr.variants)
+        if (v.klass != Klass::LessAccurate) c = std::min(c, v.cost);
+      return c;
+    };
+    long groups = 0, jointGain = 0, sepGain = 0, better = 0, worse = 0;
+    for (auto& g : results) {
+      if (g.region.groupLines.empty()) continue;
+      long sepBefore = 0, sepAfter = 0;
+      bool all = true;
+      for (const uint32_t line : g.region.groupLines) {
+        const fx::RegionResult* s = nullptr;
+        for (const auto& r : results)
+          if (r.region.file == g.region.file && r.region.line == line && r.region.removed.empty() &&
+              r.region.groupLines.empty())
+            s = &r;
+        if (!s) { all = false; break; }
+        sepBefore += s->targetCost;
+        sepAfter += best(*s);
+      }
+      const long joint = static_cast<long>(g.targetCost) - static_cast<long>(best(g));
+      g.variants.clear();  // never written
+      if (!all) continue;
+      ++groups;
+      jointGain += joint;
+      sepGain += sepBefore - sepAfter;
+      better += joint > sepBefore - sepAfter;
+      worse += joint < sepBefore - sepAfter;
+      if (joint != sepBefore - sepAfter)
+        std::printf("multi-result %s:%u (%zu readers): together -%ld, separately -%ld\n",
+                    fx::pathString(g.region.file).c_str(), g.region.line, g.region.groupLines.size(), joint,
+                    sepBefore - sepAfter);
+    }
+    std::printf("multi-result test: %ld groups, saving together %ld, separately %ld; together better in %ld, worse "
+                "in %ld\n", groups, jointGain, sepGain, better, worse);
+  }
   console::section(con, "Writing");
   // Every variant must still parse: SOPT_GROUP = k selects variant k where it exists.
   size_t checks = 0, checkFailures = 0;

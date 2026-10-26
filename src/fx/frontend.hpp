@@ -143,6 +143,9 @@ struct Region {
   // Window across #if/#else/#endif lines: the preprocessor condition under which its
   // statements compile as in this parse (variants apply only then). Empty otherwise.
   std::string guard;
+  // Experiment (multiResultTest): the lines of the statements whose results this region is, after the value they
+  // share (on `line`); never written.
+  std::vector<uint32_t> groupLines;
   Program prog;
   bool hlsl = false;         // from a plain HLSL / GLSL file (no __VENDOR__ / __RENDERER__ auto picks)
   bool glsl = false;         // from a GLSL file (variants printed with toGlsl)
@@ -157,6 +160,7 @@ struct RegionOptions {
   uint32_t maxInputs = 8;     // skip statements reading more distinct variables (corpus 2026-10-25: 4 / 8 -> 8 / 16
   uint32_t maxSlots = 16;     // ... or more input components                 +3.4% saved, +20% time)
   double defaultLo = -1000.0, defaultHi = 1000.0;  // range when nothing is known
+  bool multiResultTest = false;  // experiment: regions of several statements reading one value (never written)
   bool likelyRanges = true;   // use a reasoned suggestion as the range (Fact::likely); --no-likely: off
   double relEps = 1e-6;       // budget for values with a general use
   double texcoordPx = 0.01;   // budget for values only used as texture coordinates, in

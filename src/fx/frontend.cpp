@@ -1098,11 +1098,12 @@ class Extractor {
   // conds holds, else b; | kCondFalse: the false side) or after a partial store (Merge: b with a written into
   // chain's components). Ids from kSynthFirst up; collect() / build() look here first.
   struct Synth {
-    enum class Kind { Select, Merge } kind = Kind::Select;
+    enum class Kind { Select, Merge, Construct } kind = Kind::Select;  // Construct: of args
     std::vector<uint32_t> conds;
     uint32_t a = 0, b = 0;
     std::vector<reshadefx::expression::operation> chain;
     unsigned rows = 1;
+    std::vector<uint32_t> args;
   };
   static constexpr uint32_t kSynthFirst = 0x40000000;
   std::unordered_map<uint32_t, Synth> synth_;
@@ -1726,6 +1727,8 @@ void scalarizeConstants(uint32_t* a, size_t n, ExprBuilder& b) {
 }
 
 void Extractor::collectSynth(const Synth& s) {
+  for (const uint32_t a : s.args) collect(a);
+  if (s.kind == Synth::Kind::Construct) return;
   for (const uint32_t c : s.conds) collectCond(c & ~kCondFalse);
   collect(s.a);
   collect(s.b);
@@ -1733,6 +1736,11 @@ void Extractor::collectSynth(const Synth& s) {
 }
 
 uint32_t Extractor::buildSynth(const Synth& s, ExprBuilder& b) {
+  if (s.kind == Synth::Kind::Construct) {
+    uint32_t parts[4];
+    for (size_t k = 0; k < s.args.size(); ++k) parts[k] = build(s.args[k], b);
+    return b.construct(parts, static_cast<unsigned>(s.args.size()));
+  }
   if (s.kind == Synth::Kind::Select) {
     uint32_t c = 0;
     for (const uint32_t k : s.conds) {
@@ -3483,6 +3491,57 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
       inlineLoad_.clear();
     }
   }
+  // Experiment (owner, 2026-10-26, multi-result regions): a value two to four statements of its block read, with
+  // those statements as one region whose result is all of theirs (float2..4, the value folded in). Never written:
+  // sopt-fx compares its saving with the statements' own.
+  if (opt_.multiResultTest)
+    for (const auto& fp : cg_.functions) {
+      const Function& f = *fp;
+      if (!reach.count(f.uniqueName)) continue;
+      for (const Statement& t : f.stmts) {
+        const auto tv = cg_.variables.find(t.var);
+        if (!hasVar(t) || !t.chain.empty() || tv == cg_.variables.end() || tv->second.kind != Variable::Kind::Local)
+          continue;
+        std::vector<const Statement*> users;
+        unsigned rows = 0;
+        for (const Statement& s : f.stmts) {
+          if (s.seq <= t.seq || !hasVar(s) || !s.chain.empty() || s.block != t.block) continue;
+          std::unordered_set<uint32_t> tree;
+          treeValues(s.value, tree);
+          bool reads = false, other = false;
+          for (const uint32_t id : tree) {
+            const auto v = cg_.values.find(id);
+            if (v == cg_.values.end() || v->second.kind != Value::Kind::Load || v->second.base != t.var) continue;
+            bool killed = false;
+            const auto reach2 = reaching(t.var, v->second.seq, v->second.block, killed);
+            (killed && reach2[0] == &t ? reads : other) = true;
+          }
+          const auto sv = cg_.variables.find(s.var);
+          if (!reads || other || sv == cg_.variables.end() || sv->second.type.cols != 1) continue;
+          users.push_back(&s);
+          rows += sv->second.type.rows;
+        }
+        if (users.size() < 2 || users.size() > 4 || rows > 4) continue;
+        Synth c;
+        c.kind = Synth::Kind::Construct;
+        for (const Statement* s : users) c.args.push_back(s->value);
+        Statement joint = *users.back();
+        joint.value = addSynth(std::move(c));
+        Region reg;
+        reg.function = f.name;
+        std::string why;
+        if (!shapeOf(*users.back(), reg, why)) continue;
+        inline_.clear();
+        inline_[t.var] = t.value;
+        if (!buildRegion(joint, reg, why)) continue;
+        reg.line = t.loc.line;
+        for (const Statement* s : users) reg.groupLines.push_back(s->loc.line);
+        reg.prog.budget.kind = Budget::Kind::Rel;  // every result an intermediate value: the strictest usual budget
+        reg.prog.budget.eps = 1e-6;
+        reg.budgetReason = "multi-result test";
+        out.push_back(std::move(reg));
+      }
+    }
 #undef SKIPADD
   return out;
 }
