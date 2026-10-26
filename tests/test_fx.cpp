@@ -124,7 +124,7 @@ TEST(fx_regions_and_facts) {
     CHECK(found);
   }
   // Statements that cannot be regions, and why.
-  CHECK(skippedAt(l, 29, "uses a macro"));
+  CHECK(at(l, 29) != nullptr);  // SCALE: one value for every user, spelled out (2026-10-26; was "uses a macro")
   CHECK(skippedAt(l, 30, "depends on BUFFER_WIDTH/HEIGHT"));
   // A call of a small helper is seen through (2026-10-26; was "function call").
   bool call = false;
@@ -313,10 +313,23 @@ TEST(fx_macro_inputs) {
     CHECK(dagCost(r.prog.target, m, r.prog.inputs) == uint32_t(m[Op::Mul] + m.fusedAdd + m[Op::Div]));
   }
   CHECK(found);
-  // #if still uses the value (the region exists), FIXED is still a plain macro.
-  bool fixedSkipped = false;
-  for (const auto& d : sk.details) fixedSkipped = fixedSkipped || d.find("sopt_macros.fx:25: uses a macro") != std::string::npos;
-  CHECK(fixedSkipped);
+  // #if still uses the value (the region exists); FIXED has one value for every user: spelled out (2026-10-26).
+  bool fixed = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
+    fixed = fixed || (r.line == 25 && toString(r.prog.target, r.prog.inputs) == "d * 3.0 + 1.0");
+  CHECK(fixed);
+  // A macro defined inside #if depends on a setting: still skipped; the include guard does not count.
+  auto f = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_fixedmacro.fx", fx::LoadOptions(), err);
+  CHECK(f != nullptr);
+  if (!f) return;
+  fx::SkipCount sf;
+  sf.keepDetails = true;
+  bool lit = false;
+  for (const auto& r : fx::extractRegions(*f, nullptr, fx::RegionOptions(), sf))
+    lit = lit || (r.line == 20 && toString(r.prog.target, r.prog.inputs).find("0.75") != std::string::npos);
+  bool cond = false;
+  for (const auto& d : sf.details) cond = cond || d.find("sopt_fixedmacro.fx:21: uses a macro") != std::string::npos;
+  CHECK(lit && cond);
 }
 
 TEST(fx_buffer_inputs) {
@@ -1335,6 +1348,23 @@ TEST(fx_inline_calls) {
   bool branchy = false;
   for (const auto& d : sk.details) branchy = branchy || d.find(":14: function call: branches") != std::string::npos;
   CHECK(branchy);
+}
+
+TEST(fx_select_conditions) {
+  // A scalar condition HLSL widens to vector branches, a bool / int slider or a float as the condition itself
+  // (2026-10-26: "vector select" was mostly these): all regions, the non-bool ones tested against 0.
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_select.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::RegionOptions ro;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, ro, sk);
+  for (uint32_t line = 9; line <= 15; ++line) {
+    const fx::Region* r = regionOn(regions, line);
+    CHECK(r != nullptr);
+    if (r && line == 10) CHECK(toString(r->prog.target, r->prog.inputs).rfind("float(Flag) != 0.0 ?", 0) == 0);
+  }
 }
 
 TEST(fx_output_keeps_folders) {

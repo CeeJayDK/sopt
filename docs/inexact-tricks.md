@@ -160,6 +160,13 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
   disagreement fails, and the corpus has only 17 such comparisons in 441 effects, almost all inside
   `if` conditions, which sopt-fx does not read as regions.
 
+### `tan(x)` as `sin(x) * rsqrt(abs(1 - sin(x)^2))`
+- Found by sopt (intrinsics.yml, 2026-10-26): saves the cos and the division; Ampere 72 -> 57, Turing 36 -> 33,
+  Intel Gen9 37 -> 34 (search model units).
+- **What's wrong:** only where cos(x) > 0 (|x| < pi/2 and its repeats); near +-pi/2, 1 - sin^2 cancels, so it is
+  less accurate there (sopt lists it as "less accurate").
+- **Safe when** x stays well inside (-pi/2, pi/2) and the result tolerates a few ulps more error.
+
 ## Not exact: avoid unless the error does not matter
 
 ### Clamp by scaling: `mad(saturate(mad(x, 1/(b - a), -a/(b - a))), b - a, a)`

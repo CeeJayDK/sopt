@@ -997,6 +997,13 @@ class Extractor {
   // Pass 1 / 2 over the value tree.
   void collect(uint32_t id);
   uint32_t build(uint32_t id, ExprBuilder& b);
+  // A select's condition as a scalar test (2026-10-26): HLSL widens a scalar condition to the branches' size, and a
+  // bool / int / float can be the condition itself (then "!= 0"). Returns the value to use as is, or 0 for cond:
+  // a copy of the load / chain without the widening cast, numeric when it is not a bool.
+  uint32_t condOf(uint32_t id, Value& cond, bool& numeric);
+  void collectCond(uint32_t id);
+  uint32_t buildCond(uint32_t id, ExprBuilder& b);
+  bool numberLeaf_ = false;  // leafOf: a bool / int variable read as a float (a condition)
   // Splits a load into leaf prefix and the vector part of the chain.
   Leaf& leafOf(const Value& v, size_t& vecStart);
   uint32_t applyVectorChain(uint32_t node, const std::vector<reshadefx::expression::operation>& chain,
@@ -1036,6 +1043,8 @@ class Extractor {
   }
   void suggest(const Leaf& l, Fact& f) const;
   std::vector<std::string> sourceTokens(const std::string& src) const;
+  bool fixedMacro(const std::string& name) const;
+  mutable std::unordered_map<std::string, std::pair<int, bool>> macroDefs_;  // name -> (definitions, any in #if)
   Range outParamRange(const Function& g, size_t index);
   Range pixelInputRange(const Function& ps, const std::string& semantic);
   struct OutArg {
@@ -1073,6 +1082,7 @@ class Extractor {
   // current region
   std::vector<Leaf> leaves_;
   std::unordered_map<uint32_t, uint32_t> built_;
+  std::unordered_set<uint32_t> collected_;  // collect(): values seen in this scope
   bool usesPow_ = false;
   std::unordered_map<uint32_t, uint32_t> inline_;  // temporary variable -> its value
   std::unordered_map<uint32_t, uint32_t> inlineLoad_;  // load -> value of its (chain) definition
@@ -1180,6 +1190,10 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
       t.base = reshadefx::type::t_float;
       intSource = true;
     }
+  }
+  if (numberLeaf_ && i == v.chain.size() && t.is_scalar() && (t.is_boolean() || t.is_integral())) {
+    t.base = reshadefx::type::t_float;  // written float(x): a select's condition tests it against 0
+    intSource = true;
   }
   if (!isFloatType(t)) throw Unsupported("non-float variable");
   for (auto& l : leaves_)
@@ -1316,7 +1330,92 @@ Extractor::CallScope::~CallScope() {
   restore(x_.inlineLoad_, savedLoads_);
 }
 
+uint32_t Extractor::condOf(uint32_t id, Value& cond, bool& numeric) {
+  const Value& c = cg_.values.at(id);
+  using O = reshadefx::expression::operation;
+  // reshadefx widens with a swizzle (.xx) and then casts to bool (int2 -> bool2): both come off.
+  Value s = c;
+  bool stripped = false;
+  if ((s.kind == Value::Kind::Load || s.kind == Value::Kind::Chain) && !s.chain.empty() &&
+      s.chain.back().op == O::op_cast && s.chain.back().to.is_boolean()) {
+    numeric = numeric || !s.chain.back().from.is_boolean();
+    s.type = s.chain.back().from;
+    s.chain.pop_back();
+    stripped = true;
+  }
+  if ((s.kind == Value::Kind::Load || s.kind == Value::Kind::Chain) && !s.chain.empty() &&
+      s.chain.back().op == O::op_swizzle && s.chain.back().from.is_scalar() && (stripped || s.type.is_boolean())) {
+    s.type = s.chain.back().from;
+    s.chain.pop_back();
+    stripped = true;
+  }
+  if (stripped) {
+    const reshadefx::type from = s.type;
+    if (!from.is_scalar()) throw Unsupported("vector select");
+    cond = s;
+    if (cond.kind == Value::Kind::Chain && cond.chain.empty()) {  // the widened value itself
+      if (from.is_boolean()) return condOf(cond.base, cond, numeric);
+      return cond.base;
+    }
+    return 0;
+  }
+  if (!c.type.is_scalar()) throw Unsupported("vector select");
+  if (c.kind == Value::Kind::Load && c.type.is_boolean()) {  // a bool variable
+    cond = c;
+    numeric = true;
+    return 0;
+  }
+  return id;
+}
+
+void Extractor::collectCond(uint32_t id) {
+  Value c;
+  bool numeric = false;
+  if (const uint32_t use = condOf(id, c, numeric)) { collect(use); return; }
+  if (c.kind == Value::Kind::Chain) {
+    collect(c.base);
+    chainMask(c.chain, 0, 4);  // validates
+    return;
+  }
+  if (inlineLoad_.count(id) || inline_.count(c.base)) {
+    collect(inlineLoad_.count(id) ? inlineLoad_.at(id) : inline_.at(c.base));
+    return;
+  }
+  size_t vs = 0;
+  numberLeaf_ = true;
+  Leaf& l = leafOf(c, vs);
+  numberLeaf_ = false;
+  l.mask |= chainMask(c.chain, vs, l.type.rows);
+  if (!l.loadValue) l.loadValue = id;
+}
+
+uint32_t Extractor::buildCond(uint32_t id, ExprBuilder& b) {
+  Value c;
+  bool numeric = false;
+  const uint32_t use = condOf(id, c, numeric);
+  uint32_t r = 0;
+  if (use) {
+    r = build(use, b);
+  } else if (c.kind == Value::Kind::Chain) {
+    r = applyVectorChain(build(c.base, b), c.chain, 0, b, nullptr);
+  } else if (inlineLoad_.count(id) || inline_.count(c.base)) {
+    r = applyVectorChain(build(inlineLoad_.count(id) ? inlineLoad_.at(id) : inline_.at(c.base), b), c.chain, 0, b,
+                         nullptr);
+  } else {
+    size_t vs = 0;
+    numberLeaf_ = true;
+    const Leaf& l = leafOf(c, vs);
+    numberLeaf_ = false;
+    r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), c.chain, vs, b, &l);
+    numeric = true;  // a variable is read as a float, also a bool one
+  }
+  return numeric ? b.op(Op::Ne, r, b.constant(0.0f)) : r;
+}
+
 void Extractor::collect(uint32_t id) {
+  // Each value once per scope: a value read several times (a helper's parameter, a shared temporary) would otherwise
+  // be walked again for every path to it, exponentially in nested helpers (CRT.fx, 2026-10-26).
+  if (!collected_.insert(id).second) return;
   const auto it = cg_.values.find(id);
   if (it == cg_.values.end()) throw Unsupported("value");
   const Value& v = it->second;
@@ -1388,10 +1487,10 @@ void Extractor::collect(uint32_t id) {
       return;
     }
     case K::Ternary: {
-      const auto& c = cg_.values.at(v.args[0]);
-      if (!(c.type.is_boolean() && c.type.is_scalar())) throw Unsupported("vector select");
       if (!isFloatType(v.type)) throw Unsupported("non-float select");
-      for (uint32_t a : v.args) collect(a);
+      collectCond(v.args[0]);
+      collect(v.args[1]);
+      collect(v.args[2]);
       return;
     }
     case K::Intrinsic: {
@@ -1441,7 +1540,10 @@ void Extractor::collect(uint32_t id) {
       return;
     case K::Call: {
       const CallScope scope(*this, v);
+      auto outer = std::move(collected_);
+      collected_.clear();
       collect(scope.ret);
+      collected_ = std::move(outer);
       return;
     }
     case K::Phi: throw Unsupported("short-circuit or branch value");
@@ -1572,7 +1674,7 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
     case K::Ternary: {
       uint32_t a[2] = {build(v.args[1], b), build(v.args[2], b)};
       scalarizeConstants(a, 2, b);
-      r = b.op(Op::Select, build(v.args[0], b), a[0], a[1]);
+      r = b.op(Op::Select, buildCond(v.args[0], b), a[0], a[1]);
       break;
     }
     case K::Intrinsic: {
@@ -1930,6 +2032,7 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
       if (std::isfinite(lo) && std::isfinite(hi))
         return Range::of(std::min(lo, hi), std::max(lo, hi), "ui_min/ui_max");
       if (uiType == "color") return Range::of(0, 1, "ui_type = color");
+      if (v.type.is_boolean()) return Range::of(0, 1, "bool", 1);
       return Range::unknown();
     }
     case Variable::Kind::Param:
@@ -2467,11 +2570,22 @@ std::vector<std::string> Extractor::sourceTokens(const std::string& src) const {
           if (!expand(u, depth + 1, out, sym)) return false;
         return true;
       };
+  // A macro with one value for every user (2026-10-26: FXAA_SUBPIX_CAP, SMAA_AREATEX_PIXEL_SIZE): expanded too, when
+  // every macro in it is such a one; a variant then spells out the value.
+  std::function<bool(const std::string&, int)> fixedAll = [&](const std::string& t, int depth) {
+    if (symbolicName(t)) return true;
+    const auto it = fx_.objectMacros.find(t);
+    if (it == fx_.objectMacros.end()) return true;
+    if (depth > 16 || !fixedMacro(t)) return false;
+    for (const auto& u : tokens(it->second))
+      if (!fixedAll(u, depth + 1)) return false;
+    return true;
+  };
   std::vector<std::string> out;
   for (const auto& t : tokens(src)) {
     std::vector<std::string> e;
     bool sym = false;
-    if (!symbolicName(t) && fx_.objectMacros.count(t) && expand(t, 0, e, sym) && sym)
+    if (!symbolicName(t) && fx_.objectMacros.count(t) && expand(t, 0, e, sym) && (sym || fixedAll(t, 0)))
       out.insert(out.end(), e.begin(), e.end());
     else
       out.push_back(t);
@@ -2479,11 +2593,55 @@ std::vector<std::string> Extractor::sourceTokens(const std::string& src) const {
   return out;
 }
 
+// Not a setting the user can change (ReShade's preprocessor definitions are the ones the effect tests with #ifdef /
+// #ifndef), and defined once, outside #if blocks (a header's include guard does not count), or not in the sources
+// at all (ReShade's own).
+bool Extractor::fixedMacro(const std::string& name) const {
+  if (fx_.userMacros.count(name)) return false;
+  if (macroDefs_.empty()) {
+    macroDefs_[""] = {0, false};  // scanned
+    for (const auto& file : fx_.sourceFiles) {
+      const std::vector<std::string>* lines = sourceLines(file);
+      if (!lines) continue;
+      std::vector<bool> conditional;  // per open #if: does it make code conditional?
+      std::string guard;              // the first directive's #ifndef name (an include guard candidate)
+      bool first = true;
+      for (const std::string& raw : *lines) {
+        const std::string l = trim(raw);
+        if (l.empty() || l[0] != '#') continue;
+        std::istringstream in(l.substr(1));
+        std::string d, arg;
+        in >> d >> arg;
+        const std::string candidate = first && d == "ifndef" ? arg : std::string();
+        if (d == "if" || d == "ifdef" || d == "ifndef") {
+          conditional.push_back(true);
+        } else if (d == "endif") {
+          if (!conditional.empty()) conditional.pop_back();
+        } else if (d == "define") {
+          const std::string n = arg.substr(0, arg.find('('));
+          if (!guard.empty() && n == guard && conditional.size() == 1) {
+            conditional.back() = false;  // #ifndef X / #define X: the include guard
+          } else {
+            auto& def = macroDefs_[n];
+            ++def.first;
+            for (const bool c : conditional) def.second = def.second || c;
+          }
+        }
+        guard = candidate;  // only the directive right after it may complete the guard
+        first = false;
+      }
+    }
+  }
+  const auto it = macroDefs_.find(name);
+  return it == macroDefs_.end() || (it->second.first == 1 && !it->second.second);
+}
+
 // IR of a statement's value (with the temporaries in inline_ replaced by their
 // definitions), inputs and facts.
 bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   leaves_.clear();
   built_.clear();
+  collected_.clear();
   usesPow_ = false;
   reg.prog.inputs.clear();
   reg.facts.clear();
