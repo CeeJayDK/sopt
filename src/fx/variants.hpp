@@ -154,6 +154,7 @@ std::vector<std::filesystem::path> writeVariants(const std::vector<RegionResult>
 // (Safe), also blend-stage ones (All), or none.
 struct EasyOptions {
   bool tooExact = false;
+  bool identicalOnly = false;  // only bit-exact and 8-bit identical variants (no "within budget"; owner, 2026-10-25)
   enum class Rewrites { None, Safe, All } rewrites = Rewrites::Safe;
 };
 void easyPicks(std::vector<RegionResult>& results, std::vector<SourceRewrite>& rewrites, const EasyOptions& eo);

@@ -148,10 +148,12 @@ void easyPicks(std::vector<RegionResult>& results, std::vector<SourceRewrite>& r
     long bestKey = 0;
     for (size_t k = 0; k < rr.variants.size(); ++k) {
       const Variant& v = rr.variants[k];
-      const bool klassOk = v.klass == Klass::BitExact || v.klass == Klass::Identical8 || v.klass == Klass::Within ||
-                           (eo.tooExact && v.klass == Klass::Accurate);
+      const bool klassOk = v.klass == Klass::BitExact || v.klass == Klass::Identical8 ||
+                           (!eo.identicalOnly && (v.klass == Klass::Within || (eo.tooExact && v.klass == Klass::Accurate)));
       if (!klassOk || v.notFaster || !v.problems.empty() || !v.formatGuard.empty() || !rr.region.guard.empty())
         continue;
+      // fxc compiles it to the original's code: only the code's look changes (an effect's author, 2026-10-25).
+      if (v.dxbcSame) continue;
       const bool amd = v.amd >= 0 && rr.targetAmd >= 0, nv = v.nv >= 0 && rr.targetNv >= 0;
       if ((amd && v.amd > rr.targetAmd) || (nv && v.nv > rr.targetNv)) continue;
       if (!v.otherGpus && (amd || nv) && !((amd && v.amd < rr.targetAmd) || (nv && v.nv < rr.targetNv))) continue;

@@ -81,6 +81,14 @@ Text joinLines(const std::vector<std::string>& lines) {
 
 }  // namespace source
 
+// The table rewrite's vendor forms (TexBench, 2026-10-17): NVIDIA a select tree, Intel the original array; and one
+// version for all GPUs (owner, 2026-10-25, an effect's author asked for code without vendor branches): the tree on
+// every GPU (the best on NVIDIA, better than a static const table on Intel; D3D9 keeps the table).
+const char* const kNvTreeIf = "#if __VENDOR__ == 0x10DE && __RENDERER__ >= 0xa000";
+const char* const kTreeIf = "#if __RENDERER__ >= 0xa000";
+const char* const kNotIntel = " && __VENDOR__ != 0x8086";
+const char* const kVendorText = ") as a select tree (NVIDIA) / static const table (AMD); Intel keeps the array";
+
 namespace {
 
 using source::identChar;
@@ -334,7 +342,7 @@ std::optional<SourceRewrite> tableRewrite(const Codegen& cg, const Function& f, 
       v.push_back(trim(e));
     }
     while (v.size() & (v.size() - 1)) v.push_back(v.back());  // a power of two (indices past the end: undefined anyway)
-    insert.lines.push_back("#if __VENDOR__ == 0x10DE && __RENDERER__ >= 0xa000");
+    insert.lines.push_back(kNvTreeIf);
     insert.lines.push_back(typeName + " " + at + "(int i)");
     insert.lines.push_back("{");
     std::vector<std::string> level = v;
@@ -359,15 +367,27 @@ std::optional<SourceRewrite> tableRewrite(const Codegen& cg, const Function& f, 
   r.edits.push_back(std::move(insert));
   r.edits.push_back({declLine, endLine, {}});
   for (auto& [ln, l] : useLines) r.edits.push_back({ln, ln, {l}});
-  for (auto& ed : r.edits) ed.extra = " && __VENDOR__ != 0x8086";
+  for (auto& ed : r.edits) ed.extra = kNotIntel;
   r.otherEntries = static_cast<uint32_t>(others);
   r.description = "local array " + var.name + lenText + " (" + std::to_string(consts) + " constants" +
                   (others ? ", " + std::to_string(others) + " other" : "") +
-                  ") as a select tree (NVIDIA) / static const table (AMD); Intel keeps the array";
+                  kVendorText;
   return r;
 }
 
 }  // namespace
+
+void oneVersionForAllGpus(std::vector<SourceRewrite>& rewrites) {
+  for (SourceRewrite& r : rewrites) {
+    for (LineEdit& e : r.edits) {
+      if (e.extra == kNotIntel) e.extra.clear();
+      for (std::string& l : e.lines)
+        if (l == kNvTreeIf) l = kTreeIf;
+    }
+    if (const size_t at = r.description.find(kVendorText); at != std::string::npos)
+      r.description.replace(at, std::string::npos, ") as a select tree (D3D9: a static const table), on every GPU");
+  }
+}
 
 std::string rewriteSwitch(const SourceRewrite& r) {
   std::string stem = pathFrom(r.file).stem().string();
