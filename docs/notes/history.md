@@ -2203,6 +2203,16 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   reach it; one under extra conditions is a select), returns become selects (an earlier return wins), c.rg = ... a
   merge of components. The selects and merges are frontend-made values (Synth, ids from 0x40000000) that collect()
   and build() look up first. Loops and switches in helpers still skip.
+  Corpus after PR #83: regions 15454, changed 1981 (+11%), saved 35906 (+15%), time 19419 s (+10%).
+  Setting paths (owner, 2026-10-26): each value an #if / #elif tests a user definition for (== N, > N -> N+1, a bare
+  flag -> its other value; at most 32 per effect) is parsed once more with only that setting changed; regions on lines
+  the default parse leaves out (ppLines without tokens) are added with their #if conditions as the guard (spanGuard,
+  enclosing). The variant check loads each written effect with those settings too. SuperDepth3D 613 -> 757 regions,
+  listing 10 s -> 105 s. --no-setting-paths turns it off.
+  Calls as inputs: a pure helper (no writes outside its locals / parameters, no out parameters, also in what it calls)
+  that cannot be inlined (a texture read, a loop, a switch) is an input named by its call text, like a texture read;
+  its range is the union of its returns (range of a Call). SuperDepth3D + SweetFX: 1145 -> 1229 regions, function call
+  skips 136 -> 10, tex2Dlod inside helpers 37 -> 0.
   Deep intrinsics run (30 min per problem and model): the same known forms, plus tan = sin * rsqrt(abs(1 - sin^2))
   (less accurate, cos > 0 only; inexact-tricks.md). Searches reach about the same cost levels as at 30 s (cross 11 of
   30, normalize 13 of 47, pow 15 of 51): the bank's size, not the time, limits them; complete only for the cheap ones.

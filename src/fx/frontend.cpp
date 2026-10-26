@@ -996,6 +996,7 @@ class Extractor {
     uint32_t input = 0;          // IR input index
     std::vector<uint8_t> remap;  // component -> input component
     bool fetch = false;          // texture fetch: prefix is its call text
+    bool call = false;           // ... or a helper call read as an input (fetch too)
     std::string semantic;        // of the struct member the prefix ends in, if any
     bool intSource = false;      // a compute shader's integer thread ID, read converted to float
   };
@@ -1134,6 +1135,12 @@ class Extractor {
   std::unordered_map<uint32_t, std::string> fetchText_;  // fetch value -> call text
   std::vector<const Statement*> window_;  // statements inlined into the current region
   void mapFetches(const Statement& s, const std::string& text);
+  // Helper calls of a statement, by their text (a call that cannot be inlined is then an input, 2026-10-26).
+  void mapCalls(const Statement& s, const std::string& text);
+  std::unordered_map<uint32_t, std::string> callText_;
+  std::unordered_set<uint32_t> callLeaf_;  // calls read as inputs
+  bool pureCall(const std::string& uniqueName, int depth = 0) const;
+  std::unordered_set<std::string> callBusy_;  // range(): helpers being followed
 };
 
 std::string Extractor::varText(uint32_t var, bool relative) const {
@@ -1628,11 +1635,37 @@ void Extractor::collect(uint32_t id) {
       }
       return;
     case K::Call: {
-      const CallScope scope(*this, v);
-      auto outer = std::move(collected_);
-      collected_.clear();
-      collect(scope.ret);
-      collected_ = std::move(outer);
+      // Inlined if it can be; else a pure call written in the statement is an input by its text, like a texture read
+      // (a helper reading a texture, with a loop, ...; 2026-10-26).
+      const std::vector<Leaf> before = leaves_;
+      auto outer = collected_;
+      try {
+        const CallScope scope(*this, v);
+        collected_.clear();
+        collect(scope.ret);
+        collected_ = std::move(outer);
+      } catch (const Unsupported&) {
+        const auto t = callText_.find(id);
+        if (t == callText_.end() || !isFloatType(v.type) || !pureCall(v.name)) throw;
+        leaves_ = before;
+        collected_ = std::move(outer);
+        collected_.insert(id);
+        callLeaf_.insert(id);
+        Leaf* l = nullptr;
+        for (auto& x : leaves_)
+          if (x.fetch && x.prefix == t->second) l = &x;
+        if (!l) {
+          Leaf n;
+          n.prefix = t->second;
+          n.type = v.type;
+          n.loadValue = id;
+          n.fetch = true;  // named by its text, its range from the helper's returns
+          n.call = true;
+          leaves_.push_back(n);
+          l = &leaves_.back();
+        }
+        l->mask |= (1u << l->type.rows) - 1;
+      }
       return;
     }
     case K::Phi: throw Unsupported("short-circuit or branch value");
@@ -1888,6 +1921,14 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
     case K::Call: {
       // The callee's values are shared by every call: built with this call's bindings in a map of their own (the
       // DAG merges what the calls have in common).
+      if (callLeaf_.count(id)) {
+        const auto t = callText_.find(id);
+        const Leaf* l = nullptr;
+        for (const auto& x : leaves_)
+          if (x.fetch && x.prefix == t->second) l = &x;
+        r = b.input(l->input, floatType(std::popcount(l->mask)));
+        break;
+      }
       const CallScope scope(*this, v);
       auto outer = std::move(built_);
       built_.clear();
@@ -2074,7 +2115,20 @@ Range Extractor::range(uint32_t id) {
       }
       break;
     }
-    case K::Call: break;
+    case K::Call: {
+      // What its returns can give (its parameters' ranges are the union over its call sites).
+      const Function* f = cg_.function(v.name);
+      if (!f || !callBusy_.insert(v.name).second) break;
+      bool any = false;
+      for (const Statement& s : f->stmts)
+        if (s.kind == Statement::Kind::Return) {
+          const Range x = range(s.value);
+          r = any ? unite(r, x) : x;
+          any = true;
+        }
+      callBusy_.erase(v.name);
+      break;
+    }
   }
   if (r.known && !(std::isfinite(r.lo) && std::isfinite(r.hi))) r = Range::unknown();
   // Integer values truncate (casts, integer division: int(1.5) = 3 / 2 = 1): widen to whole numbers.
@@ -2802,14 +2856,20 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   reg.prog.inputs.clear();
   reg.facts.clear();
   fetchText_.clear();
+  callText_.clear();
+  callLeaf_.clear();
   // A resource write's text starts with the call and its coordinate (HLSL: Name[index] =): only the
   // value is the region. An HLSL compound write (Name[index] += v) reads the element first, as its text does.
   const size_t lhsAt = reg.kind == Region::Kind::Write ? reg.text.find(reg.lhs) : std::string::npos;
   mapFetches(s, lhsAt != std::string::npos ? reg.text.substr(lhsAt + reg.lhs.size()) : reg.text);
+  mapCalls(s, lhsAt != std::string::npos ? reg.text.substr(lhsAt + reg.lhs.size()) : reg.text);
   for (const Statement* d : window_) {
     Region shape;
     std::string w;
-    if (shapeOf(*d, shape, w)) mapFetches(*d, shape.text);
+    if (shapeOf(*d, shape, w)) {
+      mapFetches(*d, shape.text);
+      mapCalls(*d, shape.text);
+    }
   }
   try {
     collect(s.value);
@@ -2859,7 +2919,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       const bool plainVar = !l.fetch && cg_.variables.count(l.var) && l.prefix == varText(l.var);
       fact.key = plainVar ? varKey(l.var) : std::string();
       // Plain HLSL: a read of a texture is keyed by the texture (its range applies to every read).
-      if (fx_.hlsl && l.fetch) {
+      if (fx_.hlsl && l.fetch && !l.call) {
         const auto fv = cg_.values.find(l.loadValue);
         const auto sv = fv == cg_.values.end() || fv->second.args.empty() ? cg_.values.end()
                                                                            : cg_.values.find(fv->second.args[0]);
@@ -2989,6 +3049,68 @@ void Extractor::mapFetches(const Statement& s, const std::string& text) {
   for (size_t k = 0; k < calls.size(); ++k) fetchText_[fetches[k].second] = calls[k];
 }
 
+void Extractor::mapCalls(const Statement& s, const std::string& text) {
+  std::unordered_set<uint32_t> tree;
+  treeValues(s.value, tree);
+  std::vector<std::pair<uint32_t, uint32_t>> calls;  // seq, id
+  for (uint32_t id : tree)
+    if (const auto it = cg_.values.find(id); it != cg_.values.end() && it->second.kind == Value::Kind::Call)
+      calls.emplace_back(it->second.seq, id);
+  if (calls.empty()) return;
+  std::sort(calls.begin(), calls.end());
+  // The calls' names in the text in order, outermost only (an argument's calls are not in the tree: arguments are
+  // passed through variables).
+  std::vector<std::string> texts;
+  size_t c = 0;
+  for (size_t i = 0; i < text.size() && c < calls.size(); ++i) {
+    const Function* f = cg_.function(cg_.values.at(calls[c].second).name);
+    if (!f) return;
+    const std::string& name = f->name;
+    if (text.compare(i, name.size(), name) != 0 || (i > 0 && (isIdent(text[i - 1]) || text[i - 1] == '.'))) continue;
+    size_t j = text.find_first_not_of(" \t", i + name.size());
+    if (j == std::string::npos || text[j] != '(') continue;
+    size_t start = i;  // a namespace in front belongs to the call (ReShade::GetLinearizedDepth)
+    while (start >= 2 && text.compare(start - 2, 2, "::") == 0) {
+      start -= 2;
+      while (start > 0 && isIdent(text[start - 1])) --start;
+    }
+    int depth = 0;
+    size_t k = j;
+    for (; k < text.size(); ++k) {
+      if (text[k] == '(' || text[k] == '[') ++depth;
+      if ((text[k] == ')' || text[k] == ']') && --depth == 0) break;
+    }
+    if (k >= text.size()) return;
+    texts.push_back(text.substr(start, k + 1 - start));
+    ++c;
+    i = k;
+  }
+  if (texts.size() != calls.size()) return;
+  for (size_t k = 0; k < texts.size(); ++k) callText_[calls[k].second] = texts[k];
+}
+
+// No writes outside its own locals and parameters, no out parameters, in it and in the helpers it calls: the same
+// value for the same arguments (texture reads are fine).
+bool Extractor::pureCall(const std::string& uniqueName, int depth) const {
+  const Function* f = cg_.function(uniqueName);
+  if (!f || depth > 16) return false;
+  for (const uint32_t p : f->params)
+    if (const auto v = cg_.variables.find(p); v == cg_.variables.end() || v->second.type.has(reshadefx::type::q_out))
+      return false;
+  for (const Statement& s : f->stmts) {
+    if (s.kind == Statement::Kind::Write) return false;
+    if (hasVar(s)) {
+      const auto v = cg_.variables.find(s.var);
+      if (v == cg_.variables.end() ||
+          (v->second.kind != Variable::Kind::Local && v->second.kind != Variable::Kind::Param))
+        return false;
+    }
+  }
+  for (const std::string& g : f->calls)
+    if (!pureCall(g, depth + 1)) return false;
+  return true;
+}
+
 // A range to suggest for an input without facts, from its name, a uniform's default
 // value or the texture it is read from.
 void Extractor::suggest(const Leaf& l, Fact& f) const {
@@ -3006,6 +3128,7 @@ void Extractor::suggest(const Leaf& l, Fact& f) const {
     f.suggestHi = hi;
     f.suggestWhy = why;
   };
+  if (l.call) return;  // a helper's result: no guess
   if (l.fetch) return set(0, 1, "texture read (float format)");
   std::string semantic = l.semantic;
   if (const auto it = cg_.variables.find(l.var); semantic.empty() && it != cg_.variables.end())
