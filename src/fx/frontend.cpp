@@ -766,6 +766,25 @@ bool sameBlock(const std::string& file, uint32_t first, uint32_t last) {
 bool spanGuard(const Effect& fx, const std::string& file, uint32_t first, uint32_t last,
                std::string& guard, std::string& why, bool enclosing = false);
 
+// Whether `name` appears as an identifier in the text from line `from` to the end of its block, outside the lines
+// `removed` and [first, last] (code of every setting counts: the text is not preprocessed).
+bool nameInScope(const std::string& file, const std::string& name, uint32_t from,
+                 const std::vector<std::pair<uint32_t, uint32_t>>& removed, uint32_t first, uint32_t last) {
+  const std::vector<std::string>* lines = sourceLines(file);
+  if (!lines || name.empty()) return true;
+  int depth = 0;
+  for (uint32_t l = from; l <= lines->size(); ++l) {
+    bool skip = l >= first && l <= last;
+    for (const auto& [a, b] : removed) skip = skip || (l >= a && l <= b);
+    for (const std::string& t : tokens((*lines)[l - 1])) {
+      if (t == "{") ++depth;
+      if (t == "}" && --depth < 0) return false;  // the end of the block the temporary was declared in
+      if (!skip && (t == name || t.rfind(name + ".", 0) == 0)) return true;
+    }
+  }
+  return false;
+}
+
 // Constants a statement names that are declared inside #if / #else (owner, 2026-10-25, SuperDepth3D: Luma_Dark is a
 // static const = 0.15 in one build and a uniform slider in the other). ReShade's parser puts a static const's value in
 // place, so a variant would carry 0.15 into the slider build: the region gets the declaration's condition as its guard
@@ -3460,6 +3479,21 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
           text += shape.original + "\n";
         }
         win.original = text + reg.original;
+        // A temporary the variant removes must have no other use in its scope's text, whatever the settings: its
+        // single use is counted in this parse only (ArcaneBloom.fx 2026-10-26: "exposure" read once more under
+        // ARCANE_BLOOM_WHITE_POINT_FIX).
+        bool usedElsewhere = false;
+        for (const Statement* d : defs) {
+          if (std::find(chainDefs.begin(), chainDefs.end(), d) != chainDefs.end()) continue;
+          const auto dv = cg_.variables.find(d->var);
+          if (dv != cg_.variables.end())
+            usedElsewhere = usedElsewhere || nameInScope(reg.file, dv->second.name, d->loc.line, win.removed,
+                                                         reg.line, reg.lastLine);
+        }
+        if (usedElsewhere) {
+          SKIPADD("window: a temporary is used under other settings");
+          continue;
+        }
         if (!spanGuard(fx_, reg.file, win.removed.front().first, reg.lastLine, win.guard, why)) {
           SKIPADD("window: " + why);
           continue;
@@ -3548,6 +3582,11 @@ std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const Re
     kept.push_back(std::move(r));
   }
   return kept;
+}
+
+bool underCondition(const Effect& fx, const std::string& file, uint32_t first, uint32_t last) {
+  std::string g, why;
+  return !spanGuard(fx, file, first, last, g, why, true) || !g.empty();
 }
 
 std::vector<std::pair<std::string, std::string>> settingValues(const Effect& fx) {
