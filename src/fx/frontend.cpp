@@ -3503,22 +3503,26 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
         if (!hasVar(t) || !t.chain.empty() || tv == cg_.variables.end() || tv->second.kind != Variable::Kind::Local)
           continue;
         std::vector<const Statement*> users;
+        std::vector<uint32_t> loads;  // the users' reads of t
         unsigned rows = 0;
         for (const Statement& s : f.stmts) {
           if (s.seq <= t.seq || !hasVar(s) || !s.chain.empty() || s.block != t.block) continue;
           std::unordered_set<uint32_t> tree;
           treeValues(s.value, tree);
           bool reads = false, other = false;
+          std::vector<uint32_t> mine;
           for (const uint32_t id : tree) {
             const auto v = cg_.values.find(id);
             if (v == cg_.values.end() || v->second.kind != Value::Kind::Load || v->second.base != t.var) continue;
             bool killed = false;
             const auto reach2 = reaching(t.var, v->second.seq, v->second.block, killed);
             (killed && reach2[0] == &t ? reads : other) = true;
+            if (killed && reach2[0] == &t) mine.push_back(id);
           }
           const auto sv = cg_.variables.find(s.var);
           if (!reads || other || sv == cg_.variables.end() || sv->second.type.cols != 1) continue;
           users.push_back(&s);
+          loads.insert(loads.end(), mine.begin(), mine.end());
           rows += sv->second.type.rows;
         }
         if (users.size() < 2 || users.size() > 4 || rows > 4) continue;
@@ -3532,8 +3536,14 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
         std::string why;
         if (!shapeOf(*users.back(), reg, why)) continue;
         inline_.clear();
-        inline_[t.var] = t.value;
-        if (!buildRegion(joint, reg, why)) continue;
+        inlineLoad_.clear();
+        for (const uint32_t l : loads) inlineLoad_[l] = t.value;  // not by name: t's own value may read t
+        try {
+          if (!buildRegion(joint, reg, why)) continue;
+        } catch (const std::exception& ex) {
+          std::fprintf(stderr, "multi-result group at %s:%u: %s\n", t.loc.source.c_str(), t.loc.line, ex.what());
+          continue;
+        }
         reg.line = t.loc.line;
         for (const Statement* s : users) reg.groupLines.push_back(s->loc.line);
         reg.prog.budget.kind = Budget::Kind::Rel;  // every result an intermediate value: the strictest usual budget
