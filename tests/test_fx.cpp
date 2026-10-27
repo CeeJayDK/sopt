@@ -1491,7 +1491,7 @@ TEST(fx_int_inputs) {
     if (r.line == 15 && r.prog.inputs.size() == 2)
       for (const auto& d : r.prog.inputs)
         arith = arith || (d.name == "Steps" && d.type == Type::Uint && d.grid == 7 &&
-                          toString(r.prog.target, r.prog.inputs).find("float(asint(1u + (2u * Steps)))") != std::string::npos);
+                          toString(r.prog.target, r.prog.inputs).find("float(asint((Steps * 2u) + 1u))") != std::string::npos);
     for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
       const auto& d = r.prog.inputs[k];
       loop = loop || (r.line == 13 && d.name == "float(i)" && d.lo == 0 && d.hi == 4 && !r.facts[k].assumed);
