@@ -1125,6 +1125,12 @@ class Extractor {
   void collectCond(uint32_t id);
   uint32_t buildCond(uint32_t id, ExprBuilder& b);
   bool numberLeaf_ = false;  // leafOf: a bool / int variable read as a float (a condition)
+  // Integer + - * converted to float (owner, 2026-10-26: float(i * 2 + 1)): searched as float math, exact while every
+  // value is a whole number within 2^24 (intCast checks the ranges); > 0 while collecting / building one.
+  int intMode_ = 0;
+  bool intCast(const Value& v);
+  bool intExact(uint32_t id, int depth = 0);
+  bool intCompare(const Value& v);
   // Splits a load into leaf prefix and the vector part of the chain.
   Leaf& leafOf(const Value& v, size_t& vecStart);
   uint32_t applyVectorChain(uint32_t node, const std::vector<reshadefx::expression::operation>& chain,
@@ -1342,6 +1348,13 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
       t.base = reshadefx::type::t_float;
       intSource = true;
     }
+  }
+  // Inside integer + - * converted to float (intMode_): the variable is a float input too.
+  if (intMode_ && t.is_integral() && !t.is_boolean() &&
+      (rest == 0 || (rest == 1 && (v.chain[i].op == reshadefx::expression::operation::op_swizzle ||
+                                   v.chain[i].op == reshadefx::expression::operation::op_constant_index)))) {
+    t.base = reshadefx::type::t_float;
+    intSource = !isSymbolic(v.base);  // BUFFER_WIDTH: a compile-time input, variants convert it
   }
   if (numberLeaf_ && i == v.chain.size() && t.is_scalar() && (t.is_boolean() || t.is_integral())) {
     t.base = reshadefx::type::t_float;  // written float(x): a select's condition tests it against 0
@@ -1623,6 +1636,46 @@ uint32_t Extractor::buildCond(uint32_t id, ExprBuilder& b) {
   return numeric ? b.op(Op::Ne, r, b.constant(0.0f)) : r;
 }
 
+// A conversion to float of integer + - * over integer variables and constants, every value (also the operands) a whole
+// number within 2^24 by its range (and not below 0 for uint, which wraps): float math gives the same.
+bool Extractor::intCast(const Value& v) {
+  using O = reshadefx::expression::operation;
+  if (v.kind != Value::Kind::Chain || v.chain.size() != 1 || v.chain[0].op != O::op_cast ||
+      !isFloatType(v.chain[0].to) || !v.chain[0].from.is_integral() || v.chain[0].from.is_boolean() ||
+      v.chain[0].to.rows != v.chain[0].from.rows)
+    return false;
+  return intExact(v.base);
+}
+
+bool Extractor::intExact(uint32_t id, int depth) {
+  const auto it = cg_.values.find(id);
+  if (it == cg_.values.end() || depth > 32) return false;
+  const Value& x = it->second;
+  if (!x.type.is_integral() || x.type.is_boolean()) return false;
+  const Range r = range(id);
+  if (!r.known || std::max(std::abs(r.lo), std::abs(r.hi)) > 16777216.0 || (!x.type.is_signed() && r.lo < 0))
+    return false;
+  switch (x.kind) {
+    case Value::Kind::Const:
+    case Value::Kind::Load:
+      return true;
+    case Value::Kind::Unary:
+      return (x.op == tokenid::minus || x.op == tokenid::plus) && intExact(x.args[0], depth + 1);
+    case Value::Kind::Binary:
+      return (x.op == tokenid::plus || x.op == tokenid::minus || x.op == tokenid::star ||
+              x.op == tokenid::plus_equal || x.op == tokenid::minus_equal || x.op == tokenid::star_equal) &&
+             intExact(x.args[0], depth + 1) && intExact(x.args[1], depth + 1);
+    default:
+      return false;
+  }
+}
+
+// A comparison of such integer values (mode == 2 in a select's condition): the same in float math.
+bool Extractor::intCompare(const Value& v) {
+  return v.kind == Value::Kind::Binary && v.args.size() == 2 && isComparison(v.op) && intExact(v.args[0]) &&
+         intExact(v.args[1]);
+}
+
 void Extractor::collect(uint32_t id) {
   // Each value once per scope: a value read several times (a helper's parameter, a shared temporary) would otherwise
   // be walked again for every path to it, exponentially in nested helpers (CRT.fx, 2026-10-26).
@@ -1637,7 +1690,8 @@ void Extractor::collect(uint32_t id) {
   using K = Value::Kind;
   switch (v.kind) {
     case K::Const:
-      if (!isFloatType(v.type)) throw Unsupported(nonFloat("non-float constant", v.type));
+      if (!isFloatType(v.type) && !(intMode_ && v.type.is_integral()))
+        throw Unsupported(nonFloat("non-float constant", v.type));
       return;
     case K::Load: {
       if (const auto it = inlineLoad_.find(id); it != inlineLoad_.end()) {
@@ -1662,6 +1716,12 @@ void Extractor::collect(uint32_t id) {
         l.mask |= chainMask(v.chain, 0, l.type.rows);
         return;
       }
+      if (intCast(v)) {
+        ++intMode_;
+        collect(v.base);
+        --intMode_;
+        return;
+      }
       collect(v.base);
       chainMask(v.chain, 0, 4);  // validates
       return;
@@ -1672,7 +1732,7 @@ void Extractor::collect(uint32_t id) {
         return;
       }
       if (v.op != tokenid::minus && v.op != tokenid::plus) throw Unsupported("unary operator");
-      if (!isFloatType(v.type)) throw Unsupported(nonFloat("non-float arithmetic", v.type));
+      if (!isFloatType(v.type) && !intMode_) throw Unsupported(nonFloat("non-float arithmetic", v.type));
       collect(v.args[0]);
       return;
     case K::Binary: {
@@ -1692,11 +1752,17 @@ void Extractor::collect(uint32_t id) {
                          v.op == tokenid::star_equal || v.op == tokenid::slash_equal ||
                          v.op == tokenid::percent || v.op == tokenid::percent_equal;  // float %: fmod
       if (!cmp && !arith) throw Unsupported("binary operator");
-      if (arith && !isFloatType(v.type)) throw Unsupported(nonFloat("non-float arithmetic", v.type));
+      if (arith && !isFloatType(v.type) && !intMode_) throw Unsupported(nonFloat("non-float arithmetic", v.type));
       if (cmp && !(v.type.is_boolean() && v.type.is_scalar())) throw Unsupported("vector comparison");
+      if (cmp && intCompare(v)) {
+        ++intMode_;
+        for (uint32_t a : v.args) collect(a);
+        --intMode_;
+        return;
+      }
       for (uint32_t a : v.args) {
         const auto& av = cg_.values.at(a);
-        if (!isFloatType(av.type)) throw Unsupported(nonFloat("non-float arithmetic", av.type));
+        if (!isFloatType(av.type) && !intMode_) throw Unsupported(nonFloat("non-float arithmetic", av.type));
         collect(a);
       }
       return;
@@ -1905,7 +1971,10 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
   switch (v.kind) {
     case K::Const: {
       float c[4];
-      for (unsigned k = 0; k < v.type.rows; ++k) c[k] = v.constant.as_float[k];
+      for (unsigned k = 0; k < v.type.rows; ++k)
+        c[k] = v.type.is_floating_point() ? v.constant.as_float[k]
+               : v.type.is_signed()       ? static_cast<float>(v.constant.as_int[k])
+                                          : static_cast<float>(v.constant.as_uint[k]);  // intMode_
       r = b.constant(floatType(v.type.rows), c);
       break;
     }
@@ -1927,6 +1996,10 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       if (fetchText_.count(v.base)) {
         const Leaf& l = fetchLeaf(v.base);
         r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), v.chain, 0, b, &l);
+      } else if (intCast(v)) {
+        ++intMode_;
+        r = build(v.base, b);  // already float: the conversion is the identity
+        --intMode_;
       } else {
         r = applyVectorChain(build(v.base, b), v.chain, 0, b, nullptr);
       }
@@ -1960,7 +2033,10 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         }
         default: throw Unsupported("binary operator");
       }
+      const bool ints = intCompare(v);
+      intMode_ += ints;
       uint32_t a[2] = {build(v.args[0], b), build(v.args[1], b)};
+      intMode_ -= ints;
       if (info(op).shape == Shape::Comp) scalarizeConstants(a, 2, b);
       r = b.op(op, a[0], a[1]);
       break;
@@ -2367,7 +2443,7 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
   switch (v.kind) {
     case Variable::Kind::Uniform: {
       double lo = NAN, hi = NAN;
-      std::string uiType, source;
+      std::string uiType, source, items;
       for (const auto& a : v.annotations) {
         auto num = [&]() -> double {
           if (a.type.is_floating_point()) return a.value.as_float[0];
@@ -2378,6 +2454,13 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         else if (a.name == "ui_max") hi = num();
         else if (a.name == "ui_type") uiType = a.value.string_data;
         else if (a.name == "source") source = a.value.string_data;
+        else if (a.name == "ui_items") items = a.value.string_data;
+      }
+      // An int combo / radio list: one value per item, 0 to items - 1 (items end with '\0').
+      if (v.type.is_integral() && !v.type.is_boolean() && (uiType == "combo" || uiType == "radio") && !items.empty() &&
+          !(std::isfinite(lo) && std::isfinite(hi))) {
+        const double n = static_cast<double>(std::count(items.begin(), items.end(), '\0') + (items.back() != '\0'));
+        return Range::of(0, n - 1, "ui_items", static_cast<uint32_t>(n - 1));
       }
       if (!source.empty()) {
         if (source == "timer") return Range::of(0, 1e7, "source = timer (ms)");

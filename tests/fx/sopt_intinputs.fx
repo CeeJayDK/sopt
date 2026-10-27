@@ -11,6 +11,7 @@ float4 IPS(float4 p : SV_Position) : SV_Target
 	for (int i = 0; i < 4; i++)
 		sum += c.r * float(i) + c.g * 0.5;
 	float s = c.b * Steps + c.r * Steps;
-	return float4(sum, s, 0.0, 1.0);
+	float w = c.g * float(Steps * 2 + 1) + c.b * float(Steps * 2 + 1);
+	return float4(sum, s, w, 1.0);
 }
 technique I { pass { VertexShader = IVS; PixelShader = IPS; } }
