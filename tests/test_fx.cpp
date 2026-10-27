@@ -1446,9 +1446,11 @@ TEST(fx_int_inputs) {
   CHECK(e != nullptr);
   if (!e) return;
   fx::SkipCount sk;
-  bool loop = false, slider = false, arith = false, array = false, ivec = false;
+  bool loop = false, slider = false, arith = false, array = false, ivec = false, mat = false;
   for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
     if (!r.removed.empty()) continue;
+    // mul() of a matrix written out: a dot per row (2026-10-27).
+    mat = mat || (r.line == 20 && toString(r.prog.target, r.prog.inputs).find("dot(c, float3(0.1, 0.8, 0.1))") != std::string::npos);
     // An int vector built of such values (int2(BUFFER_WIDTH, BUFFER_HEIGHT)) the same way.
     ivec = ivec || (r.line == 19 && toString(r.prog.target, r.prog.inputs).find("float(Steps)") != std::string::npos);
     // Integer + - * converted to float: float math on float(Steps) (whole numbers far below 2^24).
@@ -1462,7 +1464,7 @@ TEST(fx_int_inputs) {
       slider = slider || (r.line == 14 && d.name == "float(Steps)" && d.lo == 1 && d.hi == 8 && d.grid == 7);
     }
   }
-  CHECK(loop && slider && arith && array && ivec);
+  CHECK(loop && slider && arith && array && ivec && mat);
 }
 
 TEST(fx_call_inputs) {

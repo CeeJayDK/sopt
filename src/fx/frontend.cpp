@@ -1137,6 +1137,12 @@ class Extractor {
   int intMode_ = 0;
   bool intCast(const Value& v);
   bool intExact(uint32_t id, int depth = 0);
+  struct MatMul {
+    const Value* matrix = nullptr;  // a float matrix written out: a constant, or float3x3(...) in place
+    uint32_t vector = 0;
+    bool rowsFirst = false;         // mul(M, v): a dot per row; mul(v, M): per column
+  };
+  MatMul matMul(const Value& v) const;
   bool intCompare(const Value& v);
   // Splits a load into leaf prefix and the vector part of the chain.
   Leaf& leafOf(const Value& v, size_t& vecStart);
@@ -1713,6 +1719,35 @@ bool Extractor::intExact(uint32_t id, int depth) {
   }
 }
 
+// mul(M, v) / mul(v, M) of a float matrix written out and a float vector (2026-10-27: color space conversions such
+// as mul(float3x3(...), color)); a matrix variable is not one (its elements have no inputs yet).
+Extractor::MatMul Extractor::matMul(const Value& v) const {
+  MatMul mm;
+  if (v.kind != Value::Kind::Intrinsic || v.name != "mul" || v.args.size() != 2 || !isFloatType(v.type)) return mm;
+  const auto a = cg_.values.find(v.args[0]), c = cg_.values.find(v.args[1]);
+  if (a == cg_.values.end() || c == cg_.values.end()) return mm;
+  const bool first = a->second.type.is_matrix();
+  const Value& mat = first ? a->second : c->second;
+  const Value& vec = first ? c->second : a->second;
+  const reshadefx::type& t = mat.type;
+  if (!t.is_matrix() || t.base != reshadefx::type::t_float || t.rows > 4 || t.cols > 4 || !isFloatType(vec.type) ||
+      vec.type.rows != (first ? t.cols : t.rows) || v.type.rows != (first ? t.rows : t.cols))
+    return mm;
+  if (mat.kind == Value::Kind::Construct) {
+    if (mat.args.size() != t.rows * t.cols) return mm;
+    for (uint32_t e : mat.args)
+      if (const auto ei = cg_.values.find(e); ei == cg_.values.end() || !isFloatType(ei->second.type) ||
+                                              ei->second.type.rows != 1)
+        return mm;
+  } else if (mat.kind != Value::Kind::Const) {
+    return mm;
+  }
+  mm.matrix = &mat;
+  mm.vector = first ? v.args[1] : v.args[0];
+  mm.rowsFirst = first;
+  return mm;
+}
+
 // A comparison of such integer values (mode == 2 in a select's condition): the same in float math.
 bool Extractor::intCompare(const Value& v) {
   return v.kind == Value::Kind::Binary && v.args.size() == 2 && isComparison(v.op) && intExact(v.args[0]) &&
@@ -1836,6 +1871,12 @@ void Extractor::collect(uint32_t id) {
         } else {
           throw Unsupported("intrinsic argument");
         }
+        return;
+      }
+      if (const MatMul mm = matMul(v); mm.matrix) {
+        collect(mm.vector);
+        if (mm.matrix->kind == K::Construct)
+          for (uint32_t a : mm.matrix->args) collect(a);
         return;
       }
       const auto op = opFromCall(v.name, static_cast<uint8_t>(v.args.size()));
@@ -2116,6 +2157,27 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         }
         const uint32_t x = build(arg, b);
         r = buildSugarCall(b, v.name, &x, 1);
+        break;
+      }
+      if (const MatMul mm = matMul(v); mm.matrix) {
+        // One dot per result component: a row of M (mul(M, v)) or a column (mul(v, M)), as compilers emit it.
+        const reshadefx::type& t = mm.matrix->type;
+        const uint32_t x = build(mm.vector, b);
+        const unsigned outs = mm.rowsFirst ? t.rows : t.cols, inner = mm.rowsFirst ? t.cols : t.rows;
+        uint32_t res[4];
+        for (unsigned o = 0; o < outs; ++o) {
+          uint32_t e[4];
+          float c[4];
+          bool constant = mm.matrix->kind == K::Const;
+          for (unsigned k = 0; k < inner; ++k) {
+            const unsigned at = mm.rowsFirst ? o * t.cols + k : k * t.cols + o;
+            if (constant) c[k] = mm.matrix->constant.as_float[at];
+            else e[k] = build(mm.matrix->args[at], b);
+          }
+          const uint32_t line = constant ? b.constant(floatType(inner), c) : b.construct(e, inner);
+          res[o] = b.op(Op::Dot, line, x);
+        }
+        r = outs == 1 ? res[0] : b.construct(res, outs);
         break;
       }
       if (isSugarCall(v.name, v.args.size())) {
