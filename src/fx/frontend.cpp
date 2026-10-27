@@ -1135,6 +1135,7 @@ class Extractor {
     bool call = false;           // ... or a helper call read as an input (fetch too)
     std::string semantic;        // of the struct member the prefix ends in, if any
     bool intSource = false;      // an integer variable, read converted to float
+    bool uintLeaf = false;       // ... or read as an integer (intOps_): a Type::Uint input
   };
   Leaf& fetchLeaf(uint32_t id);
 
@@ -1151,6 +1152,12 @@ class Extractor {
   // Integer + - * converted to float (owner, 2026-10-26: float(i * 2 + 1)): searched as float math, exact while every
   // value is a whole number within 2^24 (intCast checks the ranges); > 0 while collecting / building one.
   int intMode_ = 0;
+  // ... a scalar one as integer ops (owner, 2026-10-27: integers have their own costs): uint leaves, UAdd / USub /
+  // UMul (two's complement: the same bits for int), IToF / UToF at the conversion; > 0 inside one.
+  int intOps_ = 0;
+  bool intScalar(const Value& v) const {
+    return !fx_.glsl && v.chain[0].from.rows == 1 && v.chain[0].from.cols == 1;
+  }
   bool intCast(const Value& v);
   bool intExact(uint32_t id, int depth = 0);
   // A select on a float vector whose condition compares float vectors (c <= 0.04045 ? ... : ...): the comparison.
@@ -1423,7 +1430,7 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
     }
   }
   // Inside integer + - * converted to float (intMode_): the variable is a float input too.
-  if (intMode_ && t.is_integral() && !t.is_boolean() &&
+  if (intMode_ && !intOps_ && t.is_integral() && !t.is_boolean() &&
       (rest == 0 || (rest == 1 && (v.chain[i].op == reshadefx::expression::operation::op_swizzle ||
                                    v.chain[i].op == reshadefx::expression::operation::op_constant_index)))) {
     t.base = reshadefx::type::t_float;
@@ -1433,14 +1440,17 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
     t.base = reshadefx::type::t_float;  // written float(x): a select's condition tests it against 0
     intSource = true;
   }
-  if (!isFloatType(t)) throw Unsupported(nonFloat("non-float variable", t));
+  const bool uintLeaf = intOps_ && rest == 0 && t.is_integral() && !t.is_boolean() && t.is_scalar();
+  if (uintLeaf) intSource = false;
+  if (!uintLeaf && !isFloatType(t)) throw Unsupported(nonFloat("non-float variable", t));
   for (auto& l : leaves_)
-    if (l.var == v.base && l.prefix == text) return l;
+    if (l.var == v.base && l.prefix == text && l.uintLeaf == uintLeaf) return l;
   Leaf l;
   l.var = v.base;
   l.prefix = text;
   l.type = t;
   l.intSource = intSource;
+  l.uintLeaf = uintLeaf;
   // Semantics of pixel shader inputs only (members of an entry point's struct parameter).
   if (var->kind == Variable::Kind::Param) {
     const auto pf = paramOf_.find(v.base);
@@ -1795,6 +1805,11 @@ void Extractor::collect(uint32_t id) {
   if (it == cg_.values.end()) throw Unsupported("value");
   const Value& v = it->second;
   using K = Value::Kind;
+  if (intOps_ && !(v.kind == K::Const || v.kind == K::Load || v.kind == K::Unary ||
+                   (v.kind == K::Binary && (v.op == tokenid::plus || v.op == tokenid::minus || v.op == tokenid::star ||
+                                            v.op == tokenid::plus_equal || v.op == tokenid::minus_equal ||
+                                            v.op == tokenid::star_equal))))
+    throw Unsupported("integer math (other)");
   switch (v.kind) {
     case K::Const:
       if (!isFloatType(v.type) && !(intMode_ && v.type.is_integral()))
@@ -1824,8 +1839,11 @@ void Extractor::collect(uint32_t id) {
         return;
       }
       if (intCast(v)) {
+        const bool ops = intScalar(v);
         ++intMode_;
+        intOps_ += ops;
         collect(v.base);
+        intOps_ -= ops;
         --intMode_;
         return;
       }
@@ -2091,6 +2109,10 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
   uint32_t r = 0;
   switch (v.kind) {
     case K::Const: {
+      if (intOps_) {
+        r = b.constantU(v.constant.as_uint[0]);  // an int's bits
+        break;
+      }
       float c[4];
       for (unsigned k = 0; k < v.type.rows; ++k)
         c[k] = v.type.is_floating_point() ? v.constant.as_float[k]
@@ -2110,13 +2132,21 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       }
       size_t vs = 0;
       const Leaf& l = leafOf(v, vs);
-      r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), v.chain, vs, b, &l);
+      r = l.uintLeaf ? b.input(l.input, Type::Uint)
+                     : applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), v.chain, vs, b, &l);
       break;
     }
     case K::Chain:
       if (fetchText_.count(v.base)) {
         const Leaf& l = fetchLeaf(v.base);
         r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), v.chain, 0, b, &l);
+      } else if (intCast(v) && intScalar(v)) {
+        ++intMode_;
+        ++intOps_;
+        const uint32_t n = build(v.base, b);
+        --intOps_;
+        --intMode_;
+        r = b.op(v.chain[0].from.is_signed() ? Op::IToF : Op::UToF, n);
       } else if (intCast(v)) {
         ++intMode_;
         r = build(v.base, b);  // already float: the conversion is the identity
@@ -2126,6 +2156,11 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       }
       break;
     case K::Unary:
+      if (intOps_) {
+        const uint32_t x = build(v.args[0], b);
+        r = v.op == tokenid::minus ? b.op(Op::USub, b.constantU(0), x) : x;
+        break;
+      }
       r = v.op == tokenid::minus     ? b.op(Op::Neg, build(v.args[0], b))
           : v.op == tokenid::exclaim ? b.op(Op::LNot, build(v.args[0], b))
                                      : build(v.args[0], b);
@@ -2153,6 +2188,12 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
           return r;
         }
         default: throw Unsupported("binary operator");
+      }
+      if (intOps_) {
+        op = op == Op::Add ? Op::UAdd : op == Op::Sub ? Op::USub : Op::UMul;  // collect allows + - * only
+        const uint32_t a[2] = {build(v.args[0], b), build(v.args[1], b)};  // in order (node numbers, every compiler)
+        r = b.op(op, a[0], a[1]);
+        break;
       }
       const bool ints = intCompare(v);
       intMode_ += ints;
@@ -3437,7 +3478,7 @@ bool Extractor::macroUsable(const std::string& name, std::set<std::string>& guar
 // definitions), inputs and facts.
 bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   tlSawHalf = false;
-  intMode_ = 0;  // a skip thrown inside an integer conversion leaves it raised (later regions took int math as float)
+  intMode_ = intOps_ = 0;  // a skip thrown inside an integer conversion leaves them raised (later regions took int math as float)
   leaves_.clear();
   built_.clear();
   collected_.clear();
@@ -3486,7 +3527,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       }
       // Integer thread IDs: the code reads them converted (unsigned arithmetic would wrap).
       if (l.intSource) d.name = "float" + (w > 1 ? std::to_string(w) : std::string()) + "(" + d.name + ")";
-      d.type = floatType(w);
+      d.type = l.uintLeaf ? Type::Uint : floatType(w);
       d.compileTime = !l.fetch && isSymbolic(l.var);
       // Rates (scheduling measures): user uniforms are constants in ReShade's performance mode
       // (plain HLSL has none), uniforms with a source annotation (timer, frame count, ...) stay
@@ -3551,6 +3592,11 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
       d.lo = r.lo;
       d.hi = r.hi;
       d.grid = r.grid;
+      if (l.uintLeaf) {  // whole numbers only (intExact: a known range within 2^24)
+        d.lo = std::ceil(d.lo);
+        d.hi = std::floor(d.hi);
+        d.grid = static_cast<uint32_t>(d.hi - d.lo);
+      }
       fact.source = r.why;
       fact.assumed = r.assumed;
       fact.fetch = l.fetch;

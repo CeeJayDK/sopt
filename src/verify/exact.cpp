@@ -173,7 +173,9 @@ const ExactEvaluator::Cols& ExactEvaluator::eval(const Expr& e, const PointSet& 
       case Op::Input: {
         const uint32_t slot = ps.slotOf(n.input);
         for (unsigned c = 0; c < w; ++c)
-          for (size_t j = 0; j < count; ++j) out[c][j] = ps.cols[slot + c][begin + j];
+          for (size_t j = 0; j < count; ++j)
+            out[c][j] = n.type == Type::Uint ? double(std::bit_cast<uint32_t>(ps.cols[slot + c][begin + j]))
+                                             : double(ps.cols[slot + c][begin + j]);
         continue;
       }
       case Op::Const:

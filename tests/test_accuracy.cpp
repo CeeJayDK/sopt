@@ -200,3 +200,26 @@ TEST(half_profile) {
   CHECK(!half("(x * 1000.0) * (y + 1.0) * 0.001").loosePass);
   CHECK(half("x * (y + 1.0)").pass);
 }
+
+// An integer input (frontend: int math as integer ops) is sampled as whole numbers in its range, stored as their bits.
+TEST(uint_input_points) {
+  Program p;
+  InputDecl d;
+  d.name = "s";
+  d.lo = -3.0;
+  d.hi = 16.0;
+  d.grid = 19;
+  d.type = Type::Uint;
+  p.inputs = {d};
+  ExprBuilder b;
+  p.target = b.finish(b.op(Op::IToF, b.input(0, Type::Uint)));
+  const PointSet ps = makeRandomPoints(p, 512, 3, true);
+  const std::vector<float> v = evalAll(p.target, ps, kProfileRef);
+  bool whole = true, neg = false, top = false;
+  for (const float x : v) {
+    whole = whole && x == std::floor(x) && x >= -3.0f && x <= 16.0f;
+    neg = neg || x < 0.0f;
+    top = top || x == 16.0f;
+  }
+  CHECK(whole && neg && top);
+}
