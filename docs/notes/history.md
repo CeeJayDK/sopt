@@ -1807,7 +1807,7 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   GPU Blueprint 0.7.8 (owner's go): with two cards the menu names
   them on keys 2 / 3 (OpBench / TexBench --adapters print "index name", (R) / (TM) dropped); after "send" (Y) the
   reports move to Reports\Sent, so the next zip holds only new ones; report_intake.py skips reports already saved.
-  TexBench 0.7.8: topt's wishlist (docs/notes/topt-requests.md) in the normal run (owner: numbers wanted from every
+  TexBench 0.7.8: topt's wishlist (kept in the owner's local notes) in the normal run (owner: numbers wanted from every
   card), Stage::Blur (one runner: chain draws / dispatches of a shader, ms per unit, CSV config "pass" with the base and
   the cost per read / lookup in units_vs_base): P1 pass chains, P3 reads per pixel, P4 target size, P5 quad exchange,
   P6 noise sources, P7 fetch order, P8 branches, P9 dispatch chains; P10 bands (vertex shader / stencil / discard, 25%)
@@ -2283,6 +2283,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   failed. Struct-building helpers (FullCurve_new(), TraceRay2D into a hit struct) are most "writes part of a
   variable" skips: nothing to search there. Corpus: 19934 regions (+178), 2913 changed (+71), 51686 saved (+2101,
   +4%), 30077 s (+3%); top macros now SMAASamplePoint 28, ".CF" 23, SMAATexturePass2D 20.
+  Self-healing output (owner, 2026-10-27): a change whose variant does not parse is dropped (the innermost #if around
+  the first error that tests a switch; none: every change in the files that effect reads) and the files are written
+  again, up to 4 times; the first round's failures still count ("dropped SOPT_..." lines in the log). Checked by
+  breaking a written Tonemap.fx variant by hand. Logs stay code-free (owner): the written-lines context is gone.
+  Plans, handoffs and briefs for other sessions live in local notes, not the repo (owner, 2026-10-27).
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one

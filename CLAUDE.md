@@ -20,6 +20,8 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - No personal data in the repository (GDPR, 2026-10-05): no names, handles or other details of testers next to reports,
   results or notes; a report is described by its hardware and driver only. Telling the owner in chat who uploaded a
   report is welcome (so he can thank them), never anywhere else.
+- Only what the repo needs goes online (owner, 2026-10-27): plans, handoffs, briefs, questions and personal details go
+  in local notes (`../sopt-notes`, outside the repo). CI logs stay code-free (no lines of other authors' effects).
 - Fewer instructions at equal measured speed are still better (less power; faster once the bottleneck moves).
 - When asking the owner to test or download something, repeat the links in that message (CI run / artifact links).
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
