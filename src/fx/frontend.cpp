@@ -3437,6 +3437,7 @@ bool Extractor::macroUsable(const std::string& name, std::set<std::string>& guar
 // definitions), inputs and facts.
 bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   tlSawHalf = false;
+  intMode_ = 0;  // a skip thrown inside an integer conversion leaves it raised (later regions took int math as float)
   leaves_.clear();
   built_.clear();
   collected_.clear();
