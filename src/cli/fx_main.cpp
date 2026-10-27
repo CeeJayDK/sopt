@@ -942,6 +942,15 @@ int main(int argc, char** argv) {
           moreFetches = moreFetches || count(a.text, nm) > count(targetText, nm);
         }
       if (moreFetches) continue;
+      // A precise temporary of a statement sharing its line goes in a block where the statement is (variants.cpp):
+      // only where a statement may stand (after { ; : ) or else), not in a declarator list or a for (...) header.
+      if (const std::string& pre = rr.region.prefix; needsPrecise(a.expr) && !pre.empty()) {
+        const std::string p = pre.substr(0, pre.find_last_not_of(" \t") + 1);
+        const bool afterElse = p.size() >= 4 && p.compare(p.size() - 4, 4, "else") == 0 &&
+                               (p.size() == 4 || !std::isalnum(static_cast<unsigned char>(p[p.size() - 5])));
+        if (rr.region.tail[0] != ';' || (std::string("{;:)").find(p.back()) == std::string::npos && !afterElse))
+          continue;
+      }
       // The same code as the original once printed (a - c and a + -c print alike): no variant.
       if (a.text == targetText) continue;
       const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, mainIns);
@@ -1601,6 +1610,30 @@ int main(int argc, char** argv) {
         ++checkFailures;
         errors += effectsOut[i].written.string() + " (SOPT_GROUP=" + std::to_string(k) +
                   (setName.empty() ? "" : ", " + setName + "=" + setValue) + ") does not parse:\n" + err;
+        // The written lines before each of the first errors (the check copies are removed below).
+        static const std::regex at(R"((\S+\.fxh?)\((\d+), \d+\): error)");
+        int shown = 0;
+        for (auto m = std::sregex_iterator(err.begin(), err.end(), at); m != std::sregex_iterator() && shown < 3;
+             ++m, ++shown) {
+          std::ifstream in(fx::pathFrom((*m)[1].str()));
+          const int n = std::stoi((*m)[2].str());
+          std::string line;
+          for (int l = 1; std::getline(in, line) && l <= n; ++l)
+            if (l > n - 5) errors += "  " + std::to_string(l) + ": " + line + "\n";
+        }
+        // An undeclared name: where the written file has it (a declaration a change moved or removed).
+        static const std::regex undeclared(R"((\S+\.fxh?)\(\d+, \d+\): error X3004: undeclared identifier[^']*'(\w+)')");
+        if (std::smatch m; std::regex_search(err, m, undeclared)) {
+          std::ifstream in(fx::pathFrom(m[1].str()));
+          const std::regex word("\\b" + m[2].str() + "\\b");
+          std::string line;
+          int found = 0;
+          for (int l = 1; std::getline(in, line) && found < 6; ++l)
+            if (std::regex_search(line, word)) {
+              errors += "  " + m[2].str() + " at " + std::to_string(l) + ": " + line.substr(0, 160) + "\n";
+              ++found;
+            }
+        }
       }
     }
   }

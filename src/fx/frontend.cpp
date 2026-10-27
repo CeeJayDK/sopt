@@ -595,6 +595,13 @@ bool statementAt(const std::vector<std::string>& lines, uint32_t line, Statement
           const size_t e = rest.find("*/", k);
           own = e != std::string::npos && rest.find_first_not_of(" \t", e + 2) == std::string::npos;
         }
+        // A block comment opened after it (or closed before it) would take the #if / #else lines of a variant with it.
+        const size_t open = rest.rfind("/*");
+        if ((open != std::string::npos && rest.find("*/", open + 2) == std::string::npos && rest.find("//") > open) ||
+            st.prefix.find("*/") < st.prefix.find("/*")) {
+          why = "comment";
+          return false;
+        }
         st.tail = own ? std::string(1, c) : s.substr(i);
         while (!st.tail.empty() && std::isspace(static_cast<unsigned char>(st.tail.back()))) st.tail.pop_back();
         st.last = l;
