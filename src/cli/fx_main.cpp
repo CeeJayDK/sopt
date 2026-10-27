@@ -1616,6 +1616,19 @@ int main(int argc, char** argv) {
           for (int l = 1; std::getline(in, line) && l <= n; ++l)
             if (l > n - 5) errors += "  " + std::to_string(l) + ": " + line + "\n";
         }
+        // An undeclared name: where the written file has it (a declaration a change moved or removed).
+        static const std::regex undeclared(R"((\S+\.fxh?)\(\d+, \d+\): error X3004: undeclared identifier[^']*'(\w+)')");
+        if (std::smatch m; std::regex_search(err, m, undeclared)) {
+          std::ifstream in(fx::pathFrom(m[1].str()));
+          const std::regex word("\\b" + m[2].str() + "\\b");
+          std::string line;
+          int found = 0;
+          for (int l = 1; std::getline(in, line) && found < 6; ++l)
+            if (std::regex_search(line, word)) {
+              errors += "  " + m[2].str() + " at " + std::to_string(l) + ": " + line.substr(0, 160) + "\n";
+              ++found;
+            }
+        }
       }
     }
   }
