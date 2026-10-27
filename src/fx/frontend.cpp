@@ -1703,6 +1703,11 @@ bool Extractor::intExact(uint32_t id, int depth) {
       return (x.op == tokenid::plus || x.op == tokenid::minus || x.op == tokenid::star ||
               x.op == tokenid::plus_equal || x.op == tokenid::minus_equal || x.op == tokenid::star_equal) &&
              intExact(x.args[0], depth + 1) && intExact(x.args[1], depth + 1);
+    case Value::Kind::Construct:  // int2(BUFFER_WIDTH, BUFFER_HEIGHT)
+      if (x.type.is_matrix()) return false;
+      for (uint32_t a : x.args)
+        if (!intExact(a, depth + 1)) return false;
+      return true;
     default:
       return false;
   }
@@ -1850,10 +1855,12 @@ void Extractor::collect(uint32_t id) {
       return;
     }
     case K::Construct:
-      if (!isFloatType(v.type)) throw Unsupported("matrix/non-float constructor");
+      if (!isFloatType(v.type) && !(intMode_ && v.type.is_integral() && !v.type.is_matrix()))
+        throw Unsupported("matrix/non-float constructor");
       for (uint32_t a : v.args) {
         const auto ai = cg_.values.find(a);
-        if (ai == cg_.values.end() || !isFloatType(ai->second.type)) throw Unsupported("constructor argument");
+        if (ai == cg_.values.end() || (!isFloatType(ai->second.type) && !intMode_))
+          throw Unsupported("constructor argument");
         collect(a);
       }
       return;

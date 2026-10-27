@@ -1446,9 +1446,11 @@ TEST(fx_int_inputs) {
   CHECK(e != nullptr);
   if (!e) return;
   fx::SkipCount sk;
-  bool loop = false, slider = false, arith = false, array = false;
+  bool loop = false, slider = false, arith = false, array = false, ivec = false;
   for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
     if (!r.removed.empty()) continue;
+    // An int vector built of such values (int2(BUFFER_WIDTH, BUFFER_HEIGHT)) the same way.
+    ivec = ivec || (r.line == 19 && toString(r.prog.target, r.prog.inputs).find("float(Steps)") != std::string::npos);
     // Integer + - * converted to float: float math on float(Steps) (whole numbers far below 2^24).
     arith = arith || (r.line == 15 && r.prog.inputs.size() == 2 &&
                       toString(r.prog.target, r.prog.inputs).find("float(Steps) * 2.0 + 1.0") != std::string::npos);
@@ -1460,7 +1462,7 @@ TEST(fx_int_inputs) {
       slider = slider || (r.line == 14 && d.name == "float(Steps)" && d.lo == 1 && d.hi == 8 && d.grid == 7);
     }
   }
-  CHECK(loop && slider && arith && array);
+  CHECK(loop && slider && arith && array && ivec);
 }
 
 TEST(fx_call_inputs) {
