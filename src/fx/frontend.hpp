@@ -162,6 +162,9 @@ struct RegionOptions {
   uint32_t maxStatements = 4; // statements per window (1 = single statements only)
   uint32_t maxInputs = 8;     // skip statements reading more distinct variables (corpus 2026-10-25: 4 / 8 -> 8 / 16
   uint32_t maxSlots = 16;     // ... or more input components                 +3.4% saved, +20% time)
+  // Budgets from the output (owner, 2026-10-27): a value that reaches its pixel shader's 8-bit / 10-bit / 16F output
+  // through math alone gets the largest error that keeps the output within a quarter of the format's step.
+  bool outputBudgets = true;
   double defaultLo = -1000.0, defaultHi = 1000.0;  // range when nothing is known
   bool likelyRanges = true;   // use a reasoned suggestion as the range (Fact::likely); --no-likely: off
   double relEps = 1e-6;       // budget for values with a general use

@@ -18,6 +18,8 @@
 
 #include "effect_parser.hpp"
 #include "effect_preprocessor.hpp"
+#include "verify/points.hpp"
+#include "verify/verify.hpp"
 
 namespace sopt::fx {
 
@@ -1308,6 +1310,13 @@ class Extractor {
   void mapCalls(const Statement& s, const std::string& text);
   std::unordered_map<uint32_t, std::string> callText_;
   std::unordered_set<uint32_t> callLeaf_;  // calls read as inputs
+  // Budgets from the output (owner, 2026-10-27): while outValue_ is set, buildRegion builds a pixel shader's output
+  // with that value (a region's result) as the input "__r__" and no size limits; outSeen_ counts where it is reached.
+  uint32_t outValue_ = 0;
+  int outSeen_ = 0;
+  Leaf& outLeaf();
+  bool dependsOnOut(uint32_t id, int depth = 0) const;
+  bool outputBudget(const Function& f, const Statement& s, const Region& reg, Budget& b, std::string& reason);
   bool pureCall(const std::string& uniqueName, int depth = 0) const;
   std::unordered_set<std::string> callBusy_;  // range(): helpers being followed
 };
@@ -1451,9 +1460,41 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
 }
 
 // A texture fetch of the root statement as an input, named by its call text.
+Extractor::Leaf& Extractor::outLeaf() {
+  for (auto& l : leaves_)
+    if (l.fetch && l.prefix == "__r__") return l;
+  Leaf l;
+  l.prefix = "__r__";
+  l.type = cg_.values.at(outValue_).type;
+  if (!isFloatType(l.type)) throw Unsupported("output: not a float value");
+  l.loadValue = outValue_;
+  l.fetch = true;
+  l.mask = (1u << l.type.rows) - 1;
+  leaves_.push_back(l);
+  return leaves_.back();
+}
+
+// Whether value id is computed from outValue_ (through inlined temporaries too).
+bool Extractor::dependsOnOut(uint32_t id, int depth) const {
+  if (id == outValue_) return true;
+  const auto it = cg_.values.find(id);
+  if (it == cg_.values.end() || depth > 64) return false;
+  const Value& v = it->second;
+  if (v.kind == Value::Kind::Load) {
+    if (const auto il = inlineLoad_.find(id); il != inlineLoad_.end()) return dependsOnOut(il->second, depth + 1);
+    if (const auto in = inline_.find(v.base); in != inline_.end()) return dependsOnOut(in->second, depth + 1);
+  }
+  if (v.kind == Value::Kind::Chain && dependsOnOut(v.base, depth + 1)) return true;
+  for (uint32_t a : v.args)
+    if (dependsOnOut(a, depth + 1)) return true;
+  return false;
+}
+
 Extractor::Leaf& Extractor::fetchLeaf(uint32_t id) {
   const auto it = fetchText_.find(id);
   if (it == fetchText_.end()) throw Unsupported("texture fetch");
+  // A texture read at coordinates computed from the region's result: the output math cannot follow it.
+  if (outValue_ && dependsOnOut(id)) throw Unsupported("output: texture read from the value");
   const Value& v = cg_.values.at(id);
   if (!isFloatType(v.type)) throw Unsupported("non-float texture fetch");
   for (auto& l : leaves_)
@@ -1787,6 +1828,11 @@ void Extractor::collect(uint32_t id) {
   // Each value once per scope: a value read several times (a helper's parameter, a shared temporary) would otherwise
   // be walked again for every path to it, exponentially in nested helpers (CRT.fx, 2026-10-26).
   if (!collected_.insert(id).second) return;
+  if (outValue_ && id == outValue_) {
+    ++outSeen_;
+    outLeaf();
+    return;
+  }
   if (const auto s = synth_.find(id); s != synth_.end()) {
     collectSynth(s->second);
     return;
@@ -1952,7 +1998,7 @@ void Extractor::collect(uint32_t id) {
         collected_ = std::move(outer);
       } catch (const Unsupported&) {
         const auto t = callText_.find(id);
-        if (t == callText_.end() || !isFloatType(v.type) || !pureCall(v.name)) throw;
+        if (t == callText_.end() || !isFloatType(v.type) || !pureCall(v.name) || (outValue_ && dependsOnOut(id))) throw;
         leaves_ = before;
         collected_ = std::move(outer);
         collected_.insert(id);
@@ -2081,6 +2127,10 @@ uint32_t Extractor::buildSynth(const Synth& s, ExprBuilder& b) {
 
 uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
   if (auto it = built_.find(id); it != built_.end()) return it->second;
+  if (outValue_ && id == outValue_) {
+    const Leaf& l = outLeaf();
+    return b.input(l.input, floatType(std::popcount(l.mask)));
+  }
   if (const auto s = synth_.find(id); s != synth_.end()) {
     const uint32_t r = buildSynth(s->second, b);
     built_[id] = r;
@@ -2941,6 +2991,143 @@ void Extractor::useKinds(uint32_t id, bool& cmp, bool& coord, bool& other, int d
     }
 }
 
+// Budgets from the output (owner, 2026-10-27, stage 1): the largest error at s's value that keeps the output of the one
+// pixel shader it reaches within a quarter of the target format's step, at every sample point of the output math. The
+// value and the output's other inputs are sampled independently over their ranges (every combination, so no less safe
+// than the real ones). Straight-line code only: the pixel shader's temporaries declared once in its body, helpers
+// inlined where the extractor sees through them; the value reached once (a helper called twice is not followed).
+bool Extractor::outputBudget(const Function& f, const Statement& s, const Region& reg, Budget& b, std::string& reason) {
+  std::map<std::string, std::vector<const Function*>> callers;
+  for (const auto& F : cg_.functions)
+    for (const auto& c : F->calls) callers[c].push_back(F.get());
+  std::set<const Function*> seen;
+  std::vector<const Function*> todo{&f}, entries;
+  while (!todo.empty()) {
+    const Function* g = todo.back();
+    todo.pop_back();
+    if (!seen.insert(g).second) continue;
+    if (g->type != reshadefx::shader_type::unknown) {
+      entries.push_back(g);
+      continue;
+    }
+    for (const Function* c : callers[g->uniqueName]) todo.push_back(c);
+  }
+  if (entries.size() != 1 || entries[0]->type != reshadefx::shader_type::pixel || entries[0]->returnType.is_struct())
+    return false;
+  const Function& ps = *entries[0];
+  const Statement* ret = nullptr;
+  for (const Statement& t : ps.stmts)
+    if (t.kind == Statement::Kind::Return) {
+      if (ret) return false;
+      ret = &t;
+    }
+  if (!ret || ret == &s) return false;
+  // Every pass drawing with it writes one kind of target, without blending or sRGB: 8 / 10 bits or 16F.
+  int bits = 0;
+  for (const auto& t : cg_.mod().techniques)
+    for (const auto& p : t.passes) {
+      if (p.ps_entry_point != ps.uniqueName) continue;
+      if (p.blend_enable[0] || p.srgb_write_enable) return false;
+      int k = 8;  // the back buffer, assumed 8-bit SDR (as budgetFor)
+      if (!p.render_target_names[0].empty()) {
+        k = 0;
+        using F = reshadefx::texture_format;
+        for (const auto& tex : cg_.mod().textures)
+          if (tex.unique_name == p.render_target_names[0] || tex.name == p.render_target_names[0])
+            k = tex.format == F::rgba8 || tex.format == F::r8 || tex.format == F::rg8 ? 8
+                : tex.format == F::rgb10a2                                         ? 10
+                : tex.format == F::rgba16f || tex.format == F::r16f || tex.format == F::rg16f ? 16 : 0;
+      }
+      if (!k || (bits && bits != k)) return false;
+      bits = k;
+    }
+  if (!bits) return false;
+  // The output math, the value as the input "__r__".
+  auto savedInline = inline_;
+  auto savedLoads = inlineLoad_;
+  auto savedWindow = window_;
+  inline_.clear();
+  inlineLoad_.clear();
+  window_.clear();
+  for (const Statement& t : ps.stmts)
+    if (t.kind == Statement::Kind::Init && t.block == ret->block && t.seq < ret->seq)
+      if (const auto d = defs_.find(t.var); d != defs_.end() && d->second.size() == 1) {
+        inline_[t.var] = t.value;
+        window_.push_back(&t);
+      }
+  outValue_ = s.value;
+  outSeen_ = 0;
+  Region out;
+  out.function = ps.name;
+  out.hlsl = fx_.hlsl;
+  out.glsl = fx_.glsl;
+  std::string why;
+  bool ok = shapeOf(*ret, out, why) && buildRegion(*ret, out, why) && outSeen_ == 1;
+  // A load of the value's variable left as an input of its own: the output math does not see the value there.
+  for (const Leaf& l : leaves_) ok = ok && (l.fetch || s.kind == Statement::Kind::Return || l.var != s.var);
+  outValue_ = 0;
+  inline_ = std::move(savedInline);
+  inlineLoad_ = std::move(savedLoads);
+  window_ = std::move(savedWindow);
+  if (!ok) return false;
+  Program& d = out.prog;
+  size_t ri = d.inputs.size();
+  for (size_t k = 0; k < d.inputs.size(); ++k) {
+    if (d.inputs[k].name == "__r__") ri = k;
+    else if (out.facts[k].assumed) return false;  // an output input without a known range
+  }
+  if (ri == d.inputs.size()) return false;
+  // The value's range: the region's own values.
+  const PointSet rp = makeRandomPoints(reg.prog, 4096, 5, true);
+  double lo = INFINITY, hi = -INFINITY;
+  for (const float v : evalAll(reg.prog.target, rp, kProfileRef))
+    if (std::isfinite(v)) {
+      lo = std::min(lo, double(v));
+      hi = std::max(hi, double(v));
+    }
+  if (!(lo <= hi)) return false;
+  d.inputs[ri].lo = lo;
+  d.inputs[ri].hi = hi;
+  d.inputs[ri].grid = 0;
+  d.inputs[ri].compileTime = false;
+  const PointSet ps0 = makeRandomPoints(d, 4096, 7, true);
+  const std::vector<float> base = evalAll(d.target, ps0, kProfileRef);
+  const uint32_t slot = ps0.slotOf(static_cast<uint32_t>(ri));
+  const unsigned rw = width(d.inputs[ri].type);
+  auto clampOut = [&](double y) { return bits <= 10 ? std::clamp(y, 0.0, 1.0) : y; };  // unorm targets clamp
+  auto tol = [&](double y) {
+    return bits == 8 ? 0.25 / 255.0 : bits == 10 ? 0.25 / 1023.0 : std::ldexp(std::max(std::fabs(y), 6.1e-5), -13);
+  };
+  // Every component moved by +e, -e, and alternately: the output stays within tol everywhere.
+  auto fits = [&](double e) {
+    for (int pattern = 0; pattern < 3; ++pattern) {
+      PointSet q = ps0;
+      for (unsigned c = 0; c < rw; ++c) {
+        const double sgn = pattern == 0 ? 1.0 : pattern == 1 ? -1.0 : (c & 1 ? -1.0 : 1.0);
+        for (float& x : q.cols[slot + c]) x = static_cast<float>(x + sgn * e);
+      }
+      const std::vector<float> o = evalAll(d.target, q, kProfileRef);
+      for (size_t k = 0; k < o.size(); ++k)
+        if (std::isfinite(base[k]) && (!std::isfinite(o[k]) || std::fabs(clampOut(o[k]) - clampOut(base[k])) > tol(base[k])))
+          return false;
+    }
+    return true;
+  };
+  const double scale = std::max({std::fabs(lo), std::fabs(hi), 1e-6});
+  double e = 0.0;
+  for (int k = 0; k <= 40 && e == 0.0; ++k)
+    if (fits(std::ldexp(scale, -k))) e = std::ldexp(scale, -k);
+  if (e <= 1e-6 * scale) return false;  // no looser than the region's own budget
+  b = Budget();
+  b.kind = Budget::Kind::Abs;
+  b.eps = e;
+  char buf[96];
+  std::snprintf(buf, sizeof(buf), "from the output (%s target): within %.3g here",
+                bits == 8 ? "8-bit" : bits == 10 ? "10-bit" : "16F", e);
+  reason = buf;
+  return true;
+}
+
 Budget Extractor::budgetFor(const Function& f, const Statement& s, std::string& reason) {
   Budget b;
   if (s.kind == Statement::Kind::Write) {
@@ -3461,7 +3648,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   }
   try {
     collect(s.value);
-    if (leaves_.size() > opt_.maxInputs) throw Unsupported("too many inputs");
+    if (leaves_.size() > opt_.maxInputs && !outValue_) throw Unsupported("too many inputs");
     uint32_t slots = 0;
     for (auto& l : leaves_) {
       l.remap.assign(4, 0);
@@ -3470,7 +3657,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
         if (l.mask & (1u << c)) l.remap[c] = k++;
       slots += k;
     }
-    if (slots > opt_.maxSlots) throw Unsupported("too many inputs");
+    if (slots > opt_.maxSlots && !outValue_) throw Unsupported("too many inputs");
     for (size_t i = 0; i < leaves_.size(); ++i) {
       Leaf& l = leaves_[i];
       l.input = static_cast<uint32_t>(i);
@@ -3587,7 +3774,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   }
   // A single helper of several instructions (smoothstep, lerp, sign, pow, ...) can get cheaper alone (owner,
   // 2026-10-26); a single instruction cannot. Its uses tell whether a region with several results could help.
-  if (ops < opt_.minOps && !(ops == 1 && compound)) {
+  if (ops < opt_.minOps && !(ops == 1 && compound) && !outValue_) {
     if (ops == 0) { why = "copy or constant"; return false; }
     const int uses = s.kind == Statement::Kind::Return ? -1 : usesOf(s);
     why = uses < 0    ? "one instruction (returned)"
@@ -3596,7 +3783,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
                       : "one instruction (value used several times)";
     return false;
   }
-  if (ops > opt_.maxOps) { why = "more than maxOps operations"; return false; }
+  if (ops > opt_.maxOps && !outValue_) { why = "more than maxOps operations"; return false; }
   if (reg.prog.inputs.empty()) { why = "constant expression"; return false; }
   bool runtime = false;
   for (const auto& d : reg.prog.inputs) runtime = runtime || !d.compileTime;
@@ -4004,6 +4191,14 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
         single.prog.budget.errorScale = false;  // the rounding is wanted, not noise
           single.budgetReason += "; precise: float math only";
         }
+        if (opt_.outputBudgets && single.prog.budget.kind == Budget::Kind::Rel && single.budgetReason.find("precise") == std::string::npos) {
+          Budget ob;
+          std::string why2;
+          if (outputBudget(f, s, single, ob, why2)) {
+            single.prog.budget = ob;
+            single.budgetReason = why2;
+          }
+        }
         if (constGuard(fx_, single, why)) out.push_back(single);
         else SKIPADD("constant: " + why);
       } else {
@@ -4081,6 +4276,14 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
             win.prog.budget.vsExact = false;
           win.prog.budget.errorScale = false;  // the rounding is wanted, not noise
             win.budgetReason += "; precise: float math only";
+          }
+          if (opt_.outputBudgets && win.prog.budget.kind == Budget::Kind::Rel && win.budgetReason.find("precise") == std::string::npos) {
+            Budget ob;
+            std::string why2;
+            if (outputBudget(f, s, win, ob, why2)) {
+              win.prog.budget = ob;
+              win.budgetReason = why2;
+            }
           }
           if (constGuard(fx_, win, why)) out.push_back(std::move(win));
           else SKIPADD("window constant: " + why);
