@@ -17,6 +17,7 @@ docs/notes/history.md.
 - **Also math that uses whole-number values:** loop counters and whole-number sliders used in the math no longer make SweetOpt skip it; for a loop counter SweetOpt works out which values it takes from the loop. Values read from a list (like blur weights) are handled too.
 - **Longer pieces of math:** SweetOpt now also works on longer stretches of math. It finds about 5% more savings and takes a bit longer.
 - **Half-precision math:** effects that use half-precision math (min16float) are now optimized too; each change is checked at half precision as well.
+- **Never a broken effect:** if one of SweetOpt's changes would stop an effect from compiling, that change is left out and the effect is written without it.
 - **Easy mode leaves out changes that only change how the code looks:** when the D3D shader compiler turns a change into exactly the same code as the original, easy mode no longer makes it.
 - **New easy mode settings:** "identical results only" takes only changes that give exactly the same picture, and "one version for all GPUs" writes tables without separate code per graphics card maker (simpler code; on Intel graphics such a table is then about twice as slow as in the original, measured on a UHD 630). Key E in the menu.
 - **Clearer savings:** the summary now says the saving is for the statements SweetOpt changed, and how much of all the math it looked at that is (texture reads and the rest of the effect are not counted).
