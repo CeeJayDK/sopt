@@ -905,17 +905,17 @@ int main(int argc, char** argv) {
     const std::vector<InputDecl> perfIns = perfInputs(rr.region.prog.inputs);
     const std::vector<InputDecl>& mainIns = opt.perfFirst ? perfIns : rr.region.prog.inputs;
     const std::vector<InputDecl>& otherIns = opt.perfFirst ? rr.region.prog.inputs : perfIns;
-    const uint32_t targetCompiled = fx::compiledCost(rr.region.prog.target, *opt.search.model, mainIns);
+    const uint32_t targetCompiled = fx::compiledCost(rr.region.prog.target, *opt.search.model, mainIns, rr.region.prog.half);
     // Every GPU family's cost (owner, 2026-10-09: a variant for one card should also help others where it does not
     // hurt the chosen one).
     const auto& plats = fx::platforms();
     rr.targetCompiled = targetCompiled;
     rr.targetPlatform.resize(plats.size());
     for (size_t k = 0; k < plats.size(); ++k)
-      rr.targetPlatform[k] = static_cast<int>(fx::compiledCost(rr.region.prog.target, *plats[k].m, mainIns));
+      rr.targetPlatform[k] = static_cast<int>(fx::compiledCost(rr.region.prog.target, *plats[k].m, mainIns, rr.region.prog.half));
     auto platformCosts = [&](const Expr& e) {
       std::vector<int> c(plats.size());
-      for (size_t k = 0; k < plats.size(); ++k) c[k] = static_cast<int>(fx::compiledCost(e, *plats[k].m, mainIns));
+      for (size_t k = 0; k < plats.size(); ++k) c[k] = static_cast<int>(fx::compiledCost(e, *plats[k].m, mainIns, rr.region.prog.half));
       return c;
     };
     const uint32_t targetOtherCompiled = fx::compiledCost(rr.region.prog.target, *opt.search.model, otherIns);
@@ -953,7 +953,7 @@ int main(int argc, char** argv) {
       }
       // The same code as the original once printed (a - c and a + -c print alike): no variant.
       if (a.text == targetText) continue;
-      const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, mainIns);
+      const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, mainIns, rr.region.prog.half);
       const bool cheaper = compiled < targetCompiled;
       // Not faster but maybe fewer registers (owner, 2026-10-04): only measurement shows it.
       const bool registerCandidate = (isa || sass) && compiled <= targetCompiled + opt.accuracySlack;

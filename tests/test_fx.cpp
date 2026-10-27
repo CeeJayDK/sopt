@@ -1461,12 +1461,22 @@ TEST(fx_half_regions) {
   if (!e) return;
   fx::SkipCount sk;
   int half = -1, full = -1;
+  bool costs = false;
+  const CostModel* gen9 = costModelByName("intel-gen9");
+  const CostModel* ampere = costModelByName("nvidia-ampere");
   for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
     if (!r.removed.empty()) continue;
-    if (r.line == 8) half = r.prog.half;
+    if (r.line == 8) {
+      half = r.prog.half;
+      // fp16 step 3: min16float math at the fp16 rates (Gen9 ALU 60%; Ampere none).
+      const auto& t = r.prog.target;
+      costs = gen9 && ampere &&
+              fx::compiledCost(t, *gen9, r.prog.inputs, true) < fx::compiledCost(t, *gen9, r.prog.inputs) &&
+              fx::compiledCost(t, *ampere, r.prog.inputs, true) == fx::compiledCost(t, *ampere, r.prog.inputs);
+    }
     if (r.line == 10) full = r.prog.half;
   }
-  CHECK(half == 1 && full == 0);
+  CHECK(half == 1 && full == 0 && costs);
 }
 
 TEST(fx_int_inputs) {
