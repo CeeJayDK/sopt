@@ -2290,6 +2290,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   1806 regions, 203 changed, variant checks 0 of 175 failed. Open: half costs (step 3); a variant may bring float
   values into half math (runs in float: more precise, no fp16 gain); windows mixing float and half are checked at
   half throughout (stricter than needed); V2 / V3 have no half profile.
+  fp16 step 3 (2026-10-27): min16float regions cost at the fp16 rates in the GPU family table and the compiled costs
+  (compiledCost(..., half): halfOpCost, a division's divCosts at mufuPct). Half variants of float regions (the best
+  expression with min16float inputs; fxc keeps literals at 16 bits: mad {min16f} with l(0.5)) were built and dropped:
+  a region's budget is its own value's, and only 9 of ~1450 sample regions have an 8-bit color budget (1319 rel 1e-6,
+  113 exact); the 14 SweetFX regions where fp16 would win all failed at half. Useful only with budgets taken from the
+  effect's output (an intermediate value feeding an 8-bit color may err far more): asked the owner.
   Self-healing output (owner, 2026-10-27): a change whose variant does not parse is dropped (the innermost #if around
   the first error that tests a switch; none: every change in the files that effect reads) and the files are written
   again, up to 4 times; the first round's failures still count ("dropped SOPT_..." lines in the log). Checked by
