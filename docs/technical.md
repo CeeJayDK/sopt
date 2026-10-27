@@ -79,7 +79,7 @@ before it that compute its own variable (chains such as `d = 1.0 - d; d /= F - d
 straight-line code, when nothing else reads the intermediate values). A variant removes
 the inlined statements. A window across `#if`/`#else`/`#endif` lines applies only while
 they compile as in the parse: its switch becomes `#if SOPT_x >= 1 && (COND)`.
-`--max-statements N` (default 4) and `--max-ops N` (default 24) bound the regions.
+`--max-statements N` (default 4) and `--max-ops N` (default 32) bound the regions.
 Inputs are the variables and texture fetches it reads. Statements whose value
 depends on `BUFFER_WIDTH/HEIGHT` through a `static const` are found by parsing twice
 and skipped.

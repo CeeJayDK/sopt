@@ -2275,7 +2275,7 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   regions -> 4016.
   Corpus on PR 86 (2026-10-27): 19756 regions, 2842 changed, 49543 saved, 28278 s. Same with --max-ops 32 (default
   24; "more than maxOps" was 462 skips): 19981 regions, 2934 changed (+3%), 52004 saved (+5%), 32560 s (+15%).
-  Waiting on the owner (a default change). --max-inputs 12 --max-slots 24 (default 8 / 16; "too many inputs" 449 +
+  Owner, 2026-10-27: 32 is the default. --max-inputs 12 --max-slots 24 (default 8 / 16; "too many inputs" 449 +
   149 skips -> 99 + 48): 20072 regions, 2853 changed (+11), 49659 saved (+74), +7% time: not worth it.
   Macro names in the corpus (top: nameless "other" 70, pix 57, BUFFER_PIXEL_SIZE 33): a macro followed by .x was one
   token ("pix.x", never found as a macro), and a // comment inside a statement of several lines ended its tokens (the

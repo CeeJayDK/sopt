@@ -1169,8 +1169,11 @@ TEST(fx_sugar_intrinsics) {
     CHECK(r != nullptr);
     if (!r) std::printf("  no region on line %u\n", line);
   }
-  // atan2 written out is ~30 operations: a region only above the default limit of 24.
-  CHECK(regionOn(regions, 24) == nullptr);
+  // atan2 written out is ~30 operations: no region under a limit of 24.
+  fx::RegionOptions small;
+  small.maxOps = 24;
+  fx::SkipCount sk1;
+  CHECK(regionOn(fx::extractRegions(*e, nullptr, small, sk1), 24) == nullptr);
   fx::RegionOptions big;
   big.maxOps = 40;
   fx::SkipCount sk2;

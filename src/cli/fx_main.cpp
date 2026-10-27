@@ -80,7 +80,7 @@ void usage() {
       "  --jobs N          regions searched in parallel (default: all cores)\n"
       "  --max-inputs N    skip statements reading more variables (default 8)\n"
       "  --max-slots N     ... or more input components (default 16; a float3 is 3)\n"
-      "  --max-ops N       skip regions with more operations (default 24)\n"
+      "  --max-ops N       skip regions with more operations (default 32)\n"
       "  --max-statements N  statements per window: a statement with the single-use\n"
       "                    temporaries it reads or the statements before it that compute\n"
       "                    its variable (default 4; 1 = single statements only)\n"
