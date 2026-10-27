@@ -26,7 +26,7 @@ const BlockEvaluator::Cols& BlockEvaluator::eval(const Expr& e, const PointSet& 
     const Node& n = e.nodes[i];
     const unsigned w = width(n.type);
     float* out[4] = {nullptr, nullptr, nullptr, nullptr};
-    if (n.op != Op::Input)
+    if (n.op != Op::Input || profile.half)  // half: inputs are rounded copies
       for (unsigned c = 0; c < w; ++c, next += count) {
         out[c] = next;
         ptr[i][c] = next;
@@ -47,7 +47,9 @@ const BlockEvaluator::Cols& BlockEvaluator::eval(const Expr& e, const PointSet& 
       }
     } else if (n.op == Op::Input) {
       const uint32_t slot = ps.slotOf(n.input);
-      for (unsigned c = 0; c < w; ++c) ptr[i][c] = ps.cols[slot + c].data() + begin;
+      for (unsigned c = 0; c < w; ++c)
+        if (profile.half) std::copy(ps.cols[slot + c].begin() + begin, ps.cols[slot + c].begin() + begin + count, out[c]);
+        else ptr[i][c] = ps.cols[slot + c].data() + begin;
     } else if (n.op == Op::Const) {
       for (unsigned c = 0; c < w; ++c) std::fill(out[c], out[c] + count, n.value[c]);
     } else {
@@ -59,6 +61,9 @@ const BlockEvaluator::Cols& BlockEvaluator::eval(const Expr& e, const PointSet& 
       }
       evalNode(n, ts, args, out, count, profile, tmp);
     }
+    if (profile.half && isFloat(n.type))
+      for (unsigned c = 0; c < w; ++c)
+        for (size_t j = 0; j < count; ++j) out[c][j] = roundHalf(out[c][j]);
   }
   return ptr[e.root];
 }

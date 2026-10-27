@@ -58,6 +58,17 @@ inline float fStep(float v, int dir) {
 
 }  // namespace
 
+float roundHalf(float v) {
+  if (!std::isfinite(v)) return v;
+  const float a = std::fabs(v);
+  if (a >= 65520.0f) return std::copysign(INFINITY, v);  // halfway above 65504 rounds to inf
+  // The half step at v (2^-24 for subnormals); v / step and back are exact (powers of two).
+  int e = 0;
+  std::frexp(a, &e);
+  const float step = std::ldexp(1.0f, std::max(e - 11, -24));
+  return std::nearbyint(v / step) * step;
+}
+
 void evalArray(Op op, const float* a, const float* b, const float* c, float* out, size_t n,
                const Profile& profile) {
   if (profile.ulpStep != 0 && !info(op).exact && op != Op::Div && op != Op::Smoothstep) {

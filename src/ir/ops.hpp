@@ -225,6 +225,8 @@ struct Profile {
   // not correctly rounded on GPUs. +1 / -1 moves each of their results one float step up /
   // down, so a candidate that amplifies such errors (e.g. by cancellation) shows it.
   int ulpStep = 0;
+  // min16float on GPUs with fp16 ALUs: inputs, constants and every result rounded to half (roundHalf).
+  bool half = false;
 };
 
 inline constexpr Profile kProfileRef{"ref", false, false};
@@ -235,5 +237,7 @@ inline constexpr Profile kProfileGpuUp{"gpu+", false, true, true, true, +1};
 inline constexpr Profile kProfileGpuDown{"gpu-", false, true, true, true, -1};
 inline constexpr std::array<Profile, 6> kAllProfiles{kProfileRef, kProfileMix, kProfileFma,
                                                      kProfileGpu, kProfileGpuUp, kProfileGpuDown};
+// Only for Program::half regions, with halfBudget (verify.hpp).
+inline constexpr Profile kProfileHalf{"half", false, true, true, true, 0, true};
 
 }  // namespace sopt

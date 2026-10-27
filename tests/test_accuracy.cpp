@@ -1,6 +1,7 @@
 #include <cmath>
 #include <string>
 
+#include "ir/eval.hpp"
 #include "ir/parser.hpp"
 #include "search/driver.hpp"
 #include "test.hpp"
@@ -171,4 +172,31 @@ TEST(search_one_finite_point) {
   opt.search.timeLimitSec = 1.0;
   const RunResult r = optimize(p, opt);
   CHECK(r.targetCost > 0);
+}
+
+TEST(round_half) {
+  CHECK(roundHalf(1.0f) == 1.0f);
+  CHECK(roundHalf(1.0f + std::ldexp(1.0f, -11)) == 1.0f);  // a tie: to even
+  CHECK(roundHalf(1.0f + 3.0f * std::ldexp(1.0f, -11)) == 1.0f + std::ldexp(1.0f, -9));
+  CHECK(roundHalf(65519.0f) == 65504.0f && std::isinf(roundHalf(65520.0f)) && roundHalf(-65520.0f) < 0.0f);
+  CHECK(roundHalf(std::ldexp(1.0f, -25)) == 0.0f && roundHalf(3.0f * std::ldexp(1.0f, -25)) == std::ldexp(1.0f, -23));
+}
+
+// min16float regions: a candidate fine in float32 that overflows at half precision fails the half check
+// (driver.cpp); one that only rounds differently passes.
+TEST(half_profile) {
+  Program p = parseProgram("input x : float in [0, 100]\ninput y : float in [0, 1]\n"
+                           "output r = x * y + x\nbudget r : rel 1e-6\n");
+  p.half = true;
+  const PointSet ps = makeRandomPoints(p, 4096, 5, true);
+  std::vector<double> scale;
+  const std::vector<double> exact = evalExactAll(p.target, ps, &scale);
+  for (double& s : scale) s *= 8192.0;
+  Program h = p;
+  h.budget = halfBudget(p.budget);
+  const std::vector<float> t = evalAll(p.target, ps, kProfileHalf);
+  auto half = [&](const char* c) { return compare(h, parseExpr(c, p.inputs), ps, kProfileHalf, 1, &t, &exact, &scale); };
+  CHECK(compare(p, parseExpr("(x * 1000.0) * (y + 1.0) * 0.001", p.inputs), ps, kProfileRef, 1).loosePass);
+  CHECK(!half("(x * 1000.0) * (y + 1.0) * 0.001").loosePass);
+  CHECK(half("x * (y + 1.0)").pass);
 }

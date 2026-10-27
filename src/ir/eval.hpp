@@ -14,6 +14,9 @@ namespace sopt {
 // verifier's BlockEvaluator; here it only affects lerp.
 float evalScalar(Op op, float a, float b, float c, const Profile& profile);
 
+// v rounded to IEEE half (11 significant bits, to nearest even; subnormals kept, overflow to inf), as a float.
+float roundHalf(float v);
+
 // Elementwise evaluation over n points. Unused operand pointers may be null.
 void evalArray(Op op, const float* a, const float* b, const float* c, float* out, size_t n,
                const Profile& profile);
