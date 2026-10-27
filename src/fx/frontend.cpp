@@ -1984,9 +1984,9 @@ uint32_t Extractor::applyVectorChain(uint32_t node,
       bool identity = n == width(nt);
       for (unsigned k = 0; k < n; ++k) identity = identity && sw[k] == k;
       // x.xxx of a scalar is HLSL's implicit broadcast: componentwise ops broadcast
-      // float1 operands, so the IR keeps the scalar.
-      bool broadcast = width(nt) == 1;
-      for (unsigned k = 0; k < n; ++k) broadcast = broadcast && sw[k] == 0;
+      // float1 operands, so the IR keeps the scalar; any component of it (float4(a.xxx, 1): .y of a.xxx) is the
+      // scalar too.
+      const bool broadcast = width(nt) == 1;
       if (!identity && !broadcast) node = b.swizzle(node, sw, n);
     } else if (op.op == O::op_cast) {
       // float -> floatN broadcast: componentwise ops broadcast float1 operands. A bool read as a float is 1.0 or 0.0.
@@ -2150,8 +2150,7 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       if (const Value* cmp = vectorCompare(v)) {
         // c < 0.5 ? x : y on vectors: a select per component (GPUs pick per component too).
         const uint32_t x = build(cmp->args[0], b), y = build(cmp->args[1], b), t = build(v.args[1], b),
-                       f = build(v.args[2], b);
-        auto comp = [&](uint32_t n, unsigned k) {
+                       f = build(v.args[2], b);        auto comp = [&](uint32_t n, unsigned k) {
           const uint8_t sw[1] = {static_cast<uint8_t>(k)};
           const Node& c = b.nodes()[n];
           if (width(c.type) == 1) return n;
@@ -3546,8 +3545,8 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   } catch (const Unsupported& e) {
     why = e.what();
     return false;
-  } catch (const std::invalid_argument&) {
-    why = "types";
+  } catch (const std::invalid_argument& e) {
+    why = std::string("types (") + e.what() + ")";
     return false;
   }
   const Type rt = reg.prog.target.nodes[reg.prog.target.root].type;
