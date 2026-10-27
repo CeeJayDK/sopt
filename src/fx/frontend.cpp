@@ -1069,14 +1069,20 @@ class Extractor {
     tlBracketFetches = fx.hlsl ? &fx.hlslFetchNames : nullptr;
     tlGlslFetches = fx.glsl;
     // A fixed macro that is one fetch (owner, 2026-10-26: getColor, GetLod, getColorSampler ...) reads as a fetch: the
-    // input keeps the macro call.
-    for (const auto& [name, m] : fx.functionMacros) {
-      std::string b = trim(m.second);
-      while (b.size() > 1 && b.front() == '(' && closeOf(b, 0) + 1 == b.size()) b = trim(b.substr(1, b.size() - 2));
-      const size_t open = fetchOpen(b, 0);
-      if (open != std::string::npos && closeOf(b, open) + 1 == b.size() && fixedMacro(name)) macroFetches_.insert(name);
-    }
+    // input keeps the macro call (so one defined inside #if needs no guard). Also one that is such a macro
+    // (SMAASamplePoint -> SMAASample -> tex2D, 2026-10-27).
     tlMacroFetches = &macroFetches_;
+    for (size_t before = SIZE_MAX; before != macroFetches_.size();) {
+      before = macroFetches_.size();
+      for (const auto& [name, m] : fx.functionMacros) {
+        std::string b = trim(m.second);
+        while (b.size() > 1 && b.front() == '(' && closeOf(b, 0) + 1 == b.size()) b = trim(b.substr(1, b.size() - 2));
+        const size_t open = fetchOpen(b, 0);
+        std::set<std::string> unused;
+        if (open != std::string::npos && closeOf(b, open) + 1 == b.size() && macroUsable(name, unused))
+          macroFetches_.insert(name);
+      }
+    }
     for (const auto& [id, v] : cg_.values)
       for (uint32_t a : v.args) users_[a].push_back(id);
     for (const auto& [id, v] : cg_.values)
@@ -3390,23 +3396,34 @@ bool Extractor::macroUsable(const std::string& name, std::set<std::string>& guar
   const auto om = fx_.objectMacros.find(name);
   if (fm == fx_.functionMacros.end() && om == fx_.objectMacros.end()) return false;
   const std::vector<std::string> want = memberTokens(fm != fx_.functionMacros.end() ? fm->second.second : om->second);
-  int found = 0;
-  std::string guard;
+  // Each definition with the condition it is compiled under; one outside #if with this text is in effect wherever no
+  // definition with other text is (SweetFX's SMAA.fx defines SMAASamplePoint, SMAA.fxh again under SMAA_HLSL_3 ...).
+  std::vector<std::string> same, other;
   for (const auto& [file, line] : it->second.at) {
     const std::vector<std::string>* lines = sourceLines(file);
     if (!lines || line > lines->size()) return false;
     const std::string& text = (*lines)[line - 1];
-    if (!text.empty() && text.back() == '\\') continue;  // over several lines: not compared
+    if (!text.empty() && text.back() == '\\') {  // over several lines: not compared
+      other.push_back("");
+      continue;
+    }
     size_t p = text.find(name, text.find("define"));
     if (p == std::string::npos) return false;
     p += name.size();
     if (fm != fx_.functionMacros.end() && (p = text.find(')', p)) != std::string::npos) ++p;
-    if (p == std::string::npos || memberTokens(text.substr(p)) != want) continue;
-    std::string why;
-    if (++found > 1 || !spanGuard(fx_, file, line, line, guard, why, true, line) || guard.empty()) return false;
+    std::string guard, why;
+    if (!spanGuard(fx_, file, line, line, guard, why, true, line)) return false;
+    (p != std::string::npos && memberTokens(text.substr(p)) == want ? same : other).push_back(guard);
   }
-  if (found != 1) return false;
-  guards.insert(guard);
+  if (std::find(same.begin(), same.end(), "") == same.end()) {
+    if (same.size() != 1) return false;
+    guards.insert(same[0]);
+    return true;
+  }
+  for (const std::string& g : other) {
+    if (g.empty()) return false;
+    guards.insert("!(" + g + ")");
+  }
   return true;
 }
 
