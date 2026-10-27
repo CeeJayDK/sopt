@@ -95,6 +95,16 @@ inline bool pointWithinBudget(const Budget& b, float t, float c, double s = 0.0)
   return false;
 }
 inline bool accuracyRule(const Budget& b) { return b.vsExact && b.kind != Budget::Kind::Exact; }
+// A min16float region at half precision (kProfileHalf): within 2^-8 (8 half steps) of max(|t|, the original's error
+// scale times 8192, half's step over float's); the accuracy rule and loose factor as the region's.
+inline Budget halfBudget(const Budget& b) {
+  Budget h;
+  h.kind = Budget::Kind::Rel;
+  h.eps = 1.0 / 256.0;
+  h.vsExact = b.vsExact;
+  h.loose = b.loose;
+  return h;
+}
 // The accuracy rule at one point: cand is at least as close to the exact value as the
 // original target is (times `scale`), or within the budget of the exact value.
 bool pointAccurate(const Budget& b, float target, double exact, float cand, double scale = 1.0, double s = 0.0);

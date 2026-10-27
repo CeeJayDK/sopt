@@ -1445,6 +1445,22 @@ TEST(fx_setting_paths) {
         regions[0].guard.find("(SETTING_MODE > 3)") != std::string::npos);
 }
 
+TEST(fx_half_regions) {
+  // min16float math is float math, also verified at half precision (fp16 step 2, 2026-10-27); float math is not.
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_half.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  int half = -1, full = -1;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
+    if (!r.removed.empty()) continue;
+    if (r.line == 8) half = r.prog.half;
+    if (r.line == 10) full = r.prog.half;
+  }
+  CHECK(half == 1 && full == 0);
+}
+
 TEST(fx_int_inputs) {
   // Integer variables read as float (owner, 2026-10-26): inputs written float(x), a loop counter in [A, B] from its
   // for header (B: its value after the loop), an int slider on whole numbers.

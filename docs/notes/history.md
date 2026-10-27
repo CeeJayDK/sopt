@@ -2283,6 +2283,13 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   failed. Struct-building helpers (FullCurve_new(), TraceRay2D into a hit struct) are most "writes part of a
   variable" skips: nothing to search there. Corpus: 19934 regions (+178), 2913 changed (+71), 51686 saved (+2101,
   +4%), 30077 s (+3%); top macros now SMAASamplePoint 28, ".CF" 23, SMAATexturePass2D 20.
+  fp16 step 2 (owner's go, 2026-10-27): min16float math is float math (isFloatType); a region that reads min16float
+  values is Program::half and its candidates must also pass kProfileHalf in V1 (inputs, constants and every float
+  result rounded to half by roundHalf: nearest even, subnormals kept, >= 65520 -> inf) within halfBudget (rel 2^-8 of
+  max(|t|, the float error scale x 8192)); pass / fail only, the metrics stay float. Barbatos: 0 min16float skips,
+  1806 regions, 203 changed, variant checks 0 of 175 failed. Open: half costs (step 3); a variant may bring float
+  values into half math (runs in float: more precise, no fp16 gain); windows mixing float and half are checked at
+  half throughout (stricter than needed); V2 / V3 have no half profile.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one

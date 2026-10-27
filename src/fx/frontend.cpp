@@ -1019,9 +1019,15 @@ bool compoundOp(Op op) {
   }
 }
 
+// Set when a min16float value is read as float math (the region's original may run at half precision).
+thread_local bool tlSawHalf = false;
+
 bool isFloatType(const reshadefx::type& t) {
-  return (t.base == reshadefx::type::t_float) && t.cols == 1 && t.rows >= 1 && t.rows <= 4 &&
-         !t.is_array();
+  const bool half = t.base == reshadefx::type::t_min16float;
+  const bool ok = (t.base == reshadefx::type::t_float || half) && t.cols == 1 && t.rows >= 1 && t.rows <= 4 &&
+                  !t.is_array();
+  tlSawHalf = tlSawHalf || (ok && half);
+  return ok;
 }
 
 // A skip reason with the type that is not float32 ("non-float arithmetic (int)"): corpus summaries tell integer
@@ -3413,6 +3419,7 @@ bool Extractor::macroUsable(const std::string& name, std::set<std::string>& guar
 // IR of a statement's value (with the temporaries in inline_ replaced by their
 // definitions), inputs and facts.
 bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
+  tlSawHalf = false;
   leaves_.clear();
   built_.clear();
   collected_.clear();
@@ -3577,6 +3584,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   bool runtime = false;
   for (const auto& d : reg.prog.inputs) runtime = runtime || !d.compileTime;
   if (!runtime) { why = "compile-time constant expression"; return false; }
+  reg.prog.half = tlSawHalf;
   return true;
 }
 

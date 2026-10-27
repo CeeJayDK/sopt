@@ -176,7 +176,19 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   std::vector<double> stage2Scale, v1Scale;
   const std::vector<double> stage2Exact =
       rule || rel ? evalExactAll(prog.target, stage2, rel ? &stage2Scale : nullptr) : std::vector<double>();
-  const std::vector<double> v1Exact = rule || rel ? evalExactAll(prog.target, v1, rel ? &v1Scale : nullptr) : std::vector<double>();
+  const bool v1Scaled = rel || prog.half;
+  const std::vector<double> v1Exact =
+      rule || v1Scaled ? evalExactAll(prog.target, v1, v1Scaled ? &v1Scale : nullptr) : std::vector<double>();
+  // min16float: also at half precision, with its budget and error scale (halfBudget).
+  Program halfProg;
+  std::vector<double> halfScale;
+  std::vector<float> halfTarget;
+  if (prog.half) {
+    halfProg = prog;
+    halfProg.budget = halfBudget(prog.budget);
+    for (const double s : v1Scale) halfScale.push_back(s * 8192.0);
+    halfTarget = evalAll(prog.target, v1, kProfileHalf);
+  }
   const std::vector<double>* s2x = rule ? &stage2Exact : nullptr;
   const std::vector<double>* v1x = rule ? &v1Exact : nullptr;
   const std::vector<double>* s2s = rel ? &stage2Scale : nullptr;
@@ -359,6 +371,12 @@ RunResult optimize(const Program& progIn, const Options& opt) {
             refFailed = p == 0;
             break;
           }
+        }
+        if (prog.half && worst.loosePass) {  // pass / fail only: the metrics describe float math
+          const Metrics h = compare(halfProg, c.expr, v1, kProfileHalf, opt.threads, &halfTarget,
+                                    halfProg.budget.vsExact ? &v1Exact : nullptr, &halfScale);
+          worst.pass = worst.pass && h.pass;
+          worst.loosePass = worst.loosePass && h.loosePass;
         }
         if (!worst.loosePass) {
           if (refFailed) {

@@ -84,6 +84,7 @@ struct Program {
   std::string outputName = "r";
   Expr target;
   Budget budget;
+  bool half = false;  // min16float math: candidates are also verified at half precision (kProfileHalf)
 };
 
 // Result type of an op node with the given operand types, or nullopt if they don't fit
