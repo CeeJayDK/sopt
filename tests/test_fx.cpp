@@ -318,18 +318,28 @@ TEST(fx_macro_inputs) {
   for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
     fixed = fixed || (r.line == 25 && toString(r.prog.target, r.prog.inputs) == "d * 3.0 + 1.0");
   CHECK(fixed);
-  // A macro defined inside #if depends on a setting: still skipped; the include guard does not count.
+  // A macro defined inside #if depends on a setting: spelled out under the definition's condition; the include guard
+  // does not count. Function-like macros are expanded, one that is a texture fetch is an input (2026-10-26).
   auto f = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_fixedmacro.fx", fx::LoadOptions(), err);
   CHECK(f != nullptr);
   if (!f) return;
   fx::SkipCount sf;
   sf.keepDetails = true;
-  bool lit = false;
-  for (const auto& r : fx::extractRegions(*f, nullptr, fx::RegionOptions(), sf))
-    lit = lit || (r.line == 20 && toString(r.prog.target, r.prog.inputs).find("0.75") != std::string::npos);
-  bool cond = false;
-  for (const auto& d : sf.details) cond = cond || d.find("sopt_fixedmacro.fx:21: uses a macro") != std::string::npos;
-  CHECK(lit && cond);
+  bool lit = false, cond = false, fn = false, condFn = false, fetch = false, win = false;
+  for (const auto& r : fx::extractRegions(*f, nullptr, fx::RegionOptions(), sf)) {
+    win = win || (r.line == 22 && !r.removed.empty() && r.guard == "(SETTING)");  // b inlined: COND's condition
+    if (!r.removed.empty()) continue;
+    const std::string t = toString(r.prog.target, r.prog.inputs);
+    lit = lit || (r.line == 20 && t.find("0.75") != std::string::npos && r.guard.empty());
+    cond = cond || (r.line == 21 && t.find("0.5") != std::string::npos && r.guard == "(SETTING)");
+    fn = fn || (r.line == 34 && t.find("max(") != std::string::npos && r.guard.empty());
+    condFn = condFn || (r.line == 35 && t.find("0.5") != std::string::npos && r.guard == "(SETTING)");
+    for (const auto& d : r.prog.inputs) fetch = fetch || (r.line == 36 && d.name == "getColor(p.yx).y");
+  }
+  CHECK(lit && cond && fn && condFn && fetch);
+  CHECK(win);
+  for (const auto& d : sf.details)
+    if (d.find("uses a macro") != std::string::npos) std::printf("  %s\n", d.c_str());
 }
 
 TEST(fx_buffer_inputs) {
@@ -1385,8 +1395,26 @@ TEST(fx_oneline_if) {
   const fx::Region* r9 = regionOn(regions, 9);
   const fx::Region* r10 = regionOn(regions, 10);
   CHECK(r9 && r10 && regionOn(regions, 11));
-  if (r9) CHECK(r9->lhs == "if (c.z > 0.5) pos.x =");
-  if (r10) CHECK(r10->lhs == "else pos.y =");
+  if (r9) CHECK(r9->prefix == "if (c.z > 0.5) " && r9->lhs == "pos.x =" && r9->tail == ";");
+  if (r10) CHECK(r10->prefix + r10->lhs == "else pos.y =");  // the location is at "else": the older prefix rule
+  // Other code on the same line (2026-10-26): kept before / after the statement, never in a window.
+  auto has = [&](uint32_t line, const char* prefix, const char* lhs, const char* tail) {
+    for (const auto& r : regions)
+      if (r.line == line && r.removed.empty() && r.prefix == prefix && r.lhs == lhs && r.tail == tail) return true;
+    return false;
+  };
+  CHECK(has(14, "float3 OMul(float3 a, float3 b) { ", "return", "; }"));
+  CHECK(has(18, "", "float a =", "; float b = c.y * 3.0 + c.y * 0.5;"));
+  CHECK(has(18, "float a = c.x * c.y + c.z; ", "float b =", ";"));
+  CHECK(has(19, "", "float s =", ", t = c.z * c.z + c.y * c.z;"));
+  CHECK(has(19, "float s = c.x * 2.0 + c.y, ", "t =", ";"));
+  for (const auto& r : regions) {
+    for (const auto& [a, b] : r.removed) CHECK(b < 18 || a > 19);
+    if (r.line < 18 || r.line > 19) continue;
+    CHECK(!r.sharesLines() || r.removed.empty());
+    if (r.line == 19 && r.lhs == "t =")
+      CHECK(fx::variantStatement(r, "x") == "float s = c.x * 2.0 + c.y, t = x;");
+  }
 }
 
 TEST(fx_setting_paths) {

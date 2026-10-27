@@ -217,7 +217,7 @@ std::optional<SourceRewrite> blendShader(const Effect& fx, const Function& ps, c
   const Codegen& cg = *fx.cg;
   const std::string file = ps.loc.source;
   const std::vector<std::string>* lines = sourceLines(file);
-  if (!lines || ps.loc.line == 0 || ps.loc.line > lines->size()) return std::nullopt;
+  if (!lines || ps.loc.line == 0 || ps.loc.line > lines->size() || r.sharesLines()) return std::nullopt;
 
   // Where the color leaves the shader (owner, 2026-10-08: out parameters and color.rgb = ...; return color; too):
   //   Return:      the region is the return statement (the only one: an early return would write an

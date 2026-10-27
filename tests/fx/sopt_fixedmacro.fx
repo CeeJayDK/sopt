@@ -1,7 +1,7 @@
 #ifndef SOPT_FIXEDMACRO_FX
 #define SOPT_FIXEDMACRO_FX
-// Test effect for test_fx: a macro with one value for every user is expanded, one defined inside #if is not (its
-// value depends on a setting). The include guard around the file does not count. Line numbers are checked.
+// Test effect for test_fx: macros are expanded (one defined inside #if under its condition, not the include guard's),
+// function-like ones too; one that is a texture fetch is an input. Line numbers are checked.
 #define LIT 0.75
 #ifndef SETTING
 	#define SETTING 1
@@ -21,5 +21,20 @@ float4 FmPS(float4 p : SV_Position) : SV_Target
 	float b = c.r * COND + c.g;
 	return float4(a, b, 0.0, 1.0);
 }
-technique Fm { pass { VertexShader = FmVS; PixelShader = FmPS; } }
+#define maxOf3(a) max(max(a.x, a.y), a.z)
+#define getColor(c) tex2Dlod(FmSamp, float4((c).xy, 0, 0))
+#if SETTING
+	#define BLEND(x, y) ((x) * 0.5 + (y))
+#else
+	#define BLEND(x, y) ((x) * 0.25 + (y))
+#endif
+float4 FmPS2(float4 p : SV_Position) : SV_Target
+{
+	float3 c = getColor(p.xy).rgb;
+	float m = maxOf3(c) * 2.0 + c.r;
+	float b = BLEND(c.g, c.b) * c.r;
+	float d = getColor(p.yx).g * 3.0 + c.b;
+	return float4(m, b, d, 1.0);
+}
+technique Fm { pass { VertexShader = FmVS; PixelShader = FmPS; } pass { VertexShader = FmVS; PixelShader = FmPS2; } }
 #endif

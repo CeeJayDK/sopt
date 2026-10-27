@@ -2220,6 +2220,28 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   only known forms (sign's mad-sat, add-round for round / ceil / frac, smoothstep with constant edges written out,
   lerp's two mads on RDNA 3); searches complete only to a fraction of the original's cost (smoothstep 8 of 44,
   tan 11 of 71), so intrinsics.yml searches each for 30 min per model.
+  Multi-result test (owner, 2026-10-26; branch multi-result-test, --multi-result-test, never written): the readers of a
+  one-instruction value used several times searched as one region (a Construct of their results). Corpus: 340 groups,
+  together 615 vs each alone 726 cost saved: parked (no gain over the single regions).
+  Macros (owner, 2026-10-26; "uses a macro" 2031 in the PR #84 corpus run; the reason now names the macro and its
+  kind): on Barbatos + bug corpora (108 effects) 455 were function-like (GetLod / getColor / getColorSampler texture
+  reads, maxOf3, AF1_), 211 object-like (_NOISE_DITHERING: defined inside #if), 29 settings. (1) A fixed function-like
+  macro whose body is one texture read is a fetch input named by its call (tlMacroFetches; the variant keeps the
+  call). (2) Usable macros (macroUsable: fixed, or defined inside #if with exactly one #define matching the current
+  replacement list and no #undef; redefinitions are errors in ReShade) are expanded in sourceTokens, function-like ones
+  with their arguments substituted in the text (memberTokens splits ".x" so spacing does not matter). A #if definition's
+  condition (spanGuard with takenLine: the #define's branch is the taken one) becomes the region's guard; windows keep
+  the guards of every statement they inline (they were dropped before: spanGuard overwrote win.guard). spanGuard no
+  longer counts include guards (#ifndef X / #define X): a region in a guarded header got "!defined(X)", never true where
+  the code is. Sample: macro skips 756 -> 99, regions 3330 -> 3562, variant check 0 of 1057 parses failed.
+  Shared lines (owner, 2026-10-26: "not a simple statement" 1148, "several declarators" 385, "several statements on
+  one line" 302): a statement starts at its column (Store: the variable, Init: its type before the name, Return:
+  "return"; the parser's location is the preprocessed line's, shifted by the indentation difference; a line with
+  macros: the word if it is there once) and ends at its ';' (Init: also a declarator's ','). Region::prefix / tail keep
+  the code before and after it, the variant line repeats them (inside #if / #else, so both branches are whole lines).
+  Such statements are never part of a window (a variant removes whole lines) or a blend-stage rewrite. The declaration
+  location is its "=", not the name. Sample: "not a simple statement" 317 -> 57 (the rest: integer for headers, now
+  "loop header"), regions 3562 -> 3648.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one

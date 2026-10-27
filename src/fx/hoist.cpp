@@ -364,6 +364,9 @@ std::optional<SourceRewrite> hoistShader(const Effect& fx, const Function& ps, c
     const std::string& vs_ = vtext.s;
     const size_t at = vs_.find(vs.name, vtext.starts[vs.loc.line - 1]);
     if (at == std::string::npos) return std::nullopt;
+    // Defined after the pixel shader: the wrapper above it could not call it (RadiantGI.fx 2026-10-27: its own
+    // PostProcessVS at the end of the file, while the parser's location for it was line 282).
+    if (vs.loc.source == file && vtext.lineOf(at) >= ps.loc.line) return std::nullopt;
     const size_t open = skipSpace(vs_, at + vs.name.size());
     if (open >= vs_.size() || vs_[open] != '(') return std::nullopt;
     const size_t close = matching(vs_, open);
@@ -545,7 +548,8 @@ std::optional<SourceRewrite> hoistShader(const Effect& fx, const Function& ps, c
   if (comps) rw.description += std::to_string(comps) + " interpolated component" + (comps > 1 ? "s" : "");
   if (comps && flatComps) rw.description += ", ";
   if (flatComps) rw.description += std::to_string(flatComps) + " flat (uniforms only)";
-  rw.description += ")";
+  rw.description += "; calls " + vs.uniqueName + " of " + pathFrom(vs.loc.source).filename().string() + ":" +
+                    std::to_string(vs.loc.line) + ")";
   return rw;
 }
 

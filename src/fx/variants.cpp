@@ -132,7 +132,7 @@ int vendorPick(const RegionResult& rr, Vendor vendor, bool dx) {
 }
 
 std::string variantStatement(const Region& r, const std::string& expr) {
-  return r.lhs + " " + expr + r.rhs + ";";
+  return r.prefix + r.lhs + " " + expr + r.rhs + r.tail;
 }
 
 void easyPicks(std::vector<RegionResult>& results, std::vector<SourceRewrite>& rewrites, const EasyOptions& eo) {
@@ -482,8 +482,16 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
           // GLSL reserves names with "__" (glslang warns): sopt_p there.
           const std::string tmp = (r.glsl ? "sopt_p" : "__sopt_p") + std::to_string(r.line) + "_" + std::to_string(k + 1);
           const std::string ty = w > 1 ? (r.glsl ? "vec" : "float") + std::to_string(w) : std::string("float");
-          out += ind + "precise " + ty + " " + tmp + " = " + text + ";\n";
+          const std::string decl = "precise " + ty + " " + tmp + " = " + text + ";";
           text = tmp;
+          if (!r.prefix.empty()) {
+            // Code before it on its line (a one-line function, a case label, an if): the temporary goes in a block
+            // where the statement is (fx_main leaves out declarator lists, whose tail does not start with ';').
+            out += ind + r.prefix + "{ " + decl + " " + r.lhs + " " + text + r.rhs + "; }" + r.tail.substr(1) + note +
+                   back + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
+            continue;
+          }
+          out += ind + decl + "\n";
         }
         out += ind + variantStatement(r, text) + note + back + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
       }

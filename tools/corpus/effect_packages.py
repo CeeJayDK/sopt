@@ -103,11 +103,11 @@ EXPLAIN = [
     ("function call: writes part of a variable", False, "a helper that sets only some components (c.rgb = ...)"),
     ("function call: ", False, "a helper function sopt cannot look into yet"),
     ("function call", False, "a function call sopt cannot look into"),
-    ("uses a macro", False, "a #define in the math: sopt would have to write the variant around the macro"),
+    ("uses a macro", False, "a #define in the math sopt cannot spell out (a setting, # or ##, or several matching definitions)"),
     ("assignment shape", False, "an assignment sopt cannot rewrite in place"),
     ("loop header", True, "a for / while header: its counter is integer math"),
     ("array initializer", True, "a table of values (the table rewrite handles tables)"),
-    ("not a simple statement", False, "a statement sharing its line with { or }"),
+    ("not a simple statement", False, "a statement whose start sopt cannot find on a line it shares with { or }"),
     ("several declarators", False, "several variables declared in one statement (float a = ..., b = ...;)"),
     ("several statements on one line", False, "several statements on one line"),
     ("too many inputs", False, "reads more values than the search handles (--max-inputs / --max-slots)"),
@@ -193,7 +193,8 @@ def run(dest, sopt, out, secs, timeout, args=""):
         if problem:  # the reasons into the job's log, so they are there without the reports
             print(f"--- {p['id']} {p['name']}: {', '.join(problem)}")
             for lg in (log, easy_log):
-                print("\n".join([l for l in lg.splitlines() if "does not parse" in l or "error" in l.lower()][:60]), flush=True)
+                print("\n".join([l for l in lg.splitlines()
+                             if "does not parse" in l or "error" in l.lower() or re.match(r"  (\d+|\w+ at \d+): ", l)][:90]), flush=True)
         save = f"{saved[0]} regions, {saved[1]} -> {saved[2]}" if saved else ""
         rows.append(f"| {p['id']} | [{p['name']}]({p['url']}) | {len(p['effects'])} | {parsed[0] + ' / ' + parsed[1] if parsed else '?'}"
                     f" | {parsed[2] if parsed else '?'} | {save} | {secs_used:.0f} s | {', '.join(problem)} |")

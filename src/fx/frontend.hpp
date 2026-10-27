@@ -59,6 +59,8 @@ struct Effect {
   std::set<std::string> hlslFetchNames, hlslBuffers;
   // Object-like macros' replacement lists (for source lines that use BUFFER_SCREEN_SIZE etc.).
   std::map<std::string, std::string> objectMacros;
+  // Function-like macros: parameters and replacement list (parameters by name; none with # or ##).
+  std::map<std::string, std::pair<std::vector<std::string>, std::string>> functionMacros;
 };
 
 // The second parse that finds resolution-dependent regions: a 32:9 super ultrawide
@@ -135,6 +137,10 @@ struct Region {
   std::string function;      // enclosing function
   std::string lhs;           // statement text before the value: "float3 x =", "x.rgb =", "return"
   std::string rhs;           // ... and after it (Write: ")")
+  // Other code on the statement's lines (owner, 2026-10-26: "{ return a * b; }", "a = x; b = y;", "float s = sin(x),
+  // c = cos(x);"): the text before it on its first line, and its terminator with the text after it on its last line.
+  std::string prefix, tail = ";";
+  bool sharesLines() const { return !prefix.empty() || tail != ";"; }
   std::string original;      // original statement text (joined lines; windows: all statements)
   std::string text;          // the (root) statement without comments, on one line
   // Window: declarations of single-use temporaries inlined into this statement
