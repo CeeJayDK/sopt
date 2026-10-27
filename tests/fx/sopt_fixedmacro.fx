@@ -36,5 +36,14 @@ float4 FmPS2(float4 p : SV_Position) : SV_Target
 	float d = getColor(p.yx).g * 3.0 + c.b;
 	return float4(m, b, d, 1.0);
 }
-technique Fm { pass { VertexShader = FmVS; PixelShader = FmPS; } pass { VertexShader = FmVS; PixelShader = FmPS2; } }
+#define PIX float2(0.25, 0.5)
+float4 FmPS3(float4 p : SV_Position) : SV_Target
+{
+	float3 c = getColor(p.xy).rgb;
+	float e = c.r * PIX.x * 2.0 + c.g;
+	float g = mad(c.r, // a comment inside the statement
+		LIT, c.b) * c.g;
+	return float4(e, g, 0.0, 1.0);
+}
+technique Fm { pass { VertexShader = FmVS; PixelShader = FmPS; } pass { VertexShader = FmVS; PixelShader = FmPS2; } pass { VertexShader = FmVS; PixelShader = FmPS3; } }
 #endif

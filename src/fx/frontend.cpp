@@ -416,7 +416,11 @@ std::vector<std::string> tokens(const std::string& s) {
   while (i < n) {
     const char c = s[i];
     if (std::isspace(static_cast<unsigned char>(c))) { ++i; continue; }
-    if (c == '/' && i + 1 < n && s[i + 1] == '/') break;
+    if (c == '/' && i + 1 < n && s[i + 1] == '/') {  // to the line's end: statements span lines
+      const size_t e = s.find('\n', i);
+      i = e == std::string::npos ? n : e;
+      continue;
+    }
     if (c == '/' && i + 1 < n && s[i + 1] == '*') {
       const size_t e = s.find("*/", i + 2);
       i = e == std::string::npos ? n : e + 2;
@@ -1020,6 +1024,16 @@ bool isFloatType(const reshadefx::type& t) {
          !t.is_array();
 }
 
+// A skip reason with the type that is not float32 ("non-float arithmetic (int)"): corpus summaries tell integer
+// math from min16float (fp16) from booleans.
+std::string nonFloat(const char* what, const reshadefx::type& t) {
+  using T = reshadefx::type;
+  const char* base = t.base == T::t_bool ? "bool" : t.base == T::t_int || t.base == T::t_min16int ? "int"
+                   : t.base == T::t_uint || t.base == T::t_min16uint ? "uint" : t.base == T::t_min16float ? "min16float"
+                   : t.base == T::t_float ? (t.is_array() ? "float array" : "float matrix") : "other";
+  return std::string(what) + " (" + base + ")";
+}
+
 struct Unsupported : std::runtime_error {
   using std::runtime_error::runtime_error;
 };
@@ -1108,7 +1122,7 @@ class Extractor {
     bool fetch = false;          // texture fetch: prefix is its call text
     bool call = false;           // ... or a helper call read as an input (fetch too)
     std::string semantic;        // of the struct member the prefix ends in, if any
-    bool intSource = false;      // a compute shader's integer thread ID, read converted to float
+    bool intSource = false;      // an integer variable, read converted to float
   };
   Leaf& fetchLeaf(uint32_t id);
 
@@ -1122,6 +1136,31 @@ class Extractor {
   void collectCond(uint32_t id);
   uint32_t buildCond(uint32_t id, ExprBuilder& b);
   bool numberLeaf_ = false;  // leafOf: a bool / int variable read as a float (a condition)
+  // Integer + - * converted to float (owner, 2026-10-26: float(i * 2 + 1)): searched as float math, exact while every
+  // value is a whole number within 2^24 (intCast checks the ranges); > 0 while collecting / building one.
+  int intMode_ = 0;
+  bool intCast(const Value& v);
+  bool intExact(uint32_t id, int depth = 0);
+  // A select on a float vector whose condition compares float vectors (c <= 0.04045 ? ... : ...): the comparison.
+  const Value* vectorCompare(const Value& v) const {
+    if (v.kind != Value::Kind::Ternary || v.type.rows < 2 || !isFloatType(v.type)) return nullptr;
+    const auto c = cg_.values.find(v.args[0]);
+    if (c == cg_.values.end() || c->second.kind != Value::Kind::Binary || !isComparison(c->second.op) ||
+        !c->second.type.is_boolean() || c->second.type.rows != v.type.rows)
+      return nullptr;
+    for (uint32_t a : c->second.args)
+      if (const auto ai = cg_.values.find(a); ai == cg_.values.end() || !isFloatType(ai->second.type) ||
+                                              (ai->second.type.rows != v.type.rows && ai->second.type.rows != 1))
+        return nullptr;
+    return &c->second;
+  }
+  struct MatMul {
+    const Value* matrix = nullptr;  // a float matrix written out: a constant, or float3x3(...) in place
+    uint32_t vector = 0;
+    bool rowsFirst = false;         // mul(M, v): a dot per row; mul(v, M): per column
+  };
+  MatMul matMul(const Value& v) const;
+  bool intCompare(const Value& v);
   // Splits a load into leaf prefix and the vector part of the chain.
   Leaf& leafOf(const Value& v, size_t& vecStart);
   uint32_t applyVectorChain(uint32_t node, const std::vector<reshadefx::expression::operation>& chain,
@@ -1133,6 +1172,7 @@ class Extractor {
   Range range(uint32_t valueId);
   Range varRange(uint32_t var, uint32_t seq, uint32_t block);
   Range varRangeRaw(uint32_t var, uint32_t seq, uint32_t block);
+  Range loopRange(uint32_t var);
   std::string varKey(uint32_t var) const;  // UserRanges key of a variable
   std::unordered_map<uint32_t, const Function*> varFunction_;  // local/param -> function
   Range samplerRange(uint32_t valueId);
@@ -1293,7 +1333,10 @@ std::string Extractor::varText(uint32_t var, bool relative) const {
       if (out.rfind("::", 0) == 0) out.erase(0, 2);  // global scope
       return out + v.name;
     }
-    case Variable::Kind::Global: break;
+    case Variable::Kind::Global:
+      // A static const (2026-10-27: weights read at a loop index), qualified by its namespace.
+      if (v.type.has(reshadefx::type::q_const) && v.initializer) return globalSourceName(v.uniqueName);
+      break;
   }
   throw Unsupported("global variable");
 }
@@ -1314,6 +1357,34 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
       semantic = cg_.structMemberSemantic(op.from.struct_definition, op.index);
     } else if (op.op == reshadefx::expression::operation::op_constant_index && op.from.is_array()) {
       text += "[" + std::to_string(op.index) + "]";
+    } else if (op.op == reshadefx::expression::operation::op_dynamic_index && op.from.is_array() &&
+               window_.empty()) {
+      // An element at a variable index (2026-10-27: offsets[i] in a loop): an input named by its text, with the
+      // range of every element; not in windows (the index may change between the statements). The index must be
+      // a variable of this function (a helper's parameter has no name at the call).
+      const auto iv = cg_.values.find(op.index);
+      bool plain = iv != cg_.values.end() && iv->second.kind == Value::Kind::Load && !inlineLoad_.count(op.index) &&
+                   !inline_.count(iv->second.base) && cg_.variables.count(iv->second.base) &&
+                   !isSymbolic(iv->second.base);
+      for (size_t k = 0; plain && k < iv->second.chain.size(); ++k)
+        plain = iv->second.chain[k].op == reshadefx::expression::operation::op_cast;
+      if (!plain) throw Unsupported("access chain (index)");
+      const std::string idx = varText(iv->second.base);
+      if (text.empty() && i == 0 && var->kind == Variable::Kind::Local) {
+        // ReShade reads a static const array at a run-time index through a nameless copy: the name the source line
+        // uses with this index ("W[k]"), when there is one such name and it is no macro.
+        const std::vector<std::string>* lines = sourceLines(var->loc.source);
+        if (!lines || var->loc.line == 0 || var->loc.line > lines->size()) throw Unsupported("access chain (copy)");
+        const std::string& l = (*lines)[var->loc.line - 1];
+        const std::regex use("\\b([A-Za-z_]\\w*)\\s*\\[\\s*" + idx + "\\s*\\]");
+        std::set<std::string> names;
+        for (auto m = std::sregex_iterator(l.begin(), l.end(), use); m != std::sregex_iterator(); ++m)
+          names.insert((*m)[1].str());
+        if (names.size() != 1 || fx_.objectMacros.count(*names.begin()) || fx_.functionMacros.count(*names.begin()))
+          throw Unsupported("access chain (copy)");
+        text = *names.begin();
+      }
+      text += "[" + idx + "]";
     } else {
       throw Unsupported("access chain");
     }
@@ -1325,27 +1396,32 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
       i < v.chain.size() && v.chain[i].op == reshadefx::expression::operation::op_cast &&
       isFloatType(v.chain[i].to))
     t.base = reshadefx::type::t_float;
-  // A compute shader's thread ID (uint) read through a conversion to float: a float input
-  // written float(id.x) / float2(id.xy) (integer arithmetic on it stays unsupported).
+  // An integer variable (a compute shader's thread ID, a loop counter, an int slider; 2026-10-26: any) read through a
+  // conversion to float: a float input written float(i) / float2(id.xy) (integer arithmetic on it stays unsupported).
   bool intSource = false;
   const size_t rest = v.chain.size() - i;  // [component pick,] cast
-  if (var->kind == Variable::Kind::Param && t.is_integral() && (rest == 1 || rest == 2)) {
-    const auto pf = paramOf_.find(v.base);
+  if (t.is_integral() && !isSymbolic(v.base) && (rest == 1 || rest == 2)) {
     using O = reshadefx::expression::operation;
     const size_t c = v.chain.size() - 1;
     const bool picked = rest == 1 || v.chain[i].op == O::op_swizzle || v.chain[i].op == O::op_constant_index;
-    if (pf != paramOf_.end() && pf->second->type == reshadefx::shader_type::compute &&
-        computeSemantic(var->semantic) && picked && v.chain[c].op == O::op_cast &&
-        v.chain[c].from.is_integral() && isFloatType(v.chain[c].to) && v.chain[c].to.rows == v.chain[c].from.rows) {
+    if (picked && v.chain[c].op == O::op_cast && v.chain[c].from.is_integral() && isFloatType(v.chain[c].to) &&
+        v.chain[c].to.rows == v.chain[c].from.rows) {
       t.base = reshadefx::type::t_float;
       intSource = true;
     }
+  }
+  // Inside integer + - * converted to float (intMode_): the variable is a float input too.
+  if (intMode_ && t.is_integral() && !t.is_boolean() &&
+      (rest == 0 || (rest == 1 && (v.chain[i].op == reshadefx::expression::operation::op_swizzle ||
+                                   v.chain[i].op == reshadefx::expression::operation::op_constant_index)))) {
+    t.base = reshadefx::type::t_float;
+    intSource = !isSymbolic(v.base);  // BUFFER_WIDTH: a compile-time input, variants convert it
   }
   if (numberLeaf_ && i == v.chain.size() && t.is_scalar() && (t.is_boolean() || t.is_integral())) {
     t.base = reshadefx::type::t_float;  // written float(x): a select's condition tests it against 0
     intSource = true;
   }
-  if (!isFloatType(t)) throw Unsupported("non-float variable");
+  if (!isFloatType(t)) throw Unsupported(nonFloat("non-float variable", t));
   for (auto& l : leaves_)
     if (l.var == v.base && l.prefix == text) return l;
   Leaf l;
@@ -1621,6 +1697,80 @@ uint32_t Extractor::buildCond(uint32_t id, ExprBuilder& b) {
   return numeric ? b.op(Op::Ne, r, b.constant(0.0f)) : r;
 }
 
+// A conversion to float of integer + - * over integer variables and constants, every value (also the operands) a whole
+// number within 2^24 by its range (and not below 0 for uint, which wraps): float math gives the same.
+bool Extractor::intCast(const Value& v) {
+  using O = reshadefx::expression::operation;
+  if (v.kind != Value::Kind::Chain || v.chain.size() != 1 || v.chain[0].op != O::op_cast ||
+      !isFloatType(v.chain[0].to) || !v.chain[0].from.is_integral() || v.chain[0].from.is_boolean() ||
+      v.chain[0].to.rows != v.chain[0].from.rows)
+    return false;
+  return intExact(v.base);
+}
+
+bool Extractor::intExact(uint32_t id, int depth) {
+  const auto it = cg_.values.find(id);
+  if (it == cg_.values.end() || depth > 32) return false;
+  const Value& x = it->second;
+  if (!x.type.is_integral() || x.type.is_boolean()) return false;
+  const Range r = range(id);
+  if (!r.known || std::max(std::abs(r.lo), std::abs(r.hi)) > 16777216.0 || (!x.type.is_signed() && r.lo < 0))
+    return false;
+  switch (x.kind) {
+    case Value::Kind::Const:
+    case Value::Kind::Load:
+      return true;
+    case Value::Kind::Unary:
+      return (x.op == tokenid::minus || x.op == tokenid::plus) && intExact(x.args[0], depth + 1);
+    case Value::Kind::Binary:
+      return (x.op == tokenid::plus || x.op == tokenid::minus || x.op == tokenid::star ||
+              x.op == tokenid::plus_equal || x.op == tokenid::minus_equal || x.op == tokenid::star_equal) &&
+             intExact(x.args[0], depth + 1) && intExact(x.args[1], depth + 1);
+    case Value::Kind::Construct:  // int2(BUFFER_WIDTH, BUFFER_HEIGHT)
+      if (x.type.is_matrix()) return false;
+      for (uint32_t a : x.args)
+        if (!intExact(a, depth + 1)) return false;
+      return true;
+    default:
+      return false;
+  }
+}
+
+// mul(M, v) / mul(v, M) of a float matrix written out and a float vector (2026-10-27: color space conversions such
+// as mul(float3x3(...), color)); a matrix variable is not one (its elements have no inputs yet).
+Extractor::MatMul Extractor::matMul(const Value& v) const {
+  MatMul mm;
+  if (v.kind != Value::Kind::Intrinsic || v.name != "mul" || v.args.size() != 2 || !isFloatType(v.type)) return mm;
+  const auto a = cg_.values.find(v.args[0]), c = cg_.values.find(v.args[1]);
+  if (a == cg_.values.end() || c == cg_.values.end()) return mm;
+  const bool first = a->second.type.is_matrix();
+  const Value& mat = first ? a->second : c->second;
+  const Value& vec = first ? c->second : a->second;
+  const reshadefx::type& t = mat.type;
+  if (!t.is_matrix() || t.base != reshadefx::type::t_float || t.rows > 4 || t.cols > 4 || !isFloatType(vec.type) ||
+      vec.type.rows != (first ? t.cols : t.rows) || v.type.rows != (first ? t.rows : t.cols))
+    return mm;
+  if (mat.kind == Value::Kind::Construct) {
+    if (mat.args.size() != t.rows * t.cols) return mm;
+    for (uint32_t e : mat.args)
+      if (const auto ei = cg_.values.find(e); ei == cg_.values.end() || !isFloatType(ei->second.type) ||
+                                              ei->second.type.rows != 1)
+        return mm;
+  } else if (mat.kind != Value::Kind::Const) {
+    return mm;
+  }
+  mm.matrix = &mat;
+  mm.vector = first ? v.args[1] : v.args[0];
+  mm.rowsFirst = first;
+  return mm;
+}
+
+// A comparison of such integer values (mode == 2 in a select's condition): the same in float math.
+bool Extractor::intCompare(const Value& v) {
+  return v.kind == Value::Kind::Binary && v.args.size() == 2 && isComparison(v.op) && intExact(v.args[0]) &&
+         intExact(v.args[1]);
+}
+
 void Extractor::collect(uint32_t id) {
   // Each value once per scope: a value read several times (a helper's parameter, a shared temporary) would otherwise
   // be walked again for every path to it, exponentially in nested helpers (CRT.fx, 2026-10-26).
@@ -1635,7 +1785,8 @@ void Extractor::collect(uint32_t id) {
   using K = Value::Kind;
   switch (v.kind) {
     case K::Const:
-      if (!isFloatType(v.type)) throw Unsupported("non-float constant");
+      if (!isFloatType(v.type) && !(intMode_ && v.type.is_integral()))
+        throw Unsupported(nonFloat("non-float constant", v.type));
       return;
     case K::Load: {
       if (const auto it = inlineLoad_.find(id); it != inlineLoad_.end()) {
@@ -1660,6 +1811,12 @@ void Extractor::collect(uint32_t id) {
         l.mask |= chainMask(v.chain, 0, l.type.rows);
         return;
       }
+      if (intCast(v)) {
+        ++intMode_;
+        collect(v.base);
+        --intMode_;
+        return;
+      }
       collect(v.base);
       chainMask(v.chain, 0, 4);  // validates
       return;
@@ -1670,7 +1827,7 @@ void Extractor::collect(uint32_t id) {
         return;
       }
       if (v.op != tokenid::minus && v.op != tokenid::plus) throw Unsupported("unary operator");
-      if (!isFloatType(v.type)) throw Unsupported("non-float arithmetic");
+      if (!isFloatType(v.type) && !intMode_) throw Unsupported(nonFloat("non-float arithmetic", v.type));
       collect(v.args[0]);
       return;
     case K::Binary: {
@@ -1690,17 +1847,29 @@ void Extractor::collect(uint32_t id) {
                          v.op == tokenid::star_equal || v.op == tokenid::slash_equal ||
                          v.op == tokenid::percent || v.op == tokenid::percent_equal;  // float %: fmod
       if (!cmp && !arith) throw Unsupported("binary operator");
-      if (arith && !isFloatType(v.type)) throw Unsupported("non-float arithmetic");
+      if (arith && !isFloatType(v.type) && !intMode_) throw Unsupported(nonFloat("non-float arithmetic", v.type));
       if (cmp && !(v.type.is_boolean() && v.type.is_scalar())) throw Unsupported("vector comparison");
+      if (cmp && intCompare(v)) {
+        ++intMode_;
+        for (uint32_t a : v.args) collect(a);
+        --intMode_;
+        return;
+      }
       for (uint32_t a : v.args) {
         const auto& av = cg_.values.at(a);
-        if (!isFloatType(av.type)) throw Unsupported("non-float arithmetic");
+        if (!isFloatType(av.type) && !intMode_) throw Unsupported(nonFloat("non-float arithmetic", av.type));
         collect(a);
       }
       return;
     }
     case K::Ternary: {
-      if (!isFloatType(v.type)) throw Unsupported("non-float select");
+      if (!isFloatType(v.type)) throw Unsupported(nonFloat("non-float select", v.type));
+      if (const Value* cmp = vectorCompare(v)) {
+        for (uint32_t a : cmp->args) collect(a);
+        collect(v.args[1]);
+        collect(v.args[2]);
+        return;
+      }
       collectCond(v.args[0]);
       collect(v.args[1]);
       collect(v.args[2]);
@@ -1727,10 +1896,16 @@ void Extractor::collect(uint32_t id) {
         }
         return;
       }
+      if (const MatMul mm = matMul(v); mm.matrix) {
+        collect(mm.vector);
+        if (mm.matrix->kind == K::Construct)
+          for (uint32_t a : mm.matrix->args) collect(a);
+        return;
+      }
       const auto op = opFromCall(v.name, static_cast<uint8_t>(v.args.size()));
       const bool sugar = !op && isSugarCall(v.name, v.args.size());
       if (!op && !sugar) throw Unsupported("intrinsic " + v.name);
-      if (!isFloatType(v.type)) throw Unsupported("non-float intrinsic");
+      if (!isFloatType(v.type)) throw Unsupported(nonFloat("non-float intrinsic", v.type));
       if (sugar && v.name == "cross" && v.type.rows != 3) throw Unsupported("intrinsic cross");
       if (sugar && (v.name == "log10" || v.name == "tan")) usesPow_ = true;
       if (op && (*op == Op::Pow || *op == Op::Exp || *op == Op::Log || *op == Op::Exp2 || *op == Op::Log2 ||
@@ -1744,10 +1919,12 @@ void Extractor::collect(uint32_t id) {
       return;
     }
     case K::Construct:
-      if (!isFloatType(v.type)) throw Unsupported("matrix/non-float constructor");
+      if (!isFloatType(v.type) && !(intMode_ && v.type.is_integral() && !v.type.is_matrix()))
+        throw Unsupported("matrix/non-float constructor");
       for (uint32_t a : v.args) {
         const auto ai = cg_.values.find(a);
-        if (ai == cg_.values.end() || !isFloatType(ai->second.type)) throw Unsupported("constructor argument");
+        if (ai == cg_.values.end() || (!isFloatType(ai->second.type) && !intMode_))
+          throw Unsupported("constructor argument");
         collect(a);
       }
       return;
@@ -1811,9 +1988,9 @@ uint32_t Extractor::applyVectorChain(uint32_t node,
       bool identity = n == width(nt);
       for (unsigned k = 0; k < n; ++k) identity = identity && sw[k] == k;
       // x.xxx of a scalar is HLSL's implicit broadcast: componentwise ops broadcast
-      // float1 operands, so the IR keeps the scalar.
-      bool broadcast = width(nt) == 1;
-      for (unsigned k = 0; k < n; ++k) broadcast = broadcast && sw[k] == 0;
+      // float1 operands, so the IR keeps the scalar; any component of it (float4(a.xxx, 1): .y of a.xxx) is the
+      // scalar too.
+      const bool broadcast = width(nt) == 1;
       if (!identity && !broadcast) node = b.swizzle(node, sw, n);
     } else if (op.op == O::op_cast) {
       // float -> floatN broadcast: componentwise ops broadcast float1 operands. A bool read as a float is 1.0 or 0.0.
@@ -1903,7 +2080,10 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
   switch (v.kind) {
     case K::Const: {
       float c[4];
-      for (unsigned k = 0; k < v.type.rows; ++k) c[k] = v.constant.as_float[k];
+      for (unsigned k = 0; k < v.type.rows; ++k)
+        c[k] = v.type.is_floating_point() ? v.constant.as_float[k]
+               : v.type.is_signed()       ? static_cast<float>(v.constant.as_int[k])
+                                          : static_cast<float>(v.constant.as_uint[k]);  // intMode_
       r = b.constant(floatType(v.type.rows), c);
       break;
     }
@@ -1925,6 +2105,10 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       if (fetchText_.count(v.base)) {
         const Leaf& l = fetchLeaf(v.base);
         r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), v.chain, 0, b, &l);
+      } else if (intCast(v)) {
+        ++intMode_;
+        r = build(v.base, b);  // already float: the conversion is the identity
+        --intMode_;
       } else {
         r = applyVectorChain(build(v.base, b), v.chain, 0, b, nullptr);
       }
@@ -1958,12 +2142,33 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         }
         default: throw Unsupported("binary operator");
       }
+      const bool ints = intCompare(v);
+      intMode_ += ints;
       uint32_t a[2] = {build(v.args[0], b), build(v.args[1], b)};
+      intMode_ -= ints;
       if (info(op).shape == Shape::Comp) scalarizeConstants(a, 2, b);
       r = b.op(op, a[0], a[1]);
       break;
     }
     case K::Ternary: {
+      if (const Value* cmp = vectorCompare(v)) {
+        // c < 0.5 ? x : y on vectors: a select per component (GPUs pick per component too).
+        const uint32_t x = build(cmp->args[0], b), y = build(cmp->args[1], b), t = build(v.args[1], b),
+                       f = build(v.args[2], b);        auto comp = [&](uint32_t n, unsigned k) {
+          const uint8_t sw[1] = {static_cast<uint8_t>(k)};
+          const Node& c = b.nodes()[n];
+          if (width(c.type) == 1) return n;
+          return c.op == Op::Const ? b.constant(c.value[k]) : b.swizzle(n, sw, 1);  // a constant's component
+        };
+        uint32_t parts[4];
+        for (unsigned k = 0; k < v.type.rows; ++k) {
+          uint32_t a[2] = {comp(t, k), comp(f, k)};
+          scalarizeConstants(a, 2, b);
+          parts[k] = b.op(Op::Select, b.op(comparisonOp(cmp->op), comp(x, k), comp(y, k)), a[0], a[1]);
+        }
+        r = b.construct(parts, v.type.rows);
+        break;
+      }
       uint32_t a[2] = {build(v.args[1], b), build(v.args[2], b)};
       scalarizeConstants(a, 2, b);
       r = b.op(Op::Select, buildCond(v.args[0], b), a[0], a[1]);
@@ -1993,6 +2198,27 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         }
         const uint32_t x = build(arg, b);
         r = buildSugarCall(b, v.name, &x, 1);
+        break;
+      }
+      if (const MatMul mm = matMul(v); mm.matrix) {
+        // One dot per result component: a row of M (mul(M, v)) or a column (mul(v, M)), as compilers emit it.
+        const reshadefx::type& t = mm.matrix->type;
+        const uint32_t x = build(mm.vector, b);
+        const unsigned outs = mm.rowsFirst ? t.rows : t.cols, inner = mm.rowsFirst ? t.cols : t.rows;
+        uint32_t res[4];
+        for (unsigned o = 0; o < outs; ++o) {
+          uint32_t e[4];
+          float c[4];
+          bool constant = mm.matrix->kind == K::Const;
+          for (unsigned k = 0; k < inner; ++k) {
+            const unsigned at = mm.rowsFirst ? o * t.cols + k : k * t.cols + o;
+            if (constant) c[k] = mm.matrix->constant.as_float[at];
+            else e[k] = build(mm.matrix->args[at], b);
+          }
+          const uint32_t line = constant ? b.constant(floatType(inner), c) : b.construct(e, inner);
+          res[o] = b.op(Op::Dot, line, x);
+        }
+        r = outs == 1 ? res[0] : b.construct(res, outs);
         break;
       }
       if (isSugarCall(v.name, v.args.size())) {
@@ -2307,6 +2533,47 @@ Range Extractor::varRange(uint32_t var, uint32_t seq, uint32_t block) {
   return r;
 }
 
+// A loop counter (owner, 2026-10-26: float(i) in a loop body): "for (int i = A; i < B; i++)" (<=, or counting down
+// with > / >= and --; A and B numbers or uniforms with ranges, read from the preprocessed line), every store to it in
+// the header. [A, B]: B is its value after the loop.
+Range Extractor::loopRange(uint32_t var) {
+  const Variable& v = cg_.variables.at(var);
+  const auto d = defs_.find(var);
+  if (v.kind != Variable::Kind::Local || !v.type.is_integral() || !v.type.is_scalar() || d == defs_.end() ||
+      d->second.empty())
+    return Range::unknown();
+  for (const Statement* s : d->second)
+    if (s->loc.line != v.loc.line || s->loc.source != v.loc.source) return Range::unknown();
+  const auto pl = fx_.ppLines.find({v.loc.source, v.loc.line});
+  if (pl == fx_.ppLines.end()) return Range::unknown();
+  static const std::regex header(R"(\bfor\s*\(\s*(?:int|uint)\s+(\w+)\s*=\s*([^;]+);)"
+                                 R"(\s*(\w+)\s*(<=|<|>=|>)\s*([^;]+);([^)]*)\))");
+  std::smatch m;
+  if (!std::regex_search(pl->second, m, header) || m[1] != v.name || m[3] != v.name) return Range::unknown();
+  std::string step;
+  for (const char c : m[6].str())
+    if (!std::isspace(static_cast<unsigned char>(c))) step += c;
+  const bool up = step == v.name + "++" || step == "++" + v.name || step == v.name + "+=1";
+  const bool down = step == v.name + "--" || step == "--" + v.name || step == v.name + "-=1";
+  const std::string cmp = m[4];
+  if (!(up && cmp[0] == '<') && !(down && cmp[0] == '>')) return Range::unknown();
+  auto value = [&](const std::string& text) {
+    const std::string t = trim(text);
+    char* end = nullptr;
+    const double x = std::strtod(t.c_str(), &end);
+    if (!t.empty() && (*end == '\0' || ((*end == 'u' || *end == 'U') && end[1] == '\0'))) return Range::of(x, x, "");
+    for (const auto& [id, u] : cg_.variables)
+      if (u.kind == Variable::Kind::Uniform && !isSymbolic(id) && varText(id) == t) return varRange(id, 0, 0);
+    return Range::unknown();
+  };
+  const Range a = value(m[2]), b = value(m[5]);
+  if (!a.known || !b.known) return Range::unknown();
+  const double lo = up ? a.lo : std::min(a.lo, b.lo - (cmp == ">=" ? 1 : 0));
+  const double hi = up ? std::max(a.hi, b.hi + (cmp == "<=" ? 1 : 0)) : a.hi;
+  if (std::floor(lo) != lo || std::floor(hi) != hi || hi - lo > 1e6) return Range::unknown();
+  return Range::of(lo, hi, "loop counter", static_cast<uint32_t>(hi - lo));
+}
+
 Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
   const auto vi = cg_.variables.find(var);
   if (vi == cg_.variables.end()) return Range::unknown();
@@ -2324,7 +2591,7 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
   switch (v.kind) {
     case Variable::Kind::Uniform: {
       double lo = NAN, hi = NAN;
-      std::string uiType, source;
+      std::string uiType, source, items;
       for (const auto& a : v.annotations) {
         auto num = [&]() -> double {
           if (a.type.is_floating_point()) return a.value.as_float[0];
@@ -2335,6 +2602,13 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         else if (a.name == "ui_max") hi = num();
         else if (a.name == "ui_type") uiType = a.value.string_data;
         else if (a.name == "source") source = a.value.string_data;
+        else if (a.name == "ui_items") items = a.value.string_data;
+      }
+      // An int combo / radio list: one value per item, 0 to items - 1 (items end with '\0').
+      if (v.type.is_integral() && !v.type.is_boolean() && (uiType == "combo" || uiType == "radio") && !items.empty() &&
+          !(std::isfinite(lo) && std::isfinite(hi))) {
+        const double n = static_cast<double>(std::count(items.begin(), items.end(), '\0') + (items.back() != '\0'));
+        return Range::of(0, n - 1, "ui_items", static_cast<uint32_t>(n - 1));
       }
       if (!source.empty()) {
         if (source == "timer") return Range::of(0, 1e7, "source = timer (ms)");
@@ -2342,8 +2616,11 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         if (source == "pingpong") return Range::of(lo == lo ? lo : 0, hi == hi ? hi : 1, "source = pingpong");
         return Range::unknown();
       }
-      if (std::isfinite(lo) && std::isfinite(hi))
-        return Range::of(std::min(lo, hi), std::max(lo, hi), "ui_min/ui_max");
+      if (std::isfinite(lo) && std::isfinite(hi)) {
+        const double steps = std::abs(hi - lo);  // an int slider takes whole numbers
+        return Range::of(std::min(lo, hi), std::max(lo, hi), "ui_min/ui_max",
+                         v.type.is_integral() && steps <= 1e6 ? static_cast<uint32_t>(steps) : 0);
+      }
       if (uiType == "color") return Range::of(0, 1, "ui_type = color");
       if (v.type.is_boolean()) return Range::of(0, 1, "bool", 1);
       return Range::unknown();
@@ -2385,6 +2662,7 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         if (any && r.known && r.why != "constant") r.why = "call sites";
         return any ? r : Range::unknown();
       };
+      if (const Range lr = loopRange(var); lr.known) return lr;
       bool killed = false;
       const std::vector<const Statement*> reach = reaching(var, seq, block, killed);
       if (reach.empty()) return entry();
@@ -2407,6 +2685,12 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
       if (v.type.has(reshadefx::type::q_groupshared) && opt_.userRanges) {
         const auto u = opt_.userRanges->find(groupsharedFactKey(fx_, globalSourceName(v.uniqueName)));
         if (u != opt_.userRanges->end()) return Range::of(u->second.first, u->second.second, "user (facts file)");
+      }
+      // A static const: its initializer (an array: every element).
+      if (v.type.has(reshadefx::type::q_const) && v.initializer) {
+        Range r = range(v.initializer);
+        if (r.known) r.why = "static const";
+        return r;
       }
       break;
   }
@@ -3031,7 +3315,7 @@ std::vector<std::string> Extractor::sourceTokens(const std::string& src, std::se
         return true;
       };
   std::vector<std::string> out;
-  for (const auto& t : tokens(withoutFetches(calls(src, 0)))) {
+  for (const auto& t : memberTokens(withoutFetches(calls(src, 0)))) {
     std::vector<std::string> e;
     std::set<std::string> g;
     bool sym = false, plainAll = true;
@@ -3265,8 +3549,8 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   } catch (const Unsupported& e) {
     why = e.what();
     return false;
-  } catch (const std::invalid_argument&) {
-    why = "types";
+  } catch (const std::invalid_argument& e) {
+    why = std::string("types (") + e.what() + ")";
     return false;
   }
   const Type rt = reg.prog.target.nodes[reg.prog.target.root].type;

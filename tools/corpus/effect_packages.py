@@ -111,7 +111,8 @@ EXPLAIN = [
     ("several declarators", False, "several variables declared in one statement (float a = ..., b = ...;)"),
     ("several statements on one line", False, "several statements on one line"),
     ("too many inputs", False, "reads more values than the search handles (--max-inputs / --max-slots)"),
-    ("non-float", False, "integer math, which sopt only searches in a few forms"),
+    ("non-float arithmetic (min16float)", False, "half-precision (min16float) math: not searched yet (fp16 plan, step 2)"),
+    ("non-float", False, "integer or boolean math; integers read as float are inputs, their math is not searched"),
     ("vector select", False, "a ? b : c with a vector condition"),
     ("access chain", False, "an array element at a computed index, or a struct member sopt cannot follow"),
     ("no assignment", False, "a value set without = in the source (x++, a call's out argument)"),
@@ -138,6 +139,15 @@ def skip_reasons(log):
     for m in re.finditer(r"^skip .*?:\d+: (.*)$", log, re.M):
         r = re.sub(r"'[^']*'|\"[^\"]*\"", "...", m.group(1).strip())  # names out, so reasons group
         counts[r] = counts.get(r, 0) + 1
+    return counts
+
+
+def macro_names(log):
+    # "uses a macro (kind) 'NAME'": which macros still stop sopt, by name (the reasons above leave names out)
+    counts = {}
+    for m in re.finditer(r"^skip .*?:\d+: (?:window: )?uses a macro \(([^)]*)\) '([^']*)'$", log, re.M):
+        k = f"{m.group(2)} ({m.group(1)})"
+        counts[k] = counts.get(k, 0) + 1
     return counts
 
 
@@ -172,6 +182,7 @@ def run(dest, sopt, out, secs, timeout, args=""):
         skips_log, _ = one(["--list", "--skips"])
         os.makedirs(o, exist_ok=True)
         json.dump(skip_reasons(skips_log), open(os.path.join(o, "skips.json"), "w"), indent=1)
+        json.dump(macro_names(skips_log), open(os.path.join(o, "macros.json"), "w"), indent=1)
         open(os.path.join(o, "log.txt"), "w", encoding="utf-8").write(log)
         open(os.path.join(o, "log-easy.txt"), "w", encoding="utf-8").write(easy_log)
         for f in ("sopt-report.md", "sopt-found.txt", "sopt-facts.txt"):  # reports only: the shaders stay their authors'
@@ -225,9 +236,18 @@ def summary(dirs):
     if skips:
         ranked = sorted(skips.items(), key=lambda x: -x[1])
         for title, want in (("Where sopt gave up (all packages)", False), ("Nothing to do (all packages)", True)):
-            rows = [f"| {n} | {r} | {explain(r)[1]} |" for r, n in ranked if explain(r)[0] == want]
+            lines = [f"| {n} | {r} | {explain(r)[1]} |" for r, n in ranked if explain(r)[0] == want]
             print(f"\n## {title}\n\n\"window\": a piece of several lines.\n\n| count | reason | what it means |\n"
-                  "|---|---|---|\n" + "\n".join(rows))
+                  "|---|---|---|\n" + "\n".join(lines))
+    macros = {}
+    for d in dirs:
+        for f in glob.glob(os.path.join(d, "**", "macros.json"), recursive=True):
+            for k, n in json.load(open(f)).items():
+                macros[k] = macros.get(k, 0) + n
+    if macros:
+        top = sorted(macros.items(), key=lambda x: -x[1])[:25]
+        print("\n## Macros that still stop sopt (top 25)\n\n| count | macro (kind) |\n|---|---|\n" +
+              "\n".join(f"| {n} | {k} |" for k, n in top))
     return any("**" in r for r in rows)
 
 

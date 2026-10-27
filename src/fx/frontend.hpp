@@ -158,7 +158,7 @@ struct Region {
 
 struct RegionOptions {
   uint32_t minOps = 2;        // skip statements with fewer IR operations
-  uint32_t maxOps = 24;       // ... or more
+  uint32_t maxOps = 32;       // ... or more (24 -> 32: corpus +5% saved, +15% time; owner, 2026-10-27)
   uint32_t maxStatements = 4; // statements per window (1 = single statements only)
   uint32_t maxInputs = 8;     // skip statements reading more distinct variables (corpus 2026-10-25: 4 / 8 -> 8 / 16
   uint32_t maxSlots = 16;     // ... or more input components                 +3.4% saved, +20% time)

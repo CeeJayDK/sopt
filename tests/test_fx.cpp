@@ -325,7 +325,8 @@ TEST(fx_macro_inputs) {
   if (!f) return;
   fx::SkipCount sf;
   sf.keepDetails = true;
-  bool lit = false, cond = false, fn = false, condFn = false, fetch = false, win = false;
+  // A macro followed by .x, and a statement with a // comment inside it (2026-10-27).
+  bool lit = false, cond = false, fn = false, condFn = false, fetch = false, win = false, member = false, comment = false;
   for (const auto& r : fx::extractRegions(*f, nullptr, fx::RegionOptions(), sf)) {
     win = win || (r.line == 22 && !r.removed.empty() && r.guard == "(SETTING)");  // b inlined: COND's condition
     if (!r.removed.empty()) continue;
@@ -335,8 +336,11 @@ TEST(fx_macro_inputs) {
     fn = fn || (r.line == 34 && t.find("max(") != std::string::npos && r.guard.empty());
     condFn = condFn || (r.line == 35 && t.find("0.5") != std::string::npos && r.guard == "(SETTING)");
     for (const auto& d : r.prog.inputs) fetch = fetch || (r.line == 36 && d.name == "getColor(p.yx).y");
+    member = member || (r.line == 43 && t.find("0.25") != std::string::npos);
+    comment = comment || (r.line == 44 && t.find("0.75") != std::string::npos);
   }
   CHECK(lit && cond && fn && condFn && fetch);
+  CHECK(member && comment);
   CHECK(win);
   for (const auto& d : sf.details)
     if (d.find("uses a macro") != std::string::npos) std::printf("  %s\n", d.c_str());
@@ -1165,8 +1169,11 @@ TEST(fx_sugar_intrinsics) {
     CHECK(r != nullptr);
     if (!r) std::printf("  no region on line %u\n", line);
   }
-  // atan2 written out is ~30 operations: a region only above the default limit of 24.
-  CHECK(regionOn(regions, 24) == nullptr);
+  // atan2 written out is ~30 operations: no region under a limit of 24.
+  fx::RegionOptions small;
+  small.maxOps = 24;
+  fx::SkipCount sk1;
+  CHECK(regionOn(fx::extractRegions(*e, nullptr, small, sk1), 24) == nullptr);
   fx::RegionOptions big;
   big.maxOps = 40;
   fx::SkipCount sk2;
@@ -1436,6 +1443,37 @@ TEST(fx_setting_paths) {
   const auto regions = fx::settingRegions(*def, *cfg, nullptr, fx::RegionOptions());
   CHECK(regions.size() == 1 && regions[0].line == 15 &&
         regions[0].guard.find("(SETTING_MODE > 3)") != std::string::npos);
+}
+
+TEST(fx_int_inputs) {
+  // Integer variables read as float (owner, 2026-10-26): inputs written float(x), a loop counter in [A, B] from its
+  // for header (B: its value after the loop), an int slider on whole numbers.
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_intinputs.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  bool loop = false, slider = false, arith = false, array = false, ivec = false, mat = false, vsel = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
+    if (!r.removed.empty()) continue;
+    // A select on vectors with a vector comparison: a select per component (2026-10-27).
+    vsel = vsel || (r.line == 21 && toString(r.prog.target, r.prog.inputs).find("c.z < 0.5 ?") != std::string::npos);
+    // mul() of a matrix written out: a dot per row (2026-10-27).
+    mat = mat || (r.line == 20 && toString(r.prog.target, r.prog.inputs).find("dot(c, float3(0.1, 0.8, 0.1))") != std::string::npos);
+    // An int vector built of such values (int2(BUFFER_WIDTH, BUFFER_HEIGHT)) the same way.
+    ivec = ivec || (r.line == 19 && toString(r.prog.target, r.prog.inputs).find("float(Steps)") != std::string::npos);
+    // Integer + - * converted to float: float math on float(Steps) (whole numbers far below 2^24).
+    arith = arith || (r.line == 15 && r.prog.inputs.size() == 2 &&
+                      toString(r.prog.target, r.prog.inputs).find("float(Steps) * 2.0 + 1.0") != std::string::npos);
+    for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
+      const auto& d = r.prog.inputs[k];
+      loop = loop || (r.line == 13 && d.name == "float(i)" && d.lo == 0 && d.hi == 4 && !r.facts[k].assumed);
+      // An array element at a loop index: an input by its text, every element's range (2026-10-27).
+      array = array || (r.line == 18 && d.name == "W[k]" && d.lo == 0.1f && d.hi == 0.4f);
+      slider = slider || (r.line == 14 && d.name == "float(Steps)" && d.lo == 1 && d.hi == 8 && d.grid == 7);
+    }
+  }
+  CHECK(loop && slider && arith && array && ivec && mat && vsel);
 }
 
 TEST(fx_call_inputs) {
