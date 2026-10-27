@@ -1,6 +1,7 @@
 // Test effect for test_fx: integer variables read as float are inputs written float(x), loop counters with the
-// range of their for header, int sliders on whole numbers (2026-10-26). Line numbers are checked.
+// range of their for header, int sliders on whole numbers, array elements at a loop index (2026-10-26). Lines checked.
 uniform int Steps < ui_type = "slider"; ui_min = 1; ui_max = 8; > = 4;
+static const float W[4] = { 0.1, 0.2, 0.3, 0.4 };
 texture ITex { Width = 64; Height = 64; Format = RGBA8; };
 sampler ISamp { Texture = ITex; };
 float4 IVS(uint id : SV_VertexID) : SV_Position { return 0; }
@@ -12,6 +13,9 @@ float4 IPS(float4 p : SV_Position) : SV_Target
 		sum += c.r * float(i) + c.g * 0.5;
 	float s = c.b * Steps + c.r * Steps;
 	float w = c.g * float(Steps * 2 + 1) + c.b * float(Steps * 2 + 1);
-	return float4(sum, s, w, 1.0);
+	float ws = 0.0;
+	for (int k = 0; k < 4; k++)
+		ws += c.r * W[k] + c.b * W[k];
+	return float4(sum + ws, s, w, 1.0);
 }
 technique I { pass { VertexShader = IVS; PixelShader = IPS; } }

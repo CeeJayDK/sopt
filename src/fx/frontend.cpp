@@ -1303,7 +1303,10 @@ std::string Extractor::varText(uint32_t var, bool relative) const {
       if (out.rfind("::", 0) == 0) out.erase(0, 2);  // global scope
       return out + v.name;
     }
-    case Variable::Kind::Global: break;
+    case Variable::Kind::Global:
+      // A static const (2026-10-27: weights read at a loop index), qualified by its namespace.
+      if (v.type.has(reshadefx::type::q_const) && v.initializer) return globalSourceName(v.uniqueName);
+      break;
   }
   throw Unsupported("global variable");
 }
@@ -1324,6 +1327,34 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
       semantic = cg_.structMemberSemantic(op.from.struct_definition, op.index);
     } else if (op.op == reshadefx::expression::operation::op_constant_index && op.from.is_array()) {
       text += "[" + std::to_string(op.index) + "]";
+    } else if (op.op == reshadefx::expression::operation::op_dynamic_index && op.from.is_array() &&
+               window_.empty()) {
+      // An element at a variable index (2026-10-27: offsets[i] in a loop): an input named by its text, with the
+      // range of every element; not in windows (the index may change between the statements). The index must be
+      // a variable of this function (a helper's parameter has no name at the call).
+      const auto iv = cg_.values.find(op.index);
+      bool plain = iv != cg_.values.end() && iv->second.kind == Value::Kind::Load && !inlineLoad_.count(op.index) &&
+                   !inline_.count(iv->second.base) && cg_.variables.count(iv->second.base) &&
+                   !isSymbolic(iv->second.base);
+      for (size_t k = 0; plain && k < iv->second.chain.size(); ++k)
+        plain = iv->second.chain[k].op == reshadefx::expression::operation::op_cast;
+      if (!plain) throw Unsupported("access chain (index)");
+      const std::string idx = varText(iv->second.base);
+      if (text.empty() && i == 0 && var->kind == Variable::Kind::Local) {
+        // ReShade reads a static const array at a run-time index through a nameless copy: the name the source line
+        // uses with this index ("W[k]"), when there is one such name and it is no macro.
+        const std::vector<std::string>* lines = sourceLines(var->loc.source);
+        if (!lines || var->loc.line == 0 || var->loc.line > lines->size()) throw Unsupported("access chain (copy)");
+        const std::string& l = (*lines)[var->loc.line - 1];
+        const std::regex use("\\b([A-Za-z_]\\w*)\\s*\\[\\s*" + idx + "\\s*\\]");
+        std::set<std::string> names;
+        for (auto m = std::sregex_iterator(l.begin(), l.end(), use); m != std::sregex_iterator(); ++m)
+          names.insert((*m)[1].str());
+        if (names.size() != 1 || fx_.objectMacros.count(*names.begin()) || fx_.functionMacros.count(*names.begin()))
+          throw Unsupported("access chain (copy)");
+        text = *names.begin();
+      }
+      text += "[" + idx + "]";
     } else {
       throw Unsupported("access chain");
     }
@@ -2537,6 +2568,12 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
       if (v.type.has(reshadefx::type::q_groupshared) && opt_.userRanges) {
         const auto u = opt_.userRanges->find(groupsharedFactKey(fx_, globalSourceName(v.uniqueName)));
         if (u != opt_.userRanges->end()) return Range::of(u->second.first, u->second.second, "user (facts file)");
+      }
+      // A static const: its initializer (an array: every element).
+      if (v.type.has(reshadefx::type::q_const) && v.initializer) {
+        Range r = range(v.initializer);
+        if (r.known) r.why = "static const";
+        return r;
       }
       break;
   }

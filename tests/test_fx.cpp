@@ -1446,19 +1446,21 @@ TEST(fx_int_inputs) {
   CHECK(e != nullptr);
   if (!e) return;
   fx::SkipCount sk;
-  bool loop = false, slider = false, arith = false;
+  bool loop = false, slider = false, arith = false, array = false;
   for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
     if (!r.removed.empty()) continue;
     // Integer + - * converted to float: float math on float(Steps) (whole numbers far below 2^24).
-    arith = arith || (r.line == 14 && r.prog.inputs.size() == 2 &&
+    arith = arith || (r.line == 15 && r.prog.inputs.size() == 2 &&
                       toString(r.prog.target, r.prog.inputs).find("float(Steps) * 2.0 + 1.0") != std::string::npos);
     for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
       const auto& d = r.prog.inputs[k];
-      loop = loop || (r.line == 12 && d.name == "float(i)" && d.lo == 0 && d.hi == 4 && !r.facts[k].assumed);
-      slider = slider || (r.line == 13 && d.name == "float(Steps)" && d.lo == 1 && d.hi == 8 && d.grid == 7);
+      loop = loop || (r.line == 13 && d.name == "float(i)" && d.lo == 0 && d.hi == 4 && !r.facts[k].assumed);
+      // An array element at a loop index: an input by its text, every element's range (2026-10-27).
+      array = array || (r.line == 18 && d.name == "W[k]" && d.lo == 0.1f && d.hi == 0.4f);
+      slider = slider || (r.line == 14 && d.name == "float(Steps)" && d.lo == 1 && d.hi == 8 && d.grid == 7);
     }
   }
-  CHECK(loop && slider && arith);
+  CHECK(loop && slider && arith && array);
 }
 
 TEST(fx_call_inputs) {
