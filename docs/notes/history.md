@@ -2254,6 +2254,22 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   combo / radio lists without ui_min / ui_max: [0, items - 1]. Sample: regions 3854 -> 3915; the rest of "non-float
   arithmetic (int)" (167) is integer-only statements (an int result), int math without a known range, % / & / >>.
   Open: (c) min16float regions (fp16 plan step 2).
+  PR #85 corpus (macros + shared lines): changed 2349 -> 2529 (+8%), saved 41993 -> 44594 (+6%), time +5%; macro
+  skips ~2031 -> ~700, "not a simple statement" 1148 -> 247. Its corpus found 4 variant-check failures, fixed: a
+  precise temporary was written on a line of its own before a statement sharing its line (outside a one-line
+  function: NightVision; after a case label's break: PD80_03; before the declarator it reads: RadiantGI) -> now
+  "prefix { precise T t = ...; statement } rest", only where a statement may stand (after { ; : ) or else; not in
+  declarator lists or for headers: qUINT_ssr). A statement with a block comment opened after it on its line is
+  skipped (the comment would take the variant's #else / #endif). The hoist found a vertex shader by the parser's
+  location (RadiantGI's own PostProcessVS: line 282 by the parser, defined at the end of the file): now by its text,
+  no wrapper when it comes after the pixel shader. Check failures now print the written lines before each error and
+  where an undeclared name is (the corpus log shows them).
+  Arrays (2026-10-27; "access chain" 608 in the corpus): an element at a variable index (offsets[i], kernel[i]) is an
+  input named by its text, with the range of every element (static consts: their initializer; local arrays: their
+  stores); never in windows (the index may change between statements); the index a plain variable of the function
+  (not a helper's parameter). ReShade reads a static const array at a run-time index through a nameless copy: named
+  as the source line writes it with that index (one such name, no macro). Sample: access chain 178 -> 111, regions
+  3915 -> 3976.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one
