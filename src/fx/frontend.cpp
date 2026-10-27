@@ -1137,6 +1137,19 @@ class Extractor {
   int intMode_ = 0;
   bool intCast(const Value& v);
   bool intExact(uint32_t id, int depth = 0);
+  // A select on a float vector whose condition compares float vectors (c <= 0.04045 ? ... : ...): the comparison.
+  const Value* vectorCompare(const Value& v) const {
+    if (v.kind != Value::Kind::Ternary || v.type.rows < 2 || !isFloatType(v.type)) return nullptr;
+    const auto c = cg_.values.find(v.args[0]);
+    if (c == cg_.values.end() || c->second.kind != Value::Kind::Binary || !isComparison(c->second.op) ||
+        !c->second.type.is_boolean() || c->second.type.rows != v.type.rows)
+      return nullptr;
+    for (uint32_t a : c->second.args)
+      if (const auto ai = cg_.values.find(a); ai == cg_.values.end() || !isFloatType(ai->second.type) ||
+                                              (ai->second.type.rows != v.type.rows && ai->second.type.rows != 1))
+        return nullptr;
+    return &c->second;
+  }
   struct MatMul {
     const Value* matrix = nullptr;  // a float matrix written out: a constant, or float3x3(...) in place
     uint32_t vector = 0;
@@ -1847,6 +1860,12 @@ void Extractor::collect(uint32_t id) {
     }
     case K::Ternary: {
       if (!isFloatType(v.type)) throw Unsupported(nonFloat("non-float select", v.type));
+      if (const Value* cmp = vectorCompare(v)) {
+        for (uint32_t a : cmp->args) collect(a);
+        collect(v.args[1]);
+        collect(v.args[2]);
+        return;
+      }
       collectCond(v.args[0]);
       collect(v.args[1]);
       collect(v.args[2]);
@@ -2128,6 +2147,25 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       break;
     }
     case K::Ternary: {
+      if (const Value* cmp = vectorCompare(v)) {
+        // c < 0.5 ? x : y on vectors: a select per component (GPUs pick per component too).
+        const uint32_t x = build(cmp->args[0], b), y = build(cmp->args[1], b), t = build(v.args[1], b),
+                       f = build(v.args[2], b);
+        auto comp = [&](uint32_t n, unsigned k) {
+          const uint8_t sw[1] = {static_cast<uint8_t>(k)};
+          const Node& c = b.nodes()[n];
+          if (width(c.type) == 1) return n;
+          return c.op == Op::Const ? b.constant(c.value[k]) : b.swizzle(n, sw, 1);  // a constant's component
+        };
+        uint32_t parts[4];
+        for (unsigned k = 0; k < v.type.rows; ++k) {
+          uint32_t a[2] = {comp(t, k), comp(f, k)};
+          scalarizeConstants(a, 2, b);
+          parts[k] = b.op(Op::Select, b.op(comparisonOp(cmp->op), comp(x, k), comp(y, k)), a[0], a[1]);
+        }
+        r = b.construct(parts, v.type.rows);
+        break;
+      }
       uint32_t a[2] = {build(v.args[1], b), build(v.args[2], b)};
       scalarizeConstants(a, 2, b);
       r = b.op(Op::Select, buildCond(v.args[0], b), a[0], a[1]);

@@ -1446,9 +1446,11 @@ TEST(fx_int_inputs) {
   CHECK(e != nullptr);
   if (!e) return;
   fx::SkipCount sk;
-  bool loop = false, slider = false, arith = false, array = false, ivec = false, mat = false;
+  bool loop = false, slider = false, arith = false, array = false, ivec = false, mat = false, vsel = false;
   for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
     if (!r.removed.empty()) continue;
+    // A select on vectors with a vector comparison: a select per component (2026-10-27).
+    vsel = vsel || (r.line == 21 && toString(r.prog.target, r.prog.inputs).find("c.z < 0.5 ?") != std::string::npos);
     // mul() of a matrix written out: a dot per row (2026-10-27).
     mat = mat || (r.line == 20 && toString(r.prog.target, r.prog.inputs).find("dot(c, float3(0.1, 0.8, 0.1))") != std::string::npos);
     // An int vector built of such values (int2(BUFFER_WIDTH, BUFFER_HEIGHT)) the same way.
@@ -1464,7 +1466,7 @@ TEST(fx_int_inputs) {
       slider = slider || (r.line == 14 && d.name == "float(Steps)" && d.lo == 1 && d.hi == 8 && d.grid == 7);
     }
   }
-  CHECK(loop && slider && arith && array && ivec && mat);
+  CHECK(loop && slider && arith && array && ivec && mat && vsel);
 }
 
 TEST(fx_call_inputs) {

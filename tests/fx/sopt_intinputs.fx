@@ -18,6 +18,7 @@ float4 IPS(float4 p : SV_Position) : SV_Target
 		ws += c.r * W[k] + c.b * W[k];
 	float2 q = c.xy * int2(Steps, 3) + c.yx;
 	float3 m = mul(float3x3(0.5, 0.25, 0.25, 0.1, 0.8, 0.1, 0.2, 0.2, 0.6), c) * c.r;
-	return float4(sum + ws + q.x + m.x, s, w, q.y);
+	float3 v = c < 0.5 ? c * 2.0 : c * 0.5 + 0.5;
+	return float4(sum + ws + q.x + m.x + v.x, s, w, q.y + v.z);
 }
 technique I { pass { VertexShader = IVS; PixelShader = IPS; } }
