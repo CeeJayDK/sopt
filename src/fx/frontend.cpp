@@ -2157,7 +2157,8 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       break;
     case K::Unary:
       if (intOps_) {
-        r = v.op == tokenid::minus ? b.op(Op::USub, b.constantU(0), build(v.args[0], b)) : build(v.args[0], b);
+        const uint32_t x = build(v.args[0], b);
+        r = v.op == tokenid::minus ? b.op(Op::USub, b.constantU(0), x) : x;
         break;
       }
       r = v.op == tokenid::minus     ? b.op(Op::Neg, build(v.args[0], b))
@@ -2190,7 +2191,8 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       }
       if (intOps_) {
         op = op == Op::Add ? Op::UAdd : op == Op::Sub ? Op::USub : Op::UMul;  // collect allows + - * only
-        r = b.op(op, build(v.args[0], b), build(v.args[1], b));
+        const uint32_t a[2] = {build(v.args[0], b), build(v.args[1], b)};  // in order (node numbers, every compiler)
+        r = b.op(op, a[0], a[1]);
         break;
       }
       const bool ints = intCompare(v);
