@@ -45,7 +45,7 @@ std::vector<InputDecl> slotDecls(const std::vector<InputDecl>& inputs) {
     const unsigned w = width(d.type);
     for (unsigned c = 0; c < w; ++c) {
       InputDecl s = d;
-      s.type = Type::Float;
+      if (d.type != Type::Uint) s.type = Type::Float;  // an integer input keeps its bits (snap)
       if (w > 1) s.name += std::string(".") + "xyzw"[c];
       out.push_back(s);
     }

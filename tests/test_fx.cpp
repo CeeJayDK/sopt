@@ -1486,9 +1486,12 @@ TEST(fx_int_inputs) {
     mat = mat || (r.line == 20 && toString(r.prog.target, r.prog.inputs).find("dot(c, float3(0.1, 0.8, 0.1))") != std::string::npos);
     // An int vector built of such values (int2(BUFFER_WIDTH, BUFFER_HEIGHT)) the same way.
     ivec = ivec || (r.line == 19 && toString(r.prog.target, r.prog.inputs).find("float(Steps)") != std::string::npos);
-    // Integer + - * converted to float: float math on float(Steps) (whole numbers far below 2^24).
-    arith = arith || (r.line == 15 && r.prog.inputs.size() == 2 &&
-                      toString(r.prog.target, r.prog.inputs).find("float(Steps) * 2.0 + 1.0") != std::string::npos);
+    // Integer + - * converted to float: integer ops on Steps (a uint input of whole numbers), one conversion (owner,
+    // 2026-10-27: integers have their own costs).
+    if (r.line == 15 && r.prog.inputs.size() == 2)
+      for (const auto& d : r.prog.inputs)
+        arith = arith || (d.name == "Steps" && d.type == Type::Uint && d.grid == 7 &&
+                          toString(r.prog.target, r.prog.inputs).find("float(asint(1u + (2u * Steps)))") != std::string::npos);
     for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
       const auto& d = r.prog.inputs[k];
       loop = loop || (r.line == 13 && d.name == "float(i)" && d.lo == 0 && d.hi == 4 && !r.facts[k].assumed);

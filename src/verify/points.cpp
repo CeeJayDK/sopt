@@ -15,6 +15,8 @@ float snap(const InputDecl& d, double v) {
     const double step = (d.hi - d.lo) / d.grid;
     v = d.lo + std::round((v - d.lo) / step) * step;
   }
+  // An integer input holds its 32 bits (an int's two's complement), as uint ops read them.
+  if (d.type == Type::Uint) return std::bit_cast<float>(static_cast<uint32_t>(std::llround(v)));
   return static_cast<float>(v);
 }
 
@@ -61,7 +63,8 @@ float neighbour(const InputDecl& d, float v, Rng& rng) {
   const bool up = (rng.next() & 1) != 0;
   if (d.grid > 0 && d.hi > d.lo) {
     const double step = (d.hi - d.lo) / d.grid;
-    return snap(d, v + (up ? step : -step));
+    const double x = d.type == Type::Uint ? std::bit_cast<int32_t>(v) : v;  // an integer input's bits (snap)
+    return snap(d, x + (up ? step : -step));
   }
   float r = v;
   const int ulps = 1 + static_cast<int>(rng.next() % 4);
@@ -252,7 +255,7 @@ std::vector<float> PointSet::point(size_t idx) const {
 }
 
 float sampleInput(const InputDecl& d, Rng& rng) {
-  if (d.hi <= d.lo) return static_cast<float>(d.lo);
+  if (d.hi <= d.lo) return snap(d, d.lo);
   if (d.grid > 0) {
     const uint64_t k = rng.next() % (static_cast<uint64_t>(d.grid) + 1);
     return snap(d, d.lo + (d.hi - d.lo) * static_cast<double>(k) / d.grid);
@@ -285,7 +288,7 @@ uint64_t domainCount(const InputDecl& d) {
 }
 
 float domainValue(const InputDecl& d, uint64_t k) {
-  if (d.hi <= d.lo) return static_cast<float>(d.lo);
+  if (d.hi <= d.lo) return snap(d, d.lo);
   if (d.grid > 0) return snap(d, d.lo + (d.hi - d.lo) * static_cast<double>(k) / d.grid);
   return fromOrdered(orderedBits(static_cast<float>(d.lo)) + static_cast<uint32_t>(k));
 }
@@ -336,7 +339,7 @@ std::vector<std::vector<float>> coincidencePoints(const std::vector<InputDecl>& 
   for (size_t i = 0; i < slots.size(); ++i) {
     const InputDecl& d = slots[i];
     if (!(d.hi > d.lo) || !std::isfinite(d.lo) || !std::isfinite(d.hi)) {
-      vals[i] = {static_cast<float>(d.lo)};
+      vals[i] = {snap(d, d.lo)};
       continue;
     }
     for (int k = 0; k <= 8; ++k) {
