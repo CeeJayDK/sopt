@@ -416,7 +416,11 @@ std::vector<std::string> tokens(const std::string& s) {
   while (i < n) {
     const char c = s[i];
     if (std::isspace(static_cast<unsigned char>(c))) { ++i; continue; }
-    if (c == '/' && i + 1 < n && s[i + 1] == '/') break;
+    if (c == '/' && i + 1 < n && s[i + 1] == '/') {  // to the line's end: statements span lines
+      const size_t e = s.find('\n', i);
+      i = e == std::string::npos ? n : e;
+      continue;
+    }
     if (c == '/' && i + 1 < n && s[i + 1] == '*') {
       const size_t e = s.find("*/", i + 2);
       i = e == std::string::npos ? n : e + 2;
@@ -3311,7 +3315,7 @@ std::vector<std::string> Extractor::sourceTokens(const std::string& src, std::se
         return true;
       };
   std::vector<std::string> out;
-  for (const auto& t : tokens(withoutFetches(calls(src, 0)))) {
+  for (const auto& t : memberTokens(withoutFetches(calls(src, 0)))) {
     std::vector<std::string> e;
     std::set<std::string> g;
     bool sym = false, plainAll = true;

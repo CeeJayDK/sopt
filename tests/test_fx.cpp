@@ -325,7 +325,8 @@ TEST(fx_macro_inputs) {
   if (!f) return;
   fx::SkipCount sf;
   sf.keepDetails = true;
-  bool lit = false, cond = false, fn = false, condFn = false, fetch = false, win = false;
+  // A macro followed by .x, and a statement with a // comment inside it (2026-10-27).
+  bool lit = false, cond = false, fn = false, condFn = false, fetch = false, win = false, member = false, comment = false;
   for (const auto& r : fx::extractRegions(*f, nullptr, fx::RegionOptions(), sf)) {
     win = win || (r.line == 22 && !r.removed.empty() && r.guard == "(SETTING)");  // b inlined: COND's condition
     if (!r.removed.empty()) continue;
@@ -335,8 +336,11 @@ TEST(fx_macro_inputs) {
     fn = fn || (r.line == 34 && t.find("max(") != std::string::npos && r.guard.empty());
     condFn = condFn || (r.line == 35 && t.find("0.5") != std::string::npos && r.guard == "(SETTING)");
     for (const auto& d : r.prog.inputs) fetch = fetch || (r.line == 36 && d.name == "getColor(p.yx).y");
+    member = member || (r.line == 43 && t.find("0.25") != std::string::npos);
+    comment = comment || (r.line == 44 && t.find("0.75") != std::string::npos);
   }
   CHECK(lit && cond && fn && condFn && fetch);
+  CHECK(member && comment);
   CHECK(win);
   for (const auto& d : sf.details)
     if (d.find("uses a macro") != std::string::npos) std::printf("  %s\n", d.c_str());
