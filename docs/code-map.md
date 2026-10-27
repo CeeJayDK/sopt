@@ -40,7 +40,7 @@ flowchart TD
     end
 
     subgraph WRITE [5 Write the results]
-      CLS[src/fx/classic.cpp, hoist.cpp, blend.cpp<br/>bigger rewrites: tables, vertex shader, blending]
+      CLS[src/fx/classic.cpp, hoist.cpp, blend.cpp, guard.cpp<br/>bigger rewrites: tables, vertex shader, blending, zero guard]
       VAR[src/fx/variants.cpp<br/>writes the new .fx files, the report, easy mode picks]
       PLAT[src/fx/platforms.cpp<br/>GPU families and their Steam share]
     end
@@ -101,6 +101,7 @@ Everything rests on `src/ir`: what an operation is, what it costs on each GPU, a
 | `src/fx/classic.cpp` | Rewrite: local arrays of constants become static tables. Also shared source text helpers. |
 | `src/fx/hoist.cpp` | Rewrite: moves math from the pixel shader to the vertex shader. |
 | `src/fx/blend.cpp` | Rewrite: moves the final mix with the screen into the GPU's blend unit. |
+| `src/fx/guard.cpp` | Rewrite: returns early where a uniform at 0 (Strength, Amount) leaves the output an earlier value. |
 | `src/fx/platforms.cpp` | The GPU families and their share of Steam users (weighs easy mode's choices). |
 
 ### Measurement (`src/measure`)

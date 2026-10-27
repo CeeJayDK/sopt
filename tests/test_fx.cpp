@@ -6,6 +6,7 @@
 
 #include "ir/parser.hpp"
 #include "fx/blend.hpp"
+#include "fx/guard.hpp"
 #include "fx/frontend.hpp"
 #include "fx/hoist.hpp"
 #include "fx/variants.hpp"
@@ -1452,6 +1453,21 @@ TEST(fx_setting_paths) {
   CHECK(regions.size() == 1 && regions[0].line == 15 &&
         regions[0].guard.find("(SETTING_MODE > 3)") != std::string::npos);
 }
+TEST(fx_zero_guard) {
+  // A uniform at 0 that leaves the output an earlier value: if (S == 0.0) return it, right after its last store (line
+  // 10); one that does not (Gain: black at 0) gets none (2026-10-28).
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_zeroguard.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  const auto rws = fx::zeroGuardRewrites(*e, fx::RegionOptions(), 1);
+  CHECK(rws.size() == 1);
+  if (rws.size() != 1) return;
+  CHECK(rws[0].function == "ZPS" && rws[0].tag == "Z" && rws[0].edits.size() == 1 && rws[0].edits[0].first == 10);
+  CHECK(rws[0].edits[0].lines.size() == 2 && rws[0].edits[0].lines[0] == "\tif (Strength == 0.0) return c;");
+  CHECK(rws[0].edits[0].extra.find("__RESHADE_PERFORMANCE_MODE__") != std::string::npos);
+}
+
 
 TEST(fx_half_regions) {
   // min16float math is float math, also verified at half precision (fp16 step 2, 2026-10-27); float math is not.

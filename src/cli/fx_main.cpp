@@ -17,6 +17,7 @@
 
 #include "cli/console.hpp"
 #include "fx/blend.hpp"
+#include "fx/guard.hpp"
 #include "fx/frontend.hpp"
 #include "fx/hoist.hpp"
 #include "fx/platforms.hpp"
@@ -153,6 +154,9 @@ void usage() {
       "  --no-blend-stage  no final back buffer blends as blend states (default: a pixel shader\n"
       "                    that returns lerp / multiply / add / screen / min / max of the back buffer\n"
       "                    at its pixel returns the blend's source, switch SOPT_<file>_B<line>)\n"
+      "  --no-zero-guard   no early return where a uniform at 0 leaves the output an earlier value\n"
+      "                    (default: if (Strength == 0.0) return color; without performance mode,\n"
+      "                    switch SOPT_<file>_Z<line>)\n"
       "  --all-platforms   also search with the AMD RDNA 3, NVIDIA Turing, NVIDIA Ampere and Intel Gen9 cost\n"
       "                    models (about 4x the search time) for variants that help other GPU families without\n"
       "                    being slower on the chosen one (default: only the chosen model's search; every\n"
@@ -234,6 +238,7 @@ int main(int argc, char** argv) {
   bool hoist = true;         // ... and moving math to the vertex shader (fx/hoist.hpp), --no-hoist
   bool settingPaths = true;  // code other values of the effect's settings compile, --no-setting-paths
   bool blendStage = true;    // ... and final back buffer blends as blend states (fx/blend.hpp), --no-blend-stage
+  bool zeroGuard = true;     // ... and early returns where a uniform at 0 makes the output an earlier value (fx/guard.hpp)
   // Easy mode (owner, 2026-10-08): ready files with our recommended picks (fx::easyPicks).
   bool easy = false;
   bool allPlatforms = false;
@@ -327,6 +332,7 @@ int main(int argc, char** argv) {
     else if (a == "--no-hoist") hoist = false;
     else if (a == "--no-setting-paths") settingPaths = false;
     else if (a == "--no-blend-stage") blendStage = false;
+    else if (a == "--no-zero-guard") zeroGuard = false;
     else if (a == "--easy") easy = true, easyWrite.clean = true;
     else if (a == "--all-platforms") allPlatforms = true;
     else if (a == "--no-cache") useCache = false;
@@ -537,6 +543,8 @@ int main(int argc, char** argv) {
       if (hoist) more = fx::hoistRewrites(*fx, effectRegions, *opt.search.model);
       if (blendStage)
         for (auto& rw : fx::blendRewrites(*fx, ropt, opt.seed)) more.push_back(std::move(rw));
+      if (zeroGuard)
+        for (auto& rw : fx::zeroGuardRewrites(*fx, ropt, opt.seed)) more.push_back(std::move(rw));
       for (auto& rw : more)
         if (rewriteSeen.insert({rw.file, rw.tag + std::to_string(rw.line)}).second) {
           rewriteEffects.push_back(p);
@@ -1519,6 +1527,12 @@ int main(int argc, char** argv) {
       }
       const bool worse = rw.amdAfter > rw.amdBefore || perfWorse;
       const bool table = rw.tag == "T";  // per vendor: NVIDIA's select tree gains even where AMD's table does not
+      // A zero guard gains only while its uniform is 0 (not measurable statically): kept when it costs a few
+      // instructions at most otherwise (the compare and the branch).
+      if (rw.tag == "Z") {
+        if (!measured || (rw.amdAfter <= rw.amdBefore + 4 && !perfWorse)) kept.push_back(std::move(rw));
+        continue;
+      }
       if (measured ? (table ? !worse : gain && !worse) : (table || rw.otherEntries > 0)) kept.push_back(std::move(rw));
     }
     std::printf("classical rewrites: %zu of %zu kept (measured gain)\n", kept.size(), rewrites.size());

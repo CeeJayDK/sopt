@@ -16,6 +16,7 @@ docs/notes/history.md.
 - **Also math written with shortcuts and on one line:** code that uses an effect's own shortcuts (#define), one-line helper functions, and lines with several statements on them are now optimized too.
 - **Also math that uses whole-number values:** loop counters and whole-number sliders used in the math no longer make SweetOpt skip it; for a loop counter SweetOpt works out which values it takes from the loop. Values read from a list (like blur weights) are handled too.
 - **Longer pieces of math:** SweetOpt now also works on longer stretches of math. It finds about 5% more savings and takes a bit longer.
+- **Effects switched to zero cost nothing:** when an effect's strength slider is at 0, SweetOpt can let the effect skip its work (outside performance mode).
 - **Half-precision math:** effects that use half-precision math (min16float) are now optimized too; each change is checked at half precision as well.
 - **Never a broken effect:** if one of SweetOpt's changes would stop an effect from compiling, that change is left out and the effect is written without it.
 - **Easy mode leaves out changes that only change how the code looks:** when the D3D shader compiler turns a change into exactly the same code as the original, easy mode no longer makes it.
