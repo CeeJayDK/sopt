@@ -519,3 +519,20 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 4: stagebench, NVIDIA GeForce RTX 2050 (driver 32.0.16.2101): `docs/stagebench/nvidia-rtx-2050-vs.csv` (StageBench 0.9.0)
 - upload 4: texbench, AMD Radeon(TM) Graphics (driver 31.0.21925.1001): `docs/texbench/amd-radeon-0x1638.csv`, `docs/texbench/amd-radeon-0x1638-order.png`, `docs/texbench/amd-radeon-0x1638-order-zoom.png` (TexBench 0.9.0)
 - upload 4: texbench, NVIDIA GeForce RTX 2050 (driver 32.0.16.2101): `docs/texbench/nvidia-rtx-2050.csv`, `docs/texbench/nvidia-rtx-2050-order.png`, `docs/texbench/nvidia-rtx-2050-order-zoom.png` (TexBench 0.9.0)
+
+## 2026-10-27 12:27 UTC
+- upload 1: opbench, AMD Radeon (TM) Graphics (driver 31.0.21914.59): `docs/opbench/amd-radeon-0x15e7.csv` (OpBench 0.9.0)
+- upload 1: opbench, NVIDIA GeForce RTX 2060 (driver 32.0.16.1088): `docs/opbench/nvidia-rtx-2060-3.csv` (OpBench 0.9.0)
+- upload 1: opbench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1088): `docs/opbench/nvidia-rtx-5070-2.csv` (OpBench 0.9.0)
+- upload 1: shaderinfo, AMD Radeon (TM) Graphics (driver AMD proprietary driver 23.19.14 (AMD proprietary shader compiler) (2.0.279)): `docs/shaderinfo/amd-radeon-0x15e7.txt`
+- upload 1: shaderinfo, NVIDIA GeForce RTX 2060 (driver NVIDIA 610.88 (610.88)): `docs/shaderinfo/nvidia-rtx-2060-4.txt`
+- upload 1: shaderinfo, NVIDIA GeForce RTX 5070 (driver NVIDIA 610.88 (610.88)): `docs/shaderinfo/nvidia-rtx-5070-2.txt`
+- upload 1: stagebench, AMD Radeon (TM) Graphics (driver 31.0.21914.59): `docs/stagebench/amd-radeon-0x15e7-ps.csv` (StageBench 0.9.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 2060 (driver 32.0.16.1088): `docs/stagebench/nvidia-rtx-2060-ps-2.csv` (StageBench 0.9.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1088): `docs/stagebench/nvidia-rtx-5070-ps-2.csv` (StageBench 0.9.0)
+- upload 1: stagebench, AMD Radeon (TM) Graphics (driver 31.0.21914.59): `docs/stagebench/amd-radeon-0x15e7-vs.csv` (StageBench 0.9.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 2060 (driver 32.0.16.1088): `docs/stagebench/nvidia-rtx-2060-vs-2.csv` (StageBench 0.9.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1088): `docs/stagebench/nvidia-rtx-5070-vs-2.csv` (StageBench 0.9.0)
+- upload 1: texbench, AMD Radeon (TM) Graphics (driver 31.0.21914.59): `docs/texbench/amd-radeon-0x15e7.csv`, `docs/texbench/amd-radeon-0x15e7-order.png`, `docs/texbench/amd-radeon-0x15e7-order-zoom.png` (TexBench 0.9.0)
+- upload 1: texbench, NVIDIA GeForce RTX 2060 (driver 32.0.16.1088): `docs/texbench/nvidia-rtx-2060-5.csv`, `docs/texbench/nvidia-rtx-2060-5-order.png`, `docs/texbench/nvidia-rtx-2060-5-order-zoom.png` (TexBench 0.9.0)
+- upload 1: texbench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1088): `docs/texbench/nvidia-rtx-5070-2.csv`, `docs/texbench/nvidia-rtx-5070-2-order.png`, `docs/texbench/nvidia-rtx-5070-2-order-zoom.png` (TexBench 0.9.0)

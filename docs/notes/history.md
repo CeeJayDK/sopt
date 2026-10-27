@@ -2288,6 +2288,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   again, up to 4 times; the first round's failures still count ("dropped SOPT_..." lines in the log). Checked by
   breaking a written Tonemap.fx variant by hand. Logs stay code-free (owner): the written-lines context is gone.
   Plans, handoffs and briefs for other sessions live in local notes, not the repo (owner, 2026-10-27).
+  SMAA (2026-10-27): SMAA.fx defines the porting macros, SMAA.fxh again per API under #if SMAA_HLSL_3 ... A macro with
+  a definition outside #if whose text is the current one is usable; each definition with other text adds
+  "!(its condition)" to the guard. A fetch macro may be defined inside #if (the variant keeps the call, no guard) or be
+  another fetch macro (SMAASamplePoint -> SMAASample -> tex2D). SweetFX SMAA.fx 109 -> 143 regions, 0 of 14 variant
+  checks failed.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one
