@@ -942,6 +942,10 @@ int main(int argc, char** argv) {
           moreFetches = moreFetches || count(a.text, nm) > count(targetText, nm);
         }
       if (moreFetches) continue;
+      // A precise temporary has no place in a declarator list on a shared line (variants.cpp writes it in a block).
+      if (const std::string& pre = rr.region.prefix; needsPrecise(a.expr) && !pre.empty() &&
+          (rr.region.tail[0] != ';' || pre[pre.find_last_not_of(" \t")] == ','))
+        continue;
       // The same code as the original once printed (a - c and a + -c print alike): no variant.
       if (a.text == targetText) continue;
       const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, mainIns);
