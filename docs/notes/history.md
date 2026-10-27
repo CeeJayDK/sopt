@@ -2273,6 +2273,9 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   to float: float math too (+14). mul(M, v) / mul(v, M) with M a constant or float3x3(...) in place: one dot per row /
   column (what compilers emit: ACES, Lab conversions); a matrix variable still skips. Sample: intrinsic mul 55 -> 15,
   regions -> 4016.
+  Corpus on PR 86 (2026-10-27): 19756 regions, 2842 changed, 49543 saved, 28278 s. Same with --max-ops 32 (default
+  24; "more than maxOps" was 462 skips): 19981 regions, 2934 changed (+3%), 52004 saved (+5%), 32560 s (+15%).
+  Waiting on the owner (a default change).
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one
