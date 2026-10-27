@@ -2269,7 +2269,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   stores); never in windows (the index may change between statements); the index a plain variable of the function
   (not a helper's parameter). ReShade reads a static const array at a run-time index through a nameless copy: named
   as the source line writes it with that index (one such name, no macro). Sample: access chain 178 -> 111, regions
-  3915 -> 3976.
+  3915 -> 3976. Int vectors of exact integers (int2(BUFFER_WIDTH, BUFFER_HEIGHT), dh_ shaders' BUFFER_SIZE) converted
+  to float: float math too (+14). mul(M, v) / mul(v, M) with M a constant or float3x3(...) in place: one dot per row /
+  column (what compilers emit: ACES, Lab conversions); a matrix variable still skips. Sample: intrinsic mul 55 -> 15,
+  regions -> 4016.
   TexBench 0.9.2 (owner, 2026-10-22, FetchMore: a read 1/256 texel off centre carries 1/256 of the neighbour; 1/257
   read the same on the GTX 1660): sampling precision (2 x 1 texture, 65536 bilinear reads between the texel centres;
   GTX 1660 and UHD 630: 257 results = 8 bits, rounded to the nearest (first change at 1/512), 257 levels inside one
