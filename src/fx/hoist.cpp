@@ -545,7 +545,8 @@ std::optional<SourceRewrite> hoistShader(const Effect& fx, const Function& ps, c
   if (comps) rw.description += std::to_string(comps) + " interpolated component" + (comps > 1 ? "s" : "");
   if (comps && flatComps) rw.description += ", ";
   if (flatComps) rw.description += std::to_string(flatComps) + " flat (uniforms only)";
-  rw.description += ")";
+  rw.description += "; calls " + vs.uniqueName + " of " + pathFrom(vs.loc.source).filename().string() + ":" +
+                    std::to_string(vs.loc.line) + ")";
   return rw;
 }
 
