@@ -54,7 +54,7 @@ std::string budgetString(const Budget& b) {
   return budgetText(b, buf, sizeof(buf));
 }
 
-uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs) {
+uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs, bool half) {
   const auto uses = (m.fusedAdd || hasFolds(m)) ? useCounts(e) : std::vector<uint32_t>();
   const auto ct = compileTimeNodes(e, inputs);
   const auto folded = foldedNodes(e, uses, m);
@@ -87,7 +87,10 @@ uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<Input
                      (n.op == Op::Clamp && isConst(n.args[1], 0.0f) && isConst(n.args[2], 1.0f));
     if (sat && isArith(n.args[0])) continue;
     const bool reduce = info(n.op).shape == Shape::Reduce;
-    cost += n.op == Op::Div ? div[i] : m.opCost(sat ? Op::Saturate : n.op, width(reduce ? e.nodes[n.args[0]].type : n.type));
+    const unsigned w = width(reduce ? e.nodes[n.args[0]].type : n.type);
+    if (half && isFloat(n.type))  // a division keeps divCosts (one reciprocal per divisor), at the fp16 rate
+      cost += n.op == Op::Div ? (div[i] * halfCosts(m).mufuPct + 50) / 100 : halfOpCost(m, sat ? Op::Saturate : n.op, w);
+    else cost += n.op == Op::Div ? div[i] : m.opCost(sat ? Op::Saturate : n.op, w);
   }
   return cost;
 }

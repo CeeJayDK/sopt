@@ -100,7 +100,8 @@ struct RegionResult {
 // "color8, max code diff 0", "rel 1e-06", ...
 std::string budgetString(const Budget& b);
 
-uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs = {});
+// half: computed in min16float (halfOpCost; a min16float region on GPUs with fp16 math).
+uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs = {}, bool half = false);
 
 // Name of the preprocessor switch of a region: SOPT_<file stem>_<line>.
 std::string switchName(const Region& r);
