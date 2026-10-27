@@ -45,5 +45,20 @@ float4 FmPS3(float4 p : SV_Position) : SV_Target
 		LIT, c.b) * c.g;
 	return float4(e, g, 0.0, 1.0);
 }
-technique Fm { pass { VertexShader = FmVS; PixelShader = FmPS; } pass { VertexShader = FmVS; PixelShader = FmPS2; } pass { VertexShader = FmVS; PixelShader = FmPS3; } }
+#define SCALE(x) ((x) * 3.0)
+#if defined(FM_ALT)
+	#define SCALE(x) ((x) * 5.0)
+#endif
+#define FETCH1(t, c) tex2D(t, c)
+#define FETCH2(t, c) FETCH1(t, c)
+#if defined(FM_ALT)
+	#define FETCH2(t, c) tex2Dlod(t, float4(c, 0, 0))
+#endif
+float4 FmPS4(float4 p : SV_Position) : SV_Target
+{
+	float3 c = FETCH2(FmSamp, p.xy).rgb;
+	float h = SCALE(c.r) + FETCH2(FmSamp, p.yx).g * c.b;
+	return float4(h, c.r, 0.0, 1.0);
+}
+technique Fm { pass { VertexShader = FmVS; PixelShader = FmPS; } pass { VertexShader = FmVS; PixelShader = FmPS2; } pass { VertexShader = FmVS; PixelShader = FmPS3; } pass { VertexShader = FmVS; PixelShader = FmPS4; } }
 #endif
