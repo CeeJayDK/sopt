@@ -197,6 +197,16 @@ void evalNode(const Node& node, const Type* argTypes, const float* const (*arg)[
               float* const* out, size_t n, const Profile& profile, std::vector<float>& tmp) {
   const Op op = node.op;
   const unsigned w = width(node.type);
+  if (info(op).shape == Shape::Cmp && argTypes[0] == Type::Uint) {  // integer comparisons: unsigned, on the bits
+    const float* a = arg[0][0];
+    const float* b = arg[1][0];
+    for (size_t i = 0; i < n; ++i) {
+      const uint32_t x = uBits(a[i]), y = uBits(b[i]);
+      out[0][i] = fBool(op == Op::Lt ? x < y : op == Op::Le ? x <= y : op == Op::Gt ? x > y : op == Op::Ge ? x >= y
+                        : op == Op::Eq ? x == y : x != y);
+    }
+    return;
+  }
   switch (info(op).shape) {
     case Shape::Leaf: return;
     case Shape::Int:

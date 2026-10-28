@@ -1181,6 +1181,7 @@ class Extractor {
   };
   MatMul matMul(const Value& v) const;
   bool intCompare(const Value& v);
+  bool intCompareOps(const Value& v);
   // Splits a load into leaf prefix and the vector part of the chain.
   Leaf& leafOf(const Value& v, size_t& vecStart);
   uint32_t applyVectorChain(uint32_t node, const std::vector<reshadefx::expression::operation>& chain,
@@ -1825,6 +1826,17 @@ bool Extractor::intCompare(const Value& v) {
   return v.kind == Value::Kind::Binary && v.args.size() == 2 && isComparison(v.op) && intExact(v.args[0]) &&
          intExact(v.args[1]);
 }
+// ... compared as integers (unsigned: both sides scalar and at least 0 by their ranges, where it equals signed; owner,
+// 2026-10-28: integers have their own costs, and a variant writing float(mode) == 2.0 would add a conversion).
+bool Extractor::intCompareOps(const Value& v) {
+  if (fx_.glsl || !intCompare(v)) return false;
+  for (uint32_t a : v.args) {
+    const auto it = cg_.values.find(a);
+    const Range r = range(a);
+    if (it == cg_.values.end() || !it->second.type.is_scalar() || !r.known || r.lo < 0) return false;
+  }
+  return true;
+}
 
 void Extractor::collect(uint32_t id) {
   // Each value once per scope: a value read several times (a helper's parameter, a shared temporary) would otherwise
@@ -1913,8 +1925,11 @@ void Extractor::collect(uint32_t id) {
       if (arith && !isFloatType(v.type) && !intMode_) throw Unsupported(nonFloat("non-float arithmetic", v.type));
       if (cmp && !(v.type.is_boolean() && v.type.is_scalar())) throw Unsupported("vector comparison");
       if (cmp && intCompare(v)) {
+        const bool ops = intCompareOps(v);
         ++intMode_;
+        intOps_ += ops;
         for (uint32_t a : v.args) collect(a);
+        intOps_ -= ops;
         --intMode_;
         return;
       }
@@ -2244,8 +2259,11 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         break;
       }
       const bool ints = intCompare(v);
+      const bool ops = ints && intCompareOps(v);
       intMode_ += ints;
+      intOps_ += ops;
       uint32_t a[2] = {build(v.args[0], b), build(v.args[1], b)};
+      intOps_ -= ops;
       intMode_ -= ints;
       if (info(op).shape == Shape::Comp) scalarizeConstants(a, 2, b);
       r = b.op(op, a[0], a[1]);
