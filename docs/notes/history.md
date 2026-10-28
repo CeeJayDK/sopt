@@ -2309,6 +2309,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   between its declaration and the mul), or a helper's returned float2x2(...) (get2dRotationMatrix(Angle), elements built
   in the call's scope): one dot per row / column as before. Samples: mul skips 16 -> 3, regions +6; variant checks on
   ZebraLines / TiltShift / TripleMonitor / BeforeAfter 0 of 28 failed. Left: uniform matrices (no inputs per element).
+  Overloads (2026-10-28): ReShade gives overloads one unique name ('F' + scope + name, no parameter types), so
+  Codegen::function(name) found the first: a call to Fubax's LinearWorkflow::toDisplayGamma(float3) was followed into
+  the float version ("operand types don't fit le" 43 + lt 7 + ge / add 5 on the samples). Call values now keep the
+  callee's id (Value::callee, Codegen::function(const Value&)); CallScope, pureCall's and mapCalls' lookups use it.
+  Samples: regions 2815 -> 2833 / 1459 -> 1507; variant checks on ZebraLines / Waveform / Vectorscope / BeforeAfter 0
+  of 28 failed.
   Self-healing output (owner, 2026-10-27): a change whose variant does not parse is dropped (the innermost #if around
   the first error that tests a switch; none: every change in the files that effect reads) and the files are written
   again, up to 4 times; the first round's failures still count ("dropped SOPT_..." lines in the log). Checked by

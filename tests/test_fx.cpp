@@ -1487,6 +1487,21 @@ TEST(fx_matrix_variables) {
   CHECK(lms && local && helper);
 }
 
+TEST(fx_overloads) {
+  // Overloads share ReShade's unique name: a call is followed into the overload it calls (2026-10-28: Fubax's
+  // LinearWorkflow toDisplayGamma(float3) was read as the float one, "operand types don't fit le").
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_overload.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  bool found = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
+    found = found || (r.line == 10 && r.removed.empty() &&
+                      toString(r.prog.target, r.prog.inputs).find("c.z <= 0.04 ?") != std::string::npos);
+  CHECK(found);
+}
+
 TEST(fx_half_regions) {
   // min16float math is float math, also verified at half precision (fp16 step 2, 2026-10-27); float math is not.
   std::string err;
