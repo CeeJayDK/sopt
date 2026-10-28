@@ -1177,6 +1177,7 @@ class Extractor {
     const Value* matrix = nullptr;  // a float matrix written out: a constant, or float3x3(...) in place
     uint32_t vector = 0;
     bool rowsFirst = false;         // mul(M, v): a dot per row; mul(v, M): per column
+    bool call = false;              // matrix is a helper call: its returned float2x2(...) in the call's scope
   };
   MatMul matMul(const Value& v) const;
   bool intCompare(const Value& v);
@@ -1306,8 +1307,6 @@ class Extractor {
   };
   bool findChain(const Statement& s, size_t length, std::vector<const Statement*>& defs);
   bool leavesUnchanged(const Statement& s, const std::vector<const Statement*>& defs) const;
-  bool writesBetween(uint32_t var, uint32_t after, uint32_t before,
-                     const std::vector<const Statement*>& window) const;
   std::unordered_map<uint32_t, std::string> fetchText_;  // fetch value -> call text
   std::vector<const Statement*> window_;  // statements inlined into the current region
   void mapFetches(const Statement& s, const std::string& text);
@@ -1759,14 +1758,46 @@ bool Extractor::intExact(uint32_t id, int depth) {
 }
 
 // mul(M, v) / mul(v, M) of a float matrix written out and a float vector (2026-10-27: color space conversions such
-// as mul(float3x3(...), color)); a matrix variable is not one (its elements have no inputs yet).
+// as mul(float3x3(...), color)); a matrix variable with a constant value too (a uniform matrix is not: no inputs yet).
 Extractor::MatMul Extractor::matMul(const Value& v) const {
   MatMul mm;
   if (v.kind != Value::Kind::Intrinsic || v.name != "mul" || v.args.size() != 2 || !isFloatType(v.type)) return mm;
   const auto a = cg_.values.find(v.args[0]), c = cg_.values.find(v.args[1]);
   if (a == cg_.values.end() || c == cg_.values.end()) return mm;
   const bool first = a->second.type.is_matrix();
-  const Value& mat = first ? a->second : c->second;
+  const Value* mp = first ? &a->second : &c->second;
+  // A matrix variable (2026-10-28, corpus 175): a static const's initializer, or a local's declared once, when that is
+  // constant (a constant, or float3x3(...) of constants): its value wherever it is read.
+  if (mp->kind == Value::Kind::Load && mp->chain.empty()) {
+    const auto var = cg_.variables.find(mp->base);
+    uint32_t init = 0;
+    if (var != cg_.variables.end() && var->second.kind == Variable::Kind::Global) init = var->second.initializer;
+    if (const auto d = defs_.find(mp->base); var != cg_.variables.end() && var->second.kind == Variable::Kind::Local &&
+                                             d != defs_.end() && d->second.size() == 1 &&
+                                             d->second[0]->kind == Statement::Kind::Init)
+      init = d->second[0]->value;
+    const auto iv = cg_.values.find(init);
+    if (!init || iv == cg_.values.end()) return mm;
+    // A local's value is read where the mul is: nothing it reads may be written in between (a rotation from a slider,
+    // float2x2(cos(a), ...), or a helper's: get2dRotationMatrix(Angle)).
+    if (var->second.kind == Variable::Kind::Local) {
+      std::unordered_set<uint32_t> tree;
+      treeValues(init, tree);
+      const uint32_t from = defs_.at(mp->base)[0]->seq;
+      for (uint32_t id : tree) {
+        const auto x = cg_.values.find(id);
+        if (x == cg_.values.end() || x->second.kind != Value::Kind::Load) continue;
+        if (const auto w = defs_.find(x->second.base); w != defs_.end())
+          for (const Statement* s : w->second)
+            if (s->seq > from && s->seq < v.seq) return mm;
+      }
+    } else if (iv->second.kind == Value::Kind::Construct) {
+      for (uint32_t e : iv->second.args)
+        if (const auto ei = cg_.values.find(e); ei == cg_.values.end() || ei->second.kind != Value::Kind::Const) return mm;
+    }
+    mp = &iv->second;
+  }
+  const Value& mat = *mp;
   const Value& vec = first ? c->second : a->second;
   const reshadefx::type& t = mat.type;
   if (!t.is_matrix() || t.base != reshadefx::type::t_float || t.rows > 4 || t.cols > 4 || !isFloatType(vec.type) ||
@@ -1778,6 +1809,8 @@ Extractor::MatMul Extractor::matMul(const Value& v) const {
       if (const auto ei = cg_.values.find(e); ei == cg_.values.end() || !isFloatType(ei->second.type) ||
                                               ei->second.type.rows != 1)
         return mm;
+  } else if (mat.kind == Value::Kind::Call) {
+    mm.call = true;  // elements checked in its scope (collect)
   } else if (mat.kind != Value::Kind::Const) {
     return mm;
   }
@@ -1928,8 +1961,23 @@ void Extractor::collect(uint32_t id) {
       }
       if (const MatMul mm = matMul(v); mm.matrix) {
         collect(mm.vector);
-        if (mm.matrix->kind == K::Construct)
+        if (mm.call) {  // a helper's matrix: its float2x2(...) in the call's scope
+          const CallScope scope(*this, *mm.matrix);
+          auto outer = std::move(collected_);
+          collected_.clear();
+          const Value& ret = cg_.values.at(scope.ret);
+          if (ret.kind != K::Construct || ret.args.size() != mm.matrix->type.rows * mm.matrix->type.cols)
+            throw Unsupported("intrinsic mul (helper's matrix)");
+          for (uint32_t a : ret.args) {
+            const auto ai = cg_.values.find(a);
+            if (ai == cg_.values.end() || !isFloatType(ai->second.type) || ai->second.type.rows != 1)
+              throw Unsupported("intrinsic mul (helper's matrix)");
+            collect(a);
+          }
+          collected_ = std::move(outer);
+        } else if (mm.matrix->kind == K::Construct) {
           for (uint32_t a : mm.matrix->args) collect(a);
+        }
         return;
       }
       const auto op = opFromCall(v.name, static_cast<uint8_t>(v.args.size()));
@@ -2258,15 +2306,27 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         const reshadefx::type& t = mm.matrix->type;
         const uint32_t x = build(mm.vector, b);
         const unsigned outs = mm.rowsFirst ? t.rows : t.cols, inner = mm.rowsFirst ? t.cols : t.rows;
+        // The elements, row-major: constants, float3x3(...) in place, or a helper's float2x2(...) built in its scope.
+        uint32_t el[16];
+        const bool constant = mm.matrix->kind == K::Const;
+        if (mm.call) {
+          const CallScope scope(*this, *mm.matrix);
+          auto outer = std::move(built_);
+          built_.clear();
+          const Value& ret = cg_.values.at(scope.ret);
+          for (unsigned i = 0; i < t.rows * t.cols; ++i) el[i] = build(ret.args[i], b);
+          built_ = std::move(outer);
+        } else if (!constant) {
+          for (unsigned i = 0; i < t.rows * t.cols; ++i) el[i] = build(mm.matrix->args[i], b);
+        }
         uint32_t res[4];
         for (unsigned o = 0; o < outs; ++o) {
           uint32_t e[4];
           float c[4];
-          bool constant = mm.matrix->kind == K::Const;
           for (unsigned k = 0; k < inner; ++k) {
             const unsigned at = mm.rowsFirst ? o * t.cols + k : k * t.cols + o;
             if (constant) c[k] = mm.matrix->constant.as_float[at];
-            else e[k] = build(mm.matrix->args[at], b);
+            else e[k] = el[at];
           }
           const uint32_t line = constant ? b.constant(floatType(inner), c) : b.construct(e, inner);
           res[o] = b.op(Op::Dot, line, x);

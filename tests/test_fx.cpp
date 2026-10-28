@@ -1469,6 +1469,24 @@ TEST(fx_zero_guard) {
 }
 
 
+TEST(fx_matrix_variables) {
+  // mul() of a matrix variable (2026-10-28): a static const, a local from a slider, a helper's matrix: a dot per row.
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_matvar.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  bool lms = false, local = false, helper = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
+    if (!r.removed.empty()) continue;
+    const std::string t = toString(r.prog.target, r.prog.inputs);
+    lms = lms || (r.line == 11 && t.find("dot(c, float3(0.1, 0.8, 0.1))") != std::string::npos);
+    local = local || (r.line == 13 && t.find("dot(c.xy, float2(-sin(Angle), cos(Angle)))") != std::string::npos);
+    helper = helper || (r.line == 14 && t.find("dot(c.xy, float2(cos(Angle), -sin(Angle)))") != std::string::npos);
+  }
+  CHECK(lms && local && helper);
+}
+
 TEST(fx_half_regions) {
   // min16float math is float math, also verified at half precision (fp16 step 2, 2026-10-27); float math is not.
   std::string err;
