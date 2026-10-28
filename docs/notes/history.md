@@ -2290,6 +2290,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   1806 regions, 203 changed, variant checks 0 of 175 failed. Open: half costs (step 3); a variant may bring float
   values into half math (runs in float: more precise, no fp16 gain); windows mixing float and half are checked at
   half throughout (stricter than needed); V2 / V3 have no half profile.
+  Uniform zero guard (owner's open item, 2026-10-28; fx/guard.cpp): a pixel shader whose output (the only return, the
+  last store to an out SV_Target / COLOR, or a store the next statement returns) equals an earlier input A wherever a
+  uniform S is 0 (within 4 float steps of the largest input: lerp(a, b, 1) = (b - a) + a; ref and mix profiles) gets
+  "if (S == 0.0) return A;" after A's (and the output's) last store, only locals stored after it. S: a scalar uniform
+  with 0 in range, or a local computed from uniforms that its own statement makes 0 when a scalar uniform is
+  (Vibrance's coeffVibrance = float3(Balance * Vibrance)). Only with performance mode off (extra
+  "&& !__RESHADE_PERFORMANCE_MODE__"); kept where --isa measures at most 4 more instructions (its gain at S = 0 is not
+  static). SweetFX: CAS (Sharpening), Tonemap (Saturation), Vibrance; variant checks 0 of 238 failed.
   fp16 step 3 (2026-10-27): min16float regions cost at the fp16 rates in the GPU family table and the compiled costs
   (compiledCost(..., half): halfOpCost, a division's divCosts at mufuPct). Half variants of float regions (the best
   expression with min16float inputs; fxc keeps literals at 16 bits: mad {min16f} with l(0.5)) were built and dropped:
