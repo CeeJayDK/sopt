@@ -23,6 +23,7 @@ struct Value {
   uint32_t seq = 0;                       // emission order (shared with Statement::seq)
   reshadefx::tokenid op{};                // Unary / Binary / Ternary
   std::string name;                       // Intrinsic name, or called function's unique name
+  uint32_t callee = 0;                    // Call: the function's id (overloads share their unique name)
   std::vector<uint32_t> args;             // operand value ids
   std::vector<bool> argConst;             // Construct: whether each operand is a constant
   reshadefx::constant constant{};         // Const
@@ -95,6 +96,7 @@ class Codegen final : public reshadefx::codegen {
   std::string structMemberName(uint32_t structId, uint32_t index) const;
   std::string structMemberSemantic(uint32_t structId, uint32_t index) const;
   const Function* function(const std::string& uniqueName) const;
+  const Function* function(const Value& call) const;  // the overload a Call value calls
   const reshadefx::effect_module& mod() const { return _module; }
 
   std::string finalize_code() const override { return {}; }

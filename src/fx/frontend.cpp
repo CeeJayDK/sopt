@@ -1104,7 +1104,7 @@ class Extractor {
     }
     for (const auto& [id, v] : cg_.values) {
       if (v.kind != Value::Kind::Call) continue;
-      const Function* g = cg_.function(v.name);
+      const Function* g = cg_.function(v);
       if (!g) continue;
       for (size_t k = 0; k < v.args.size() && k < g->params.size(); ++k) {
         const auto pv = cg_.variables.find(g->params[k]);
@@ -1500,7 +1500,7 @@ uint32_t chainMask(const std::vector<reshadefx::expression::operation>& chain, s
 }
 
 Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
-  const Function* f = x.cg_.function(call.name);
+  const Function* f = x.cg_.function(call);  // the overload itself (they share the unique name)
   if (!f) throw Unsupported("function call");
   if (f->params.size() != call.args.size()) throw Unsupported("function call: arguments");
   // ReShade passes each argument through a temporary variable (call.args): its last store before the call.
@@ -1715,7 +1715,8 @@ uint32_t Extractor::buildCond(uint32_t id, ExprBuilder& b) {
     r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), c.chain, vs, b, &l);
     numeric = true;  // a variable is read as a float, also a bool one
   }
-  return numeric ? b.op(Op::Ne, r, b.constant(0.0f)) : r;
+  // A bool (OddFrame ? ...) is the condition itself; a number is tested against 0.
+  return numeric && b.nodes()[r].type != Type::Bool ? b.op(Op::Ne, r, b.constant(0.0f)) : r;
 }
 
 // A conversion to float of integer + - * over integer variables and constants, every value (also the operands) a whole
@@ -2342,7 +2343,12 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       }
       const Op op = *opFromCall(v.name, static_cast<uint8_t>(v.args.size()));
       uint32_t a[3] = {0, 0, 0};
-      for (size_t k = 0; k < v.args.size(); ++k) a[k] = build(v.args[k], b);
+      for (size_t k = 0; k < v.args.size(); ++k) {
+        a[k] = build(v.args[k], b);
+        // A bool argument of float math is 0 or 1 (FILMDECK: lerp(c, red, luma > 0.99); 2026-10-28).
+        if (b.nodes()[a[k]].type == Type::Bool && info(op).shape != Shape::Select)
+          a[k] = b.op(Op::Select, a[k], b.constant(1.0f), b.constant(0.0f));
+      }
       if (info(op).shape == Shape::Comp) scalarizeConstants(a, v.args.size(), b);
       r = b.op(op, a[0], a[1], a[2]);
       break;
@@ -2573,7 +2579,7 @@ Range Extractor::range(uint32_t id) {
     }
     case K::Call: {
       // What its returns can give (its parameters' ranges are the union over its call sites).
-      const Function* f = cg_.function(v.name);
+      const Function* f = cg_.function(v);
       if (!f || !callBusy_.insert(v.name).second) break;
       bool any = false;
       for (const Statement& s : f->stmts)
@@ -3759,7 +3765,7 @@ void Extractor::mapCalls(const Statement& s, const std::string& text) {
   std::vector<std::string> texts;
   size_t c = 0;
   for (size_t i = 0; i < text.size() && c < calls.size(); ++i) {
-    const Function* f = cg_.function(cg_.values.at(calls[c].second).name);
+    const Function* f = cg_.function(cg_.values.at(calls[c].second));
     if (!f) return;
     const std::string& name = f->name;
     if (text.compare(i, name.size(), name) != 0 || (i > 0 && (isIdent(text[i - 1]) || text[i - 1] == '.'))) continue;
