@@ -1505,6 +1505,37 @@ TEST(fx_int_compares) {
     eq = eq || (r.line == 10 && uintMode && t.find("Mode == 2u ?") != std::string::npos);
   }
   CHECK(lt && eq);
+=======
+TEST(fx_overloads) {
+  // Overloads share ReShade's unique name: a call is followed into the overload it calls (2026-10-28: Fubax's
+  // LinearWorkflow toDisplayGamma(float3) was read as the float one, "operand types don't fit le").
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_overload.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  bool found = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
+    found = found || (r.line == 10 && r.removed.empty() &&
+                      toString(r.prog.target, r.prog.inputs).find("c.z <= 0.04 ?") != std::string::npos);
+  CHECK(found);
+}
+
+TEST(fx_bool_arguments) {
+  // A bool argument of float math is 0 or 1 (lerp(c, red, luma > 0.99)); a bool local as a select's condition is the
+  // condition itself, not tested against 0 (2026-10-28: "operand types don't fit lerp / ne").
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_boolargs.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  bool lerpBool = false, cond = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
+    const std::string t = toString(r.prog.target, r.prog.inputs);
+    lerpBool = lerpBool || (r.line == 8 && t.find("0.5 ? 1.0 : 0.0)") != std::string::npos);
+    cond = cond || (r.line == 10 && !r.removed.empty() && t.find("c.z > 0.5 ?") != std::string::npos);
+  }
+  CHECK(lerpBool && cond);
 }
 
 TEST(fx_half_regions) {

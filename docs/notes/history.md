@@ -2315,6 +2315,17 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   write Mode == 2u, not float(Mode) == 2.0 (a conversion the original does not have). The enumerator still only
   builds float compares. Sample: 247 regions with int compares. Int vectors (19 inputs on the sample) stay on the
   float path.
+=======
+  Overloads (2026-10-28): ReShade gives overloads one unique name ('F' + scope + name, no parameter types), so
+  Codegen::function(name) found the first: a call to Fubax's LinearWorkflow::toDisplayGamma(float3) was followed into
+  the float version ("operand types don't fit le" 43 + lt 7 + ge / add 5 on the samples). Call values now keep the
+  callee's id (Value::callee, Codegen::function(const Value&)); CallScope, pureCall's and mapCalls' lookups use it.
+  Samples: regions 2815 -> 2833 / 1459 -> 1507; variant checks on ZebraLines / Waveform / Vectorscope / BeforeAfter 0
+  of 28 failed.
+  Bools in float math (2026-10-28, next types errors of the corpus: lerp 70, ne ~20): a bool argument of a float
+  intrinsic is select(b, 1, 0) (FILMDECK's lerp(film.rgb, red, luma > 254 / 255)); a select whose condition is a
+  bool value (a bool local, OddFrame) is the condition itself, not "!= 0" of it. Samples: those errors gone, regions
+  +9.
   Self-healing output (owner, 2026-10-27): a change whose variant does not parse is dropped (the innermost #if around
   the first error that tests a switch; none: every change in the files that effect reads) and the files are written
   again, up to 4 times; the first round's failures still count ("dropped SOPT_..." lines in the log). Checked by

@@ -36,6 +36,12 @@ const Function* Codegen::function(const std::string& uniqueName) const {
   return nullptr;
 }
 
+const Function* Codegen::function(const Value& call) const {
+  for (const auto& f : functions)
+    if (f->id == call.callee) return f.get();
+  return function(call.name);
+}
+
 std::string Codegen::structMemberSemantic(uint32_t structId, uint32_t index) const {
   for (const auto& s : _structs)
     if (s.id == structId && index < s.member_list.size()) return s.member_list[index].semantic;
@@ -238,7 +244,10 @@ reshadefx::codegen::id Codegen::emit_call(const reshadefx::location& loc, id fun
   id res;
   Value& v = newValue(Value::Kind::Call, res_type, loc, res);
   for (const auto& f : functions)
-    if (f->id == function) v.name = f->uniqueName;
+    if (f->id == function) {
+      v.name = f->uniqueName;
+      v.callee = function;
+    }
   for (const auto& a : args) v.args.push_back(a.base);
   if (current_) current_->calls.push_back(v.name);
   return res;
