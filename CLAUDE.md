@@ -169,4 +169,5 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
    Not before.
 8. Intrinsics sopt still skips (75 effects, 2026-10-10): mul() (matrices) 18, fwidth 8 (needs neighbours: never). Done
    2026-10-10 (+42 regions): float % / %= (fxc's fmod), all / any (also of a vector comparison), asin / acos (fxc's
-   A&S polynomial), a bool read as float (cond ? 1 : 0). Next candidates: atan / atan2 (fxc writes them out too).
+   A&S polynomial), a bool read as float (cond ? 1 : 0), atan / atan2, mul() of matrix variables (2026-10-28). Left:
+   uniform matrices.
