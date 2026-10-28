@@ -1502,6 +1502,23 @@ TEST(fx_overloads) {
   CHECK(found);
 }
 
+TEST(fx_bool_arguments) {
+  // A bool argument of float math is 0 or 1 (lerp(c, red, luma > 0.99)); a bool local as a select's condition is the
+  // condition itself, not tested against 0 (2026-10-28: "operand types don't fit lerp / ne").
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_boolargs.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  bool lerpBool = false, cond = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
+    const std::string t = toString(r.prog.target, r.prog.inputs);
+    lerpBool = lerpBool || (r.line == 8 && t.find("0.5 ? 1.0 : 0.0)") != std::string::npos);
+    cond = cond || (r.line == 10 && !r.removed.empty() && t.find("c.z > 0.5 ?") != std::string::npos);
+  }
+  CHECK(lerpBool && cond);
+}
+
 TEST(fx_half_regions) {
   // min16float math is float math, also verified at half precision (fp16 step 2, 2026-10-27); float math is not.
   std::string err;

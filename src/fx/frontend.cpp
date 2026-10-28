@@ -1715,7 +1715,8 @@ uint32_t Extractor::buildCond(uint32_t id, ExprBuilder& b) {
     r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), c.chain, vs, b, &l);
     numeric = true;  // a variable is read as a float, also a bool one
   }
-  return numeric ? b.op(Op::Ne, r, b.constant(0.0f)) : r;
+  // A bool (OddFrame ? ...) is the condition itself; a number is tested against 0.
+  return numeric && b.nodes()[r].type != Type::Bool ? b.op(Op::Ne, r, b.constant(0.0f)) : r;
 }
 
 // A conversion to float of integer + - * over integer variables and constants, every value (also the operands) a whole
@@ -2342,7 +2343,12 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       }
       const Op op = *opFromCall(v.name, static_cast<uint8_t>(v.args.size()));
       uint32_t a[3] = {0, 0, 0};
-      for (size_t k = 0; k < v.args.size(); ++k) a[k] = build(v.args[k], b);
+      for (size_t k = 0; k < v.args.size(); ++k) {
+        a[k] = build(v.args[k], b);
+        // A bool argument of float math is 0 or 1 (FILMDECK: lerp(c, red, luma > 0.99); 2026-10-28).
+        if (b.nodes()[a[k]].type == Type::Bool && info(op).shape != Shape::Select)
+          a[k] = b.op(Op::Select, a[k], b.constant(1.0f), b.constant(0.0f));
+      }
       if (info(op).shape == Shape::Comp) scalarizeConstants(a, v.args.size(), b);
       r = b.op(op, a[0], a[1], a[2]);
       break;
