@@ -1156,8 +1156,11 @@ class Extractor {
   // UMul (two's complement: the same bits for int), IToF / UToF at the conversion; > 0 inside one.
   int intOps_ = 0;
   bool intScalar(const Value& v) const {
-    return !fx_.glsl && v.chain[0].from.rows == 1 && v.chain[0].from.cols == 1;
+    return !fx_.glsl && v.chain[0].from.rows == 1 && v.chain[0].from.cols == 1 && intOpsOk(v.base);
   }
+  // Whether the integer ops path can build value id (constants, scalar loads, + - *, through inlined temporaries):
+  // else the float path (it takes more: casts, constructors, component picks).
+  bool intOpsOk(uint32_t id, int depth = 0) const;
   bool intCast(const Value& v);
   bool intExact(uint32_t id, int depth = 0);
   // A select on a float vector whose condition compares float vectors (c <= 0.04045 ? ... : ...): the comparison.
@@ -1826,6 +1829,30 @@ bool Extractor::intCompare(const Value& v) {
   return v.kind == Value::Kind::Binary && v.args.size() == 2 && isComparison(v.op) && intExact(v.args[0]) &&
          intExact(v.args[1]);
 }
+
+bool Extractor::intOpsOk(uint32_t id, int depth) const {
+  const auto it = cg_.values.find(id);
+  if (it == cg_.values.end() || depth > 32) return false;
+  const Value& x = it->second;
+  if (!x.type.is_integral() || x.type.is_boolean() || !x.type.is_scalar()) return false;
+  switch (x.kind) {
+    case Value::Kind::Const:
+      return true;
+    case Value::Kind::Load:
+      if (const auto il = inlineLoad_.find(id); il != inlineLoad_.end()) return intOpsOk(il->second, depth + 1);
+      if (const auto in = inline_.find(x.base); in != inline_.end()) return intOpsOk(in->second, depth + 1);
+      return x.chain.empty();
+    case Value::Kind::Unary:
+      return (x.op == tokenid::minus || x.op == tokenid::plus) && intOpsOk(x.args[0], depth + 1);
+    case Value::Kind::Binary:
+      return (x.op == tokenid::plus || x.op == tokenid::minus || x.op == tokenid::star || x.op == tokenid::plus_equal ||
+              x.op == tokenid::minus_equal || x.op == tokenid::star_equal) &&
+             intOpsOk(x.args[0], depth + 1) && intOpsOk(x.args[1], depth + 1);
+    default:
+      return false;
+  }
+}
+
 // ... compared as integers (unsigned: both sides scalar and at least 0 by their ranges, where it equals signed; owner,
 // 2026-10-28: integers have their own costs, and a variant writing float(mode) == 2.0 would add a conversion).
 bool Extractor::intCompareOps(const Value& v) {
@@ -1833,7 +1860,7 @@ bool Extractor::intCompareOps(const Value& v) {
   for (uint32_t a : v.args) {
     const auto it = cg_.values.find(a);
     const Range r = range(a);
-    if (it == cg_.values.end() || !it->second.type.is_scalar() || !r.known || r.lo < 0) return false;
+    if (it == cg_.values.end() || !it->second.type.is_scalar() || !r.known || r.lo < 0 || !intOpsOk(a)) return false;
   }
   return true;
 }
@@ -1841,7 +1868,8 @@ bool Extractor::intCompareOps(const Value& v) {
 void Extractor::collect(uint32_t id) {
   // Each value once per scope: a value read several times (a helper's parameter, a shared temporary) would otherwise
   // be walked again for every path to it, exponentially in nested helpers (CRT.fx, 2026-10-26).
-  if (!collected_.insert(id).second) return;
+  // A value is built differently on the integer ops path (uint leaves): its own memo entry there.
+  if (!collected_.insert(intOps_ ? id | 0x80000000u : id).second) return;
   if (const auto s = synth_.find(id); s != synth_.end()) {
     collectSynth(s->second);
     return;
@@ -2161,10 +2189,11 @@ uint32_t Extractor::buildSynth(const Synth& s, ExprBuilder& b) {
 }
 
 uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
-  if (auto it = built_.find(id); it != built_.end()) return it->second;
+  const uint32_t memo = intOps_ ? id | 0x80000000u : id;  // see collect
+  if (auto it = built_.find(memo); it != built_.end()) return it->second;
   if (const auto s = synth_.find(id); s != synth_.end()) {
     const uint32_t r = buildSynth(s->second, b);
-    built_[id] = r;
+    built_[memo] = r;
     return r;
   }
   const Value& v = cg_.values.at(id);
@@ -2247,7 +2276,7 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
           uint32_t a[2] = {build(v.args[0], b), build(v.args[1], b)};
           scalarizeConstants(a, 2, b);
           r = buildSugarCall(b, "fmod", a, 2);
-          built_[id] = r;
+          built_[memo] = r;
           return r;
         }
         default: throw Unsupported("binary operator");
@@ -2414,7 +2443,7 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
   }
   // HLSL broadcasts a scalar in a vector context (a cast in the chain); the IR keeps
   // the scalar, componentwise ops broadcast it.
-  built_[id] = r;
+  built_[memo] = r;
   return r;
 }
 
