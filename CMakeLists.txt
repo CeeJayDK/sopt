@@ -110,7 +110,8 @@ add_library(sopt-fx-lib
   ${CMAKE_CURRENT_BINARY_DIR}/steam_share_builtin.cpp
   src/fx/classic.cpp
   src/fx/hoist.cpp
-  src/fx/blend.cpp)
+  src/fx/blend.cpp
+  src/fx/guard.cpp)
 target_link_libraries(sopt-fx-lib PUBLIC reshadefx sopt-search)
 sopt_fp_flags(sopt-fx-lib)
 
