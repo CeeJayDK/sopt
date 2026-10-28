@@ -2296,6 +2296,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   a region's budget is its own value's, and only 9 of ~1450 sample regions have an 8-bit color budget (1319 rel 1e-6,
   113 exact); the 14 SweetFX regions where fp16 would win all failed at half. Useful only with budgets taken from the
   effect's output (an intermediate value feeding an 8-bit color may err far more): asked the owner.
+  mul() of a matrix variable (2026-10-28; corpus "intrinsic mul" 175 + 88 in windows): a global static const's
+  initializer when constant, a local declared once (float2x2(cos(Angle), ...) of anything, nothing it reads written
+  between its declaration and the mul), or a helper's returned float2x2(...) (get2dRotationMatrix(Angle), elements built
+  in the call's scope): one dot per row / column as before. Samples: mul skips 16 -> 3, regions +6; variant checks on
+  ZebraLines / TiltShift / TripleMonitor / BeforeAfter 0 of 28 failed. Left: uniform matrices (no inputs per element).
   Self-healing output (owner, 2026-10-27): a change whose variant does not parse is dropped (the innermost #if around
   the first error that tests a switch; none: every change in the files that effect reads) and the files are written
   again, up to 4 times; the first round's failures still count ("dropped SOPT_..." lines in the log). Checked by
