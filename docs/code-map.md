@@ -78,6 +78,7 @@ Everything rests on `src/ir`: what an operation is, what it costs on each GPU, a
 | `src/search/options.cpp` | Command line options of the search, shared by sopt, sopt-fx and sopt-bench. |
 | `src/search/library.cpp` | Applies known rewrite rules from `library/rewrites.txt`. |
 | `src/search/subtrees.cpp` | Searches the small parts of a big expression on their own. |
+| `src/search/stoke.cpp` | STOKE-style random walk over expressions (off by default, `--stoke`). |
 | `src/search/cuts.cpp` | Splits an expression at a point everything depends on and searches both halves. |
 | `src/search/generalize.cpp` | Turns found numbers back into formulas of the user's settings (e.g. a far plane). |
 | `src/search/reshape.cpp` | Reorders sums and products so values that are the same for every pixel group together. |

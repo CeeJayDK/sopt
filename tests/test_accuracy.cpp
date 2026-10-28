@@ -4,6 +4,7 @@
 #include "ir/eval.hpp"
 #include "ir/parser.hpp"
 #include "search/driver.hpp"
+#include "search/stoke.hpp"
 #include "test.hpp"
 #include "verify/exact.hpp"
 #include "verify/points.hpp"
@@ -222,4 +223,18 @@ TEST(uint_input_points) {
     top = top || x == 16.0f;
   }
   CHECK(whole && neg && top);
+}
+
+// STOKE (Options::stoke): what it returns is cheaper than the target and right on fresh points (2026-10-28).
+TEST(stoke_candidates) {
+  Program p = parseProgram("input x : float in [0, 1]\ninput y : float in [0, 1]\n"
+                           "output r = x * y + x * 3.0 - x * y\nbudget r : rel 1e-6\n");
+  const uint32_t cost = dagCost(p.target, defaultCostModel(), p.inputs);
+  const std::vector<Candidate> cs = stokeCandidates(p, defaultCostModel(), cost, 0.5, 3);
+  const PointSet ps = makeRandomPoints(p, 4096, 9, true);
+  for (const Candidate& c : cs) {
+    CHECK(c.cost < cost);
+    CHECK(compare(p, c.expr, ps, kProfileRef, 1).loosePass);
+  }
+  std::printf("  stoke: %zu candidates\n", cs.size());
 }
