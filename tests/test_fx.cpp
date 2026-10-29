@@ -1487,6 +1487,26 @@ TEST(fx_matrix_variables) {
   CHECK(lms && local && helper);
 }
 
+TEST(fx_int_compares) {
+  // An integer comparison (Mode == 2 in a select) is compared as integers: Mode a uint input, an unsigned compare
+  // (both sides at least 0), no conversion to float (2026-10-28).
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_intcmp.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  bool lt = false, eq = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
+    if (!r.removed.empty()) continue;
+    const std::string t = toString(r.prog.target, r.prog.inputs);
+    bool uintMode = false;
+    for (const auto& d : r.prog.inputs) uintMode = uintMode || (d.name == "Mode" && d.type == Type::Uint);
+    lt = lt || (r.line == 9 && uintMode && t.find("Mode < 1u ?") != std::string::npos);
+    eq = eq || (r.line == 10 && uintMode && t.find("Mode == 2u ?") != std::string::npos);
+  }
+  CHECK(lt && eq);
+}
+
 TEST(fx_overloads) {
   // Overloads share ReShade's unique name: a call is followed into the overload it calls (2026-10-28: Fubax's
   // LinearWorkflow toDisplayGamma(float3) was read as the float one, "operand types don't fit le").

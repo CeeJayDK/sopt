@@ -2317,7 +2317,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   restart every 20000 steps; right and cheaper forms are candidates. Bench (time 30, same machine, back to back):
   identical bests on all 14 examples and 12 planted problems; first hits the same except rsqrt 23.8 -> 17.8 s. Stays
   off (no gain). Test: stoke_candidates (x*y + x*3 - x*y: 4 cheaper right forms in 0.5 s).
-=======
+  Integer comparisons (2026-10-28, open item 3 of the owner's order): an int comparison (Mode == 2 ? ...) with both
+  sides scalar and at least 0 by their ranges is built on uint inputs (unsigned = signed there): Cmp accepts two uints
+  (inferType), evalNode compares the bits unsigned, V3 gives up on any uint node (its constants are bits). Variants
+  write Mode == 2u, not float(Mode) == 2.0 (a conversion the original does not have). The enumerator still only
+  builds float compares. Sample: 247 regions with int compares. Int vectors (19 inputs on the sample) stay on the
+  float path.
   Overloads (2026-10-28): ReShade gives overloads one unique name ('F' + scope + name, no parameter types), so
   Codegen::function(name) found the first: a call to Fubax's LinearWorkflow::toDisplayGamma(float3) was followed into
   the float version ("operand types don't fit le" 43 + lt 7 + ge / add 5 on the samples). Call values now keep the
