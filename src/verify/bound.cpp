@@ -535,7 +535,7 @@ BoundResult proveBound(const Program& prog, const Expr& cand, const BoundOptions
   // No interval model for integer ops / bit casts (bit tricks): no proof.
   for (const Expr* x : {&prog.target, &cand})
     for (const Node& nd : x->nodes)
-      if (isIntShape(info(nd.op).shape)) return res;
+      if (isIntShape(info(nd.op).shape) || nd.type == Type::Uint) return res;  // uint values are bits
   const unsigned w = width(rt);
   const bool rule = accuracyRule(b);
 

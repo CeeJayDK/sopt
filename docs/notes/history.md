@@ -2309,6 +2309,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   between its declaration and the mul), or a helper's returned float2x2(...) (get2dRotationMatrix(Angle), elements built
   in the call's scope): one dot per row / column as before. Samples: mul skips 16 -> 3, regions +6; variant checks on
   ZebraLines / TiltShift / TripleMonitor / BeforeAfter 0 of 28 failed. Left: uniform matrices (no inputs per element).
+  Integer comparisons (2026-10-28, open item 3 of the owner's order): an int comparison (Mode == 2 ? ...) with both
+  sides scalar and at least 0 by their ranges is built on uint inputs (unsigned = signed there): Cmp accepts two uints
+  (inferType), evalNode compares the bits unsigned, V3 gives up on any uint node (its constants are bits). Variants
+  write Mode == 2u, not float(Mode) == 2.0 (a conversion the original does not have). The enumerator still only
+  builds float compares. Sample: 247 regions with int compares. Int vectors (19 inputs on the sample) stay on the
+  float path.
   Overloads (2026-10-28): ReShade gives overloads one unique name ('F' + scope + name, no parameter types), so
   Codegen::function(name) found the first: a call to Fubax's LinearWorkflow::toDisplayGamma(float3) was followed into
   the float version ("operand types don't fit le" 43 + lt 7 + ge / add 5 on the samples). Call values now keep the

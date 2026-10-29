@@ -75,6 +75,10 @@ std::optional<Type> inferType(Op op, const Type* args, unsigned nargs, unsigned 
       for (unsigned k = 0; k < nargs; ++k)
         if (args[k] != Type::Bool) return std::nullopt;
       return Type::Bool;
+    case Shape::Cmp:
+      for (unsigned k = 0; k < nargs; ++k)  // floats, or uints (integer comparisons: unsigned)
+        if (args[k] != args[0] || (args[0] != Type::Float && args[0] != Type::Uint)) return std::nullopt;
+      return Type::Bool;
     default: break;
   }
   for (unsigned k = 0; k < nargs; ++k)
@@ -91,10 +95,6 @@ std::optional<Type> inferType(Op op, const Type* args, unsigned nargs, unsigned 
         if (width(args[k]) != 1 && width(args[k]) != w) return std::nullopt;
       return floatType(w);
     }
-    case Shape::Cmp:
-      for (unsigned k = 0; k < nargs; ++k)
-        if (args[k] != Type::Float) return std::nullopt;
-      return Type::Bool;
     case Shape::Reduce:
       if (nargs == 2 && args[0] != args[1]) return std::nullopt;
       return Type::Float;
