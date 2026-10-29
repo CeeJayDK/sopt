@@ -2309,6 +2309,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   between its declaration and the mul), or a helper's returned float2x2(...) (get2dRotationMatrix(Angle), elements built
   in the call's scope): one dot per row / column as before. Samples: mul skips 16 -> 3, regions +6; variant checks on
   ZebraLines / TiltShift / TripleMonitor / BeforeAfter 0 of 28 failed. Left: uniform matrices (no inputs per element).
+  STOKE-style stochastic search (open item 4, owner's go to try behind a flag; 2026-10-28; search/stoke.cpp,
+  Options::stoke, --stoke, stokeShare 0.25 of the region's search time, before the enumerator, which gets the rest): a
+  Metropolis walk from the target (an op for another of its shape, an operand for an earlier node or a constant from the
+  target's / 0 / 1 / 2 / 0.5 / -1, a node for one of its operands, operands swapped; rebuilt with foldCopyNode, type
+  errors rejected), energy = cost + wrong test points (128, the region's budget) * targetCost / 4, temperature 1,
+  restart every 20000 steps; right and cheaper forms are candidates. Bench (time 30, same machine, back to back):
+  identical bests on all 14 examples and 12 planted problems; first hits the same except rsqrt 23.8 -> 17.8 s. Stays
+  off (no gain). Test: stoke_candidates (x*y + x*3 - x*y: 4 cheaper right forms in 0.5 s).
   Integer comparisons (2026-10-28, open item 3 of the owner's order): an int comparison (Mode == 2 ? ...) with both
   sides scalar and at least 0 by their ranges is built on uint inputs (unsigned = signed there): Cmp accepts two uints
   (inferType), evalNode compares the bits unsigned, V3 gives up on any uint node (its constants are bits). Variants

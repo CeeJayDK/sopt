@@ -56,6 +56,7 @@ add_library(sopt-search
   src/search/driver.cpp
   src/search/generalize.cpp
   src/search/subtrees.cpp
+  src/search/stoke.cpp
   src/search/cuts.cpp
   src/search/library.cpp
   src/search/options.cpp

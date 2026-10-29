@@ -3,6 +3,7 @@
 #include "search/cuts.hpp"
 #include "search/library.hpp"
 #include "search/reshape.hpp"
+#include "search/stoke.hpp"
 #include "search/subtrees.hpp"
 #include "verify/bound.hpp"
 #include "verify/exact.hpp"
@@ -255,6 +256,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   }
 
   std::vector<Candidate> subCands;  // Options::subtrees, computed once
+  std::vector<Candidate> stokeCands;  // Options::stoke, computed once
   bool subDone = false;
   std::vector<Candidate> cutCands;  // Options::cuts, computed once
   bool cutDone = false;
@@ -262,6 +264,12 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     res.iterations = iter + 1;
     const bool lastIter = iter + 1 == opt.maxIterations || opt.previousOnly;
 
+    if (opt.stoke && iter == 0 && !opt.previousOnly) {  // its time is the search's: the enumerator gets the rest
+      const double t0 = nowSeconds();
+      stokeCands = stokeCandidates(prog, *opt.search.model, res.targetCost, opt.search.timeLimitSec * opt.stokeShare,
+                                   opt.seed);
+      res.searchSec += nowSeconds() - t0;
+    }
     double ts = nowSeconds();
     // The time limit covers all CEGIS iterations (the overflow search runs to it); a
     // restart after counterexamples gets what is left, at least a tenth.
@@ -299,6 +307,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     }
     cands.insert(cands.end(), cutCands.begin(), cutCands.end());
     cands.insert(cands.end(), subCands.begin(), subCands.end());
+    cands.insert(cands.end(), stokeCands.begin(), stokeCands.end());
     cands.insert(cands.end(), libCands.begin(), libCands.end());
     cands.insert(cands.end(), shapeCands.begin(), shapeCands.end());
     cands.insert(cands.end(), prevCands.begin(), prevCands.end());

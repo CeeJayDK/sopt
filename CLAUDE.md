@@ -148,7 +148,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
    evaluator (half / float / mixed profiles), 3 half variants with conversions at region edges in the GPU-family table,
    4 output only for D3D10-12, 5 corpus A/B + sopt-timer test on the owner's NUC (Gen9 should gain, GTX 1660 control).
 3. Uniform zero guard: done 2026-10-28 (fx/guard.cpp, switch Z, --no-zero-guard; SweetFX: CAS, Tonemap, Vibrance).
-4. STOKE-style stochastic search (owner's go to try later, behind a flag, bench decides).
+4. STOKE-style stochastic search: built 2026-10-28 behind --stoke; bench: identical bests, stays off.
 5. Waiting on others: IEEE 754 test results for crosire (tools/reshade/IEEE754.md); ReShade patches (UPSTREAM.md);
    intrinsics report (tools/reshade/INTRINSICS.md: missing intrinsics, round / clamp / smoothstep / saturate across APIs).
 6. Planned / parked: `--poly` approximation mode; test package from the full corpus run; M5 rest (probe effect, facts
