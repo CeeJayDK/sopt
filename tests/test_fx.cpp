@@ -1505,7 +1505,8 @@ TEST(fx_int_compares) {
     eq = eq || (r.line == 10 && uintMode && t.find("Mode == 2u ?") != std::string::npos);
   }
   CHECK(lt && eq);
-=======
+}
+
 TEST(fx_overloads) {
   // Overloads share ReShade's unique name: a call is followed into the overload it calls (2026-10-28: Fubax's
   // LinearWorkflow toDisplayGamma(float3) was read as the float one, "operand types don't fit le").

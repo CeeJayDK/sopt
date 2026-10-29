@@ -2315,7 +2315,6 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   write Mode == 2u, not float(Mode) == 2.0 (a conversion the original does not have). The enumerator still only
   builds float compares. Sample: 247 regions with int compares. Int vectors (19 inputs on the sample) stay on the
   float path.
-=======
   Overloads (2026-10-28): ReShade gives overloads one unique name ('F' + scope + name, no parameter types), so
   Codegen::function(name) found the first: a call to Fubax's LinearWorkflow::toDisplayGamma(float3) was followed into
   the float version ("operand types don't fit le" 43 + lt 7 + ge / add 5 on the samples). Call values now keep the
