@@ -5,7 +5,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.9.3
+## 0.10.0
 
 ### SweetOpt
 - **Fixed:** running SweetOpt a second time on the same effects could make it close part way (it reuses what the first run found).
