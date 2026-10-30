@@ -536,3 +536,14 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: texbench, AMD Radeon (TM) Graphics (driver 31.0.21914.59): `docs/texbench/amd-radeon-0x15e7.csv`, `docs/texbench/amd-radeon-0x15e7-order.png`, `docs/texbench/amd-radeon-0x15e7-order-zoom.png` (TexBench 0.9.0)
 - upload 1: texbench, NVIDIA GeForce RTX 2060 (driver 32.0.16.1088): `docs/texbench/nvidia-rtx-2060-5.csv`, `docs/texbench/nvidia-rtx-2060-5-order.png`, `docs/texbench/nvidia-rtx-2060-5-order-zoom.png` (TexBench 0.9.0)
 - upload 1: texbench, NVIDIA GeForce RTX 5070 (driver 32.0.16.1088): `docs/texbench/nvidia-rtx-5070-2.csv`, `docs/texbench/nvidia-rtx-5070-2-order.png`, `docs/texbench/nvidia-rtx-5070-2-order-zoom.png` (TexBench 0.9.0)
+
+## 2026-10-30 20:26 UTC
+- upload 1: opbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/opbench/intel-uhd-630-24.csv` (OpBench 0.10.0)
+- upload 1: opbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/opbench/nvidia-gtx-1660-23.csv` (OpBench 0.10.0)
+- upload 1: shaderinfo, Intel(R) UHD Graphics 630 (driver Intel Corporation Intel driver (101.2145)): `docs/shaderinfo/intel-uhd-630-18.txt`
+- upload 1: stagebench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-630-ps-15.csv` (StageBench 0.10.0)
+- upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/stagebench/nvidia-gtx-1660-ps-16.csv` (StageBench 0.10.0)
+- upload 1: stagebench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/stagebench/intel-uhd-630-vs-16.csv` (StageBench 0.10.0)
+- upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/stagebench/nvidia-gtx-1660-vs-16.csv` (StageBench 0.10.0)
+- upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-26.csv`, `docs/texbench/intel-uhd-630-26-order.png`, `docs/texbench/intel-uhd-630-26-order-zoom.png` (TexBench 0.10.0)
+- upload 1: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/texbench/nvidia-gtx-1660-22.csv`, `docs/texbench/nvidia-gtx-1660-22-order.png`, `docs/texbench/nvidia-gtx-1660-22-order-zoom.png` (TexBench 0.10.0)

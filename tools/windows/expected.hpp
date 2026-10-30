@@ -1553,7 +1553,7 @@ inline const RunTime kRunTimes[] = {
     {"nvidia-pascal", "OpBench", 112, 1},
     {"nvidia-pascal", "StageBench", 101, 1},
     {"nvidia-pascal", "TexBench", 325, 1},
-    {"nvidia-turing", "OpBench", 63, 1},
+    {"nvidia-turing", "OpBench", 64, 1},
     {"nvidia-turing", "StageBench", 57, 1},
     {"nvidia-turing", "TexBench", 149, 1},
     {"nvidia-turing-rtx", "OpBench", 74, 3},
