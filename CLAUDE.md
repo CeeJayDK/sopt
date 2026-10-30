@@ -25,7 +25,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Fewer instructions at equal measured speed are still better (less power; faster once the bottleneck moves).
 - When asking the owner to test or download something, repeat the links in that message (CI run / artifact links).
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
-  testers (now 0.9.3, released); the next test build is 0.9.4.
+  testers (now 0.10.0, released); the next test build is 0.10.1.
 - CHANGELOG.md: one `## <version>` section per release, add to the top section as things land (release.yml copies it).
   Changelog, release notes and README.md are for laymen (owner, 2026-10-10): plain English, short, what changes for the
   user, no option names or internals (those go in docs/notes/history.md, docs/technical.md).
