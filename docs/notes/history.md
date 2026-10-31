@@ -2161,6 +2161,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   intel-gen6 (owner's go, 2026-10-24) from the HD 3000 report (his mother's laptop; the Renoir is his father's, the GT
   1030 his media PC): add / mul / min / max / floor 2.6 against mad 4, abs 2.6 (not free), math unit 10.6, sin 16,
   pow 24, integers full rate (iadd 2.6, imul 8.1); table in ops.cpp; MODEL_RULES "HD Graphics [23]000".
+  nvidia-fermi (owner's go, 2026-10-31) from StageBench pixel shaders, the first model not from OpBench: Fermi's
+  compute timestamps are wrong on every driver tried (CPU timing with the difference method). Agreement: per report
+  0.00-0.01 fma off the card's median (first GT 530 runs 0.05 OpBench / 0.14 ps, GT 530 vs-2 / -3 0.47), GT 530 vs
+  NVS 310 medians 0.02 (cs) / 0.03 (ps) fma apart; cs vs ps: the slow ops ~20% dearer in cs on both cards (rcp 3.6 /
+  3.0, sqrt 8.2 / 7.0, udiv 13.9 / 11.3 fma). Medians of 8 ps runs (gt-530-ps.csv left out). add / mul tests merge
+  into the mad (0.2); mulxx / scale3 / sub 2 taken for add / sub / mul. Table in ops.cpp; MODEL_RULES "GTX? [45]xx".
   Where sopt gives up (owner, 2026-10-25: "why do we even have these small limits?"): corpus.yml counts the skip
   reasons over all packages (effect_packages.py skip_reasons; extra sopt-fx arguments for A/B runs). Corpus at 1 s,
   4 / 8 vs 8 / 16 inputs / components: regions 9711 -> 11293, statements changed 1250 -> 1317, cost saved 20333 ->

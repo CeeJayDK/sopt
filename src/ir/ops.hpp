@@ -156,6 +156,8 @@ const CostModel& costNvidia();
 const CostModel& costNvidiaMaxwell2();
 // nvidia-maxwell1: NVIDIA Maxwell 1 (GM107 / GM108: GTX 750, 800M / 900M laptops): sqrt is rsqrt + rcp.
 const CostModel& costNvidiaMaxwell1();
+// nvidia-fermi: NVIDIA Fermi (GT / GTX 400 / 500) from StageBench pixel shader timings, quarter units.
+const CostModel& costNvidiaFermi();
 // nvidia-pascal: NVIDIA Pascal (GT 1030, GTX 1060) from sopt-opbench timings, quarter units.
 const CostModel& costNvidiaPascal();
 // nvidia-turing: NVIDIA Turing GTX 16 (GTX 1660) from sopt-opbench timings, quarter units, MUFU ~3x extra.

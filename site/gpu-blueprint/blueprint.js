@@ -37,7 +37,7 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
     panel.replaceChildren(el("div", { class: "panel" },
       el("div", { class: "mhead" },
         el("h3", { text: `${a.vendor} ${a.name}` }),
-        el("span", { class: "basis", text: (m.basis === "OpBench" ? "measured with OpBench" : m.basis) + ` · model ${m.name}` })),
+        el("span", { class: "basis", text: (m.basis === "OpBench" || m.basis === "StageBench" ? `measured with ${m.basis}` : m.basis) + ` · model ${m.name}` })),
       el("div", { class: "tags" },
         pill(m.contraction, "a * b + c becomes one fma"),
         pill(m.outputModifier, "×2 ×4 ×0.5 free (output modifier)"),
@@ -67,7 +67,7 @@ Promise.all([loadJSON("models"), loadJSON("library").catch(() => ({ rules: [] })
     for (const a0 of v.architectures) {
       const a = { ...a0, vendor: v.vendor };
       const m = a.model && byName[a.model];
-      const cls = "chip" + (a.model ? "" : " missing") + (m && m.basis !== "OpBench" ? " estimated" : "");
+      const cls = "chip" + (a.model ? "" : " missing") + (m && m.basis !== "OpBench" && m.basis !== "StageBench" ? " estimated" : "");
       const chip = el("button", { class: cls, role: "tab", "data-arch": a.name, style: `--c:${VENDOR_COLOR[v.vendor]}`, text: a.name,
         title: a.model ? a.examples : `${a.examples}: not measured yet` });
       chip.addEventListener("click", () => select(a));

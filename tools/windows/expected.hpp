@@ -1020,6 +1020,95 @@ inline const Family kFamilies[] = {
      "sincos 49.5 sinh 53.3 smoothstep 18.7 smoothstep-od 20.0 sqmax 8.6 sqmax-od 9.1 sqrt 24.1 "
      "sqrt16 24.9 sqrtnr0 3.7 step 3.6 sub 3.6 tan 77.7 tanh 81.4 trunc 24.3 udiv 65.4 umod 65.1 unitf 7.0 "
      "utof 7.0 xor3 12.4 "},
+    {"nvidia-fermi", "Fermi", 2, "cs",
+     "aAdd 101.8 aAdd1 581.3 aAnd 101.8 aAnd1 581.6 aCmpXchg 488.3 aCmpXchg1 3912.5 aMax 102.6 aMax1 584.2 "
+     "aMin 102.5 aMin1 583.9 aOr 101.7 aOr1 581.9 aXchg 470.1 aXchg1 521.9 aXor 101.9 aXor1 581.4 abs 2.6 "
+     "acos 41.3 acos1 32.0 acos4 39.3 acosh 51.4 add 2.8 add16 2.7 addlshl 15.2 addmax 8.5 addscale3 2.0 "
+     "addscale4 2.0 all3and 27.2 andor 16.5 any3abs 20.6 any3max 22.2 any3or 27.2 any4abs 27.3 "
+     "any4max3 30.7 any4or 37.5 any4pairs 23.9 arraybase 14.1 arrayread 127.5 arraywrite 299.0 asin 43.9 "
+     "asinh 51.4 atan 74.6 atan2 86.7 atan2-od 89.4 atan2q 25.5 atan4 18.8 atan5a 31.6 atanh 33.3 "
+     "atombase 9.6 barrier 16.2 bfe 5.4 bitcast -0.0 bitor 2.0 bitrev 5.3 bitsel 18.7 branchdiv 145.6 "
+     "branchuni 74.8 ceil 6.1 clamp 15.4 clamp-od 15.9 constarray 130.4 contract 3.5 cos 14.8 cosh 34.4 "
+     "cross 18.6 cvt1 6.6 degrees 2.4 det3 29.0 distance 35.0 div 14.6 divxy 12.1 dot2 6.0 dot3 8.2 "
+     "dot4 10.9 exp 15.5 exp2 14.8 exp2_16 14.8 exp2ceil 33.7 exp2floor 33.7 f16round 15.5 f16tof32 4.9 "
+     "f32tof16 4.9 faceforward 26.7 fbh 13.5 fbl 12.2 floor 6.1 flooradd 12.1 fma+cvt -4.7 fma+fma -0.0 "
+     "fma+half -0.0 fma+int -1.0 fma+minmax -8.9 fma+rcp -9.1 fma1 3.3 fma4+rcp -13.8 fmamax 8.8 "
+     "fmascale0.25 2.1 fmascale3 2.1 fmascale4 2.1 fmod 23.6 fmod-od 30.7 frac 7.9 fracadd 9.1 frexp 36.6 "
+     "ftoitof 14.1 ftou 1.6 groupbarrier 3.9 gsbase 16.1 gsbase32 16.3 gsbase4 115.9 gsread 10.4 "
+     "gsread32 327.0 gsread4 51.9 gswrite 37.5 gswrite32 508.7 gswriteread 29.9 half1 -0.0 iabs 13.6 "
+     "iadd 3.0 iadd3 15.3 iand 3.0 icmpsel 10.8 idiv 65.1 ilp1 2.4 ilp2 0.6 ilp3 0.4 ilp4 0.1 ilp5 -0.1 "
+     "ilp6 -0.1 imad 6.5 imin 5.4 imod 71.5 imul 3.7 ineg 4.4 int 2.4 irot 14.1 irot-od 14.1 isfinite 9.5 "
+     "ishl 7.6 ishr 7.6 isinf 9.5 isnan 7.8 itof 3.8 ixmul 6.1 ldexp 12.7 length 28.8 lerp 6.3 lerp-od 6.5 "
+     "log 14.7 log10 14.6 log2 14.7 log2_16 14.5 lshladd 14.2 mad 4.0 mad16 0.1 mad16v3 0.1 mad2 3.5 "
+     "mad2v 4.1 mad3v 8.5 mad4v 12.9 madinl -0.4 madlit -0.2 madlit1 -0.0 madsatu -0.0 maj3 21.2 "
+     "matmul4 54.3 max 6.1 max16 6.1 max3 9.3 membarrier 4.0 min 6.1 minmax 9.3 minmax1 14.8 mix16 3.5 "
+     "mod 10.8 modf 10.5 mul 2.8 mul16 2.7 mulxx 2.9 neg -0.0 negabs 2.6 normalize 23.0 or3 16.6 popc 2.7 "
+     "pow 33.3 pow2ceil 4.7 pow2floor 2.0 radians 2.4 rcp 14.6 rcp1 14.7 rcp16 14.5 rcpnr0 2.0 rcpnr1 7.9 "
+     "reflect 22.8 refract 65.9 round 6.0 roundadd -0.0 rsqrt 14.6 rsqrtnr0 7.2 rsqrtnr1 15.5 satmad 0.0 "
+     "saturate 0.2 scale0.0625 2.0 scale0.125 1.9 scale0.25 2.0 scale16 2.0 scale2 2.3 scale2-od 1.8 "
+     "scale3 2.0 scale4 2.0 scale4-od 1.8 scale8 2.1 scalehalf 1.9 scaleneg0.5 2.0 scaleneg4 2.0 "
+     "scaleneg8 2.0 select 7.8 selectboth 144.1 shladd5 3.8 shladd5-od 5.2 sign 14.8 sign-od 15.4 "
+     "signbits 4.4 signclamp 14.5 signmad 7.4 signsat 9.4 signsel 12.7 signsel2 4.1 sin 14.8 sincos 30.5 "
+     "sinh 34.4 smoothstep 16.0 smoothstep-od 25.6 sqmax 8.5 sqmax-od 8.7 sqrt 33.0 sqrt16 32.9 "
+     "sqrtnr0 7.1 step 6.4 sub 2.8 tan 48.8 tanh 52.0 trunc 6.1 udiv 55.6 umod 68.5 unitf 9.1 utof 3.8 "
+     "xor3 16.5 "},
+    {"nvidia-fermi", "Fermi", 2, "ps",
+     "abs 2.1 acos 37.0 acos1 29.1 acos4 33.9 acosh 43.7 add 0.2 add16 0.2 addlshl 12.6 addmax 7.0 "
+     "addscale3 1.9 addscale4 1.9 all3and 22.5 andor 13.8 any3abs 16.0 any3max 17.8 any3or 22.5 "
+     "any4abs 21.4 any4max3 25.9 any4or 31.5 any4pairs 19.8 arraybase 11.9 arrayread 22.3 arraywrite 46.1 "
+     "asin 38.9 asinh 43.6 atan 53.0 atan2 66.3 atan2-od 74.7 atan2q 21.1 atan4 17.9 atan5a 25.9 "
+     "atanh 27.9 bfe 4.1 bitcast 0.0 bitor 1.6 bitrev 4.1 bitsel 16.1 branchdiv 123.5 branchuni 60.4 "
+     "ceil 5.2 clamp 13.0 clamp-od 13.0 clip 12.1 constarray 20.4 contract 2.9 cos 12.2 cosh 28.4 "
+     "cross 15.7 cvt1 5.1 ddx 14.0 ddx_coarse 14.0 ddx_fine 6.9 ddy 14.0 ddy_coarse 14.0 ddy_fine 6.9 "
+     "degrees 0.1 det3 21.4 distance 28.8 div 12.0 divxy 12.1 dot2 4.5 dot3 7.2 dot4 9.8 exp 12.4 "
+     "exp2 12.2 exp2_16 12.2 exp2ceil 28.0 exp2floor 28.0 f16round 13.0 f16tof32 4.2 f32tof16 4.1 "
+     "faceforward 22.1 fbh 13.8 fbl 11.4 floor 5.2 flooradd 10.0 fma+cvt -3.5 fma+fma 0.0 fma+half 0.0 "
+     "fma+int -0.5 fma+minmax -7.6 fma+rcp -7.8 fma1 3.3 fma4+rcp -11.6 fmamax 7.2 fmascale0.25 1.9 "
+     "fmascale3 1.9 fmascale4 1.9 fmod 18.3 fmod-od 23.9 frac 6.5 fracadd 7.6 frexp 30.8 ftoitof 14.1 "
+     "ftou 1.3 fwidth 22.2 half1 -0.0 iabs 11.2 iadd 0.7 iadd3 12.9 iand 2.6 icmpsel 9.1 idiv 54.6 "
+     "ilp1 3.1 ilp2 0.9 ilp3 0.6 ilp4 0.2 ilp5 -0.1 ilp6 0.0 imad 5.5 imin 4.2 imod 59.1 imul 3.5 ineg 4.2 "
+     "int 1.6 irot 11.7 irot-od 11.7 isfinite 7.7 ishl 6.3 ishr 6.3 isinf 7.7 isnan 6.5 itof 3.5 ixmul 4.9 "
+     "ldexp 11.4 length 23.9 lerp 5.1 lerp-od 5.0 log 12.0 log10 12.0 log2 12.0 log2_16 12.0 lshladd 11.7 "
+     "mad 4.0 mad16 -0.0 mad16v3 0.1 mad2 2.8 mad2v 3.7 mad3v 7.3 mad4v 11.0 madinl -0.3 madlit -0.2 "
+     "madlit1 -0.2 madsatu 0.0 maj3 18.2 matmul4 46.5 max 5.3 max16 5.4 max3 7.7 min 5.4 minmax 7.7 "
+     "minmax1 12.4 mix16 2.8 mod 9.1 modf 8.7 mul 0.3 mul16 0.3 mulxx 1.9 neg -0.0 negabs 2.1 "
+     "normalize 11.8 or3 13.8 popc 4.2 pow 28.1 pow2ceil 3.8 pow2floor 1.6 radians 0.1 rcp 12.0 rcp1 11.9 "
+     "rcp16 12.1 rcpnr0 1.6 rcpnr1 6.4 reflect 19.1 refract 52.4 round 5.2 roundadd -0.1 rsqrt 12.0 "
+     "rsqrtnr0 5.6 rsqrtnr1 12.8 satmad -0.0 saturate 0.2 scale0.0625 1.9 scale0.125 1.9 scale0.25 1.9 "
+     "scale16 1.9 scale2 2.0 scale2-od 1.8 scale3 1.9 scale4 1.9 scale4-od 1.8 scale8 1.9 scalehalf 1.9 "
+     "scaleneg0.5 1.9 scaleneg4 1.9 scaleneg8 1.9 select 6.4 selectboth 122.5 shladd5 3.4 shladd5-od 4.1 "
+     "sign 12.3 sign-od 12.2 signbits 3.5 signclamp 12.1 signmad 5.9 signsat 7.8 signsel 10.5 signsel2 3.1 "
+     "sin 12.1 sincos 27.8 sinh 28.4 smoothstep 13.3 smoothstep-od 21.7 sqmax 7.0 sqmax-od 7.0 sqrt 27.9 "
+     "sqrt16 27.9 sqrtnr0 5.6 step 5.3 sub 2.4 tan 43.6 tanh 44.6 trunc 5.2 udiv 44.9 umod 53.1 unitf 7.4 "
+     "utof 3.4 xor3 13.8 "},
+    {"nvidia-fermi", "Fermi", 2, "vs",
+     "abs 2.2 acos 35.5 acos1 27.6 acos4 32.8 acosh 45.7 add 2.4 add16 2.4 addlshl 12.1 addmax 6.9 "
+     "addscale3 2.1 addscale4 2.1 all3and 22.3 andor 13.9 any3abs 17.2 any3max 18.3 any3or 22.3 "
+     "any4abs 22.4 any4max3 25.3 any4or 31.0 any4pairs 19.7 arraybase 12.0 arrayread 310.1 "
+     "arraywrite 899.1 asin 37.1 asinh 45.8 atan 58.4 atan2 68.1 atan2-od 73.7 atan2q 21.5 atan4 16.5 "
+     "atan5a 27.0 atanh 29.3 bfe 3.9 bitcast 0.0 bitor 1.5 bitrev 3.9 bitsel 15.8 branchdiv 131.9 "
+     "branchuni 64.6 ceil 5.1 clamp 13.7 clamp-od 13.7 constarray 118.1 contract 2.6 cos 12.9 cosh 31.8 "
+     "cross 17.1 cvt1 5.1 degrees 2.1 det3 25.9 distance 30.2 div 13.0 divxy 10.5 dot2 5.7 dot3 8.2 "
+     "dot4 11.6 exp 13.0 exp2 12.9 exp2_16 12.9 exp2ceil 30.0 exp2floor 30.0 f16round 13.6 f16tof32 4.4 "
+     "f32tof16 4.3 faceforward 22.9 fbh 11.2 fbl 9.7 floor 5.1 flooradd 10.3 fma+cvt -3.5 fma+fma 0.0 "
+     "fma+half 0.0 fma+int -0.5 fma+minmax -7.8 fma+rcp -8.1 fma1 3.9 fma4+rcp -10.3 fmamax 7.2 "
+     "fmascale0.25 2.2 fmascale3 2.2 fmascale4 2.2 fmod 19.8 fmod-od 25.5 frac 6.6 fracadd 7.8 frexp 30.5 "
+     "ftoitof 11.6 ftou 1.7 half1 0.0 iabs 11.3 iadd 2.8 iadd3 11.9 iand 2.8 icmpsel 8.9 idiv 54.4 "
+     "ilp1 27.4 ilp2 11.7 ilp3 6.4 ilp4 3.8 ilp5 2.3 ilp6 1.2 imad 5.0 imin 3.8 imod 59.4 imul 3.6 "
+     "ineg 3.9 int 1.8 irot 11.4 irot-od 11.5 isfinite 7.7 ishl 6.3 ishr 6.3 isinf 7.7 isnan 5.8 itof 3.5 "
+     "ixmul 5.0 ldexp 10.8 length 25.3 lerp 5.0 lerp-od 5.0 log 12.7 log10 12.7 log2 12.7 log2_16 12.7 "
+     "lshladd 11.3 mad 4.0 mad16 0.0 mad16v3 -0.0 mad2 2.6 mad2v 3.2 mad3v 6.6 mad4v 10.0 madinl -0.1 "
+     "madlit -0.1 madlit1 -0.0 madsatu -0.0 maj3 18.4 matmul4 47.3 max 5.1 max16 5.1 max3 8.7 min 5.1 "
+     "minmax 8.7 minmax1 13.0 mix16 2.6 mod 9.1 modf 9.0 mul 2.4 mul16 2.4 mulxx 2.4 neg 0.0 negabs 2.2 "
+     "normalize 19.4 or3 13.9 popc 2.2 pow 29.9 pow2ceil 3.8 pow2floor 1.5 radians 2.1 rcp 12.7 rcp1 12.6 "
+     "rcp16 12.7 rcpnr0 1.5 rcpnr1 6.8 reflect 19.9 refract 55.1 round 5.1 roundadd 0.1 rsqrt 12.7 "
+     "rsqrtnr0 5.5 rsqrtnr1 13.4 satmad 0.0 saturate 0.1 scale0.0625 2.1 scale0.125 2.1 scale0.25 2.1 "
+     "scale16 2.1 scale2 2.4 scale2-od 2.1 scale3 2.1 scale4 2.1 scale4-od 2.1 scale8 2.1 scalehalf 2.1 "
+     "scaleneg0.5 2.1 scaleneg4 2.1 scaleneg8 2.1 select 5.6 selectboth 128.1 shladd5 3.4 shladd5-od 4.0 "
+     "sign 12.9 sign-od 12.4 signbits 3.6 signclamp 12.0 signmad 5.8 signsat 8.2 signsel 10.7 signsel2 3.2 "
+     "sin 12.9 sincos 27.2 sinh 31.8 smoothstep 13.8 smoothstep-od 21.6 sqmax 6.9 sqmax-od 6.9 sqrt 29.2 "
+     "sqrt16 29.2 sqrtnr0 5.5 step 5.1 sub 2.4 tan 43.6 tanh 47.1 trunc 5.1 udiv 47.1 umod 55.7 unitf 7.4 "
+     "utof 3.5 xor3 13.9 "},
     {"nvidia-maxwell1", "Maxwell 1", 1, "cs",
      "aAdd 9.7 aAdd1 305.0 aAnd 9.7 aAnd1 426.0 aCmpXchg 17.3 aCmpXchg1 426.4 aMax 9.7 aMax1 426.0 "
      "aMin 9.7 aMin1 426.0 aOr 9.7 aOr1 426.0 aXchg 9.7 aXchg1 426.1 aXor 9.7 aXor1 426.1 abs 3.5 "
@@ -1477,6 +1566,7 @@ inline const Rule kRules[] = {
     {R"(GTX 10\d\d|GT 10\d\d)", "nvidia-pascal"},
     {R"(GTX (9[5-8]0( Ti)?|TITAN X|9(65|70|80)M)\b|Quadro M(2000|3000M|4000|5000M?|5500|6000)\b)", "nvidia-maxwell2"},
     {R"(GTX (745|750( Ti)?|8\d\dM|9[2-6][05]MX?)\b|MX1[13]0\b|Quadro (K620|K1200|K2200|M(500M|520|600M|620|1000M|1200|2000M))\b)", "nvidia-maxwell1"},
+    {R"(\bGTX? [45]\d\d(M| Ti)?\b|NVS 310\b)", "nvidia-fermi"},
     {R"(RX 9\d\d\d)", "amd-rdna4"},
     {R"(RX 7\d\d\d)", "rdna3"},
     {R"(RX 6\d\d\d|Radeon 6[68]0M|Raphael|Granite Ridge)", "amd-rdna2"},
@@ -1545,6 +1635,9 @@ inline const RunTime kRunTimes[] = {
     {"nvidia-blackwell", "OpBench", 48, 1},
     {"nvidia-blackwell", "StageBench", 43, 1},
     {"nvidia-blackwell", "TexBench", 112, 1},
+    {"nvidia-fermi", "OpBench", 906, 1},
+    {"nvidia-fermi", "StageBench", 227, 2},
+    {"nvidia-fermi", "TexBench", 1133, 1},
     {"nvidia-maxwell1", "OpBench", 91, 1},
     {"nvidia-maxwell1", "StageBench", 78, 1},
     {"nvidia-maxwell1", "TexBench", 210, 1},
