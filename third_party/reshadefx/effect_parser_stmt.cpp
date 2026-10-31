@@ -9,6 +9,7 @@
 #include <limits>
 #include <cctype> // std::toupper
 #include <cassert>
+#include <tuple>
 #include <cstring> // sopt
 #include <iterator> // std::back_inserter
 #include <algorithm> // std::max, std::replace, std::transform
@@ -28,6 +29,7 @@ private:
 bool reshadefx::parser::parse(std::string source, codegen *backend)
 {
 	_lexer = new lexer(std::move(source));
+	_lexer->sopt_glsl = sopt_glsl;
 	_codegen = backend;
 
 	consume();
@@ -227,7 +229,10 @@ bool reshadefx::parser::parse_top(bool &parse_success)
 				{
 					if (sopt_glsl && _sopt_glsl_compute)
 						std::copy(_sopt_glsl_threads, _sopt_glsl_threads + 3, num_threads);
-					stype = num_threads[0] != 0 ? shader_type::compute : shader_type::pixel;
+					// A GLSL shader that writes gl_Position is a vertex shader.
+				stype = num_threads[0] != 0 ? shader_type::compute
+					: sopt_glsl && _lexer->input_string().find("gl_Position") != std::string::npos ? shader_type::vertex
+					: shader_type::pixel;
 				}
 
 				// This is definitely a function declaration, so parse it
@@ -1545,12 +1550,60 @@ bool reshadefx::parser::parse_function(type type, std::string name, shader_type 
 			has_out = has_out || io.out;
 			info.parameter_list.push_back(std::move(param));
 		}
+		if (stype == shader_type::vertex)
+		{
+			// A GLSL vertex shader (2026-10-31): the built-in inputs it reads, and gl_Position (gl_PointSize) out.
+			const std::string &src = _lexer->input_string();
+			for (const auto &[bname, bsem] : { std::pair{ "gl_VertexIndex", "SV_VERTEXID" }, std::pair{ "gl_InstanceIndex", "SV_INSTANCEID" },
+				std::pair{ "gl_VertexID", "SV_VERTEXID" }, std::pair{ "gl_InstanceID", "SV_INSTANCEID" } })
+				if (src.find(bname) != std::string::npos)
+				{
+					member_type b;
+					b.name = bname;
+					b.location = function_location;
+					b.type = { type::t_int, 1, 1, type::q_in };
+					b.semantic = bsem;
+					info.parameter_list.push_back(std::move(b));
+				}
+			for (const auto &[bname, bsem, rows] : { std::tuple{ "gl_Position", "SV_POSITION", 4u }, std::tuple{ "gl_PointSize", "PSIZE", 1u } })
+				if (src.find(bname) != std::string::npos)
+				{
+					member_type b;
+					b.name = bname;
+					b.location = function_location;
+					b.type = { type::t_float, rows, 1, type::q_out };
+					b.semantic = bsem;
+					info.parameter_list.push_back(std::move(b));
+				}
+		}
+		else
+		{
 		member_type frag_coord;
 		frag_coord.name = "gl_FragCoord";
 		frag_coord.location = function_location;
 		frag_coord.type = { type::t_float, 4, 1, type::q_in };
 		frag_coord.semantic = "SV_POSITION";
 		info.parameter_list.push_back(std::move(frag_coord));
+		// Other fragment built-ins as inputs: the sample index, the face and the primitive (2026-10-31, AnyPS5).
+		for (const auto &[bname, bsem, bbase] : { std::tuple{ "gl_SampleID", "SV_SAMPLEINDEX", type::t_int },
+			std::tuple{ "gl_PrimitiveID", "SV_PRIMITIVEID", type::t_int }, std::tuple{ "gl_FrontFacing", "SV_ISFRONTFACE", type::t_bool } })
+		{
+			member_type b;
+			b.name = bname;
+			b.location = function_location;
+			b.type = { bbase, 1, 1, type::q_in | type::q_nointerpolation };
+			b.semantic = bsem;
+			info.parameter_list.push_back(std::move(b));
+		}
+		if (_lexer->input_string().find("gl_FragDepth") != std::string::npos)
+		{
+			member_type depth;
+			depth.name = "gl_FragDepth";
+			depth.location = function_location;
+			depth.type = { type::t_float, 1, 1, type::q_out };
+			depth.semantic = "SV_DEPTH";
+			info.parameter_list.push_back(std::move(depth));
+		}
 		if (!has_out)
 		{
 			member_type frag_color;
@@ -1559,6 +1612,7 @@ bool reshadefx::parser::parse_function(type type, std::string name, shader_type 
 			frag_color.type = { type::t_float, 4, 1, type::q_out };
 			frag_color.semantic = "SV_TARGET";
 			info.parameter_list.push_back(std::move(frag_color));
+		}
 		}
 	}
 
@@ -2961,6 +3015,7 @@ bool reshadefx::parser::sopt_parse_text(const std::string &text, const location 
 	lexer *const outer = _lexer;
 	const token saved_token = _token, saved_next = _token_next, saved_backup = _token_backup;
 	_lexer = new lexer(text, true, true, true, false, false, true, loc);
+	_lexer->sopt_glsl = sopt_glsl;
 	consume();
 	bool success = true;
 	if (exp != nullptr)
@@ -3449,7 +3504,7 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 	const location start = _token_next.location;
 	backup();
 	unsigned int interpolation = 0, layout_location = UINT32_MAX;
-	bool in = false, out = false, uniform = false, glsl_only = false, buffer = false, shared = false, spec = false;
+	bool in = false, out = false, uniform = false, glsl_only = false, buffer = false, shared = false, spec = false, reference = false;
 	for (;;)
 	{
 		const std::string w = word();
@@ -3469,6 +3524,7 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 					if (eq != std::string::npos && a.find(std::string("local_size_") + "xyz"[i]) != std::string::npos)
 						_sopt_glsl_threads[i] = a.find("_id") != std::string::npos ? 1 : std::max(1, std::atoi(a.c_str() + eq + 1));
 				spec = spec || a.find("constant_id") != std::string::npos;
+				reference = reference || a.find("buffer_reference") == 0 || a.find(" buffer_reference") != std::string::npos;
 			}
 			glsl_only = true;
 		}
@@ -3605,16 +3661,20 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 		}
 		else if (w.size() >= 2 && w[1] == "{")
 		{
-			// uniform Block { T a; T b; } [instance];: the members as uniforms (an instance name is not supported)
+			// uniform Block { T a; T b; } [instance];: the members as uniforms; with an instance name a uniform struct
+			// (instance.a reads the member, as in GLSL)
 			const size_t open = rest.find('{'), close = rest.rfind('}');
-			if (close == std::string::npos || words(rest.substr(close + 1)).size() > 0)
+			if (close == std::string::npos || words(rest.substr(close + 1)).size() > 1)
 			{
-				error(start, 3000, "sopt: GLSL uniform blocks with an instance name are not supported");
+				error(start, 3000, "sopt: unsupported GLSL uniform block");
 				return parse_success = false, true;
 			}
 			const std::string members = rest.substr(open + 1, close - open - 1);
+			const std::vector<std::string> instance = words(rest.substr(close + 1));
+			if (!instance.empty())
+				text = "struct __sopt_ubo_" + instance[0] + " {" + members + "}; uniform __sopt_ubo_" + instance[0] + ' ' + instance[0] + ';';
 			size_t a = 0;
-			for (size_t b; (b = members.find(';', a)) != std::string::npos; a = b + 1)
+			for (size_t b; instance.empty() && (b = members.find(';', a)) != std::string::npos; a = b + 1)
 				if (members.find_first_not_of(" \t\r\n", a) < b)
 					text += "uniform " + members.substr(a, b - a) + ";";
 		}
@@ -3633,7 +3693,10 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 		for (size_t p; (p = members.find("[]")) != std::string::npos;)
 			members.replace(p, 2, "[1]");
 		const std::vector<std::string> block = words(rest.substr(0, open)), instance = words(rest.substr(close + 1));
-		if (!instance.empty() && !block.empty())
+		// GL_EXT_buffer_reference: the block is a type (a pointer to such memory), used as a member or variable type
+		if (reference && !block.empty())
+			text = "struct " + block.back() + " {" + members + "};";
+		else if (!instance.empty() && !block.empty())
 			text = "struct __sopt_buf_" + block.back() + " {" + members + "}; static __sopt_buf_" + block.back() + ' ' + instance[0] + ';';
 		else
 		{
@@ -3645,6 +3708,8 @@ bool reshadefx::parser::sopt_glsl_declaration(bool &handled, bool &parse_success
 	}
 	else if (shared)
 		text = "groupshared " + rest.substr(0, rest.find('=')) + ";";
+	else if ((in || out) && !w.empty() && (w[0] == "gl_PerVertex" || w[0] == "gl_PerFragment"))
+		; // a redeclared built-in block (out gl_PerVertex { vec4 gl_Position; };): its members are built-ins already
 	else if ((in || out) && w.size() >= 2)
 	{
 		// The type is the first word (GLSL types are one word), then the names.
@@ -3697,7 +3762,8 @@ static const char *const sopt_glsl_renames[][2] = {
 	{ "fract", "frac" }, { "inversesqrt", "rsqrt" }, { "dFdx", "ddx" }, { "dFdy", "ddy" }, { "dFdxFine", "ddx_fine" },
 	{ "dFdyFine", "ddy_fine" }, { "dFdxCoarse", "ddx_coarse" }, { "dFdyCoarse", "ddy_coarse" }, { "fwidthFine", "fwidth" },
 	{ "fwidthCoarse", "fwidth" }, { "roundEven", "round" }, { "floatBitsToUint", "asuint" }, { "floatBitsToInt", "asint" },
-	{ "uintBitsToFloat", "asfloat" }, { "intBitsToFloat", "asfloat" }, { "fma", "mad" }, { "mix", "lerp" } };
+	{ "uintBitsToFloat", "asfloat" }, { "intBitsToFloat", "asfloat" }, { "fma", "mad" }, { "mix", "lerp" },
+	{ "bitCount", "countbits" }, { "findLSB", "firstbitlow" }, { "findMSB", "firstbithigh" }, { "bitfieldReverse", "reversebits" } };
 static const char *const sopt_glsl_specials[] = {
 	"atan", "mod", "asinh", "acosh", "atanh", "not", "lessThan", "lessThanEqual", "greaterThan", "greaterThanEqual", "equal", "notEqual",
 	"texture", "texture2D", "texture3D", "textureLod", "textureGrad", "texelFetch", "textureSize", "textureOffset",

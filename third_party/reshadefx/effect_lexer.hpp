@@ -49,6 +49,7 @@ namespace reshadefx
 			_ignore_pp_directives = lexer._ignore_pp_directives;
 			_ignore_keywords = lexer._ignore_keywords;
 			_escape_string_literals = lexer._escape_string_literals;
+			sopt_glsl = lexer.sopt_glsl;
 			_ignore_line_directives = lexer._ignore_line_directives;
 
 			return *this;
@@ -107,6 +108,10 @@ namespace reshadefx
 		bool _ignore_pp_directives;
 		bool _ignore_line_directives;
 		bool _ignore_keywords;
+	public:
+		/// sopt (GLSL mode): ReShade FX keywords that GLSL leaves free stay identifiers (float linear = ...).
+		bool sopt_glsl = false;
+	private:
 		bool _escape_string_literals;
 	};
 }

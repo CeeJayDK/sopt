@@ -1307,6 +1307,13 @@ TEST(fx_hlsl_glsl_extras) {
   // qualifiers, gl_FragCoord in a helper, a last case without break.
   const auto w = regionsOf("sopt_glsl_more.frag", true);
   for (uint32_t line : {22u, 30u, 43u}) CHECK(regionOn(w, line) != nullptr);
+  // A vertex shader (AnyPS5, 2026-10-31): named uniform block members read as parameters.gain, linear as a name.
+  const auto v = regionsOf("sopt_glsl_stages.vert", true);
+  const fx::Region* vp = regionOn(v, 11);
+  CHECK(vp != nullptr);
+  bool gain = false;
+  for (size_t k = 0; vp && k < vp->prog.inputs.size(); ++k) gain = gain || vp->prog.inputs[k].name == "parameters.gain";
+  CHECK(vp == nullptr || gain || regionOn(v, 10) != nullptr);
 }
 
 TEST(fx_window_same_block) {

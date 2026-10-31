@@ -170,7 +170,16 @@ bool reshadefx::parser::sopt_glsl_type(const std::string &name, type &type)
 		{ "isampler1D", type::t_sampler1d_int }, { "isampler2D", type::t_sampler2d_int }, { "isampler3D", type::t_sampler3d_int },
 		{ "usampler1D", type::t_sampler1d_uint }, { "usampler2D", type::t_sampler2d_uint }, { "usampler3D", type::t_sampler3d_uint },
 		{ "sampler2DRect", type::t_sampler2d_float }, { "samplerCube", type::t_sampler3d_float },
-		{ "sampler2DArray", type::t_sampler3d_float }, { "sampler2DShadow", type::t_sampler2d_float } };
+		{ "sampler2DArray", type::t_sampler3d_float }, { "sampler2DShadow", type::t_sampler2d_float },
+		// Multisampled and Vulkan's separate textures (texture2D / texture2DMS ... read with texelFetch): reads are
+		// region inputs, so a 2D sampler of the same element type stands in (the sample index is texelFetch's third
+		// argument, read as its level).
+		{ "sampler2DMS", type::t_sampler2d_float }, { "isampler2DMS", type::t_sampler2d_int }, { "usampler2DMS", type::t_sampler2d_uint },
+		{ "sampler2DMSArray", type::t_sampler3d_float }, { "texture2DMS", type::t_sampler2d_float },
+		{ "itexture2DMS", type::t_sampler2d_int }, { "utexture2DMS", type::t_sampler2d_uint },
+		{ "itexture2D", type::t_sampler2d_int }, { "utexture2D", type::t_sampler2d_uint },
+		{ "utexture2DMSArray", type::t_sampler3d_uint }, { "itexture2DMSArray", type::t_sampler3d_int },
+		{ "texture2DMSArray", type::t_sampler3d_float }, { "usampler2DMSArray", type::t_sampler3d_uint } };
 	for (const auto &s : samplers)
 		if (name == s.name)
 		{
