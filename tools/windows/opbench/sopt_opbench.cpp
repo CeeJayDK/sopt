@@ -928,6 +928,11 @@ int main(int argc, char** argv) {
     if (FAILED(g.dev->CreateBuffer(&ob, nullptr, &g.out))) fail("cannot create the output buffer");
     if (FAILED(g.dev->CreateUnorderedAccessView(g.out, nullptr, &g.uav))) fail("cannot create the output view");
     g.timer.create(g.dev);
+    if (gStage == Stage::Compute) {  // the sync point (Timer::syncFrom): only compute timestamps came too early
+      ob.ByteWidth = 4;
+      if (FAILED(g.dev->CreateBuffer(&ob, nullptr, &g.timer.syncTo))) fail("cannot create the sync buffer");
+      g.timer.syncFrom = g.out;
+    }
     g.ctx->CSSetConstantBuffers(0, 1, &g.cb);
     g.ctx->CSSetUnorderedAccessViews(0, 1, &g.uav, nullptr);
     if (gStage != Stage::Compute) {
