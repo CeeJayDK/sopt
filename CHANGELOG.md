@@ -9,6 +9,7 @@ docs/notes/history.md.
 
 ### SweetOpt
 - **Older NVIDIA cards:** SweetOpt now knows what math costs on GeForce GT / GTX 400 and 500 cards (Fermi).
+- **Also math with matrix settings:** color and position math that uses a matrix setting of an effect is now optimized too.
 
 ## 0.10.0
 

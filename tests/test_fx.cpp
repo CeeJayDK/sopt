@@ -1476,15 +1476,18 @@ TEST(fx_matrix_variables) {
   CHECK(e != nullptr);
   if (!e) return;
   fx::SkipCount sk;
-  bool lms = false, local = false, helper = false;
+  bool lms = false, local = false, helper = false, rows = false, cols = false;
   for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
     if (!r.removed.empty()) continue;
     const std::string t = toString(r.prog.target, r.prog.inputs);
-    lms = lms || (r.line == 11 && t.find("dot(c, float3(0.1, 0.8, 0.1))") != std::string::npos);
-    local = local || (r.line == 13 && t.find("dot(c.xy, float2(-sin(Angle), cos(Angle)))") != std::string::npos);
-    helper = helper || (r.line == 14 && t.find("dot(c.xy, float2(cos(Angle), -sin(Angle)))") != std::string::npos);
+    lms = lms || (r.line == 13 && t.find("dot(c, float3(0.1, 0.8, 0.1))") != std::string::npos);
+    local = local || (r.line == 15 && t.find("dot(c.xy, float2(-sin(Angle), cos(Angle)))") != std::string::npos);
+    helper = helper || (r.line == 16 && t.find("dot(c.xy, float2(cos(Angle), -sin(Angle)))") != std::string::npos);
+    // A uniform matrix (2026-10-31): its rows are inputs; mul(v, M) reads a column across them.
+    rows = rows || (r.line == 17 && t.find("dot(c, Mix[1])") != std::string::npos);
+    cols = cols || (r.line == 18 && t.find("dot(c, float3(Mix[0].y, Mix[1].y, Mix[2].y))") != std::string::npos);
   }
-  CHECK(lms && local && helper);
+  CHECK(lms && local && helper && rows && cols);
 }
 
 TEST(fx_int_compares) {
