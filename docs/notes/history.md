@@ -2328,6 +2328,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   beyondSlider (frontend.cpp): a slider compared with a value at / beyond its ends or with one subtracted (X - hi, lo -
   X) gets no ui_min / ui_max range. (3) HLSL prints mad(b - a, t, a) as lerp(a, b, t); sopt-found.txt leaves out
   variants with the same DXBC (dxbcSame). MXAO after: 1 written (the acos), 7 regions need ranges, no wrong rule.
+  GLSL for other projects (owner, 2026-10-31: HLSL / GLSL beyond ReShade, also .comp / .vert and texture instructions
+  ReShade lacks, read as inputs; AnyPS5's 35 shaders as the test): .vert / .comp read; a GLSL main writing gl_Position is
+  a vertex shader (gl_VertexIndex / InstanceIndex in, gl_Position / gl_PointSize out; gl_PerVertex redeclarations
+  ignored); vertex shaders searched in plain HLSL / GLSL (not ReShade FX); uniform blocks with an instance name as a
+  uniform struct; FX keywords GLSL leaves free (linear, point, technique, ...) and FX reserved words (packed, sample)
+  are names (lexer::sopt_glsl; not in generated text's keywords); sampler2DMS / texture2DMS / utexture2DMSArray as 2D /
+  3D samplers (reads are inputs); gl_SampleID / gl_PrimitiveID / gl_FrontFacing in, gl_FragDepth out; bitCount /
+  findLSB / findMSB / bitfieldReverse. AnyPS5: 31 of 35 parse (left: GL_EXT_buffer_reference inside a uniform block,
+  nested structs), 18 regions, all in the HDR presentation pass (the compute shaders are integer bit work).
   STOKE-style stochastic search (open item 4, owner's go to try behind a flag; 2026-10-28; search/stoke.cpp,
   Options::stoke, --stoke, stokeShare 0.25 of the region's search time, before the enumerator, which gets the rest): a
   Metropolis walk from the target (an op for another of its shape, an operand for an earlier node or a constant from the
