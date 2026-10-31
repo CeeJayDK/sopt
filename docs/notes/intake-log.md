@@ -569,3 +569,9 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-ps-7.csv` (StageBench 0.10.1)
 - upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-vs-7.csv` (StageBench 0.10.1)
 - upload 1: texbench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/texbench/nvidia-gt-530-6.csv`, `docs/texbench/nvidia-gt-530-6-order.png`, `docs/texbench/nvidia-gt-530-6-order-zoom.png` (TexBench 0.10.1)
+
+## 2026-10-31 14:33 UTC
+- upload 1: opbench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/opbench/nvidia-gt-530-7.csv` (OpBench 0.10.2)
+- upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-ps-8.csv` (StageBench 0.10.2)
+- upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-vs-8.csv` (StageBench 0.10.2)
+- upload 1: texbench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/texbench/nvidia-gt-530-7.csv`, `docs/texbench/nvidia-gt-530-7-order.png`, `docs/texbench/nvidia-gt-530-7-order-zoom.png` (TexBench 0.10.2)
