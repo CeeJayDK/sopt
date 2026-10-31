@@ -61,7 +61,7 @@ void usage() {
       "Finds cheaper verified alternatives to arithmetic statements of pixel and compute\n"
       "shaders and writes variant .fx files with a preprocessor switch per statement plus a\n"
       "report. ReShade FX by default; .hlsl / .hlsli files are plain HLSL (SM5 pixel shaders,\n"
-      "or compute shaders when the entry point has [numthreads]); .frag / .fs / .glsl files are\n"
+      "or compute shaders when the entry point has [numthreads]); .frag / .fs / .vert / .comp / .glsl files are\n"
       "GLSL fragment shaders.\n"
       "  --version         print the version\n"
       "  -I DIR            include directory (ReShade.fxh etc.), repeatable\n"
@@ -214,7 +214,7 @@ void collect(const fs::path& p, std::vector<fs::path>& out) {
     for (auto it = fs::recursive_directory_iterator(p, ec); it != fs::recursive_directory_iterator(); ++it) {
       if (!it->is_regular_file()) continue;
       const auto ext = it->path().extension();
-      if (ext == ".fx" || ext == ".hlsl" || ext == ".frag" || ext == ".fs" || (ext == ".glsl" && hasMain(it->path())))
+      if (ext == ".fx" || ext == ".hlsl" || ext == ".frag" || ext == ".fs" || ext == ".vert" || ext == ".comp" || (ext == ".glsl" && hasMain(it->path())))
         sub.push_back(it->path());
     }
     std::sort(sub.begin(), sub.end());
@@ -410,7 +410,7 @@ int main(int argc, char** argv) {
   auto loadFor = [&](const fs::path& p) {
     fx::LoadOptions o = load;
     const std::string ext = p.extension().string();
-    o.glsl = forceGlsl || ext == ".frag" || ext == ".fs" || ext == ".glsl";
+    o.glsl = forceGlsl || ext == ".frag" || ext == ".fs" || ext == ".vert" || ext == ".comp" || ext == ".glsl";
     o.hlsl = !o.glsl && (forceHlsl || ext == ".hlsl" || ext == ".hlsli");
     o.entry = entry;
     return o;

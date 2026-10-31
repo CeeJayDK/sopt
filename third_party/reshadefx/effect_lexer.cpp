@@ -4,6 +4,7 @@
  */
 
 #include "effect_lexer.hpp"
+#include <algorithm>
 #include <cassert>
 #include <charconv> // std::from_chars
 #include <string_view>
@@ -910,7 +911,15 @@ void reshadefx::lexer::parse_identifier(token &tok) const
 
 	if (const auto it = s_keyword_lookup.find(tok.literal_as_string);
 		it != s_keyword_lookup.end())
+	{
+		static const std::string_view glsl_free[] = { "linear", "point", "technique", "pass", "compile", "string", "snorm",
+			"unorm", "nointerpolation", "extern", "row_major", "column_major", "namespace" };  // not groupshared / storage: generated text uses them
+		// Words ReShade FX only reserves (packed, sample, ...): a shader glslang compiles uses them as names.
+		if (sopt_glsl && (it->second == tokenid::reserved ||
+			std::find(std::begin(glsl_free), std::end(glsl_free), tok.literal_as_string) != std::end(glsl_free)))
+			return;
 		tok.id = it->second;
+	}
 }
 bool reshadefx::lexer::parse_pp_directive(token &tok)
 {

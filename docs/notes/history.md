@@ -2328,6 +2328,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   beyondSlider (frontend.cpp): a slider compared with a value at / beyond its ends or with one subtracted (X - hi, lo -
   X) gets no ui_min / ui_max range. (3) HLSL prints mad(b - a, t, a) as lerp(a, b, t); sopt-found.txt leaves out
   variants with the same DXBC (dxbcSame). MXAO after: 1 written (the acos), 7 regions need ranges, no wrong rule.
+  GLSL for other projects (owner, 2026-10-31: HLSL / GLSL beyond ReShade, also .comp / .vert and texture instructions
+  ReShade lacks, read as inputs; AnyPS5's 35 shaders as the test): .vert / .comp read; a GLSL main writing gl_Position is
+  a vertex shader (gl_VertexIndex / InstanceIndex in, gl_Position / gl_PointSize out; gl_PerVertex redeclarations
+  ignored); vertex shaders searched in plain HLSL / GLSL (not ReShade FX); uniform blocks with an instance name as a
+  uniform struct; FX keywords GLSL leaves free (linear, point, technique, ...) and FX reserved words (packed, sample)
+  are names (lexer::sopt_glsl; not in generated text's keywords); sampler2DMS / texture2DMS / utexture2DMSArray as 2D /
+  3D samplers (reads are inputs); gl_SampleID / gl_PrimitiveID / gl_FrontFacing in, gl_FragDepth out; bitCount /
+  findLSB / findMSB / bitfieldReverse. AnyPS5: 31 of 35 parse (left: GL_EXT_buffer_reference inside a uniform block,
+  nested structs), 18 regions, all in the HDR presentation pass (the compute shaders are integer bit work).
   iMMERSE check (6 effects, --time 1: 36 of 669 regions, 0 of 70 parses failed): LAUNCHPAD's inside_screen(tuv)
   (all(saturate(uv - uv * uv))) got 0.0 != min(uv - uv * uv) on a name-guessed likely [0, 1] for tuv: wrong off screen,
   the very case it tests (behind its switch, not easy mode). Now a region that clamps or compares (saturate, clamp,

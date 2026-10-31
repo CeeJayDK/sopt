@@ -8,6 +8,7 @@ docs/notes/history.md.
 ## 0.10.1
 
 ### SweetOpt
+- **More GLSL:** GLSL vertex and compute shaders (.vert, .comp) are read too, and more of the GLSL that Vulkan projects use: named uniform blocks, multisampled textures, more built-in values and bit functions. Vertex shaders of other projects (plain HLSL and GLSL) are optimized too.
 - **Older NVIDIA cards:** SweetOpt now knows what math costs on GeForce GT / GTX 400 and 500 cards (Fermi).
 - **Settings used beyond their slider:** when an effect's code handles values beyond a slider's range (you can type them in), SweetOpt no longer treats the slider's ends as limits there.
 - **No more guesses in the lists:** changes that could only be checked on guessed value ranges are no longer listed in sopt-found.txt and the report; the report just says which values need ranges. Changes that compile to exactly the same shader are not listed either.
