@@ -1277,6 +1277,10 @@ class Extractor {
   std::unordered_map<uint32_t, uint32_t> built_;
   std::unordered_set<uint32_t> collected_;  // collect(): values seen in this scope
   bool usesPow_ = false;
+  // The region clamps or compares (saturate, clamp, step, a comparison): its code checks ranges itself, so a name's
+  // guess is no likely range here (2026-10-31: inside_screen(tuv), all(saturate(uv - uv * uv)), was "simplified" on a
+  // likely [0, 1] for tuv, the very range it tests).
+  bool clamps_ = false;
   std::unordered_map<uint32_t, uint32_t> inline_;  // temporary variable -> its value
   std::unordered_map<uint32_t, uint32_t> inlineLoad_;  // load -> value of its (chain) definition
   // Values the frontend makes itself, for a helper's variables (2026-10-26): after an if (Select: a when every one of
@@ -1960,6 +1964,7 @@ void Extractor::collect(uint32_t id) {
       collect(v.args[0]);
       return;
     case K::Binary: {
+      if (isComparison(v.op)) clamps_ = true;
       if (v.op == tokenid::ampersand_ampersand || v.op == tokenid::pipe_pipe) {  // a && b on scalar conditions
         if (!(v.type.is_boolean() && v.type.is_scalar() && isScalarBool(v.args[0]) && isScalarBool(v.args[1])))
           throw Unsupported("vector logic");
@@ -2057,6 +2062,7 @@ void Extractor::collect(uint32_t id) {
       if (!isFloatType(v.type)) throw Unsupported(nonFloat("non-float intrinsic", v.type));
       if (sugar && v.name == "cross" && v.type.rows != 3) throw Unsupported("intrinsic cross");
       if (sugar && (v.name == "log10" || v.name == "tan")) usesPow_ = true;
+      if (op && (*op == Op::Saturate || *op == Op::Clamp || *op == Op::Step)) clamps_ = true;
       if (op && (*op == Op::Pow || *op == Op::Exp || *op == Op::Log || *op == Op::Exp2 || *op == Op::Log2 ||
           *op == Op::Sin || *op == Op::Cos))
         usesPow_ = true;
@@ -3670,6 +3676,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   built_.clear();
   collected_.clear();
   usesPow_ = false;
+  clamps_ = false;
   reg.prog.inputs.clear();
   reg.facts.clear();
   fetchText_.clear();
@@ -3762,7 +3769,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
           r.assumed = true;
           // A suggestion with a reason is a likely range; "no guess" and a definition of 0 stay assumed.
           suggest(l, fact);
-          if (opt_.likelyRanges && fact.suggestWhy.rfind("no guess", 0) != 0 && fact.suggestWhy.find("(value 0)") == std::string::npos &&
+          if (opt_.likelyRanges && !clamps_ && fact.suggestWhy.rfind("no guess", 0) != 0 && fact.suggestWhy.find("(value 0)") == std::string::npos &&
               fact.suggestLo < fact.suggestHi) {
             r = Range::of(fact.suggestLo, fact.suggestHi, "likely: " + fact.suggestWhy);
             fact.likely = true;

@@ -1505,13 +1505,16 @@ TEST(fx_soft_slider) {
   CHECK(e != nullptr);
   if (!e) return;
   fx::SkipCount sk;
-  bool amount = false, plain = false;
+  bool amount = false, plain = false, guessed = false, clamped = false;
   for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
     for (const auto& f : r.facts) {
       amount = amount || (f.input == "Amount" && f.source == "ui_min/ui_max");
       plain = plain || (f.input == "Plain" && f.source == "ui_min/ui_max");
+      // A name's guess (tuv: a texture coordinate) is a likely range, except where the code clamps it itself.
+      if (f.input == "tuv.x" || f.input == "tuv") guessed = guessed || (r.line == 13 && f.likely);
+      if (f.input == "tuv.y" || f.input == "tuv") clamped = clamped || (r.line == 14 && f.likely);
     }
-  CHECK(!amount && plain);
+  CHECK(!amount && plain && guessed && !clamped);
 }
 
 TEST(fx_int_compares) {

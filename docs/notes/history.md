@@ -2337,6 +2337,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   3D samplers (reads are inputs); gl_SampleID / gl_PrimitiveID / gl_FrontFacing in, gl_FragDepth out; bitCount /
   findLSB / findMSB / bitfieldReverse. AnyPS5: 31 of 35 parse (left: GL_EXT_buffer_reference inside a uniform block,
   nested structs), 18 regions, all in the HDR presentation pass (the compute shaders are integer bit work).
+  iMMERSE check (6 effects, --time 1: 36 of 669 regions, 0 of 70 parses failed): LAUNCHPAD's inside_screen(tuv)
+  (all(saturate(uv - uv * uv))) got 0.0 != min(uv - uv * uv) on a name-guessed likely [0, 1] for tuv: wrong off screen,
+  the very case it tests (behind its switch, not easy mode). Now a region that clamps or compares (saturate, clamp,
+  step, a comparison: clamps_) takes no likely range from a name guess.
   STOKE-style stochastic search (open item 4, owner's go to try behind a flag; 2026-10-28; search/stoke.cpp,
   Options::stoke, --stoke, stokeShare 0.25 of the region's search time, before the enumerator, which gets the rest): a
   Metropolis walk from the target (an op for another of its shape, an operand for an earlier node or a constant from the

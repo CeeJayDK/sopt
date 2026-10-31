@@ -12,6 +12,7 @@ docs/notes/history.md.
 - **Older NVIDIA cards:** SweetOpt now knows what math costs on GeForce GT / GTX 400 and 500 cards (Fermi).
 - **Settings used beyond their slider:** when an effect's code handles values beyond a slider's range (you can type them in), SweetOpt no longer treats the slider's ends as limits there.
 - **No more guesses in the lists:** changes that could only be checked on guessed value ranges are no longer listed in sopt-found.txt and the report; the report just says which values need ranges. Changes that compile to exactly the same shader are not listed either.
+- **No guessing where the code checks itself:** where an effect's code clamps or tests a value (like an on-screen check), SweetOpt no longer guesses that value's range from its name.
 - **lerp stays lerp:** changes are written with lerp() where that is what they compute, instead of a harder to read mad().
 - **Also math with matrix settings:** color and position math that uses a matrix setting of an effect is now optimized too.
 
