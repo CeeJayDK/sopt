@@ -922,16 +922,53 @@ int main(int argc, char** argv) {
     D3D11_BUFFER_DESC ob = {};
     ob.ByteWidth = kGroupsFull * kGroupSize * 4;
     ob.Usage = D3D11_USAGE_DEFAULT;
-    ob.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    ob.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
     ob.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
     ob.StructureByteStride = 4;
     if (FAILED(g.dev->CreateBuffer(&ob, nullptr, &g.out))) fail("cannot create the output buffer");
     if (FAILED(g.dev->CreateUnorderedAccessView(g.out, nullptr, &g.uav))) fail("cannot create the output view");
     g.timer.create(g.dev);
-    if (gStage == Stage::Compute) {  // the sync point (Timer::syncFrom): only compute timestamps came too early
-      ob.ByteWidth = 4;
-      if (FAILED(g.dev->CreateBuffer(&ob, nullptr, &g.timer.syncTo))) fail("cannot create the sync buffer");
-      g.timer.syncFrom = g.out;
+    if (gStage == Stage::Compute) {  // the sync point (Timer::sync): only compute timestamps came too early
+      // A one-pixel draw that reads the output: the UAV is unbound for it (a resource is never SRV and UAV at once).
+      ID3D11ShaderResourceView* srv = nullptr;
+      ID3D11RenderTargetView* px = nullptr;
+      ID3D11VertexShader* vs = nullptr;
+      ID3D11PixelShader* ps = nullptr;
+      D3D11_TEXTURE2D_DESC td = {};
+      td.Width = td.Height = td.MipLevels = td.ArraySize = 1;
+      td.Format = DXGI_FORMAT_R32_FLOAT;
+      td.SampleDesc.Count = 1;
+      td.BindFlags = D3D11_BIND_RENDER_TARGET;
+      ID3D11Texture2D* rt = nullptr;
+      const char* vsSrc = "float4 main(uint v : SV_VertexID) : SV_Position\n"
+                          "{ float2 p = float2((v << 1) & 2, v & 2); return float4(p * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0); }\n";
+      const char* psSrc = "StructuredBuffer<float> o : register(t0);\nfloat4 main() : SV_Target { return o[0]; }\n";
+      ID3DBlob* vc = nullptr;
+      ID3DBlob* pc = nullptr;
+      if (FAILED(g.dev->CreateShaderResourceView(g.out, nullptr, &srv)) || FAILED(g.dev->CreateTexture2D(&td, nullptr, &rt)) ||
+          FAILED(g.dev->CreateRenderTargetView(rt, nullptr, &px)) ||
+          FAILED(D3DCompile(vsSrc, std::strlen(vsSrc), "sync", nullptr, nullptr, "main", "vs_5_0", 0, 0, &vc, nullptr)) ||
+          FAILED(D3DCompile(psSrc, std::strlen(psSrc), "sync", nullptr, nullptr, "main", "ps_5_0", 0, 0, &pc, nullptr)) ||
+          FAILED(g.dev->CreateVertexShader(vc->GetBufferPointer(), vc->GetBufferSize(), nullptr, &vs)) ||
+          FAILED(g.dev->CreatePixelShader(pc->GetBufferPointer(), pc->GetBufferSize(), nullptr, &ps)))
+        fail("cannot create the sync draw");
+      vc->Release();
+      pc->Release();
+      g.ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+      g.ctx->VSSetShader(vs, nullptr, 0);
+      g.ctx->PSSetShader(ps, nullptr, 0);
+      g.ctx->OMSetRenderTargets(1, &px, nullptr);
+      const D3D11_VIEWPORT vp = {0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f};
+      g.ctx->RSSetViewports(1, &vp);
+      g.timer.sync = [&g, srv] {
+        ID3D11UnorderedAccessView* none = nullptr;
+        ID3D11ShaderResourceView* noSrv = nullptr;
+        g.ctx->CSSetUnorderedAccessViews(0, 1, &none, nullptr);
+        g.ctx->PSSetShaderResources(0, 1, &srv);
+        g.ctx->Draw(3, 0);
+        g.ctx->PSSetShaderResources(0, 1, &noSrv);
+        g.ctx->CSSetUnorderedAccessViews(0, 1, &g.uav, nullptr);
+      };
     }
     g.ctx->CSSetConstantBuffers(0, 1, &g.cb);
     g.ctx->CSSetUnorderedAccessViews(0, 1, &g.uav, nullptr);
