@@ -183,6 +183,14 @@ TEST(cost_half_precision) {
   CHECK(halfOpCost(gcn, Op::Floor, 3) == gcn.opCost(Op::Floor, 3));  // no fp16 data: fp32 cost
 }
 
+TEST(print_lerp) {
+  // HLSL prints mad(b - a, t, a) as lerp(a, b, t), fxc's own expansion of lerp (2026-10-31); GLSL keeps the mad.
+  const auto in = abcx();
+  CHECK(toString(parseExpr("mad(b - a, c, a)", in), in) == "lerp(a, b, c)");
+  CHECK(toString(parseExpr("mad(c, b - a, a)", in), in) == "lerp(a, b, c)");
+  CHECK(toString(parseExpr("mad(b - a, c, b)", in), in) != "lerp(a, b, c)");
+}
+
 TEST(cost_contraction) {
   const CostModel& m = costRdna3();
   // Single-use mul (or div) under add/sub is one fma.

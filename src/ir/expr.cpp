@@ -784,6 +784,12 @@ std::string print(const Expr& e, const std::vector<InputDecl>& inputs, uint32_t 
       default: break;
     }
   }
+  // HLSL: mad(b - a, t, a) prints as lerp(a, b, t) (2026-10-31, a shader author: the mad form is unreadable; fxc
+  // emits lerp as exactly this add + mad).
+  if (!tlGlsl && n.op == Op::Mad)
+    for (unsigned k = 0; k < 2; ++k)
+      if (const Node& d = e.nodes[n.args[k]]; d.op == Op::Sub && d.nargs == 2 && d.args[1] == n.args[2])
+        return "lerp(" + sub(n.args[2], false) + ", " + sub(d.args[0], false) + ", " + sub(n.args[1 - k], false) + ")";
   // a + -c prints as a - c.
   auto negConst = [&](uint32_t child) {
     const Node& c = e.nodes[child];

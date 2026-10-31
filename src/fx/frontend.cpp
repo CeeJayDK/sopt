@@ -1198,6 +1198,8 @@ class Extractor {
   Range range(uint32_t valueId);
   Range varRange(uint32_t var, uint32_t seq, uint32_t block);
   Range varRangeRaw(uint32_t var, uint32_t seq, uint32_t block);
+  bool beyondSlider(uint32_t var, double lo, double hi);
+  std::unordered_map<uint32_t, bool> beyond_;
   Range loopRange(uint32_t var);
   std::string varKey(uint32_t var) const;  // UserRanges key of a variable
   std::unordered_map<uint32_t, const Function*> varFunction_;  // local/param -> function
@@ -2773,6 +2775,45 @@ Range Extractor::loopRange(uint32_t var) {
   return Range::of(lo, hi, "loop counter", static_cast<uint32_t>(hi - lo));
 }
 
+// Slider limits are soft (owner, 2026-10-31): users can type any value or edit the preset, and some effects handle values
+// beyond the slider on purpose (MXAO: if (Amount > 1) ... saturate(Amount - 1)). A slider whose code compares it with a
+// value at or beyond its ends (X > hi, X < lo) or subtracts one (X - hi, lo - X) gets no range from ui_min / ui_max.
+bool Extractor::beyondSlider(uint32_t var, double lo, double hi) {
+  if (const auto it = beyond_.find(var); it != beyond_.end()) return it->second;
+  auto isVar = [&](uint32_t id) {
+    const auto x = cg_.values.find(id);
+    if (x == cg_.values.end() || x->second.kind != Value::Kind::Load || x->second.base != var) return false;
+    for (const auto& op : x->second.chain)
+      if (op.op != reshadefx::expression::operation::op_cast) return false;
+    return true;
+  };
+  auto number = [&](uint32_t id, double& c) {
+    const auto x = cg_.values.find(id);
+    if (x == cg_.values.end() || x->second.kind != Value::Kind::Const || !x->second.type.is_scalar()) return false;
+    const reshadefx::type& t = x->second.type;
+    c = t.is_floating_point() ? x->second.constant.as_float[0]
+        : t.is_signed()       ? double(x->second.constant.as_int[0])
+                              : double(x->second.constant.as_uint[0]);
+    return true;
+  };
+  bool beyond = false;
+  for (const auto& [id, v] : cg_.values) {
+    if (v.kind != Value::Kind::Binary || v.args.size() != 2) continue;
+    double c = 0;
+    const bool left = isVar(v.args[0]) && number(v.args[1], c), right = !left && isVar(v.args[1]) && number(v.args[0], c);
+    if (!left && !right) continue;
+    using T = reshadefx::tokenid;
+    const T op = v.op;
+    const bool above = left ? op == T::greater || op == T::greater_equal : op == T::less || op == T::less_equal;
+    const bool below = left ? op == T::less || op == T::less_equal : op == T::greater || op == T::greater_equal;
+    if ((above && c >= hi) || (below && c <= lo) || (op == T::minus && (left ? c >= hi : c <= lo) && hi > lo)) {
+      beyond = true;
+      break;
+    }
+  }
+  return beyond_[var] = beyond;
+}
+
 Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
   const auto vi = cg_.variables.find(var);
   if (vi == cg_.variables.end()) return Range::unknown();
@@ -2815,7 +2856,7 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         if (source == "pingpong") return Range::of(lo == lo ? lo : 0, hi == hi ? hi : 1, "source = pingpong");
         return Range::unknown();
       }
-      if (std::isfinite(lo) && std::isfinite(hi)) {
+      if (std::isfinite(lo) && std::isfinite(hi) && !beyondSlider(var, std::min(lo, hi), std::max(lo, hi))) {
         const double steps = std::abs(hi - lo);  // an int slider takes whole numbers
         return Range::of(std::min(lo, hi), std::max(lo, hi), "ui_min/ui_max",
                          v.type.is_integral() && steps <= 1e6 ? static_cast<uint32_t>(steps) : 0);
