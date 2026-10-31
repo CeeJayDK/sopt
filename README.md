@@ -1,11 +1,20 @@
 # SweetOpt: the super sweet shader optimizer
 
-**SweetOpt makes your ReShade effects run faster, without changing how they look.**
+**SweetOpt makes shaders run faster, without changing what they compute.**
 
-Shaders (the little programs behind ReShade effects like SweetFX) do a lot of math for every
-pixel on your screen. Often the same result can be computed with fewer steps. SweetOpt finds
-those shortcuts automatically, double-checks that the picture stays the same, and writes new
-copies of your effects that use them. Your original files are never changed.
+Shaders are the little programs a graphics card runs: for games, video players, emulators,
+browsers, and ReShade effects like SweetFX. They do a lot of math for every pixel on your screen.
+Often the same result can be computed with fewer steps. SweetOpt finds those shortcuts
+automatically, double-checks that the result stays the same, and writes new copies of the
+shaders that use them. Your original files are never changed.
+
+SweetOpt reads:
+
+- **ReShade effects** (`.fx`), with a simple menu for players (below).
+- **HLSL** (`.hlsl`): pixel, vertex and compute shaders.
+- **GLSL** (`.frag`, `.vert`, `.comp`, `.glsl`), including the Vulkan style.
+
+See [Your own shaders](#your-own-shaders-hlsl-and-glsl) for HLSL and GLSL.
 
 ## What you get
 
@@ -16,7 +25,7 @@ copies of your effects that use them. Your original files are never changed.
 - **Safe to try.** SweetOpt writes its results to a separate folder. If you don't like them,
   delete the folder and nothing has changed.
 
-## How to use it (Windows)
+## How to use it with ReShade (Windows)
 
 1. Download `SweetOpt-<version>-windows-x64.zip` from the
    [Releases](https://github.com/CeeJayDK/sopt/releases) page and unzip it anywhere.
@@ -66,6 +75,18 @@ value ranges", press **8**: a list opens with one line per value it could not wo
 If you know the real range, remove the `#` and correct the numbers (`... luma = [0, 1]`), save,
 and press **5** again. Only give ranges you are sure of: a wrong range can change the picture.
 
+## Your own shaders (HLSL and GLSL)
+
+For shaders of your own project, run `sopt-fx` (in the SweetOpt zip) on a folder or on files:
+
+    sopt-fx -o sopt-out my-project\shaders
+
+The file type comes from the extension. `--entry NAME` names the entry point when it isn't
+`main`, and `-I folder` adds a folder for `#include` files. SweetOpt writes the faster copies to
+`sopt-out` with each change behind a `#if SOPT_...` switch, next to the original code, plus a
+report of what it found. Texture reads and other things SweetOpt can't change are taken as they
+are; it shortens the math around them. All options: [docs/technical.md](docs/technical.md).
+
 ## The other tools in this project
 
 - **GPU Blueprint** (`GPU-Blueprint-<version>.zip`, double-click `GPU-Blueprint.bat`):
@@ -84,8 +105,6 @@ All of them are on the [Releases](https://github.com/CeeJayDK/sopt/releases) pag
 automatically from the code in this repository.
 
 ## For developers
-
-SweetOpt also works on plain HLSL and GLSL shaders, and has a command line for scripts.
 
 - How it works, all options and how to build it: [docs/technical.md](docs/technical.md)
 - Which file does what (a map of the code): [docs/code-map.md](docs/code-map.md)

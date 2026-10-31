@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-SweetOpt (sopt / sopt-fx): a superoptimizer for ReShade FX, plain HLSL (SM5 pixel and compute) and GLSL fragment shaders.
+SweetOpt (sopt / sopt-fx): a superoptimizer for ReShade FX, plain HLSL (SM5 pixel, vertex and compute) and GLSL (fragment, vertex, compute) shaders.
 It finds cheaper, verified alternatives to small pure arithmetic regions and writes them as user-selectable variants.
 Also in this repo: GPU Blueprint (OpBench, TexBench, ShaderInfo: GPU measurement tools for Windows), Test Host (ReShade
 on every API without a game), the web page (site/) and ReShade patches (tools/reshade). Design and milestones:

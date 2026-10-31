@@ -4186,11 +4186,13 @@ bool Extractor::leavesUnchanged(const Statement& s, const std::vector<const Stat
 
 std::vector<Region> Extractor::run(SkipCount& skipped) {
 #define SKIPADD(r) skipped.add((r), s.loc.source, s.loc.line)
-  // Functions reachable from pixel and compute shaders.
+  // Functions reachable from pixel and compute shaders, and from vertex shaders in plain HLSL / GLSL (other projects'
+  // vertex shaders do real work; ReShade's draw full-screen triangles).
   std::set<std::string> reach;
   std::vector<const Function*> work;
   for (const auto& f : cg_.functions)
-    if ((f->type == reshadefx::shader_type::pixel || f->type == reshadefx::shader_type::compute) &&
+    if ((f->type == reshadefx::shader_type::pixel || f->type == reshadefx::shader_type::compute ||
+         ((fx_.hlsl || fx_.glsl) && f->type == reshadefx::shader_type::vertex)) &&
         reach.insert(f->uniqueName).second)
       work.push_back(f.get());
   while (!work.empty()) {
