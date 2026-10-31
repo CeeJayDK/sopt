@@ -10,6 +10,9 @@ docs/notes/history.md.
 ### SweetOpt
 - **Older NVIDIA cards:** SweetOpt now knows what math costs on GeForce GT / GTX 400 and 500 cards (Fermi).
 
+### GPU Blueprint
+- **OpBench on older NVIDIA cards:** a try at making OpBench measure with the graphics card's own clock on GeForce 400 / 500 cards, which until now gave wrong times there.
+
 ## 0.10.0
 
 ### SweetOpt
