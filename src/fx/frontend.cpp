@@ -1181,8 +1181,10 @@ class Extractor {
     uint32_t vector = 0;
     bool rowsFirst = false;         // mul(M, v): a dot per row; mul(v, M): per column
     bool call = false;              // matrix is a helper call: its returned float2x2(...) in the call's scope
+    uint32_t uniform = 0;           // a uniform matrix (this load's id): its rows M[r] are inputs (rowLeaf)
   };
   MatMul matMul(const Value& v) const;
+  Leaf& rowLeaf(uint32_t load, unsigned row);
   bool intCompare(const Value& v);
   bool intCompareOps(const Value& v);
   // Splits a load into leaf prefix and the vector part of the chain.
@@ -1772,8 +1774,12 @@ Extractor::MatMul Extractor::matMul(const Value& v) const {
   const bool first = a->second.type.is_matrix();
   const Value* mp = first ? &a->second : &c->second;
   // A matrix variable (2026-10-28, corpus 175): a static const's initializer, or a local's declared once, when that is
-  // constant (a constant, or float3x3(...) of constants): its value wherever it is read.
-  if (mp->kind == Value::Kind::Load && mp->chain.empty()) {
+  // constant (a constant, or float3x3(...) of constants): its value wherever it is read. A uniform matrix (2026-10-31):
+  // its rows are inputs.
+  if (const auto uv = mp->kind == Value::Kind::Load && mp->chain.empty() ? cg_.variables.find(mp->base) : cg_.variables.end();
+      uv != cg_.variables.end() && uv->second.kind == Variable::Kind::Uniform) {
+    mm.uniform = first ? v.args[0] : v.args[1];
+  } else if (mp->kind == Value::Kind::Load && mp->chain.empty()) {
     const auto var = cg_.variables.find(mp->base);
     uint32_t init = 0;
     if (var != cg_.variables.end() && var->second.kind == Variable::Kind::Global) init = var->second.initializer;
@@ -1816,13 +1822,30 @@ Extractor::MatMul Extractor::matMul(const Value& v) const {
         return mm;
   } else if (mat.kind == Value::Kind::Call) {
     mm.call = true;  // elements checked in its scope (collect)
-  } else if (mat.kind != Value::Kind::Const) {
+  } else if (mat.kind != Value::Kind::Const && !mm.uniform) {
     return mm;
   }
   mm.matrix = &mat;
   mm.vector = first ? v.args[1] : v.args[0];
   mm.rowsFirst = first;
   return mm;
+}
+
+// Row r of a uniform matrix as a float1..4 input, written M[r] (HLSL and ReShade FX index a matrix by row).
+Extractor::Leaf& Extractor::rowLeaf(uint32_t load, unsigned row) {
+  const Value& m = cg_.values.at(load);
+  const std::string text = varText(m.base) + "[" + std::to_string(row) + "]";
+  for (auto& l : leaves_)
+    if (l.var == m.base && l.prefix == text) return l;
+  Leaf l;
+  l.var = m.base;
+  l.prefix = text;
+  l.type = m.type;
+  l.type.rows = m.type.cols;
+  l.type.cols = 1;
+  l.loadValue = load;
+  leaves_.push_back(l);
+  return leaves_.back();
 }
 
 // A comparison of such integer values (mode == 2 in a select's condition): the same in float math.
@@ -2021,6 +2044,8 @@ void Extractor::collect(uint32_t id) {
           collected_ = std::move(outer);
         } else if (mm.matrix->kind == K::Construct) {
           for (uint32_t a : mm.matrix->args) collect(a);
+        } else if (mm.uniform) {
+          for (unsigned r = 0; r < mm.matrix->type.rows; ++r) rowLeaf(mm.uniform, r).mask |= (1u << mm.matrix->type.cols) - 1;
         }
         return;
       }
@@ -2355,7 +2380,7 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         const uint32_t x = build(mm.vector, b);
         const unsigned outs = mm.rowsFirst ? t.rows : t.cols, inner = mm.rowsFirst ? t.cols : t.rows;
         // The elements, row-major: constants, float3x3(...) in place, or a helper's float2x2(...) built in its scope.
-        uint32_t el[16];
+        uint32_t el[16], rows[4];
         const bool constant = mm.matrix->kind == K::Const;
         if (mm.call) {
           const CallScope scope(*this, *mm.matrix);
@@ -2364,6 +2389,12 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
           const Value& ret = cg_.values.at(scope.ret);
           for (unsigned i = 0; i < t.rows * t.cols; ++i) el[i] = build(ret.args[i], b);
           built_ = std::move(outer);
+        } else if (mm.uniform) {
+          for (unsigned r = 0; r < t.rows; ++r) {
+            const Leaf& l = rowLeaf(mm.uniform, r);
+            rows[r] = b.input(l.input, floatType(t.cols));
+            for (uint8_t k = 0; k < t.cols; ++k) el[r * t.cols + k] = b.swizzle(rows[r], &k, 1);
+          }
         } else if (!constant) {
           for (unsigned i = 0; i < t.rows * t.cols; ++i) el[i] = build(mm.matrix->args[i], b);
         }
@@ -2376,7 +2407,9 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
             if (constant) c[k] = mm.matrix->constant.as_float[at];
             else e[k] = el[at];
           }
-          const uint32_t line = constant ? b.constant(floatType(inner), c) : b.construct(e, inner);
+          const uint32_t line = constant                       ? b.constant(floatType(inner), c)
+                                : mm.uniform && mm.rowsFirst ? rows[o]  // a row of a uniform: the input itself
+                                                             : b.construct(e, inner);
           res[o] = b.op(Op::Dot, line, x);
         }
         r = outs == 1 ? res[0] : b.construct(res, outs);

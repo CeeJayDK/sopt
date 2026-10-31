@@ -2317,7 +2317,9 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   initializer when constant, a local declared once (float2x2(cos(Angle), ...) of anything, nothing it reads written
   between its declaration and the mul), or a helper's returned float2x2(...) (get2dRotationMatrix(Angle), elements built
   in the call's scope): one dot per row / column as before. Samples: mul skips 16 -> 3, regions +6; variant checks on
-  ZebraLines / TiltShift / TripleMonitor / BeforeAfter 0 of 28 failed. Left: uniform matrices (no inputs per element).
+  ZebraLines / TiltShift / TripleMonitor / BeforeAfter 0 of 28 failed. Uniform matrices (owner, 2026-10-31): each row
+  an input written M[r] (rowLeaf; float1..4, its ui_min / ui_max), mul(M, v) a dot with the row, mul(v, M) a dot with
+  float3(M[0].y, M[1].y, ...); variants parse (test effect: 3 of 3 regions cheaper, 0 of 7 parses failed).
   STOKE-style stochastic search (open item 4, owner's go to try behind a flag; 2026-10-28; search/stoke.cpp,
   Options::stoke, --stoke, stokeShare 0.25 of the region's search time, before the enumerator, which gets the rest): a
   Metropolis walk from the target (an op for another of its shape, an operand for an earlier node or a constant from the
