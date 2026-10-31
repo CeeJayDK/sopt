@@ -563,3 +563,9 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 3: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/stagebench/intel-arc-b580-ps-4.csv` (StageBench 0.10.0)
 - upload 3: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/stagebench/intel-arc-b580-vs-4.csv` (StageBench 0.10.0)
 - upload 3: texbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/texbench/intel-arc-b580-5.csv`, `docs/texbench/intel-arc-b580-5-order.png`, `docs/texbench/intel-arc-b580-5-order-zoom.png` (TexBench 0.10.0)
+
+## 2026-10-31 13:27 UTC
+- upload 1: opbench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/opbench/nvidia-gt-530-6.csv` (OpBench 0.10.1)
+- upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-ps-7.csv` (StageBench 0.10.1)
+- upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-vs-7.csv` (StageBench 0.10.1)
+- upload 1: texbench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/texbench/nvidia-gt-530-6.csv`, `docs/texbench/nvidia-gt-530-6-order.png`, `docs/texbench/nvidia-gt-530-6-order-zoom.png` (TexBench 0.10.1)

@@ -1084,25 +1084,25 @@ inline const Family kFamilies[] = {
     {"nvidia-fermi", "Fermi", 2, "vs",
      "abs 2.2 acos 35.5 acos1 27.6 acos4 32.8 acosh 45.7 add 2.4 add16 2.4 addlshl 12.1 addmax 6.9 "
      "addscale3 2.1 addscale4 2.1 all3and 22.3 andor 13.9 any3abs 17.2 any3max 18.3 any3or 22.3 "
-     "any4abs 22.4 any4max3 25.3 any4or 31.0 any4pairs 19.7 arraybase 12.0 arrayread 310.1 "
-     "arraywrite 899.1 asin 37.1 asinh 45.8 atan 58.4 atan2 68.1 atan2-od 73.7 atan2q 21.5 atan4 16.5 "
+     "any4abs 22.4 any4max3 25.3 any4or 31.0 any4pairs 19.7 arraybase 12.0 arrayread 310.5 "
+     "arraywrite 898.6 asin 37.1 asinh 45.7 atan 58.4 atan2 68.1 atan2-od 73.7 atan2q 21.5 atan4 16.5 "
      "atan5a 27.0 atanh 29.3 bfe 3.9 bitcast 0.0 bitor 1.5 bitrev 3.9 bitsel 15.8 branchdiv 131.9 "
      "branchuni 64.6 ceil 5.1 clamp 13.7 clamp-od 13.7 constarray 118.1 contract 2.6 cos 12.9 cosh 31.8 "
      "cross 17.1 cvt1 5.1 degrees 2.1 det3 25.9 distance 30.2 div 13.0 divxy 10.5 dot2 5.7 dot3 8.2 "
      "dot4 11.6 exp 13.0 exp2 12.9 exp2_16 12.9 exp2ceil 30.0 exp2floor 30.0 f16round 13.6 f16tof32 4.4 "
-     "f32tof16 4.3 faceforward 22.9 fbh 11.2 fbl 9.7 floor 5.1 flooradd 10.3 fma+cvt -3.5 fma+fma 0.0 "
-     "fma+half 0.0 fma+int -0.5 fma+minmax -7.8 fma+rcp -8.1 fma1 3.9 fma4+rcp -10.3 fmamax 7.2 "
-     "fmascale0.25 2.2 fmascale3 2.2 fmascale4 2.2 fmod 19.8 fmod-od 25.5 frac 6.6 fracadd 7.8 frexp 30.5 "
+     "f32tof16 4.3 faceforward 22.9 fbh 11.2 fbl 9.7 floor 5.1 flooradd 10.3 fma+cvt -3.5 fma+fma -0.0 "
+     "fma+half 0.0 fma+int -0.5 fma+minmax -7.8 fma+rcp -8.1 fma1 3.9 fma4+rcp -10.3 fmamax 7.1 "
+     "fmascale0.25 2.2 fmascale3 2.2 fmascale4 2.2 fmod 19.8 fmod-od 25.5 frac 6.6 fracadd 7.8 frexp 30.4 "
      "ftoitof 11.6 ftou 1.7 half1 0.0 iabs 11.3 iadd 2.8 iadd3 11.9 iand 2.8 icmpsel 8.9 idiv 54.4 "
      "ilp1 27.4 ilp2 11.7 ilp3 6.4 ilp4 3.8 ilp5 2.3 ilp6 1.2 imad 5.0 imin 3.8 imod 59.4 imul 3.6 "
      "ineg 3.9 int 1.8 irot 11.4 irot-od 11.5 isfinite 7.7 ishl 6.3 ishr 6.3 isinf 7.7 isnan 5.8 itof 3.5 "
      "ixmul 5.0 ldexp 10.8 length 25.3 lerp 5.0 lerp-od 5.0 log 12.7 log10 12.7 log2 12.7 log2_16 12.7 "
-     "lshladd 11.3 mad 4.0 mad16 0.0 mad16v3 -0.0 mad2 2.6 mad2v 3.2 mad3v 6.6 mad4v 10.0 madinl -0.1 "
+     "lshladd 11.3 mad 4.0 mad16 -0.0 mad16v3 -0.0 mad2 2.6 mad2v 3.2 mad3v 6.6 mad4v 10.0 madinl -0.1 "
      "madlit -0.1 madlit1 -0.0 madsatu -0.0 maj3 18.4 matmul4 47.3 max 5.1 max16 5.1 max3 8.7 min 5.1 "
      "minmax 8.7 minmax1 13.0 mix16 2.6 mod 9.1 modf 9.0 mul 2.4 mul16 2.4 mulxx 2.4 neg 0.0 negabs 2.2 "
      "normalize 19.4 or3 13.9 popc 2.2 pow 29.9 pow2ceil 3.8 pow2floor 1.5 radians 2.1 rcp 12.7 rcp1 12.6 "
      "rcp16 12.7 rcpnr0 1.5 rcpnr1 6.8 reflect 19.9 refract 55.1 round 5.1 roundadd 0.1 rsqrt 12.7 "
-     "rsqrtnr0 5.5 rsqrtnr1 13.4 satmad 0.0 saturate 0.1 scale0.0625 2.1 scale0.125 2.1 scale0.25 2.1 "
+     "rsqrtnr0 5.5 rsqrtnr1 13.4 satmad -0.0 saturate 0.1 scale0.0625 2.1 scale0.125 2.1 scale0.25 2.1 "
      "scale16 2.1 scale2 2.4 scale2-od 2.1 scale3 2.1 scale4 2.1 scale4-od 2.1 scale8 2.1 scalehalf 2.1 "
      "scaleneg0.5 2.1 scaleneg4 2.1 scaleneg8 2.1 select 5.6 selectboth 128.1 shladd5 3.4 shladd5-od 4.0 "
      "sign 12.9 sign-od 12.4 signbits 3.6 signclamp 12.0 signmad 5.8 signsat 8.2 signsel 10.7 signsel2 3.2 "
@@ -1635,9 +1635,9 @@ inline const RunTime kRunTimes[] = {
     {"nvidia-blackwell", "OpBench", 48, 1},
     {"nvidia-blackwell", "StageBench", 43, 1},
     {"nvidia-blackwell", "TexBench", 112, 1},
-    {"nvidia-fermi", "OpBench", 906, 1},
-    {"nvidia-fermi", "StageBench", 227, 2},
-    {"nvidia-fermi", "TexBench", 1133, 1},
+    {"nvidia-fermi", "OpBench", 903, 1},
+    {"nvidia-fermi", "StageBench", 218, 2},
+    {"nvidia-fermi", "TexBench", 1110, 1},
     {"nvidia-maxwell1", "OpBench", 91, 1},
     {"nvidia-maxwell1", "StageBench", 78, 1},
     {"nvidia-maxwell1", "TexBench", 210, 1},
