@@ -5,6 +5,11 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
+## 0.10.1
+
+### SweetOpt
+- **Older NVIDIA cards:** SweetOpt now knows what math costs on GeForce GT / GTX 400 and 500 cards (Fermi).
+
 ## 0.10.0
 
 ### SweetOpt

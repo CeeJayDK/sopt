@@ -93,7 +93,7 @@ void usage() {
       "                    the original's error vs exact math (default 100, 0 = off)\n"
       "  --helpers         also enumerate pure helper intrinsics (lerp, step)\n"
       "  --bits            also enumerate integer ops and bit casts (asuint, asfloat, & | ^ << >>)\n"
-      "  --cost-model M    objective: rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-terascale2 | nvidia | nvidia-maxwell2 | nvidia-maxwell1 | nvidia-pascal | nvidia-turing | nvidia-turing-rtx | nvidia-ampere | nvidia-ada | nvidia-blackwell | intel-xe2 | intel-gen12 | intel-gen9 | intel-gen7.5 | intel-gen6 | generic (default: nvidia-ampere)\n"
+      "  --cost-model M    objective: rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-terascale2 | nvidia | nvidia-maxwell2 | nvidia-maxwell1 | nvidia-fermi | nvidia-pascal | nvidia-turing | nvidia-turing-rtx | nvidia-ampere | nvidia-ada | nvidia-blackwell | intel-xe2 | intel-gen12 | intel-gen9 | intel-gen7.5 | intel-gen6 | generic (default: nvidia-ampere)\n"
       "  --order-model M   enumeration order (default: search for rdna3/nvidia, else the model)\n"
       "  --stats           print search statistics\n"
       "  --isa             rank the shown alternatives by real GPU ISA cost (fxstat + RGA)\n"
@@ -144,6 +144,7 @@ std::vector<ModelEntry> publishedModels() {
       {&costNvidiaPascal(), "NVIDIA", "Pascal", "OpBench"},
       {&costNvidiaMaxwell2(), "NVIDIA", "Maxwell 2", "OpBench"},
       {&costNvidiaMaxwell1(), "NVIDIA", "Maxwell 1", "OpBench"},
+      {&costNvidiaFermi(), "NVIDIA", "Fermi", "StageBench"},
       {&costAmdRdna4(), "AMD", "RDNA 4", "OpBench"},
       {&costRdna3(), "AMD", "RDNA 3", "OpBench"},
       {&costAmdRdna2(), "AMD", "RDNA 2", "OpBench"},

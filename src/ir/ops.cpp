@@ -275,6 +275,23 @@ const CostModel kNvidiaMaxwell1{"nvidia-maxwell1",
    4, 4, 1},
   1, true};
 
+// NVIDIA Fermi (GF1xx, SM2x: GeForce GT / GTX 400 / 500; owner, 2026-10-31) from StageBench pixel shaders: the GT 530
+// (GF108, 5 runs) and NVS 310 (GF119, 3 runs) medians agree within 0.03 fma; runs agree within 0.01-0.05. OpBench is
+// not used: these drivers' compute timestamps are wrong (CPU timing, the slow ops ~20% dearer there). Quarter units.
+// add / mul in the StageBench tests are merged into the mad by the driver (0.2); an unmergeable mul (mulxx), sub and
+// scale3 cost 2 (dual issue: GF10x needs two independent instructions to fill its 48 lanes), so add / sub / mul 2.
+// abs 2 (not free), floor / round / min / max / step 5, frac 7, the math unit 12 (rcp, rsqrt, exp2, log2, sin, cos,
+// div), sign 12, sqrt 28 (rsqrt + rcp), pow 28, compare + select 6, lerp 5, clamp 13; integers: iadd 1, iand 3, or 2,
+// shifts 5, imul 4, itof / utof 3, ftoi 9 (ftoitof - itof - or; ftou's own test folds to 1). No max3, no omod, no lop3.
+const CostModel kNvidiaFermi{"nvidia-fermi",
+  {0, 0, 1, 2, 1, 5, 7, 12, 28,
+   12, 12, 12, 12, 12, 12, 12, 12, 5, 5, 5, 2, 2, 2, 12, 5, 5, 5, 28,
+   4, 4, 4, 4, 4, 4, 4, 5, 13, 2, 1,
+   4, 24, 12, 29, 1, 1,
+   1, 1, 9, 9, 3, 3, 3, 2, 2, 5, 5, 5, 1, 1, 4,
+   4, 4, 1},
+  1, true};
+
 const CostModel kNvidiaPascal{"nvidia-pascal",
   {0, 0, 1, 4, 1, 10, 10, 10, 10,
    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 4, 4, 10, 7, 7, 7, 24,
@@ -446,6 +463,7 @@ uint16_t fuseBits(const CostModel& m) {
       {"rdna3", amd9 | kFuseXor3},
       {"rdna3-rga", amd9 | kFuseXor3},
       {"amd-rdna4", amd9 | kFuseXor3},
+      {"nvidia-fermi", kFuseShlAdd | kFuseBfe},
       {"nvidia-maxwell1", nv | kFuseBfe | kFuseMulScale},
       {"nvidia-maxwell2", nv | kFuseBfe | kFuseMulScale},
       {"nvidia-pascal", nv | kFuseBfe | kFuseMulScale},
@@ -524,6 +542,7 @@ const CostModel& costRdna3Rga() { return kRdna3Rga; }
 const CostModel& costNvidia() { return kNvidia; }
 const CostModel& costNvidiaMaxwell2() { return kNvidiaMaxwell2; }
 const CostModel& costNvidiaMaxwell1() { return kNvidiaMaxwell1; }
+const CostModel& costNvidiaFermi() { return kNvidiaFermi; }
 const CostModel& costNvidiaPascal() { return kNvidiaPascal; }
 const CostModel& costNvidiaTuring() { return kNvidiaTuring; }
 const CostModel& costNvidiaTuringRtx() { return kNvidiaTuringRtx; }
@@ -550,7 +569,7 @@ const CostModel kRdna3NoFolds = [] {
 
 const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kRdna3Rga || &objective == &kNvidia ||
-                 &objective == &kNvidiaMaxwell2 || &objective == &kNvidiaMaxwell1 || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaTuringRtx || &objective == &kNvidiaAda || &objective == &kNvidiaAmpere ||
+                 &objective == &kNvidiaMaxwell2 || &objective == &kNvidiaMaxwell1 || &objective == &kNvidiaFermi || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaTuringRtx || &objective == &kNvidiaAda || &objective == &kNvidiaAmpere ||
                  &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kIntelGen6 || &objective == &kIntelGen12 || &objective == &kIntelXe2 || &objective == &kAmdRdna2 ||
                  &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
              ? kSearch
@@ -568,6 +587,7 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kNvidiaMaxwell2.name) return &kNvidiaMaxwell2;
   if (name == "nvidia-maxwell") return &kNvidiaMaxwell2;  // the name until 0.7.4 (one model for both Maxwells)
   if (name == kNvidiaMaxwell1.name) return &kNvidiaMaxwell1;
+  if (name == kNvidiaFermi.name) return &kNvidiaFermi;
   if (name == kNvidiaPascal.name) return &kNvidiaPascal;
   if (name == kNvidiaTuring.name) return &kNvidiaTuring;
   if (name == kNvidiaTuringRtx.name) return &kNvidiaTuringRtx;
