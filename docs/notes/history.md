@@ -2167,6 +2167,9 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   NVS 310 medians 0.02 (cs) / 0.03 (ps) fma apart; cs vs ps: the slow ops ~20% dearer in cs on both cards (rcp 3.6 /
   3.0, sqrt 8.2 / 7.0, udiv 13.9 / 11.3 fma). Medians of 8 ps runs (gt-530-ps.csv left out). add / mul tests merge
   into the mad (0.2); mulxx / scale3 / sub 2 taken for add / sub / mul. Table in ops.cpp; MODEL_RULES "GTX? [45]xx".
+  Sync points for the early compute timestamps (2026-10-31, GT 530, driver 391.35): a 4-byte copy out of the output
+  before the end timestamp (0.10.1: 0.003 ms for 7.6 ms) and a one-pixel draw reading it (0.10.2: 0.042 ms for 7.2 ms)
+  did not help: the timestamps bracket only the sync work, not the dispatch. Removed; CPU timing stays (steady here).
   Where sopt gives up (owner, 2026-10-25: "why do we even have these small limits?"): corpus.yml counts the skip
   reasons over all packages (effect_packages.py skip_reasons; extra sopt-fx arguments for A/B runs). Corpus at 1 s,
   4 / 8 vs 8 / 16 inputs / components: regions 9711 -> 11293, statements changed 1250 -> 1317, cost saved 20333 ->

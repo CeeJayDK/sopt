@@ -909,11 +909,6 @@ struct Timer {
   ID3D11Query* completed = nullptr;
   bool eventTiming = false;
   bool guardAgain = false;  // timeOnce's second check is running
-  // Sync point (owner, 2026-10-31): a 4-byte copy out of the work's output before the end timestamp. Fermi drivers
-  // write a compute timestamp when the dispatch starts (0 ms for 7 ms of work); the copy has to wait for the
-  // dispatch, so the timestamp comes after it. Set by the caller (buffers only); null = none.
-  ID3D11Buffer* syncFrom = nullptr;
-  ID3D11Buffer* syncTo = nullptr;
   LARGE_INTEGER cpuFrequency = {};
   char note[240] = "";   // why CPU time is used
   char check[240] = "";  // checkTimestamps' numbers
@@ -1058,10 +1053,6 @@ struct Timer {
     ctx->Begin(disjoint);
     ctx->End(t0);
     for (int r = 0; r < repeat; ++r) work();
-    if (syncFrom) {
-      const D3D11_BOX box = {0, 0, 0, 4, 1, 1};
-      ctx->CopySubresourceRegion(syncTo, 0, 0, 0, 0, syncFrom, 0, &box);
-    }
     ctx->End(t1);
     ctx->End(disjoint);
     finish();
