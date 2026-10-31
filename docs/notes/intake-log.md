@@ -547,3 +547,19 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/stagebench/nvidia-gtx-1660-vs-16.csv` (StageBench 0.10.0)
 - upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-26.csv`, `docs/texbench/intel-uhd-630-26-order.png`, `docs/texbench/intel-uhd-630-26-order-zoom.png` (TexBench 0.10.0)
 - upload 1: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.1742): `docs/texbench/nvidia-gtx-1660-22.csv`, `docs/texbench/nvidia-gtx-1660-22-order.png`, `docs/texbench/nvidia-gtx-1660-22-order-zoom.png` (TexBench 0.10.0)
+
+## 2026-10-31 05:56 UTC
+- upload 1: opbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/opbench/intel-arc-b580-3.csv` (OpBench 0.10.0)
+- upload 1: shaderinfo, Intel(R) Arc(TM) B580 Graphics (driver Intel Corporation 101.8991 (101.8991)): `docs/shaderinfo/intel-arc-b580-3.txt`
+- upload 1: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/stagebench/intel-arc-b580-ps-2.csv` (StageBench 0.10.0)
+- upload 1: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/stagebench/intel-arc-b580-vs-2.csv` (StageBench 0.10.0)
+- upload 1: texbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/texbench/intel-arc-b580-3.csv`, `docs/texbench/intel-arc-b580-3-order.png`, `docs/texbench/intel-arc-b580-3-order-zoom.png` (TexBench 0.10.0)
+- upload 2: opbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/opbench/intel-arc-b580-4.csv` (OpBench 0.10.0)
+- upload 2: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/stagebench/intel-arc-b580-ps-3.csv` (StageBench 0.10.0)
+- upload 2: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/stagebench/intel-arc-b580-vs-3.csv` (StageBench 0.10.0)
+- upload 2: texbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/texbench/intel-arc-b580-4.csv`, `docs/texbench/intel-arc-b580-4-order.png`, `docs/texbench/intel-arc-b580-4-order-zoom.png` (TexBench 0.10.0)
+- upload 3: opbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/opbench/intel-arc-b580-5.csv` (OpBench 0.10.0)
+- upload 3: shaderinfo, Intel(R) Arc(TM) B580 Graphics (driver Intel Corporation 101.8991 (101.8991)): `docs/shaderinfo/intel-arc-b580-4.txt`
+- upload 3: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/stagebench/intel-arc-b580-ps-4.csv` (StageBench 0.10.0)
+- upload 3: stagebench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/stagebench/intel-arc-b580-vs-4.csv` (StageBench 0.10.0)
+- upload 3: texbench, Intel(R) Arc(TM) B580 Graphics (driver 32.0.101.8991): `docs/texbench/intel-arc-b580-5.csv`, `docs/texbench/intel-arc-b580-5-order.png`, `docs/texbench/intel-arc-b580-5-order-zoom.png` (TexBench 0.10.0)
