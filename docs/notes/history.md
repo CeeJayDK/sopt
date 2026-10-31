@@ -2328,6 +2328,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   beyondSlider (frontend.cpp): a slider compared with a value at / beyond its ends or with one subtracted (X - hi, lo -
   X) gets no ui_min / ui_max range. (3) HLSL prints mad(b - a, t, a) as lerp(a, b, t); sopt-found.txt leaves out
   variants with the same DXBC (dxbcSame). MXAO after: 1 written (the acos), 7 regions need ranges, no wrong rule.
+  iMMERSE check (6 effects, --time 1: 36 of 669 regions, 0 of 70 parses failed): LAUNCHPAD's inside_screen(tuv)
+  (all(saturate(uv - uv * uv))) got 0.0 != min(uv - uv * uv) on a name-guessed likely [0, 1] for tuv: wrong off screen,
+  the very case it tests (behind its switch, not easy mode). Now a region that clamps or compares (saturate, clamp,
+  step, a comparison: clamps_) takes no likely range from a name guess.
   STOKE-style stochastic search (open item 4, owner's go to try behind a flag; 2026-10-28; search/stoke.cpp,
   Options::stoke, --stoke, stokeShare 0.25 of the region's search time, before the enumerator, which gets the rest): a
   Metropolis walk from the target (an op for another of its shape, an operand for an earlier node or a constant from the
