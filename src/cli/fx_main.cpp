@@ -1733,10 +1733,9 @@ int main(int argc, char** argv) {
       for (const auto& nm : names)
         if (shown++ < 8) list += (list.empty() ? "" : ", ") + nm;
       if (names.size() > 8) list += " and " + std::to_string(names.size() - 8) + " more";
-      std::printf("%s%zu more region%s ha%s cheaper variants that need value ranges%s (inputs without a known range: %s).\n"
-                  "Give their ranges in sopt-facts.txt (SweetOpt.bat: key 8) and run again; until then they are only listed\n"
-                  "in sopt-report.md and sopt-found.txt.\n",
-                  con.c("\x1b[1;93m"), held, held == 1 ? "" : "s", held == 1 ? "s" : "ve", con.reset(), list.c_str());
+      std::printf("%s%zu more region%s may have cheaper variants once value ranges are known%s (inputs without a known\n"
+                  "range: %s). Give their ranges in sopt-facts.txt (SweetOpt.bat: key 8) and run again.\n",
+                  con.c("\x1b[1;93m"), held, held == 1 ? "" : "s", con.reset(), list.c_str());
     }
   }
   std::printf("variant check: %s%zu of %zu parses failed%s\n", con.c(checkFailures ? "\x1b[1;91m" : ""), checkFailures,

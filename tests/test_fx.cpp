@@ -1490,6 +1490,23 @@ TEST(fx_matrix_variables) {
   CHECK(lms && local && helper && rows && cols);
 }
 
+TEST(fx_soft_slider) {
+  // A slider the code reads beyond its ui_max (saturate(Amount - 1.0), MXAO) has no range from ui_min / ui_max; a
+  // plain slider keeps its range (2026-10-31).
+  std::string err;
+  auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_softslider.fx", fx::LoadOptions(), err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  bool amount = false, plain = false;
+  for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk))
+    for (const auto& f : r.facts) {
+      amount = amount || (f.input == "Amount" && f.source == "ui_min/ui_max");
+      plain = plain || (f.input == "Plain" && f.source == "ui_min/ui_max");
+    }
+  CHECK(!amount && plain);
+}
+
 TEST(fx_int_compares) {
   // An integer comparison (Mode == 2 in a select) is compared as integers: Mode a uint input, an unsigned compare
   // (both sides at least 0), no conversion to float (2026-10-28).

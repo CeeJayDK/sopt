@@ -2320,6 +2320,14 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   ZebraLines / TiltShift / TripleMonitor / BeforeAfter 0 of 28 failed. Uniform matrices (owner, 2026-10-31): each row
   an input written M[r] (rowLeaf; float1..4, its ui_min / ui_max), mul(M, v) a dot with the row, mul(v, M) a dot with
   float3(M[0].y, M[1].y, ...); variants parse (test effect: 3 of 3 regions cheaper, 0 of 7 parses failed).
+  Shader author feedback on MXAO (2026-10-31, owner's go): (1) sopt-found.txt listed a wrong rule from assumed ranges
+  (538-540: sqrt(saturate(1 - x * x)), x = d * rsqrt(saturate(1 - s * s)) -> 1 - saturate(abs(d))): on [-1000, 1000]
+  both sides clamp to 0 almost everywhere, so sampling passed it. Assumed-range variants are no longer in
+  sopt-found.txt; the report lists those regions with the inputs they need, no replacement. (2) Slider limits are soft:
+  MXAO_SSAO_AMOUNT (ui_max 1) has if (Amount > 1) lerp(o, o * o, saturate(Amount - 1)), which sopt removed as dead.
+  beyondSlider (frontend.cpp): a slider compared with a value at / beyond its ends or with one subtracted (X - hi, lo -
+  X) gets no ui_min / ui_max range. (3) HLSL prints mad(b - a, t, a) as lerp(a, b, t); sopt-found.txt leaves out
+  variants with the same DXBC (dxbcSame). MXAO after: 1 written (the acos), 7 regions need ranges, no wrong rule.
   STOKE-style stochastic search (open item 4, owner's go to try behind a flag; 2026-10-28; search/stoke.cpp,
   Options::stoke, --stoke, stokeShare 0.25 of the region's search time, before the enumerator, which gets the rest): a
   Metropolis walk from the target (an op for another of its shape, an operand for an earlier node or a constant from the

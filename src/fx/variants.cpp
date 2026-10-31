@@ -768,20 +768,17 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
              ". Not used by SOPT_AUTO; limiting the input to the fine range avoids the problem.\n";
     s += "\n";
   }
-  s += "## Variants on assumed ranges (not written)\n\n"
-       "Some input has no known range, so the variant was verified on the default range "
-       "only and may be wrong for real values. Give the ranges in sopt-facts.txt (--facts) or\n"
-       "with --ask, add ui_min/ui_max, or use --assumed.\n\n";
+  s += "## Regions that need value ranges\n\n"
+       "Some input has no known range. A check on made-up ranges proves nothing, so no variant is shown. Give the\n"
+       "ranges in sopt-facts.txt (--facts) or with --ask, or add ui_min/ui_max, and run again.\n\n";
   for (const auto& rr : results) {
     if (rr.unwritten.empty()) continue;
     const Region& r = rr.region;
     std::string assumed;
     for (const auto& f : r.facts)
       if (f.assumed) assumed += (assumed.empty() ? "" : ", ") + ("`" + f.input + "`");
-    s += "- " + pathFrom(r.file).filename().string() + ":" + std::to_string(r.line) + " (assumed: " +
-         assumed + "): `" + escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)) + "` -> `" +
-         escapeCell(rr.unwritten[0].text) + "` (cost " + std::to_string(rr.targetCost) + " -> " +
-         std::to_string(rr.unwritten[0].cost) + ")\n";
+    s += "- " + pathFrom(r.file).filename().string() + ":" + std::to_string(r.line) + " (needs: " + assumed + "): `" +
+         escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)) + "`\n";
   }
   s += "\n## Regions without cheaper variants\n\n";
   for (const auto& rr : results) {
@@ -840,8 +837,10 @@ std::string foundRewrites(const std::vector<RegionResult>& results) {
       if (d.type != Type::Float) where += ", " + d.name + " : float" + std::to_string(width(d.type));
     }
     const std::string lhs = toString(r.prog.target, named);
-    auto emit = [&](const Variant& v, bool assumed) {
-      if (v.notFaster) return;
+    // Not from assumed ranges (2026-10-31: verified on made-up ranges a wrong rule passed, both sides clamped to 0),
+    // nor ones fxc compiles to the same code.
+    auto emit = [&](const Variant& v) {
+      if (v.notFaster || v.dxbcSame) return;
       // Pattern, arrow and replacement on lines of their own (owner, 2026-10-08: easier to read); the
       // library parser joins them.
       std::string rule = lhs + "\n  ->\n" + toString(v.expr, named);
@@ -864,12 +863,10 @@ std::string foundRewrites(const std::vector<RegionResult>& results) {
         s += buf;
       }
       if (v.proven) s += ", proven (V3)";
-      if (assumed) s += ", assumed ranges";
       if (!v.problems.empty()) s += ", " + v.problems;
       s += "\n" + legend + rule + "\n";
     };
-    for (const auto& v : rr.variants) emit(v, false);
-    for (const auto& v : rr.unwritten) emit(v, true);
+    for (const auto& v : rr.variants) emit(v);
   }
   return s;
 }
