@@ -385,6 +385,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   RTI fixes pushed to CeeJayDK/ReShade-Testing-Initiative branch
   claude/shaderlab-loop-attribute ([fastopt] patch, stale Xvfb lock, exec bits).
 
+- V2 hang (2026-11-01): k + k * k * 1e-05 (k float on [0.25, 0.75], 12.6M points, rel 1e-6) never finished: every
+  less accurate V1 survivor past maxLoose still ran V2 (~5 s each, 6 profiles) and was then dropped, so neither
+  accepted (v2Candidates) nor numStrict (maxAlternatives) grew. Now such a group is skipped before V2 (driver.cpp,
+  RunResult::v2Checks, test v2_skips_dropped_loose). The region now takes ~3 min (verification 179 s): V2 is not under
+  --time and costs ~5 s per candidate on such a domain, up to v2Candidates (20). Bench unchanged.
+
 ## Next (per docs/design.md)
 0. M3 done (2026-09-26): owner's manual test of the variants in ReShade passed on DX11
    and Vulkan (package sopt-compare-2026-09-26c, all presets black; the per-step presets

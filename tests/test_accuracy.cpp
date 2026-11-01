@@ -124,6 +124,21 @@ TEST(problem_ranges_depth) {
   CHECK(findProblemRanges(p, parseExpr("(t - 1.0) * rcp(mad(t, 1.0 - F, -1.0))", p.inputs), false).empty());
 }
 
+// Less accurate candidates beyond maxLoose are not checked by V2 (2026-11-01: k + k * k * 1e-05 with k a float on
+// [0.25, 0.75], 12.6M points, ran V2 for seconds on every one of them and never finished; here a small domain).
+TEST(v2_skips_dropped_loose) {
+  Program p = parseProgram("input k : float in [0.25, 0.2505]\noutput r = k + k * k * 1e-05\nbudget r : rel 1e-6\n");
+  Options opt;
+  opt.loose = 100;
+  opt.maxLoose = 1;
+  opt.v1Points = 1u << 14;
+  opt.search.timeLimitSec = 0.5;
+  const RunResult r = optimize(p, opt);
+  CHECK(r.v2Points > 0);
+  CHECK(r.v2Checks <= r.iterations * opt.v2Candidates + r.rejectedV2);
+  std::printf("  v2: %llu checks, %zu accepted\n", static_cast<unsigned long long>(r.v2Checks), r.accepted.size());
+}
+
 TEST(noise_not_replaced) {
   // Hash noise: float32 sin of large arguments has nothing to do with exact math (the
   // original is off by up to 1), so neither the accuracy rule nor the error-scale floor may
