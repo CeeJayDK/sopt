@@ -238,6 +238,43 @@ GTX 1660 / UHD 630 (2 to 4 clean runs, within 0.1 fma on the 1660 and about 1 on
 - At 1 lookup per pixel the cheap forms all read about 0: the pass is limited by writing the pixels, so a single lookup in
   a very small shader hides them. Const tables on NVIDIA show anyway (4 x 4: 29 fma, 8 x 8: 92).
 
+**Where the texture starts to win** (any table, not Bayer; fma per lookup, texture 11.5 / 12):
+
+| Tile | GTX 1660, best form | UHD 630, best form |
+|---|---|---|
+| 4 x 4, all 16 levels | **3.9** | **9.7** |
+| 5 x 5, all 25 levels (6 bits a value, a uint per row) | **9.1** (integer %) | 17.0 |
+| 6 x 6, 32 of 36 levels (5 bits) | **9.8** (integer %) | 17.9 |
+| 6 x 6, all levels | 13.9 | 23.3 |
+| 7 x 7, 16 levels / all levels | 11.9 / 16.3 | 18.4 / 26.4 |
+| 8 x 8, 16 levels / all levels | **5.8** / 12.8 | 13.9 / 28.1 |
+
+So with all levels the last win is 5 x 5 on NVIDIA and 4 x 4 on Intel. A tile that is not a power of two pays for its index: on the
+1660 integer % beats a fixed point fraction and a float's frac (5 x 5: 9.1, 11.5, 16.3), on the 630 the fixed point fraction
+wins and % is worst (17.0, 18.4 for frac, 22.7).
+
+**Blue noise against the procedural dithers.** Cost as above, quality from flat grays between the table's levels, dithered to 1 bit:
+RMS after a blur of 1 and 2 pixels, and the error of the mean gray (too few levels shows here as banding). Lower is better.
+
+| Pattern | 1660 | 630 | blur 1 | blur 2 | mean gray |
+|---|---|---|---|---|---|
+| R2 | 1.7 | 3.8 | 0.040 | 0.011 | 0.0001 |
+| IGN | 4.1 | 5.6 | 0.042 | 0.013 | 0.0003 |
+| Hoskins hash12 | 12.7 | 13.7 | 0.116 | 0.058 | 0.0026 |
+| Bayer 4 x 4 (bitsearch); also the best blue noise 4 x 4 | 2.0 | 6.7 | 0.031 | 0.018 | 0.0157 |
+| Bayer 8 x 8 (bitsearch) | 2.0 | 9.9 | 0.038 | 0.008 | 0.0035 |
+| Blue noise 5 x 5, packed | 9.1 | 17.0 | 0.036 | 0.012 | 0.0100 |
+| Blue noise 6 x 6, 32 levels, packed | 9.8 | 17.9 | 0.040 | 0.015 | 0.0116 |
+| Blue noise 8 x 8, 16 levels, packed | 5.8 | 13.9 | 0.039 | 0.019 | 0.0157 |
+| Blue noise 8 x 8, texture | 11.5 | 11.8 | 0.037 | 0.009 | 0.0035 |
+| Blue noise 64 x 64, texture | 11.5 | 11.8 | 0.038 | 0.010 | 0.0001 |
+
+- These numbers do not show what makes blue noise look good (no visible structure): Bayer scores as well as blue noise here and
+  plainly looks worse. Judge the look by eye. Void-and-cluster tiles; up to 8 x 8 the best of 160 by these scores and by stripes (one
+  picked on the 2-pixel blur alone gave a badly striped 6 x 6). The best 4 x 4 one is exactly Bayer 4 x 4; other tries gave horizontal lines at mid gray. On small tiles the 2-pixel blur mostly measures the number of levels (any tile of 16 levels: 0.018).
+- A faster small table closes the cost gap: 4 x 4 beats IGN on NVIDIA (2.0 against 4.1) and comes close on Intel (6.7 against 5.6); R2 stays the cheapest. But
+  the tiles it helps are too small to have blue noise's character or enough levels; a texture costs the same at 64 x 64.
+
 **Registers (AMD, offline with RGA, GLSL):** scratch 0 in every const form, also as a local array; VGPRs do not grow with
 the table (RDNA 3 / 4: 6 at 1 lookup, 10-11 at 8, 34 with lerp at 8, 242 with trilinear at 8). RDNA 3 / 4 read the table from
 memory (ISA size does not grow with it). GCN 5 on the older RGA writes the table's values into the code: 2.6 KB for 8 x 8 at

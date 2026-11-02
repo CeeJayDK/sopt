@@ -642,7 +642,7 @@ void makeBlurTests(std::vector<Test>& v) {
       std::string b = "  float s = frac(pos.x * 0.001);\n" + head;
       for (int k = 0; k < n; ++k) {
         // Every row and column differs from 8 x 8 up; in 4 x 4 all 8 cells do (a driver merges equal lookups).
-        const int dy = 29 * k + (lutCells == 4 ? 17 * (k >> 2) : 0);
+        const int dy = 29 * k + (lutCells < 8 ? 17 * (k >> 2) : 0);
         std::string l = replaceAll(look, "OFFF", fmt2(17.0 * k, dy));
         l = replaceAll(l, "OFFU", "uint2(" + std::to_string(17 * k) + "u, " + std::to_string(dy) + "u)");
         l = replaceAll(l, "STEP", lutNumber(0.137 * k));
@@ -783,6 +783,41 @@ void makeBlurTests(std::vector<Test>& v) {
   }
   lutCells = 8;
   lutTest(pd, "dither 8^2 Bayer float bits", "dither: none", "", "{ float2 q = pos.xy + OFFF; float y0 = bit(q.y, 0.5), y1 = bit(q.y, 0.25), y2 = bit(q.y, 0.125); s += abs(bit(q.x, 0.5) - y0) * 0.5 + y0 * 0.25 + abs(bit(q.x, 0.25) - y1) * 0.125 + y1 * 0.0625 + abs(bit(q.x, 0.125) - y2) * 0.03125 + y2 * 0.015625; }", nullptr, 0, 0, 1, fbit, "D3D9 can: 6 frac + step");
+
+  // Tiles that are not a power of two: where does the texture start to win? (owner, 2026-11-03) The index from a float
+  // (no integer division). Packed: a uint per row with as many bits per value as fit, and all levels at 8 bits.
+  for (UINT size : {5u, 6u, 7u, 10u, 12u}) {
+    lutCells = int(size);
+    const std::string n = std::to_string(size), sz = n + "^2", inv = "(1.0 / " + n + ".0)";
+    const std::string index = "uint2 q = uint2(frac((pos.xy + OFFF) * " + inv + ") * " + n + ".0);";
+    const std::vector<std::string> e = lutEntries(size_t(size) * size, false);
+    const std::string at = "q.x + " + n + "u * q.y";
+    lutTest(pd, "dither " + sz + " texture", "dither: none", ip, "s += N.Sample(W, (pos.xy + OFFF) * U[0].w).r;", "R8", size, size, 1, "", "point, wrap");
+    lutTest(pd, "dither " + sz + " const", "dither: none", ip, "{ " + index + " s += kLut[" + at + "]; }", nullptr, 0, 0, 1, lutTable("float", e), "static const, dynamic index");
+    if (size <= 8)
+      lutTest(pd, "dither " + sz + " select", "dither: none", ip, "{ " + index + " s += pickLut(" + at + "); }", nullptr, 0, 0, 1, lutTree("float", e), "a tree of selects on the index's bits");
+    const int bits = std::min(32 / int(size), 8);
+    const std::string b = std::to_string(bits), mask = std::to_string((1 << bits) - 1) + "u", scale = "(1.0 / " + std::to_string(1 << bits) + ".0)";
+    const std::string rows = lutTree("uint", lutUints(int(size), int(size), bits));
+    lutTest(pd, "dither " + sz + " packed " + b + "-bit", "dither: none", ip, "{ " + index + " s += float((pickLut(q.y) >> (q.x * " + b + "u)) & " + mask + ") * " + scale + "; }", nullptr, 0, 0, 1, rows, "a uint per row");
+    const std::string all = lutTree("uint", lutUints((int(size) * int(size) + 3) / 4, 4, 8));
+    const std::string rowRead = "s += float((pickLut(q.y) >> (q.x * " + b + "u)) & " + mask + ") * " + scale + ";";
+    const std::string allRead = "uint i = " + at + "; s += float((pickLut(i >> 2) >> (i << 3)) & 255u) * 0.00392157;";
+    lutTest(pd, "dither " + sz + " packed 8-bit", "dither: none", ip, "{ " + index + " " + allRead + " }", nullptr, 0, 0, 1, all, "all levels: 4 values per uint");
+    if (size <= 7) {  // Other ways to the index, on the same decoders. Fixed: right below 13000 (7) and 16384 (5, 6).
+      const std::string mod = "uint2 q = (ip + OFFU) % " + n + "u;";
+      const std::string fixed = "uint2 q = (((ip + OFFU) * " + std::to_string(65536u / size + 1u) + "u & 65535u) * " + n + "u) >> 16;";
+      lutTest(pd, "dither " + sz + " packed " + b + "-bit mod", "dither: none", ip, "{ " + mod + " " + rowRead + " }", nullptr, 0, 0, 1, rows, "the index by integer %");
+      lutTest(pd, "dither " + sz + " packed " + b + "-bit fixed", "dither: none", ip, "{ " + fixed + " " + rowRead + " }", nullptr, 0, 0, 1, rows, "the index by a fixed point fraction");
+      lutTest(pd, "dither " + sz + " packed 8-bit mod", "dither: none", ip, "{ " + mod + " " + allRead + " }", nullptr, 0, 0, 1, all, "all levels; the index by integer %");
+      lutTest(pd, "dither " + sz + " packed 8-bit fixed", "dither: none", ip, "{ " + fixed + " " + allRead + " }", nullptr, 0, 0, 1, all, "all levels; the index by a fixed point fraction");
+    }
+  }
+  lutCells = 8;
+  // The procedural dithers in the same run: what a fast table has to beat.
+  lutTest(pd, "dither R2", "dither: none", "", "s += frac(dot(pos.xy + OFFF, float2(0.7548777, 0.5698403)));", nullptr, 0, 0, 1, "", "frac(dot())");
+  lutTest(pd, "dither IGN", "dither: none", "", "s += frac(52.9829189 * frac(dot(pos.xy + OFFF, float2(0.06711056, 0.00583715))));", nullptr, 0, 0, 1, "", "interleaved gradient noise");
+  lutTest(pd, "dither hash", "dither: none", "", "{ float3 p3 = frac((pos.xyx + OFFF.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); s += frac((p3.x + p3.y) * p3.z); }", nullptr, 0, 0, 1, "", "Hoskins hash12");
 
   // 1D LUT by a value (a curve): nearest and interpolated. The value's own math is in the base.
   const std::string p1d = "Small tables, 1D LUT: per pixel into R8 3840 x 2160 (fma per lookup over none)";

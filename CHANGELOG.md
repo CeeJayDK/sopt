@@ -5,7 +5,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.10.2
+## 0.10.3
 
 ### SweetOpt
 - **More GLSL:** GLSL vertex and compute shaders (.vert, .comp) are read too, and more of the GLSL that Vulkan projects use: named uniform blocks, multisampled textures, more built-in values and bit functions. Vertex shaders of other projects (plain HLSL and GLSL) are optimized too.
