@@ -397,7 +397,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
           continue;
         }
         // Less accurate on V1 already (V2 only adds points) with no room left: skip the group before V2, which costs
-        // seconds on a large domain and counted no rejected candidate (2026-11-01: a region never finished).
+        // seconds on a large domain and counted no rejected candidate (2026-11-01: a region ran for minutes on these alone).
         if (!worst.pass && numLoose >= opt.maxLoose) break;
         // V2: every point of a small domain, for the cheapest few.
         bool exhaustive = false;

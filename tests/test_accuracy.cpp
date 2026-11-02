@@ -125,7 +125,7 @@ TEST(problem_ranges_depth) {
 }
 
 // Less accurate candidates beyond maxLoose are not checked by V2 (2026-11-01: k + k * k * 1e-05 with k a float on
-// [0.25, 0.75], 12.6M points, ran V2 for seconds on every one of them and never finished; here a small domain).
+// [0.25, 0.75], 12.6M points, ran V2 for seconds on every one of them; here a small domain).
 TEST(v2_skips_dropped_loose) {
   Program p = parseProgram("input k : float in [0.25, 0.2505]\noutput r = k + k * k * 1e-05\nbudget r : rel 1e-6\n");
   Options opt;
