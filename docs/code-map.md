@@ -136,6 +136,7 @@ Everything rests on `src/ir`: what an operation is, what it costs on each GPU, a
 ### Other tools
 | File | What it does |
 |---|---|
+| `tools/bitsearch/bitsearch.cpp` | Finds the cheapest integer formula for a small dither table (`sopt-bitsearch`). |
 | `tools/fxc/sopt_fxc.c` | Small wrapper around Microsoft's shader compiler (fxc). |
 | `tools/site/build.py` | Builds the web site (`site/`) from the reports. |
 | `tools/site/report_intake.py` | Fetches GPU Blueprint reports from Dropbox (run by a GitHub Action). |

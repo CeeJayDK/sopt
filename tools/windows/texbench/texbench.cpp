@@ -216,7 +216,9 @@ struct Test {
   UINT gx = 0, gy = 0;                  // compute (chainMode 0): the thread group size; 0 = pixel shader (mode 3: 8 x 8)
   const Format* noiseFormat = nullptr;  // t1: a noise texture noiseSize x noiseSize (point, wrap at s1)
   UINT noiseSize = 0;
-  float uz = 0.0f;                      // U[0].z (the branch tests' n)
+  UINT noiseHeight = 0, noiseDepth = 1;  // 0: noiseSize; depth > 1: a volume, at t2
+  std::vector<float> cbTable;            // b1: a constant buffer with these values (a table)
+  float uz = 0.0f;                    // U[0].z (the branch tests' n)
   const char* per = nullptr;
   std::string note;
 };
@@ -576,6 +578,283 @@ void makeBlurTests(std::vector<Test>& v) {
     body.insert(body.find("  float s"), decl);
     Test& t = blur(name, pt, "R8", 1, 1, 0, body, note, prefix);
     t.base = "table: none", t.count = 1, t.per = "pixel";
+  }
+
+  // Small lookup tables (topt, owner 2026-11-02: can anything beat a texture for a small LUT? Earlier numbers differ per
+  // vendor). The same kind of data as a texture (R8 / RGBA8 noise), a static const table with a dynamic index, a tree of
+  // selects on the index's bits (up to 256 entries), and arithmetic: bits packed into uints, Bayer from the pixel
+  // position. 1 and 8 per pixel. D3D11 shows no registers: the const table's VGPR and scratch come from RGA (AMD).
+  uint32_t lutSeed = 0x2F6E2B1u;
+  auto lutByte = [&] {
+    lutSeed = lutSeed * 1664525u + 1013904223u;
+    return lutSeed >> 24;
+  };
+  auto lutNumber = [](double x) {
+    char b[32];
+    std::snprintf(b, sizeof(b), "%.4f", x);
+    return std::string(b);
+  };
+  auto lutEntries = [&](size_t n, bool rgb) {
+    std::vector<std::string> e;
+    for (size_t k = 0; k < n; ++k) {
+      std::string one = lutNumber(lutByte() / 255.0);
+      if (rgb) {
+        one = "float3(" + one + ", " + lutNumber(lutByte() / 255.0) + ", ";
+        one += lutNumber(lutByte() / 255.0) + ")";
+      }
+      e.push_back(std::move(one));
+    }
+    return e;
+  };
+  auto lutTable = [](const std::string& type, const std::vector<std::string>& e) {
+    std::string f = "static const " + type + " kLut[" + std::to_string(e.size()) + "] = {";
+    for (size_t k = 0; k < e.size(); ++k) f += (k ? ", " : "") + e[k];
+    return f + "};\n";
+  };
+  // The entries, padded to a power of two with the last one, as a tree of selects on i's low bits.
+  auto lutTree = [](const std::string& type, std::vector<std::string> level) {
+    while (level.size() & (level.size() - 1)) level.push_back(level.back());
+    std::string f = type + " pickLut(uint i) {\n";
+    int id = 0;
+    for (size_t bit = 1; level.size() > 1; bit *= 2) {
+      std::vector<std::string> up;
+      for (size_t k = 0; k < level.size(); k += 2) {
+        up.push_back("v" + std::to_string(id++));
+        f += "  const " + type + " " + up.back() + " = (i & " + std::to_string(bit) + "u) ? " + level[k + 1] + " : " + level[k] + ";\n";
+      }
+      level = std::move(up);
+    }
+    return f + "  return " + level[0] + ";\n}\n";
+  };
+  auto replaceAll = [](std::string s, const std::string& from, const std::string& to) {
+    for (size_t at = 0; (at = s.find(from, at)) != std::string::npos; at += to.size()) s.replace(at, from.size(), to);
+    return s;
+  };
+  // x1 and x8 of one lookup, costed in fma per lookup over base (dither: one; the others: their count's own). In look: OFFF and
+  // OFFU the k-th pixel offset (float2, uint2), STEP k * 0.137.
+  int lutCells = 8;  // the dither table's width
+  std::vector<float> lutCb;  // the next tests' constant buffer table
+  auto lutTest = [&](const std::string& section, const std::string& name, const std::string& base, const std::string& head,
+                     const std::string& look, const char* tex, UINT w, UINT h, UINT d, const std::string& prefix,
+                     const std::string& note, int most = 8) {
+    for (int n : {1, 8}) {
+      if (n > most) continue;
+      std::string b = "  float s = frac(pos.x * 0.001);\n" + head;
+      for (int k = 0; k < n; ++k) {
+        // Every row and column differs from 8 x 8 up; in 4 x 4 all 8 cells do (a driver merges equal lookups).
+        const int dy = 29 * k + (lutCells == 4 ? 17 * (k >> 2) : 0);
+        std::string l = replaceAll(look, "OFFF", fmt2(17.0 * k, dy));
+        l = replaceAll(l, "OFFU", "uint2(" + std::to_string(17 * k) + "u, " + std::to_string(dy) + "u)");
+        l = replaceAll(l, "STEP", lutNumber(0.137 * k));
+        b += "  " + l + "\n";
+      }
+      const std::string count = " x" + std::to_string(n);
+      Test& t = blur("lut " + name + count, section, "R8", 1, 1, 0, b + "  return s;\n", note, prefix);
+      if (tex) t.noiseFormat = formatByName(tex), t.noiseSize = w, t.noiseHeight = h, t.noiseDepth = d;
+      t.cbTable = lutCb;
+      if (!base.empty()) t.base = "lut " + base + (base == "dither: none" ? "" : count), t.count = n, t.per = "lookup";
+    }
+  };
+
+  // 2D dither by pixel position: blue noise and Bayer. The index math belongs to the form: one base.
+  const std::string pd = "Small tables, 2D dither: per pixel into R8 3840 x 2160 (fma per lookup over none)";
+  const std::string ip = "  uint2 ip = uint2(pos.xy);\n";
+  blur("lut dither: none", pd, "R8", 1, 1, 0, "  float s = frac(pos.x * 0.001);\n  return s;\n", "the base");
+  for (UINT size : {4u, 8u, 16u, 32u, 64u}) {
+    lutCells = int(size);
+    const std::string sz = std::to_string(size) + "^2", n = std::to_string(size), m = std::to_string(size - 1) + "u";
+    const std::vector<std::string> e = lutEntries(size_t(size) * size, false);
+    const std::string at = "((ip.x + OFFU.x) & " + m + ") + " + n + "u * ((ip.y + OFFU.y) & " + m + ")";
+    lutTest(pd, "dither " + sz + " texture", "dither: none", ip, "s += N.Sample(W, (pos.xy + OFFF) * U[0].w).r;", "R8", size, size, 1, "", "point, wrap");
+    lutTest(pd, "dither " + sz + " texture Load", "dither: none", ip, "s += N.Load(int3((ip + OFFU) & " + m + ", 0)).r;", "R8", size, size, 1, "", "index by mask");
+    lutTest(pd, "dither " + sz + " const", "dither: none", ip, "s += kLut[" + at + "];", nullptr, 0, 0, 1, lutTable("float", e), "static const, dynamic index");
+    if (size <= 16) {
+      // float3 entries: the same read in fxc's output (icb), a different cost in NVIDIA's driver.
+      const std::vector<std::string> rgb = lutEntries(size_t(size) * size, true);
+      lutTest(pd, "dither " + sz + " const rgb", "dither: none", ip, "s += dot(kLut[" + at + "], 1.0);", nullptr, 0, 0, 1, lutTable("float3", rgb), "static const float3, all 3 used");
+      lutTest(pd, "dither " + sz + " const r of rgb", "dither: none", ip, "s += kLut[" + at + "].r;", nullptr, 0, 0, 1, lutTable("float3", rgb), "static const float3, one used");
+    }
+    if (size <= 16)
+      lutTest(pd, "dither " + sz + " select", "dither: none", ip, "s += pickLut(" + at + ");", nullptr, 0, 0, 1, lutTree("float", e), "a select per entry but one");
+  }
+  // Packed: 4-bit values in uints, so less to pick from. 4 x 4: two uints; 8 x 8: a uint per row, a tree of selects.
+  auto lutUints = [&](int n, int per, int bits) {
+    std::vector<std::string> u;
+    for (int k = 0; k < n; ++k) {
+      uint32_t v = 0;
+      for (int j = 0; j < per; ++j) v |= (lutByte() >> (8 - bits)) << (j * bits);
+      u.push_back(std::to_string(v) + "u");
+    }
+    return u;
+  };
+  lutCells = 4;
+  lutTest(pd, "dither 4^2 packed", "dither: none", ip,
+          "{ uint2 q = (ip + OFFU) & 3u; s += float(((q.y & 2u ? " + lutUints(1, 8, 4)[0] + " : " + lutUints(1, 8, 4)[0] +
+              ") >> (4u * (q.x + 4u * (q.y & 1u)))) & 15u) * 0.0625; }",
+          nullptr, 0, 0, 1, "", "4-bit values in 2 uints");
+  lutCells = 8;
+  lutTest(pd, "dither 8^2 packed", "dither: none", ip,
+          "{ uint2 q = (ip + OFFU) & 7u; s += float((pickLut(q.y) >> (4u * q.x)) & 15u) * 0.0625; }", nullptr, 0, 0, 1,
+          lutTree("uint", lutUints(8, 8, 4)), "4-bit values, a uint per row, 7 selects");
+  // Bayer: integer bits (bit-reversed interleave of x ^ y and y), and the float form without integers.
+  lutTest(pd, "dither 8^2 packed 8-bit", "dither: none", ip,
+          "{ uint2 q = (ip + OFFU) & 7u; uint i = q.x + 8u * q.y; s += float((pickLut(i >> 2) >> (8u * (i & 3u))) & 255u) * 0.00392157; }", nullptr, 0, 0, 1,
+          lutTree("uint", lutUints(16, 4, 8)), "all 64 levels: 8-bit values in 16 uints, 15 selects");
+  lutCells = 4;
+  lutTest(pd, "dither 4^2 Bayer bits", "dither: none", ip,
+          "{ uint2 q = (ip + OFFU) & 3u; uint a = q.x ^ q.y; s += float(((a & 1u) << 3) | ((q.y & 1u) << 2) | (a & 2u) | (q.y >> 1)) * 0.0625; }",
+          nullptr, 0, 0, 1, "", "from the pixel position");
+  lutCells = 8;
+  lutTest(pd, "dither 8^2 Bayer bits", "dither: none", ip,
+          "{ uint2 q = (ip + OFFU) & 7u; uint a = q.x ^ q.y; s += float(((a & 1u) << 5) | ((q.y & 1u) << 4) | ((a & 2u) << 2) | ((q.y & 2u) << 1) | ((a & 4u) >> 1) | (q.y >> 2)) * 0.015625; }",
+          nullptr, 0, 0, 1, "", "from the pixel position");
+  const std::string bayerF =
+      "float bayer2(float2 a) { a = floor(a); return frac(a.x * 0.5 + a.y * a.y * 0.75); }\n"
+      "float bayer4(float2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }\n"
+      "float bayer8(float2 a) { return bayer4(0.5 * a) * 0.25 + bayer2(a); }\n";
+  lutCells = 4;
+  lutTest(pd, "dither 4^2 Bayer float", "dither: none", "", "s += bayer4(pos.xy + OFFF);", nullptr, 0, 0, 1, bayerF, "floor and frac, no integers");
+  lutCells = 8;
+  lutTest(pd, "dither 8^2 Bayer float", "dither: none", "", "s += bayer8(pos.xy + OFFF);", nullptr, 0, 0, 1, bayerF, "floor and frac, no integers");
+
+  // Faster decoders (owner, 2026-11-02). A shift uses only its amount's low 5 bits and a select tree only the bits it
+  // tests, so most masks can go; less conversion; Bayer by one multiply or from a packed Bayer 4 x 4.
+  auto bayerBits = [](int x, int y, int levels) {
+    int v = 0;
+    for (int l = 0; l < levels; ++l) v = v << 2 | ((x ^ y) >> l & 1) << 1 | (y >> l & 1);
+    return v;
+  };
+  auto bayerRows = [&](int first) {  // Bayer 4 x 4, rows first and first + 1 in a uint
+    uint32_t v = 0;
+    for (int y = 0; y < 2; ++y)
+      for (int x = 0; x < 4; ++x) v |= uint32_t(bayerBits(x, first + y, 2)) << (4 * (x + 4 * y));
+    return std::to_string(v) + "u";
+  };
+  const std::string sel4 = "(q.y & 2u ? " + lutUints(1, 8, 4)[0] + " : " + lutUints(1, 8, 4)[0] + ")";
+  const std::string shift4 = "(((q.x & 3u) << 2) | (q.y << 4))";
+  lutCells = 4;
+  lutTest(pd, "dither 4^2 packed fast", "dither: none", ip, "{ uint2 q = ip + OFFU; s += float((" + sel4 + " >> " + shift4 + ") & 15u) * 0.0625; }", nullptr, 0, 0, 1, "", "no masks a shift does not need");
+  lutTest(pd, "dither 4^2 packed int", "dither: none", ip, "{ uint2 q = ip + OFFU; s += float(int((" + sel4 + " >> " + shift4 + ") & 15u)) * 0.0625; }", nullptr, 0, 0, 1, "", "itof instead of utof");
+  lutTest(pd, "dither 4^2 packed asfloat", "dither: none", ip, "{ uint2 q = ip + OFFU; s += asfloat(((" + sel4 + " >> " + shift4 + ") & 15u) << 19 | 0x3F800000u) - 1.0; }", nullptr, 0, 0, 1, "", "no conversion: bits into a float in [1, 2), minus 1");
+  lutTest(pd, "dither 4^2 Bayer packed", "dither: none", ip, "{ uint2 q = ip + OFFU; s += float(((q.y & 2u ? " + bayerRows(2) + " : " + bayerRows(0) + ") >> " + shift4 + ") & 15u) * 0.0625; }", nullptr, 0, 0, 1, "", "Bayer as a table in 2 uints");
+  lutTest(pd, "dither 4^2 Bayer bits fast", "dither: none", ip, "{ uint2 q = ip + OFFU; uint a = q.x ^ q.y; s += float(((a & 1u) << 3) | ((q.y & 1u) << 2) | (a & 2u) | ((q.y >> 1) & 1u)) * 0.0625; }", nullptr, 0, 0, 1, "", "no mask first");
+  lutTest(pd, "dither 4^2 Bayer mul", "dither: none", ip, "{ uint2 q = (ip + OFFU) & 3u; s += float((((q.x ^ q.y) * 9u) & 10u) | ((q.y * 9u >> 1) & 5u)) * 0.0625; }", nullptr, 0, 0, 1, "", "the bits spread by 2 multiplies");
+  // From tools/bitsearch: no right shift (the float's scale undoes the value's), + for | (no bit in common).
+  lutTest(pd, "dither 4^2 Bayer add", "dither: none", ip, "{ uint2 q = (ip + OFFU) & 3u; s += float(((q.y * 18u) & 20u) + (((q.x ^ q.y) * 36u) & 40u)) * 0.015625; }", nullptr, 0, 0, 1, "", "2 multiplies, 2 masks, an add");
+  lutCells = 8;
+  lutTest(pd, "dither 8^2 Bayer add", "dither: none", ip, "{ uint2 q = (ip + OFFU) & 7u; s += float(((q.y * 73u) & 84u) + (((q.x ^ q.y) * 146u) & 168u)) * 0.00390625; }", nullptr, 0, 0, 1, "", "2 multiplies, 2 masks, an add");
+  lutTest(pd, "dither 8^2 packed fast", "dither: none", ip, "{ uint2 q = ip + OFFU; s += float((pickLut(q.y) >> (q.x << 2)) & 15u) * 0.0625; }", nullptr, 0, 0, 1, lutTree("uint", lutUints(8, 8, 4)), "16 levels, no masks a shift or tree does not need");
+  lutTest(pd, "dither 8^2 packed 8-bit fast", "dither: none", ip, "{ uint2 q = ip + OFFU; s += float((pickLut(((q.x >> 2) & 1u) | (q.y << 1)) >> (q.x << 3)) & 255u) * 0.00392157; }", nullptr, 0, 0, 1, lutTree("uint", lutUints(16, 4, 8)), "all 64 levels, no masks a shift or tree does not need");
+  lutTest(pd, "dither 8^2 Bayer bits fast", "dither: none", ip, "{ uint2 q = ip + OFFU; uint a = q.x ^ q.y; s += float(((a & 1u) << 5) | ((q.y & 1u) << 4) | ((a & 2u) << 2) | ((q.y & 2u) << 1) | ((a & 4u) >> 1) | ((q.y >> 2) & 1u)) * 0.015625; }", nullptr, 0, 0, 1, "", "no mask first");
+  lutTest(pd, "dither 8^2 Bayer mul", "dither: none", ip, "{ uint2 q = (ip + OFFU) & 7u; s += float((((q.x ^ q.y) * 73u >> 1) & 42u) | ((q.y * 73u >> 2) & 21u)) * 0.015625; }", nullptr, 0, 0, 1, "", "the bits spread by 2 multiplies");
+  lutTest(pd, "dither 8^2 Bayer packed", "dither: none", ip, "{ uint2 q = ip + OFFU; uint a = q.x ^ q.y; s += float(((q.y & 4u ? " + bayerRows(2) + " : " + bayerRows(0) + ") >> ((q.x & 6u) << 1 | (q.y >> 1) << 4) & 15u) | ((a & 1u) << 5) | ((q.y & 1u) << 4)) * 0.015625; }", nullptr, 0, 0, 1, "", "the Bayer 4 x 4 table one level down, plus a level of bits");
+
+  // A real constant buffer: the driver cannot see the values, so it cannot turn the read into branches. Up to 4096 entries.
+  auto lutCbuffer = [&](size_t n, const std::string& type, int comps) {
+    lutCb.assign(n * 4, 0.0f);
+    for (size_t k = 0; k < n; ++k)
+      for (int c = 0; c < comps; ++c) lutCb[k * 4 + size_t(c)] = float(lutByte()) / 255.0f;
+    return "cbuffer Lut : register(b1) { " + type + " kLut[" + std::to_string(n) + "]; };\n";
+  };
+  for (UINT size : {4u, 8u, 16u, 32u, 64u}) {
+    lutCells = int(size);
+    const std::string m = std::to_string(size - 1) + "u";
+    const std::string prefix = lutCbuffer(size_t(size) * size, "float", 1);
+    lutTest(pd, "dither " + std::to_string(size) + "^2 cbuffer", "dither: none", ip, "s += kLut[((ip.x + OFFU.x) & " + m + ") + " + std::to_string(size) + "u * ((ip.y + OFFU.y) & " + m + ")];", nullptr, 0, 0, 1, prefix, "a constant buffer, dynamic index");
+  }
+
+  // Forms D3D9 can compile too (ps_3_0: no integers or bit operations; a const array becomes a chain of cmp, one a
+  // pixel position index cannot avoid). Measured here on D3D11. Bits as floats from frac; Bayer's xor is abs(x - y).
+  lutCb.clear();
+  const std::string fbit = "float bit(float a, float scale) { return step(0.5, frac(a * scale)); }\n";
+  lutCells = 4;
+  lutTest(pd, "dither 4^2 Bayer float bits", "dither: none", "", "{ float2 q = pos.xy + OFFF; float y0 = bit(q.y, 0.5), y1 = bit(q.y, 0.25); s += abs(bit(q.x, 0.5) - y0) * 0.5 + y0 * 0.25 + abs(bit(q.x, 0.25) - y1) * 0.125 + y1 * 0.0625; }", nullptr, 0, 0, 1, fbit, "D3D9 can: 4 frac + step");
+  {
+    std::string tree = "float pickF(float4 r, float x0, float x1) { float2 t = x0 >= 0.5 ? r.yw : r.xz; return x1 >= 0.5 ? t.y : t.x; }\n";
+    std::string rows[4];
+    for (int k = 0; k < 4; ++k) rows[k] = "float4(" + lutNumber(lutByte() / 255.0) + ", " + lutNumber(lutByte() / 255.0) + ", " + lutNumber(lutByte() / 255.0) + ", " + lutNumber(lutByte() / 255.0) + ")";
+    lutTest(pd, "dither 4^2 select float", "dither: none", "",
+            "{ float2 q = pos.xy + OFFF; float2 a = frac(q * 0.5), b = frac(q * 0.25); float4 r = b.y >= 0.5 ? (a.y >= 0.5 ? " + rows[3] + " : " + rows[2] + ") : (a.y >= 0.5 ? " + rows[1] + " : " + rows[0] + "); s += pickF(r, a.x, b.x); }",
+            nullptr, 0, 0, 1, tree, "D3D9 can: rows selected as vectors, then the column");
+    std::string T = "static const float4x4 kT = {";
+    for (int k = 0; k < 4; ++k) T += (k ? ", " : "") + rows[k].substr(7, rows[k].size() - 8);
+    T += "};\nfloat4 lagrange(float t) { float a = t - 1.0, b = t - 2.0, c = t - 3.0; return float4(-a * b * c / 6.0, t * b * c * 0.5, -t * a * c * 0.5, t * a * b / 6.0); }\n";
+    lutTest(pd, "dither 4^2 polynomial", "dither: none", "", "{ float2 t = frac((pos.xy + OFFF) * 0.25) * 4.0 - 0.5; s += dot(lagrange(t.x), mul(kT, lagrange(t.y))); }", nullptr, 0, 0, 1, T, "D3D9 can: any 4 x 4 table as a cubic in x and y");
+  }
+  lutCells = 8;
+  lutTest(pd, "dither 8^2 Bayer float bits", "dither: none", "", "{ float2 q = pos.xy + OFFF; float y0 = bit(q.y, 0.5), y1 = bit(q.y, 0.25), y2 = bit(q.y, 0.125); s += abs(bit(q.x, 0.5) - y0) * 0.5 + y0 * 0.25 + abs(bit(q.x, 0.25) - y1) * 0.125 + y1 * 0.0625 + abs(bit(q.x, 0.125) - y2) * 0.03125 + y2 * 0.015625; }", nullptr, 0, 0, 1, fbit, "D3D9 can: 6 frac + step");
+
+  // 1D LUT by a value (a curve): nearest and interpolated. The value's own math is in the base.
+  const std::string p1d = "Small tables, 1D LUT: per pixel into R8 3840 x 2160 (fma per lookup over none)";
+  const std::string val = "  float b = frac(dot(pos.xy, float2(0.06711056, 0.00583715)));\n";
+  const std::string v1 = "frac(b + STEP)";
+  lutTest(p1d, "1D: none", "", val, "s += " + v1 + ";", nullptr, 0, 0, 1, "", "the base");
+  for (UINT size : {16u, 32u, 64u}) {
+    const std::string sz = std::to_string(size), last = sz + ".0", top = lutNumber(size - 1.0);
+    const std::vector<std::string> e = lutEntries(size, false);
+    const std::string prefixT = lutTable("float", e), prefixS = lutTree("float", e);
+    const std::string i = "uint(" + v1 + " * " + last + ")";
+    const std::string split = "float f = " + v1 + " * " + top + "; uint i = uint(f);";
+    lutTest(p1d, "1D " + sz + " texture", "1D: none", val, "s += N.Sample(W, float2(" + v1 + ", 0.5)).r;", "R8", size, 1, 1, "", "nearest; a " + sz + " x 1 texture");
+    lutTest(p1d, "1D " + sz + " const", "1D: none", val, "s += kLut[" + i + "];", nullptr, 0, 0, 1, prefixT, "nearest; static const");
+    lutTest(p1d, "1D " + sz + " select", "1D: none", val, "s += pickLut(" + i + ");", nullptr, 0, 0, 1, prefixS, "nearest; a select per entry but one");
+    lutTest(p1d, "1D " + sz + " texture linear", "1D: none", val, "s += N.Sample(L, float2((" + v1 + " * " + top + " + 0.5) * U[0].w, 0.5)).r;", "R8", size, 1, 1, "", "interpolated by the sampler");
+    lutTest(p1d, "1D " + sz + " const lerp", "1D: none", val, "{ " + split + " s += lerp(kLut[i], kLut[i + 1u], f - float(i)); }", nullptr, 0, 0, 1, prefixT, "2 reads, lerp");
+    lutTest(p1d, "1D " + sz + " select lerp", "1D: none", val, "{ " + split + " s += lerp(pickLut(i), pickLut(i + 1u), f - float(i)); }", nullptr, 0, 0, 1, prefixS, "2 trees, lerp");
+  }
+  lutTest(p1d, "1D 16 packed", "1D: none", val,
+          "{ uint i = uint(" + v1 + " * 16.0); s += float((pickLut(i >> 2) >> (8u * (i & 3u))) & 255u) * 0.00392157; }", nullptr, 0, 0, 1,
+          lutTree("uint", lutUints(4, 4, 8)), "nearest; 8-bit values in 4 uints, 3 selects");
+
+  lutTest(p1d, "1D 16 packed fast", "1D: none", val,
+          "{ uint i = uint(" + v1 + " * 16.0); s += float((pickLut(i >> 2) >> (i << 3)) & 255u) * 0.00392157; }", nullptr, 0, 0, 1,
+          lutTree("uint", lutUints(4, 4, 8)), "no mask the shift does not need");
+
+  // The same 64-entry table with an index that changes slowly over the screen, as a gradient would: does the cost depend on
+  // how many different indices neighbouring pixels read?
+  {
+    const std::string smooth = "  float b = frac(pos.x * 0.001);\n";
+    const std::vector<std::string> e = lutEntries(64, false);
+    lutTest(p1d, "1D smooth: none", "", smooth, "s += " + v1 + ";", nullptr, 0, 0, 1, "", "the base");
+    lutTest(p1d, "1D 64 smooth texture", "1D smooth: none", smooth, "s += N.Sample(W, float2(" + v1 + ", 0.5)).r;", "R8", 64, 1, 1, "", "nearest; index smooth over the screen");
+    lutTest(p1d, "1D 64 smooth const", "1D smooth: none", smooth, "s += kLut[uint(" + v1 + " * 64.0)];", nullptr, 0, 0, 1, lutTable("float", e), "nearest; index smooth over the screen");
+    lutTest(p1d, "1D 64 smooth select", "1D smooth: none", smooth, "s += pickLut(uint(" + v1 + " * 64.0));", nullptr, 0, 0, 1, lutTree("float", e), "nearest; index smooth over the screen");
+  }
+
+  // 3D LUT by a color (rgb entries): nearest and trilinear. The color's own math is in the base.
+  const std::string p3d = "Small tables, 3D LUT: per pixel into R8 3840 x 2160 (fma per lookup over none)";
+  const std::string col = "frac(pos.xyx * float3(0.0671, 0.0058, 0.0213) + STEP * float3(1.0, 2.0, 3.0))";
+  lutTest(p3d, "3D: none", "", "", "s += dot(" + col + ", 1.0);", nullptr, 0, 0, 1, "", "the base");
+  for (UINT size : {3u, 4u}) {
+    const std::string sz = std::to_string(size), name = "3D " + sz + "^3", n = sz + "u", nn = std::to_string(size * size) + "u";
+    const std::string last = sz + ".0", top = lutNumber(size - 1.0);
+    const std::vector<std::string> e = lutEntries(size_t(size) * size * size, true);
+    const std::string prefixT = lutTable("float3", e), prefixS = lutTree("float3", e);
+    const std::string vol = "Texture3D<float4> V : register(t2);\n";
+    const std::string nearest = "uint3 a = uint3(" + col + " * " + last + "); uint i = a.x + " + n + " * a.y + " + nn + " * a.z;";
+    const std::string split = "float3 f = " + col + " * " + top + "; uint3 a = uint3(f); f -= float3(a); uint i = a.x + " + n + " * a.y + " + nn + " * a.z;";
+    auto trilinear = [&](const std::string& pick) {
+      const std::string dy = " + " + n, dz = " + " + nn;
+      return "{ " + split + " float3 c00 = lerp(" + pick + "(i), " + pick + "(i + 1u), f.x), c10 = lerp(" + pick + "(i" + dy + "), " + pick + "(i" + dy +
+             " + 1u), f.x), c01 = lerp(" + pick + "(i" + dz + "), " + pick + "(i" + dz + " + 1u), f.x), c11 = lerp(" + pick + "(i" + dz + dy + "), " + pick +
+             "(i" + dz + dy + " + 1u), f.x); s += dot(lerp(lerp(c00, c10, f.y), lerp(c01, c11, f.y), f.z), 1.0); }";
+    };
+    const std::string readT = "float3 readLut(uint i) { return kLut[i]; }\n";
+    lutTest(p3d, name + " texture", "3D: none", "", "s += dot(V.Sample(W, " + col + ").rgb, 1.0);", "RGBA8", size, size, size, vol, "nearest; RGBA8 volume");
+    lutTest(p3d, name + " const", "3D: none", "", "{ " + nearest + " s += dot(kLut[i], 1.0); }", nullptr, 0, 0, 1, prefixT, "nearest; static const");
+    lutTest(p3d, name + " select", "3D: none", "", "{ " + nearest + " s += dot(pickLut(i), 1.0); }", nullptr, 0, 0, 1, prefixS, "nearest; a select per entry but one");
+    lutTest(p3d, name + " texture trilinear", "3D: none", "", "s += dot(V.Sample(L, (" + col + " * " + top + " + 0.5) * U[0].w).rgb, 1.0);", "RGBA8", size, size, size, vol, "interpolated by the sampler");
+    lutTest(p3d, name + " const trilinear", "3D: none", "", trilinear("readLut"), nullptr, 0, 0, 1, prefixT + readT, "8 reads, 7 lerps");
+    lutTest(p3d, name + " select trilinear", "3D: none", "", trilinear("pickLut"), nullptr, 0, 0, 1, prefixS, "8 trees, 7 lerps; x1 only (x8: 0.5 s a pass on a UHD 630)", 1);
+  }
+
+  // The same with a color that differs from pixel to pixel, as noise would (the colors above change slowly).
+  {
+    const std::string noisy = "frac(pos.xyx * float3(0.7548, 0.5698, 0.3247) + STEP * float3(1.0, 2.0, 3.0))";
+    const std::vector<std::string> e = lutEntries(64, true);
+    lutTest(p3d, "3D noisy: none", "", "", "s += dot(" + noisy + ", 1.0);", nullptr, 0, 0, 1, "", "the base");
+    lutTest(p3d, "3D 4^3 noisy texture", "3D noisy: none", "", "s += dot(V.Sample(W, " + noisy + ").rgb, 1.0);", "RGBA8", 4, 4, 4, "Texture3D<float4> V : register(t2);\n", "nearest; color differs per pixel");
+    lutTest(p3d, "3D 4^3 noisy const", "3D noisy: none", "", "{ uint3 a = uint3(" + noisy + " * 4.0); s += dot(kLut[a.x + 4u * a.y + 16u * a.z], 1.0); }", nullptr, 0, 0, 1, lutTable("float3", e), "nearest; color differs per pixel");
   }
 
   // P9 compute: chains of small dependent dispatches (each reads the target the one before wrote).
@@ -2950,20 +3229,45 @@ int main(int argc, char** argv) {
       }
       ID3D11ShaderResourceView* noiseView = nullptr;
       if (t->noiseFormat) {
-        D3D11_TEXTURE2D_DESC td = {};
-        td.Width = td.Height = t->noiseSize;
-        td.MipLevels = td.ArraySize = 1;
-        td.Format = t->noiseFormat->dxgi;
-        td.SampleDesc.Count = 1;
-        td.Usage = D3D11_USAGE_IMMUTABLE;
-        td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        const auto data = texelData(*t->noiseFormat, size_t(t->noiseSize) * t->noiseSize, rng);
-        D3D11_SUBRESOURCE_DATA init = {data.data(), t->noiseSize * UINT(t->noiseFormat->bytes), 0};
-        ID3D11Texture2D* nt = nullptr;
-        if (FAILED(g.dev->CreateTexture2D(&td, &init, &nt)) || FAILED(g.dev->CreateShaderResourceView(nt, nullptr, &noiseView)))
-          fail("cannot create the noise texture for " + t->name);
+        const UINT nw = t->noiseSize, nh = t->noiseHeight ? t->noiseHeight : nw, nd = t->noiseDepth;
+        const auto data = texelData(*t->noiseFormat, size_t(nw) * nh * nd, rng);
+        D3D11_SUBRESOURCE_DATA init = {data.data(), nw * UINT(t->noiseFormat->bytes), nw * nh * UINT(t->noiseFormat->bytes)};
+        ID3D11Resource* nt = nullptr;
+        if (nd > 1) {
+          D3D11_TEXTURE3D_DESC td = {};
+          td.Width = nw, td.Height = nh, td.Depth = nd;
+          td.MipLevels = 1;
+          td.Format = t->noiseFormat->dxgi;
+          td.Usage = D3D11_USAGE_IMMUTABLE;
+          td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+          ID3D11Texture3D* volume = nullptr;
+          if (FAILED(g.dev->CreateTexture3D(&td, &init, &volume))) fail("cannot create the noise texture for " + t->name);
+          nt = volume;
+        } else {
+          D3D11_TEXTURE2D_DESC td = {};
+          td.Width = nw, td.Height = nh;
+          td.MipLevels = td.ArraySize = 1;
+          td.Format = t->noiseFormat->dxgi;
+          td.SampleDesc.Count = 1;
+          td.Usage = D3D11_USAGE_IMMUTABLE;
+          td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+          ID3D11Texture2D* flat = nullptr;
+          if (FAILED(g.dev->CreateTexture2D(&td, &init, &flat))) fail("cannot create the noise texture for " + t->name);
+          nt = flat;
+        }
+        if (FAILED(g.dev->CreateShaderResourceView(nt, nullptr, &noiseView))) fail("cannot create the noise texture for " + t->name);
         nt->Release();
-        g.ctx->PSSetShaderResources(1, 1, &noiseView);
+        g.ctx->PSSetShaderResources(nd > 1 ? 2 : 1, 1, &noiseView);
+      }
+      ID3D11Buffer* tableCb = nullptr;
+      if (!t->cbTable.empty()) {
+        D3D11_BUFFER_DESC bd = {};
+        bd.ByteWidth = UINT(t->cbTable.size() * sizeof(float));
+        bd.Usage = D3D11_USAGE_IMMUTABLE;
+        bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        D3D11_SUBRESOURCE_DATA init = {t->cbTable.data(), 0, 0};
+        if (FAILED(g.dev->CreateBuffer(&bd, &init, &tableCb))) fail("cannot create the table for " + t->name);
+        g.ctx->PSSetConstantBuffers(1, 1, &tableCb);
       }
       ID3D11SamplerState* samplers[2] = {nullptr, nullptr};
       for (int k = 0; k < 2; ++k) {
@@ -3016,15 +3320,20 @@ int main(int argc, char** argv) {
           }
         }
       });
-      ID3D11ShaderResourceView* nullViews[2] = {nullptr, nullptr};
+      ID3D11ShaderResourceView* nullViews[3] = {nullptr, nullptr, nullptr};
       ID3D11UnorderedAccessView* nullUav = nullptr;
       g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
-      g.ctx->PSSetShaderResources(0, 2, nullViews);
+      g.ctx->PSSetShaderResources(0, 3, nullViews);
       g.ctx->CSSetShaderResources(0, 1, nullViews);
       g.ctx->CSSetUnorderedAccessViews(1, 1, &nullUav, nullptr);
       release(ps);
       release(csh);
       release(noiseView);
+      if (tableCb) {
+        ID3D11Buffer* none = nullptr;
+        g.ctx->PSSetConstantBuffers(1, 1, &none);
+        tableCb->Release();
+      }
       for (auto*& x : samplers) release(x);
       for (auto*& x : uavs) release(x);
       for (auto*& x : rtv) release(x);

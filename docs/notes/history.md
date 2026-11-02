@@ -2328,6 +2328,24 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   beyondSlider (frontend.cpp): a slider compared with a value at / beyond its ends or with one subtracted (X - hi, lo -
   X) gets no ui_min / ui_max range. (3) HLSL prints mad(b - a, t, a) as lerp(a, b, t); sopt-found.txt leaves out
   variants with the same DXBC (dxbcSame). MXAO after: 1 written (the acos), 7 regions need ranges, no wrong rule.
+  Small lookup tables in TexBench (topt's request, owner 2026-11-02, 0.10.2): sections "Small tables, 2D dither / 1D LUT /
+  3D LUT", names "lut ..." (--filter "lut "), 187 tests, about 15-30 s; results and conclusions in docs/texbench/FINDINGS.md.
+  Traps met: x8 offsets must differ in row and column or the driver merges lookups (first runs: 4 x 4 Load 4.8 fma on UHD 630,
+  packed 1.5 with shared rows; lutCells); select trilinear x8 took 0.5 s a pass on UHD 630 (TDR risk on slow cards: x1 only);
+  a float3 table is not the cause of NVIDIA's cheap 3D reads (const rgb costs double): the index's coherence is. Same icb read
+  in DXBC for all. Open: sopt's table rewrite (NVIDIA: select tree up to 32 entries, history 2026-10-17) was measured with a
+  noisy index only and loses about 10x when the index is smooth (64 entries: const 4 against select 39), so it may be wrong for
+  some regions. Not changed: owner's call. RGA (vk-offline, GLSL; script not kept): scratch 0 everywhere. Faster decoders
+  (owner, same day): Bayer by 2 multiplies from a small search ((a * 73 >> 1) & 42 spreads 3 bits; no single multiply does
+  both a and y, carries collide), checked against the bit form on every cell. A cbuffer table costs what icb does on
+  NVIDIA, which rules out "known values lowered to branches". sopt on the float forms (--cost-model nvidia-turing,
+  intel-gen9, ampere): only frac(g), and on Ampere rounding tricks (x + 12582912 - 12582912) for floor.
+  tools/bitsearch (sopt-bitsearch, owner's go, same day): bottom-up integer search with constants, meet in the middle on two
+  pieces with no bit in common, output scale 2^0..6 (no right shift), weights from OpBench. Bank cap 800 MB: level 3 fills it
+  in 5 s, so level 3 is not complete. Found the "Bayer add" forms, checked against the bit form on every cell. Random 4 x 4
+  tables are out of its reach (constants). TexBench's reference drift does not catch a clock drop mid-run on the 1660 (990-1200
+  MHz, all times about 1.6x, drift below 1%): testers' numbers can be off the same way. Includes (tester report, same day):
+  folderIncludePaths took a Shaders folder only under reshade-shaders; now the nearest one above the file (iMMERSE-main\Shaders).
   GLSL for other projects (owner, 2026-10-31: HLSL / GLSL beyond ReShade, also .comp / .vert and texture instructions
   ReShade lacks, read as inputs; AnyPS5's 35 shaders as the test): .vert / .comp read; a GLSL main writing gl_Position is
   a vertex shader (gl_VertexIndex / InstanceIndex in, gl_Position / gl_PointSize out; gl_PerVertex redeclarations

@@ -98,7 +98,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 - `tools/windows`: opbench (OpBench; StageBench = the same source with SOPT_STAGEBENCH), texbench (TexBench), shaderinfo (ShaderInfo), benchkit.hpp (shared console /
   timing), host (sopt-host), timer (sopt-timer ReShade add-on), GPU-Blueprint.bat / SweetOpt.bat / Test-Host.bat menus,
   docs/*.html (shipped guides), stage.ps1, expected.hpp. `tools/reshade`: ReShade patches, IEEE754 test effect.
-  `tools/site`: site build, Steam share script. `tools/sweetfx`: proposed SweetFX changes, BlendModes.fxh.
+  `tools/bitsearch`: integer decoder search (sopt-bitsearch). `tools/site`: site build, Steam share script. `tools/sweetfx`: proposed SweetFX changes, BlendModes.fxh.
 - Data: docs/opbench, docs/texbench (+ FINDINGS.md), docs/shaderinfo; data/steam-gpu-share.txt; library/rewrites.txt
   (+ library/found/); docs/inexact-tricks.md (every not-exact / conditional trick with its limits: add new ones there).
 - `bench/bench.cpp` + `examples/*.sopt` (`# expect:`).

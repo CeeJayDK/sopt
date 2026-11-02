@@ -5,7 +5,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.10.1
+## 0.10.2
 
 ### SweetOpt
 - **More GLSL:** GLSL vertex and compute shaders (.vert, .comp) are read too, and more of the GLSL that Vulkan projects use: named uniform blocks, multisampled textures, more built-in values and bit functions. Vertex shaders of other projects (plain HLSL and GLSL) are optimized too.
@@ -15,6 +15,10 @@ docs/notes/history.md.
 - **No guessing where the code checks itself:** where an effect's code clamps or tests a value (like an on-screen check), SweetOpt no longer guesses that value's range from its name.
 - **lerp stays lerp:** changes are written with lerp() where that is what they compute, instead of a harder to read mad().
 - **Also math with matrix settings:** color and position math that uses a matrix setting of an effect is now optimized too.
+- **Header files in packages:** effects in a downloaded package's own Shaders folder now find header files in its subfolders, as they do in ReShade.
+
+### GPU Blueprint
+- **Small lookup tables:** TexBench now measures whether small dither tables and color tables are faster as a texture or written out in the shader, on your card.
 
 ## 0.10.0
 

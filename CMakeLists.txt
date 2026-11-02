@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sopt VERSION 0.10.1 LANGUAGES C CXX)
+project(sopt VERSION 0.10.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -245,5 +245,9 @@ if(SOPT_BUILD_TESTS)
     SOPT_LIBRARY_FILE="${CMAKE_CURRENT_SOURCE_DIR}/library/rewrites.txt")
   sopt_fp_flags(sopt-tests)
   add_test(NAME sopt-tests COMMAND sopt-tests)
+  # Integer dither decoders (sopt searches float math only).
+  add_executable(sopt-bitsearch tools/bitsearch/bitsearch.cpp)
+  target_compile_features(sopt-bitsearch PRIVATE cxx_std_17)
+  add_test(NAME sopt-bitsearch COMMAND sopt-bitsearch --check)
 endif()
 
