@@ -122,7 +122,29 @@ Measured first on a GTX 1660 and a UHD 630 (TexBench 0.9.2, 2026-10-22): in thro
 depend on each other `Sample` is about 3 units slower (42.1 vs 39.3 and 42.7 vs 39.6). Where the level is known, give
 it.
 
+### Reads hide some math; `tex2D` costs nothing
+
+Timed through the Test Host at 3840 x 2160 (sopt-timer, ad hoc effect, one test image, 2026-11-03). Extra mads that
+add no time, on top of a shader's own math (D3D11):
+
+| Reads in the pass | 0 | 1 | 4 | 8 | 16 |
+|---|---|---|---|---|---|
+| GTX 1660 (1 mad = 4.7 us) | 37 | 44 | 46 | 78 | 132 |
+| UHD 630 (1 mad = 50 us) | 9 | 10 | 22 | 44 | 94 |
+
+So a pass has a floor (about 470 us on the 1660, even with no read) and past 4 reads each read hides about 6 more
+mads. A read costs about 11 mads on both. Math the pass can hide does not show up in time: a cheaper 4-tap B-spline
+gains 0 us alone on the 1660, 10% alone on the 630, 2.7% on both once 400 mads make the pass math-limited.
+
+`tex2D` against `tex2Dlod` at level 0 (4 reads): no measurable difference, D3D9 and D3D11 on the 1660, D3D11 on the
+630, also math-limited (+/- 0.5 us on the 1660, under 10 us of 24 ms on the 630). The 4 extra `mul`s fxc writes for
+`tex2Dlod` on D3D9 would show as about 19 us.
+
 ### Sampling precision: 8 bits, rounded to the nearest
+
+By 2026-11-03 ten reports (7 cards: GT 530, GT 1030, GTX 1660, UHD 630, HD 3000, Arc B580, AMD Renoir) have this test:
+all exactly 257 positions, none finer than 8 bits. HD 3000 keeps only 9 levels inside one colour step in RGBA8, and it
+and Renoir round a half step down (first change at 129 / 65536). No RTX or RDNA report has it yet.
 
 The same two cards place a bilinear read in 1/256 steps between two texels (257 results from 65536 reads) and round a
 position to the nearest step (the first change at 1/512 texel), in RGBA8, RGBA16F and R32F alike: an offset of 1/257

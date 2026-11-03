@@ -46,7 +46,7 @@ std::string emitEffect(const Expr& e, const std::vector<InputDecl>& inputs, bool
   s += "\n" + typeName(rt) + " sopt_region(";
   for (size_t i = 0; i < inputs.size(); ++i)
     s += (i ? ", " : "") + typeName(inputs[i].type) + " " + inputs[i].name;
-  if (needsPrecise(e))  // as sopt-fx writes it, so fxc cannot fold (v + c) - c
+  if (needsPrecise(e))  // as the author wrote it, so fxc cannot fold (v + c) - c
     s += ")\n{\n\tprecise " + typeName(rt) + " r = " + toString(e, inputs) + ";\n\treturn r;\n}\n\n";
   else
     s += ")\n{\n\treturn " + toString(e, inputs) + ";\n}\n\n";

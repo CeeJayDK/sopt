@@ -123,7 +123,8 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 - Every new search technique goes behind a flag and must improve the bench before becoming default (unless the owner
   decides). Tests of what the bank alone reaches turn off overflow, shared leaves, subtrees, cuts, top-down, two-phase,
   library.
-- `precise` regions keep float semantics; rounding-dependent variants are written as `precise` (`needsPrecise`).
+- `precise` regions keep float semantics. Variants that rely on `precise` are never written (`needsPrecise`): drivers
+  cancel `(x + c) - c` even then on some card and API pairs (2026-11-03, docs/inexact-tricks.md).
 - Variants of regions with assumed (unproven) ranges are not written; facts files / `--ask` supply ranges.
 
 ## Facts worth keeping in mind

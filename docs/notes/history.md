@@ -2744,6 +2744,15 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   plain instruction per converted component until mix16 reports arrive. Steps 2-5 (fp16 evaluator with half / float / mixed
   profiles, half variants with conversions at the region's edges in the family table, D3D10-12 only output, corpus A/B +
   sopt-timer on the owner's NUC) follow. (6) uniform zero guard: on the list (owner).
+- 2026-11-03 (owner: B-spline timing on D3D9 through the Test Host, card choice, two-add rule). sopt-host --gpu <part of the
+  name> (run-bench.ps1 -Gpu): D3D9 lists only cards with a monitor attached, so no D3D9 on this PC's UHD 630; Vulkan
+  there fails under ReShade (VK_KHR_maintenance5, driver 31.0.101.2145). Add-round removed: rules out of
+  library/rewrites.txt, needsPrecise variants no longer written (details and pixel check: docs/inexact-tricks.md).
+  An earlier reading "two adds win by 72 us on D3D9, new B-spline -130 us" was false: the round had been cancelled.
+  B-spline, original against tex2D + round() without precise, us at 3840 x 2160, alone / + 400 mads: 1660 D3D11 0 / -64,
+  D3D12 -3 / -66, D3D9 -2 / -57; 630 D3D11 -442 (-10%) / -696, D3D12 -812 (-15%) / -902. Hidden math table:
+  docs/texbench/FINDINGS.md. Quirk: run-bench's screenshot of the first preset can show the image without the effect
+  (seen on the APIs where the pixel check passed); its timing is not affected. A check belongs in a later preset.
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

@@ -14,7 +14,8 @@ param(
   [string[]]$Apis = @("dx11", "vulkan"),
   [int]$Width = 3840,
   [int]$Height = 2160,
-  [int]$Frames = 300
+  [int]$Frames = 300,
+  [string]$Gpu = ""
 )
 . (Join-Path $PSScriptRoot "common.ps1")
 $ReShade = Find-ReShade $ReShade
@@ -50,8 +51,10 @@ foreach ($api in (Resolve-Apis $Apis)) {
   $csv = Join-Path $run "sopt-timer.csv"
   Remove-Item $csv -ErrorAction SilentlyContinue
   Enable-ReShade $run $api
+  $hostArgs = @("--api", $api, "--bench", "--width", $Width, "--height", $Height)
+  if ($Gpu) { $hostArgs += @("--gpu", "`"$Gpu`"") }
   $p = Start-Process -FilePath (Join-Path $run "sopt-host.exe") -WorkingDirectory $run -PassThru -Wait `
-    -ArgumentList @("--api", $api, "--bench", "--width", $Width, "--height", $Height)
+    -ArgumentList $hostArgs
   Disable-ReShade $run
   $log = Join-Path $run "ReShade.log"
   if (Test-Path $log) { Copy-Item $log (Join-Path $results "ReShade-$api.log") -Force }
@@ -69,6 +72,7 @@ foreach ($api in (Resolve-Apis $Apis)) {
 
 # --- results ----------------------------------------------------------------------------
 Get-GpuInfo | Set-Content (Join-Path $results "gpu.txt")
+if ($Gpu) { $summary += "card asked for: $Gpu" }
 $summary | Set-Content (Join-Path $results "summary.txt")
 $zip = "$results.zip"
 Compress-Archive -Path "$results\*" -DestinationPath $zip -Force

@@ -110,17 +110,20 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
   of +-1. Checked on every float in [-2^22, 2^22] with FTZ: exact.
 
 ### Add-round: `(x + 12582912.0) - 12582912.0` = `round(x)`
+**Removed from the library and never written as a variant (2026-11-03): wrong pixels.**
 - 12582912 = 1.5 * 2^23: x + 1.5 * 2^23 lands where the float spacing is 1, so the add rounds x
   to the nearest integer (ties to even, like HLSL round). 2 adds.
-- Cost: 8 (round: Ampere 24, Blackwell 23, Turing 12; Intel and AMD 4, no gain there).
-- Built on it (5 instructions each, exact, every float in [-2^22, 2^22] checked):
-  `floor(x) = r - saturate((r - x) * 1e38)`, `ceil(x) = r + saturate((x - r) * 1e38)`,
-  `frac(x) = d + saturate(d * -1e38)` with `r` the add-round and `d = x - r`. Ampere / Blackwell
-  23-24 -> 20-21.
-- **What's wrong:** only valid for |x| <= 2^22 (4194304); beyond that the add no longer rounds to
-  integers. And **fxc -O3 folds `(x + c) - c` back to `x`** (see Pitfalls), which silently gives
-  a wrong result (`mad(uv.x, 1000, C) - C` became `uv.x * 1000`). Write it as `precise`:
-  `precise float r = (x + 12582912.0) - 12582912.0;` sopt-fx does this automatically.
+- **What's wrong:** `precise` does not save it. Pixel check, `precise` form against `round`, through ReShade: on a
+  GTX 1660 (32.0.16.1742) right on D3D10, D3D11, Vulkan and OpenGL, cancelled on D3D9 and D3D12; on a UHD 630
+  (31.0.101.2145) right on D3D11 and D3D12, cancelled on D3D10. Without `precise`, cancelled everywhere (fxc or
+  the driver), also with c in a uniform. fxc keeps the adds for `ps_3_0` when `precise`, so on D3D12 at least it is
+  the driver; on D3D9 ReShade or the driver.
+- It is not faster either, where it works: D3D11, 16 rounds in a chain at 3840 x 2160, `precise` adds against
+  `round` without `precise`: GTX 1660 +145 us, UHD 630 +1021 us (about 2 and 1.3 mads per round). `precise` on `round`
+  alone costs 48 and 471 us. OpBench's roundadd / flooradd / fracadd stay as measurements, D3D11 compute only.
+- **Still correct, found by sopt, no `precise`:** `round(x * 32.0) / 32.0 -> mad(mad(x, 32.0, 12582912.0), 0.03125,
+  -393216.0)`, the same for 64: no wrong pixel on either card on any of those APIs (library/found, not in the library;
+  speed not measured). Same for `floor(log2(x))` with `-16777216.0` in rewrites.txt (not on D3D9, needs integers).
 
 ### `floor(SV_Position.xy)` = `SV_Position.xy - 0.5`
 - Pixel centres are at n + 0.5, so subtracting 0.5 is exact and gives the integer pixel index.
@@ -135,7 +138,7 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
 - Found by sopt for Blackwell: 4 adds (cost 16 against ceil 23 and the exact form's 21).
 - **What's wrong:** gives 0 instead of 1 for 0 < x <= 2^-25 (2.98e-8): there `x + 0.5` rounds to
   0.5 and the tie in the second subtraction goes to the even value. Exact for every other float
-  in [-2^22, 2^22] (checked exhaustively). Needs `precise` like the add-round.
+  in [-2^22, 2^22] (checked exhaustively). Needs `precise` like the add-round, so it is not safe either.
 - **Safe when** x cannot be a tiny positive value (e.g. x on a grid such as a texel or pixel
   coordinate, or x known to be >= 2^-24 or <= 0).
 - Passed sopt's sampled verification as bit-exact until the sampler got tiny magnitudes
@@ -227,8 +230,8 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
 - spirv-opt's folding rules apply these (MergeGenericAddSubArithmetic, MergeMulDivArithmetic,
   MergeDivMulArithmetic); they save one or two instructions.
 - **What's wrong:** they equal real math, not float math: `(a - b) + b` rounds `a - b` first, which is
-  exactly what rounding tricks rely on (e.g. the add-round above, `(x + C) - C`). The compiler only
-  keeps such code as written when it is marked `precise`.
+  exactly what rounding tricks rely on (e.g. the add-round above, `(x + C) - C`). `precise` is supposed to
+  keep such code as written, but not every driver honours it (add-round above).
 - **Safe when** the code is ordinary arithmetic, not a deliberate rounding step. sopt's check passes
   them (as close to exact math as the original), so they are left out of the library on purpose.
 

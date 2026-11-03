@@ -5,9 +5,10 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.10.3
+## 0.10.4
 
 ### SweetOpt
+- **Wrong pixels fixed:** SweetOpt could replace `round`, `floor`, `ceil` or `frac` with a trick that some graphics drivers undo, which broke the picture on those cards. It no longer uses that trick. Effects optimized with an older version should be optimized again.
 - **More GLSL:** GLSL vertex and compute shaders (.vert, .comp) are read too, and more of the GLSL that Vulkan projects use: named uniform blocks, multisampled textures, more built-in values and bit functions. Vertex shaders of other projects (plain HLSL and GLSL) are optimized too.
 - **Older NVIDIA cards:** SweetOpt now knows what math costs on GeForce GT / GTX 400 and 500 cards (Fermi).
 - **Settings used beyond their slider:** when an effect's code handles values beyond a slider's range (you can type them in), SweetOpt no longer treats the slider's ends as limits there.
