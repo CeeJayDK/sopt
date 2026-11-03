@@ -116,8 +116,12 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
 - **What's wrong:** `precise` does not save it. Pixel check, `precise` form against `round`, through ReShade: on a
   GTX 1660 (32.0.16.1742) right on D3D10, D3D11, Vulkan and OpenGL, cancelled on D3D9 and D3D12; on a UHD 630
   (31.0.101.2145) right on D3D11 and D3D12, cancelled on D3D10. Without `precise`, cancelled everywhere (fxc or
-  the driver), also with c in a uniform. fxc keeps the adds for `ps_3_0` when `precise`, so on D3D12 at least it is
-  the driver; on D3D9 ReShade or the driver.
+  the driver), also with c in a uniform. Not ReShade: the same without it (OpBench's check, below). fxc keeps the adds,
+  so it is the driver.
+- **It depends on the form too.** A float2 written in one line, `precise float2 d = t - (t + C - C)`, is cancelled on
+  D3D12 on the 1660; OpBench's scalar form in two steps, `precise float t = v + C; precise float r = t - C;`, is not. On
+  D3D9 on the 1660 that scalar form is right through ReShade and wrong without it. So a pass on one form says nothing
+  about another. OpBench and StageBench report it per API: `# precise forms:` in their CSV (precise_check.hpp).
 - It is not faster either, where it works: D3D11, 16 rounds in a chain at 3840 x 2160, `precise` adds against
   `round` without `precise`: GTX 1660 +145 us, UHD 630 +1021 us (about 2 and 1.3 mads per round). `precise` on `round`
   alone costs 48 and 471 us. OpBench's roundadd / flooradd / fracadd stay as measurements, D3D11 compute only.

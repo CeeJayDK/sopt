@@ -2753,6 +2753,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   D3D12 -3 / -66, D3D9 -2 / -57; 630 D3D11 -442 (-10%) / -696, D3D12 -812 (-15%) / -902. Hidden math table:
   docs/texbench/FINDINGS.md. Quirk: run-bench's screenshot of the first preset can show the image without the effect
   (seen on the APIs where the pixel check passed); its timing is not affected. A check belongs in a later preset.
+  Scaled forms against round(): docs/inexact-tricks.md. OpBench / StageBench check precise on every run (owner:
+  "precise seems to mean anything but"; opbench/precise_check.hpp, `# precise forms:` in the CSV, D3D9 / 10 / 11 pixel and
+  compute / 12, no Vulkan or OpenGL: they need SPIR-V or a GL context). GTX 1660: D3D9 wrong (all forms), D3D12 wrong
+  (float2 in one line only), the rest right. UHD 630: D3D10 wrong (all), D3D11 and D3D12 right, D3D9 not run (no monitor).
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

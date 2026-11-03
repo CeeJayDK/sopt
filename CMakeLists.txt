@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sopt VERSION 0.10.4 LANGUAGES C CXX)
+project(sopt VERSION 0.10.5 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -159,14 +159,14 @@ if(WIN32)
   add_executable(opbench tools/windows/opbench/sopt_opbench.cpp)
   set_target_properties(opbench PROPERTIES OUTPUT_NAME OpBench)
   target_compile_features(opbench PRIVATE cxx_std_17)
-  target_link_libraries(opbench PRIVATE d3d11 dxgi d3dcompiler)
+  target_link_libraries(opbench PRIVATE d3d9 d3d10 d3d11 dxgi d3dcompiler)
   target_compile_definitions(opbench PRIVATE SOPT_VERSION="${PROJECT_VERSION}")
   # StageBench (owner, 2026-10-13): OpBench's tests in vertex and pixel shaders (the same source, SOPT_STAGEBENCH);
   # a separate tool so the owner can judge it before it joins the GPU Blueprint menu.
   add_executable(stagebench tools/windows/opbench/sopt_opbench.cpp)
   set_target_properties(stagebench PROPERTIES OUTPUT_NAME StageBench)
   target_compile_features(stagebench PRIVATE cxx_std_17)
-  target_link_libraries(stagebench PRIVATE d3d11 dxgi d3dcompiler)
+  target_link_libraries(stagebench PRIVATE d3d9 d3d10 d3d11 dxgi d3dcompiler)
   target_compile_definitions(stagebench PRIVATE SOPT_VERSION="${PROJECT_VERSION}" SOPT_STAGEBENCH)
   # TexBench (owner, 2026-10-04): texture reads, derivatives and render target writes per format,
   # tools/windows/texbench; shares tools/windows/benchkit.hpp with OpBench.

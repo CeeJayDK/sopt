@@ -5,7 +5,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.10.4
+## 0.10.5
 
 ### SweetOpt
 - **Wrong pixels fixed:** SweetOpt could replace `round`, `floor`, `ceil` or `frac` with a trick that some graphics drivers undo, which broke the picture on those cards. It no longer uses that trick. Effects optimized with an older version should be optimized again.
@@ -19,6 +19,7 @@ docs/notes/history.md.
 - **Header files in packages:** effects in a downloaded package's own Shaders folder now find header files in its subfolders, as they do in ReShade.
 
 ### GPU Blueprint
+- **Driver check:** OpBench and StageBench now also report whether your driver keeps a shader's `precise` math as written, on each version of Direct3D.
 - **Small lookup tables:** TexBench now measures whether small dither tables and color tables are faster as a texture or written out in the shader, on your card.
 
 ## 0.10.0

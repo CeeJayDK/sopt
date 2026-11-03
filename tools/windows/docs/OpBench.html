@@ -75,7 +75,7 @@
 <h3>Rounding and sign</h3>
 <table>
   <tr><td><code>floor</code>, <code>ceil</code>, <code>round</code>, <code>trunc</code>, <code>frac</code></td><td>the rounding instructions (quarter rate on some NVIDIA cards). <code>trunc</code> drops the fraction (round toward zero) instead of rounding by sign.</td></tr>
-  <tr><td><code>roundadd</code>, <code>flooradd</code>, <code>fracadd</code></td><td>round / floor / frac built from adds with a magic constant (1.5 &times; 2<sup>23</sup>), for cards where the rounding instructions are slow.</td></tr>
+  <tr><td><code>roundadd</code>, <code>flooradd</code>, <code>fracadd</code></td><td>Some drivers undo these (the report's <code>precise forms</code> line says where). round / floor / frac built from adds with a magic constant (1.5 &times; 2<sup>23</sup>), for cards where the rounding instructions are slow.</td></tr>
   <tr><td><code>sign</code></td><td>HLSL <code>sign()</code>: fxc writes compare, compare, int subtract, int &rarr; float.</td></tr>
   <tr><td><code>signsel2</code>, <code>signbits</code>, <code>signsat</code>, <code>signmad</code>, <code>signclamp</code>, <code>signsel</code></td><td>other ways to get -1 / 0 / +1 (<code>signsel2</code> and <code>signbits</code> give +1 at 0; <code>signbits</code> copies the sign bit onto 1.0 with two integer instructions), without the int &rarr; float conversion that makes <code>sign()</code> slow on newer NVIDIA cards.</td></tr>
 </table>
