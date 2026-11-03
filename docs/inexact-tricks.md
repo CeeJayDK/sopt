@@ -122,8 +122,12 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
   `round` without `precise`: GTX 1660 +145 us, UHD 630 +1021 us (about 2 and 1.3 mads per round). `precise` on `round`
   alone costs 48 and 471 us. OpBench's roundadd / flooradd / fracadd stay as measurements, D3D11 compute only.
 - **Still correct, found by sopt, no `precise`:** `round(x * 32.0) / 32.0 -> mad(mad(x, 32.0, 12582912.0), 0.03125,
-  -393216.0)`, the same for 64: no wrong pixel on either card on any of those APIs (library/found, not in the library;
-  speed not measured). Same for `floor(log2(x))` with `-16777216.0` in rewrites.txt (not on D3D9, needs integers).
+  -393216.0)`, the same for 64: no wrong pixel on either card on any of those APIs (library/found, not in the library).
+  Same for `floor(log2(x))` with `-16777216.0` in rewrites.txt (not on D3D9, needs integers).
+- **Those scaled forms stay out: slower than `round()`** except on D3D9. 16 rounds in a chain, math-limited, 3840 x 2160:
+  GTX 1660 D3D9 -60 us (-2.4%), D3D11 / D3D12 / Vulkan / OpenGL +44 to +46 us (+1.9%); UHD 630 D3D10 / D3D11 +18 to +29 us
+  (+0.1%), D3D12 +64 to +67 us (+0.3%). OpBench's `round` costs twice as much on RTX 30 / 40, so they could gain there
+  (not measured).
 
 ### `floor(SV_Position.xy)` = `SV_Position.xy - 0.5`
 - Pixel centres are at n + 0.5, so subtracting 0.5 is exact and gives the integer pixel index.
