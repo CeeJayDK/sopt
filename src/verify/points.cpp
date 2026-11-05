@@ -293,7 +293,7 @@ float domainValue(const InputDecl& d, uint64_t k) {
   return fromOrdered(orderedBits(static_cast<float>(d.lo)) + static_cast<uint32_t>(k));
 }
 
-PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed, bool coincidences) {
+PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed, bool coincidences, bool more) {
   Rng rng(seed);
   const std::vector<InputDecl> slots = slotDecls(prog.inputs);
   PointSet ps;
@@ -302,13 +302,18 @@ PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed, bool
   auto specials = specialPoints(prog, rng);
   const size_t maxSpecial = std::max<size_t>(1, (count * 2) / 3);
   for (size_t i = 0; i < specials.size() && i < maxSpecial; ++i) ps.add(specials[i]);
+  // Extra points (the flags) come on top of the random ones, before them and from their own generator: the random
+  // points stay what they are without the flags, and stay last (the top-down lookup points). They used to replace
+  // the random points, which left the lookups on flat zero points (2026-11-05).
+  Rng rx(seed + 77);
+  const size_t before = ps.size();
+  std::vector<float> p(slots.size());
+  auto random = [&]() {
+    for (size_t i = 0; i < p.size(); ++i) p[i] = sampleInput(slots[i], rx);
+  };
   if (coincidences) {
-    // 0 where the domain holds it (else its nearest end); the others random. At most half the points.
+    // 0 where the domain holds it (else its nearest end); the others random. At most count / 2.
     const size_t limit = ps.size() + count / 2;
-    std::vector<float> p(slots.size());
-    auto random = [&]() {
-      for (size_t i = 0; i < p.size(); ++i) p[i] = sampleInput(slots[i], rng);
-    };
     for (size_t i = 0; i < p.size(); ++i) p[i] = snap(slots[i], 0.0);
     if (ps.size() < limit) ps.add(p);
     for (size_t i = 0; i < slots.size() && ps.size() < limit; ++i)
@@ -319,8 +324,22 @@ PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed, bool
         ps.add(p);
       }
   }
-  while (ps.size() < count) {
-    std::vector<float> p(slots.size());
+  if (more) {
+    // --fp-more: the special points that did not fit, threshold points (an input at a comparison / min / max / step
+    // operand's value) and every pair of inputs equal. At most count / 2.
+    const size_t limit = ps.size() + count / 2;
+    for (size_t i = maxSpecial; i < specials.size() && ps.size() < limit; ++i) ps.add(specials[i]);
+    for (const auto& q : thresholdPoints(prog, rx))
+      if (ps.size() < limit) ps.add(q);
+    for (size_t i = 0; i < slots.size() && ps.size() < limit; ++i)
+      for (size_t j = i + 1; j < slots.size() && ps.size() < limit; ++j) {
+        random();
+        p[j] = snap(slots[j], p[i]);
+        ps.add(p);
+      }
+  }
+  const size_t extra = ps.size() - before;
+  while (ps.size() < count + extra) {
     for (size_t i = 0; i < p.size(); ++i) p[i] = sampleInput(slots[i], rng);
     ps.add(p);
   }

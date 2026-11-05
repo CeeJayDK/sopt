@@ -1785,30 +1785,59 @@ std::vector<Candidate> Enumerator::run(SearchStats& stats) {
 void Enumerator::topDownPass(uint32_t cost, SearchStats& stats) {
   const Type T = targetType_;
   if (T == Type::Bool) return;
-  // Lookup points: the last two test points (random ones) where the target is finite.
-  if (tdP0_ == UINT32_MAX) {
-    for (size_t i = n_; i-- > 0;)
-      if (targetFinite_[i]) {
-        if (tdP0_ == UINT32_MAX) tdP0_ = static_cast<uint32_t>(i);
-        else if (tdP1_ == UINT32_MAX) tdP1_ = static_cast<uint32_t>(i);
+  // Lookup points: the last two test points (random ones) where the target is finite. tdEnd: only the generated
+  // points (not counterexamples). tdSpread: the points where the stored values differ most first. tdPairs: more
+  // pairs, spread over that order.
+  if (!tdInit_) {
+    tdInit_ = true;
+    std::vector<uint32_t> pts;
+    for (size_t i = std::min<size_t>(cfg_.tdEnd ? cfg_.tdEnd : n_, n_); i-- > 0;)
+      if (targetFinite_[i]) pts.push_back(static_cast<uint32_t>(i));
+    if (cfg_.tdSpread && pts.size() > 2) {
+      std::vector<uint32_t> sample;
+      for (uint32_t c = 0; c < cost && sample.size() < 4096; ++c)
+        for (uint32_t x : byCost_[c][static_cast<size_t>(T)])
+          if (sample.size() < 4096) sample.push_back(x);
+      std::vector<std::pair<size_t, uint32_t>> score;  // (distinct values, point)
+      std::vector<float> v;
+      for (uint32_t p : pts) {
+        v.clear();
+        for (uint32_t x : sample) v.push_back(fpOf(x)[p]);
+        std::sort(v.begin(), v.end());
+        score.push_back({static_cast<size_t>(std::unique(v.begin(), v.end()) - v.begin()), p});
       }
-    if (tdP1_ != UINT32_MAX) {
+      std::stable_sort(score.begin(), score.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+      for (size_t k = 0; k < pts.size(); ++k) pts[k] = score[k].second;
+    }
+    // Fewer than two finite points: no pairs (potatoFX's sqrt(1 - x*x - y*y) with x, y in [-1000, 1000] is finite at
+    // one point: the next level read target_[UINT32_MAX] and crashed, 2026-10-20).
+    const size_t pairs = std::min<size_t>(cfg_.tdPairs, pts.size() / 2);
+    const size_t step = pairs ? std::max<size_t>(2, pts.size() / pairs) : 2;
+    for (size_t k = 0; k < pairs && k * step + 1 < pts.size(); ++k) {
+      TdPair pr{pts[k * step], pts[k * step + 1], {}};
       for (uint32_t c = 0; c < cost; ++c)  // earlier levels (the pass starts at level 1)
-        for (uint32_t x : byCost_[c][static_cast<size_t>(T)]) tdIndex_.push_back({fpOf(x)[tdP0_], x});
-      std::sort(tdIndex_.begin(), tdIndex_.end());
+        for (uint32_t x : byCost_[c][static_cast<size_t>(T)]) pr.index.push_back({fpOf(x)[pr.p0], x});
+      std::sort(pr.index.begin(), pr.index.end());
+      td_.push_back(std::move(pr));
     }
   }
-  // Fewer than two finite points: on every call, not only the first (potatoFX's sqrt(1 - x*x - y*y) with x, y in
-  // [-1000, 1000] is finite at one point: the next level read target_[UINT32_MAX] and crashed, 2026-10-20).
-  if (tdP1_ == UINT32_MAX) return;
   const auto& fresh = byCost_[cost][static_cast<size_t>(T)];
   if (fresh.empty()) return;
-  {
-    const size_t mid = tdIndex_.size();
-    for (uint32_t x : fresh) tdIndex_.push_back({fpOf(x)[tdP0_], x});
-    std::sort(tdIndex_.begin() + static_cast<std::ptrdiff_t>(mid), tdIndex_.end());
-    std::inplace_merge(tdIndex_.begin(), tdIndex_.begin() + static_cast<std::ptrdiff_t>(mid), tdIndex_.end());
+  for (TdPair& pr : td_) {
+    const size_t mid = pr.index.size();
+    for (uint32_t x : fresh) pr.index.push_back({fpOf(x)[pr.p0], x});
+    std::sort(pr.index.begin() + static_cast<std::ptrdiff_t>(mid), pr.index.end());
+    std::inplace_merge(pr.index.begin(), pr.index.begin() + static_cast<std::ptrdiff_t>(mid), pr.index.end());
+    topDownLookup(pr, fresh, stats);
+    if (stop_) return;
   }
+}
+
+// One lookup pair's part of topDownPass.
+void Enumerator::topDownLookup(const TdPair& pr, const std::vector<uint32_t>& fresh, SearchStats& stats) {
+  const Type T = targetType_;
+  const uint32_t tdP0_ = pr.p0, tdP1_ = pr.p1;
+  const auto& tdIndex_ = pr.index;
   const CostModel& ord = order();
   const unsigned w = width(T);
   const double t0 = target_[tdP0_], tol0 = monoTol_[tdP0_];

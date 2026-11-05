@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <bit>
+#include <iterator>
 #include <unordered_map>
 
 namespace sopt {
@@ -125,6 +126,24 @@ void finish(const Program& prog, const Options& opt, RunResult& res) {
 }  // namespace
 
 RunResult optimize(const Program& progIn, const Options& opt) {
+  if (opt.seeds > 1 && !opt.previousOnly) {
+    // --seeds: each later seed starts from the earlier seeds' finds (like a later run from sopt-cache.txt).
+    auto best = [](const RunResult& r) {
+      uint32_t c = r.targetCost;
+      for (const auto& a : r.accepted) c = std::min(c, a.cost);
+      return c;
+    };
+    Options o = opt;
+    o.seeds = 1;
+    RunResult res;
+    for (uint32_t k = 0; k < opt.seeds; ++k) {
+      o.seed = opt.seed + 1000003ull * k;
+      RunResult r = optimize(progIn, o);
+      for (const auto& a : r.accepted) o.previous.push_back(a.expr);
+      if (k == 0 || best(r) <= best(res)) res = std::move(r);  // a later run at the same cost re-verified the earlier finds
+    }
+    return res;
+  }
   if ((!opt.exactRule && progIn.budget.vsExact) || progIn.budget.loose != opt.loose) {
     Program p = progIn;
     p.budget.vsExact = p.budget.vsExact && opt.exactRule;
@@ -164,7 +183,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   res.targetText = toString(prog.target, prog.inputs);
   if (res.targetCost == 0) return res;
 
-  PointSet tests = makeTestPoints(prog, opt.numTests, opt.seed, opt.fpCoincidence);
+  PointSet tests = makeTestPoints(prog, opt.numTests, opt.seed, opt.fpCoincidence, opt.fpMore);
   const PointSet stage2 = makeRandomPoints(prog, opt.stage2Points, opt.seed + 1, true);
   const PointSet v1 = makeRandomPoints(prog, opt.v1Points, opt.seed + 2, true);
   const std::vector<float> stage2Target = evalAll(prog.target, stage2, kProfileRef);
@@ -201,6 +220,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
 
   SearchConfig cfg = opt.search;
   cfg.rational = cfg.rational && opt.accuracyVariants;
+  if (cfg.tdEnd) cfg.tdEnd = static_cast<uint32_t>(tests.size());  // --td-random-points: before any counterexample
   res.v2Points = opt.v2Max ? domainSize(prog, opt.v2Max) : 0;
 
   // Library (Options::library): rewritten forms of the target are candidates; the
@@ -258,14 +278,16 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   bool subDone = false;
   std::vector<Candidate> cutCands;  // Options::cuts, computed once
   bool cutDone = false;
+  std::vector<Candidate> keptCands;  // --keep-survivors
   for (uint32_t iter = 0; iter < opt.maxIterations; ++iter) {
     res.iterations = iter + 1;
     const bool lastIter = iter + 1 == opt.maxIterations || opt.previousOnly;
 
     double ts = nowSeconds();
     // The time limit covers all CEGIS iterations (the overflow search runs to it); a
-    // restart after counterexamples gets what is left, at least a tenth.
-    cfg.timeLimitSec = std::max(opt.search.timeLimitSec * 0.1, opt.search.timeLimitSec - res.searchSec);
+    // restart after counterexamples gets what is left, at least a tenth (--full-restarts: all of it).
+    cfg.timeLimitSec = opt.fullRestarts ? opt.search.timeLimitSec
+                                        : std::max(opt.search.timeLimitSec * 0.1, opt.search.timeLimitSec - res.searchSec);
     std::vector<Candidate> cands;
     if (!opt.previousOnly) {
       // The bank is freed before the subtree / cut searches, which build their own.
@@ -302,6 +324,8 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     cands.insert(cands.end(), libCands.begin(), libCands.end());
     cands.insert(cands.end(), shapeCands.begin(), shapeCands.end());
     cands.insert(cands.end(), prevCands.begin(), prevCands.end());
+    cands.insert(cands.end(), std::make_move_iterator(keptCands.begin()), std::make_move_iterator(keptCands.end()));
+    keptCands.clear();
     for (auto& c : cands) {
       c.expr = simplifyIdentities(c.expr);
       c.cost = dagCost(c.expr, *opt.search.model, prog.inputs);
@@ -338,6 +362,8 @@ RunResult optimize(const Program& progIn, const Options& opt) {
       for (const auto& p : cex) tests.add(p);
       res.counterexamples += cex.size();
       res.verifySec += nowSeconds() - ts;
+      if (opt.keepSurvivors)
+        for (auto& s : survivors) keptCands.push_back(std::move(s.cand));
       continue;
     }
 

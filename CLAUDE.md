@@ -162,9 +162,12 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
    rule's original (library/found/, 1165 from the 0.6.4 corpus run; library/rewrites.txt's "found by sopt" rules) and
    compare with the found replacement; owner, sopt and Claude then try to beat them by hand too. An Action, not tokens. Not yet
    (owner, 2026-10-27): each improvement of sopt may find more, so it runs once sopt stops improving much.
-9. Search flags, both stay off by default (owner, 2026-11-05; corpus A/B in history). Fix the first one first:
-   --fp-coincidence: finds big wins nothing else finds (82 -> 58) but loses more regions than it wins. Good idea, flawed:
-   find out why it loses and fix it. --library-regroup: rarely finds anything; revisit later, change it or find a better idea.
+9. Search flags, off by default (owner, 2026-11-05; corpus A/B and the investigation in history). --fp-coincidence
+   (written regions: wins 22, losses 16) lost by moving the top-down lookups onto flat zero points; fixed (its points
+   now come on top of the random ones). Experiments from that, all behind flags, corpus A/B pending: --fp-more,
+   --keep-survivors, --full-restarts, --td-random-points, --td-spread, --td-pairs N, --seeds N. Goal (owner): fewer
+   regions where the search misses, by fixing causes, not by relying on seed luck. --library-regroup: rarely finds
+   anything (written regions: 0 wins, 3 losses); revisit later, change it or find a better idea.
 7. sign() fast forms (owner, 2026-10-10): one (mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0), 2.25 on every model so far)
    beats the others everywhere; once OpBench reports cover the families, drop the slower ones from library/rewrites.txt.
    Not before.

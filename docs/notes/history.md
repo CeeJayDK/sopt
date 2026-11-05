@@ -2796,3 +2796,21 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   search within the time limit is only a guess. Owner's decision: both stay off by default; --fp-coincidence is a good idea
   but flawed and fixing it comes first; --library-regroup rarely finds anything, revisit later or replace it. The goal is the
   most optimal shaders, not a shorter sopt run.
+
+## Search flag investigation (2026-11-05)
+
+- Correction to the A/B above: it counted regions with assumed ranges, whose variants are never written. Written regions
+  only: --fp-coincidence wins 22 (saved 93), loses 16 (added 44); --library-regroup 0 wins, 3 losses (12). The big wins
+  (VirtualResolution.fx:130 82 -> 58, SharpContrast.fx:421) are in regions with assumed ranges.
+- Why --fp-coincidence lost: its zero points replaced random test points, so the last two test points (the top-down
+  lookup points) were often zero points, where many stored values are equal; each lookup checks at most 64 candidates
+  and missed the right operand. Fix: the zero points come on top of the random points, from their own generator.
+  Locally (1 s) this restored all four written losses (StageDepthPlus.fx:521 25, SunsetFilter.fx:79 25, Transform.fxh:19
+  62, PD80_06_Film_Grain.fx:230 23), kept AdaptiveTonemapper.fx:249 141 and VirtualResolution.fx:130 58, and lost three
+  of the old flag's wins (FlexibleCA 85, DepthAlpha 44, SharpContrast:421 41; probably found through the other lookup
+  points by chance).
+- Found on the way, in the default search: a CEGIS restart drops the candidates that already passed stage 2. Keeping
+  them was never worse in 45 runs (9 regions x 5 seeds), better in 4. And the seed alone moves results as much as the
+  flag (Zenteon_TurboGI.fx:492 56 / 77, Halftone.fx:79 25 / 39): the lookup points after a restart are counterexamples.
+- New flags to measure (corpus): --fp-more, --keep-survivors, --full-restarts, --td-random-points, --td-spread,
+  --td-pairs N, --seeds N (each seed starts from the earlier seeds' finds, as a later run does from sopt-cache.txt).

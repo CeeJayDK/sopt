@@ -36,6 +36,13 @@ struct SearchConfig {
   // op(a, b) is goal-checked: pairs of any two stored entries, up to twice the depth for
   // the top operation, in one pass instead of all pairs. Not in disk mode.
   bool topDown = true;
+  // Top-down experiments (2026-11-05): tdEnd > 0 (--td-random-points, set by the driver): lookup points only among
+  // the first tdEnd test points (the generated ones, not counterexamples added on a restart). tdSpread
+  // (--td-spread): the lookup points are the ones where the stored values differ most (a flat point is no lookup).
+  // tdPairs (--td-pairs N): N lookup pairs, each a pass of its own (another pair finds what one misses).
+  uint32_t tdEnd = 0;
+  bool tdSpread = false;
+  uint32_t tdPairs = 1;
   // Best-so-far bound (owner, 2026-09-28; design 4.3): hits, and entries that could only
   // be part of hits, must cost at most the cheapest hit found so far + slack (the
   // original's cost is only the starting bound). The slack drops to 0 when the bank is
@@ -444,9 +451,14 @@ class Enumerator {
   const std::vector<Seg>& listSegs(uint32_t cost, Type t);
   bool hasDisk(uint32_t cost, Type t) { return listSegs(cost, t).size() > 1 || (!listSegs(cost, t).empty() && listSegs(cost, t)[0].tile >= 0); }
   void requireTiles(std::initializer_list<int64_t> tiles, SearchStats& stats);
-  // Top-down split: (value at test point tdP0_, index) of the target-type entries, sorted.
-  std::vector<std::pair<float, uint32_t>> tdIndex_;
-  uint32_t tdP0_ = UINT32_MAX, tdP1_ = UINT32_MAX;
+  // Top-down split, per lookup pair (SearchConfig::tdPairs): (value at test point p0, index) of the target-type
+  // entries, sorted. Empty when fewer than two test points are finite.
+  struct TdPair {
+    uint32_t p0, p1;
+    std::vector<std::pair<float, uint32_t>> index;
+  };
+  std::vector<TdPair> td_;
+  bool tdInit_ = false;
   uint32_t bestHitObj_ = UINT32_MAX;  // objective cost of the cheapest hit so far
   // Exclusive objective bound for entries and hits: targetCost_, or with the best-so-far
   // bound min(targetCost_, bestHitObj_ + slackCur_ + 1).
@@ -475,6 +487,7 @@ class Enumerator {
       objLimit_ = static_cast<uint32_t>(std::min<int64_t>(targetCost_, int64_t{bestHitObj_} + slackCur_ + 1));
   }
   void topDownPass(uint32_t cost, SearchStats& stats);
+  void topDownLookup(const TdPair& pr, const std::vector<uint32_t>& fresh, SearchStats& stats);
   size_t maxBank_ = 0;         // entries: from the memory budget, cfg_.maxBank, 32-bit offsets
   size_t budget_ = 0;          // bank memory budget in bytes (bankBudget)
   bool bankFull() const;

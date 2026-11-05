@@ -80,6 +80,16 @@ struct Options {
   //   Bool expressions that differ only there (z != 0 || w != 0 vs z != 0) stay apart in the bank.
   bool libraryRegroup = false;
   bool fpCoincidence = false;
+  // Search experiments (owner, 2026-11-05: the goal is the most optimal shaders; corpus decides):
+  // --fp-more: fingerprint points also at the special points that did not fit, threshold points and inputs pairwise
+  //   equal (on top of the random points). --keep-survivors: candidates that passed stage 2 stay candidates after a
+  //   CEGIS restart (they were dropped). --full-restarts: each restart gets the whole time limit (it got what was
+  //   left, at least a tenth). --seeds N: the search runs with N seeds, each starting from the earlier seeds' finds
+  //   (as a later run starts from sopt-cache.txt); the cheapest result is kept.
+  bool fpMore = false;
+  bool keepSurvivors = false;
+  bool fullRestarts = false;
+  uint32_t seeds = 1;
   // The previous run's results (owner, 2026-10-09: "the next run could start with the variants found in the previous
   // run"; sopt-fx keeps them in sopt-cache.txt): candidates over this program's inputs, verified again like the
   // library's forms; the cheapest that passes stage 2 starts the best-so-far bound. previousOnly: nothing about the
