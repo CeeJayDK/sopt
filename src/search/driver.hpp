@@ -149,6 +149,7 @@ struct RunResult {
   uint64_t rejectedV1 = 0;
   uint64_t rejectedProfiles = 0;
   uint64_t rejectedV2 = 0;
+  uint64_t v2Checks = 0;  // candidates checked on every point (V2)
   uint32_t subtreeSearches = 0;  // Options::subtrees: subexpressions searched (not cached)
   double subtreeSec = 0.0;
   double v3Sec = 0.0;  // Options::v3

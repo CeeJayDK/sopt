@@ -396,9 +396,13 @@ RunResult optimize(const Program& progIn, const Options& opt) {
           }
           continue;
         }
+        // Less accurate on V1 already (V2 only adds points) with no room left: skip the group before V2, which costs
+        // seconds on a large domain and counted no rejected candidate (2026-11-01: a region ran for minutes on these alone).
+        if (!worst.pass && numLoose >= opt.maxLoose) break;
         // V2: every point of a small domain, for the cheapest few.
         bool exhaustive = false;
         if (res.v2Points && res.accepted.size() < opt.v2Candidates) {
+          ++res.v2Checks;
           Metrics all;
           for (const auto& prof : kAllProfiles) {
             all.merge(compareExhaustive(prog, c.expr, prof, opt.threads));

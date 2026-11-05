@@ -15,6 +15,7 @@ docs/notes/history.md.
 - **No guessing where the code checks itself:** where an effect's code clamps or tests a value (like an on-screen check), SweetOpt no longer guesses that value's range from its name.
 - **lerp stays lerp:** changes are written with lerp() where that is what they compute, instead of a harder to read mad().
 - **Also math with matrix settings:** color and position math that uses a matrix setting of an effect is now optimized too.
+- **Fixed:** the search of some small pieces of math (one setting or color value over a wide range) could run far past its time limit. It is much shorter now.
 
 ## 0.10.0
 
