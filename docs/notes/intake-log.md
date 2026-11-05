@@ -575,3 +575,30 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-ps-8.csv` (StageBench 0.10.2)
 - upload 1: stagebench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/stagebench/nvidia-gt-530-vs-8.csv` (StageBench 0.10.2)
 - upload 1: texbench, NVIDIA GeForce GT 530 (driver 23.21.13.9135): `docs/texbench/nvidia-gt-530-7.csv`, `docs/texbench/nvidia-gt-530-7-order.png`, `docs/texbench/nvidia-gt-530-7-order-zoom.png` (TexBench 0.10.2)
+
+## 2026-11-02 21:47 UTC
+- upload 1: opbench, NVIDIA GeForce RTX 3070 Ti (driver 32.0.15.6094): `docs/opbench/nvidia-rtx-3070-ti.csv` (OpBench 0.10.0)
+- upload 1: shaderinfo, NVIDIA GeForce RTX 3070 Ti (driver NVIDIA 560.94 (560.94)): `docs/shaderinfo/nvidia-rtx-3070-ti.txt`
+- upload 1: stagebench, NVIDIA GeForce RTX 3070 Ti (driver 32.0.15.6094): `docs/stagebench/nvidia-rtx-3070-ti-ps.csv` (StageBench 0.10.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 3070 Ti (driver 32.0.15.6094): `docs/stagebench/nvidia-rtx-3070-ti-vs.csv` (StageBench 0.10.0)
+- upload 1: texbench, NVIDIA GeForce RTX 3070 Ti (driver 32.0.15.6094): `docs/texbench/nvidia-rtx-3070-ti.csv`, `docs/texbench/nvidia-rtx-3070-ti-order.png`, `docs/texbench/nvidia-rtx-3070-ti-order-zoom.png` (TexBench 0.10.0)
+- upload 2: opbench, Intel(R) HD Graphics 4600 (driver 20.19.15.5171): `docs/opbench/intel-hd-graphics-4600-4.csv` (OpBench 0.10.0)
+- upload 2: stagebench, Intel(R) HD Graphics 4600 (driver 20.19.15.5171): `docs/stagebench/intel-hd-graphics-4600-ps-2.csv` (StageBench 0.10.0)
+- upload 2: stagebench, Intel(R) HD Graphics 4600 (driver 20.19.15.5171): `docs/stagebench/intel-hd-graphics-4600-vs-2.csv` (StageBench 0.10.0)
+- upload 2: texbench, Intel(R) HD Graphics 4600 (driver 20.19.15.5171): `docs/texbench/intel-hd-graphics-4600-5.csv`, `docs/texbench/intel-hd-graphics-4600-5-order.png`, `docs/texbench/intel-hd-graphics-4600-5-order-zoom.png` (TexBench 0.10.0)
+- upload 3: opbench, NVIDIA Quadro P600 (driver 32.0.15.8194): `docs/opbench/nvidia-quadro-p600.csv` (OpBench 0.10.0)
+- upload 3: stagebench, NVIDIA Quadro P600 (driver 32.0.15.8194): `docs/stagebench/nvidia-quadro-p600-ps.csv` (StageBench 0.10.0)
+- upload 3: stagebench, NVIDIA Quadro P600 (driver 32.0.15.8194): `docs/stagebench/nvidia-quadro-p600-vs.csv` (StageBench 0.10.0)
+- upload 3: texbench, NVIDIA Quadro P600 (driver 32.0.15.8194): `docs/texbench/nvidia-quadro-p600.csv`, `docs/texbench/nvidia-quadro-p600-order.png`, `docs/texbench/nvidia-quadro-p600-order-zoom.png` (TexBench 0.10.0)
+- upload 4: opbench, AMD Radeon RX 7900 GRE (driver 32.0.32015.12012): `docs/opbench/amd-radeon-rx-7900-gre-2.csv` (OpBench 0.10.0)
+- upload 4: shaderinfo, AMD Radeon RX 7900 GRE (driver AMD proprietary driver 26.10.2 (LLPC) (2.0.416)): `docs/shaderinfo/amd-radeon-rx-7900-gre-2.txt`
+- upload 4: shaderinfo, AMD Radeon(TM) Graphics (driver AMD proprietary driver 26.10.2 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-0x164e-3.txt`
+- upload 4: stagebench, AMD Radeon RX 7900 GRE (driver 32.0.32015.12012): `docs/stagebench/amd-radeon-rx-7900-gre-ps.csv` (StageBench 0.10.0)
+- upload 4: stagebench, AMD Radeon RX 7900 GRE (driver 32.0.32015.12012): `docs/stagebench/amd-radeon-rx-7900-gre-vs.csv` (StageBench 0.10.0)
+- upload 4: texbench, AMD Radeon RX 7900 GRE (driver 32.0.32015.12012): `docs/texbench/amd-radeon-rx-7900-gre-2.csv`, `docs/texbench/amd-radeon-rx-7900-gre-2-order.png`, `docs/texbench/amd-radeon-rx-7900-gre-2-order-zoom.png` (TexBench 0.10.0)
+- upload 5: opbench, NVIDIA GeForce RTX 5070 Ti (driver 32.0.16.1742): `docs/opbench/nvidia-rtx-5070-ti.csv` (OpBench 0.10.0)
+- upload 5: shaderinfo, AMD Radeon(TM) Graphics (driver AMD proprietary driver 25.10.30.02 (AMD proprietary shader compiler) (2.0.353)): `docs/shaderinfo/amd-radeon-0x164e-4.txt`
+- upload 5: shaderinfo, NVIDIA GeForce RTX 5070 Ti (driver NVIDIA 617.42 (617.42)): `docs/shaderinfo/nvidia-rtx-5070-ti.txt`
+- upload 5: stagebench, NVIDIA GeForce RTX 5070 Ti (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-5070-ti-ps.csv` (StageBench 0.10.0)
+- upload 5: stagebench, NVIDIA GeForce RTX 5070 Ti (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-5070-ti-vs.csv` (StageBench 0.10.0)
+- upload 5: texbench, NVIDIA GeForce RTX 5070 Ti (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-5070-ti.csv`, `docs/texbench/nvidia-rtx-5070-ti-order.png`, `docs/texbench/nvidia-rtx-5070-ti-order-zoom.png` (TexBench 0.10.0)

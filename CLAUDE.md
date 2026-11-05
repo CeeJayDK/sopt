@@ -149,7 +149,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
    evaluator (half / float / mixed profiles), 3 half variants with conversions at region edges in the GPU-family table,
    4 output only for D3D10-12, 5 corpus A/B + sopt-timer test on the owner's NUC (Gen9 should gain, GTX 1660 control).
 3. Uniform zero guard: done 2026-10-28 (fx/guard.cpp, switch Z, --no-zero-guard; SweetFX: CAS, Tonemap, Vibrance).
-4. STOKE-style stochastic search: built 2026-10-28 behind --stoke; bench: identical bests, stays off.
+4. STOKE-style stochastic search: built 2026-10-28, bench: identical bests; removed 2026-11-05 (history).
 5. Waiting on others: IEEE 754 test results for crosire (tools/reshade/IEEE754.md); ReShade patches (UPSTREAM.md);
    intrinsics report (tools/reshade/INTRINSICS.md: missing intrinsics, round / clamp / smoothstep / saturate across APIs).
 6. Planned / parked: `--poly` approximation mode; test package from the full corpus run; M5 rest (probe effect, facts
@@ -162,8 +162,8 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
    rule's original (library/found/, 1165 from the 0.6.4 corpus run; library/rewrites.txt's "found by sopt" rules) and
    compare with the found replacement; owner, sopt and Claude then try to beat them by hand too. An Action, not tokens. Not yet
    (owner, 2026-10-27): each improvement of sopt may find more, so it runs once sopt stops improving much.
-9. Flags --library-regroup / --fp-coincidence (2026-10-11): off; the bench shows no difference (no || chains in it).
-   Add bench problems with any() / all() if they should earn the default.
+9. Flags --library-regroup / --fp-coincidence (2026-10-11): off. bench/logic (any / all / chains, 2026-11-05): identical
+   bests at 30 s on rdna3 and nvidia-ampere. Owner to decide whether they go.
 7. sign() fast forms (owner, 2026-10-10): one (mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0), 2.25 on every model so far)
    beats the others everywhere; once OpBench reports cover the families, drop the slower ones from library/rewrites.txt.
    Not before.

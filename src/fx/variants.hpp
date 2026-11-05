@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -181,5 +182,19 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
 // rewrite, with the region, costs and accuracy in a comment above it: material for the
 // library (owner, 2026-09-29: people and AI look at them, generalize, then add them).
 std::string foundRewrites(const std::vector<RegionResult>& results);
+
+// The previous run's candidates (sopt-cache.txt in the output folder): per shape, one entry per key (ranges, budget,
+// options). An entry cut off by a crash (no "end" line) is ignored.
+struct CacheEntry {
+  std::string key;
+  std::vector<std::string> cands;
+};
+using RunCache = std::map<std::string, std::vector<CacheEntry>>;
+RunCache loadRunCache(const std::filesystem::path& path);
+void saveRunCache(const std::filesystem::path& path, const RunCache& cache);
+
+// The change a parse error is in: the switch tested by the innermost #if around the error's line (parseError holds
+// "file(line, column): error"). where has the switches as keys. Empty when no #if around it tests one.
+std::string culpritSwitch(const std::string& parseError, const std::map<std::string, std::string>& where);
 
 }  // namespace sopt::fx

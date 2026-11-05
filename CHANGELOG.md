@@ -17,8 +17,10 @@ docs/notes/history.md.
 - **lerp stays lerp:** changes are written with lerp() where that is what they compute, instead of a harder to read mad().
 - **Also math with matrix settings:** color and position math that uses a matrix setting of an effect is now optimized too.
 - **Header files in packages:** effects in a downloaded package's own Shaders folder now find header files in its subfolders, as they do in ReShade.
+- **Fixed:** the search of some small pieces of math (one setting or color value over a wide range) could run far past its time limit. It is much shorter now.
 
 ### GPU Blueprint
+- **Sending reports:** a report is no longer lost when the connection to Dropbox fails while it is being collected, and a report sent with ShaderInfo alone now arrives.
 - **Driver check:** OpBench and StageBench now also report whether your driver keeps a shader's `precise` math as written, on each version of Direct3D.
 - **Small lookup tables:** TexBench now measures whether small dither tables and color tables are faster as a texture or written out in the shader, on your card.
 

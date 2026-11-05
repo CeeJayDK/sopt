@@ -54,10 +54,6 @@ struct Options {
   // first, subtreeTime seconds each) and offer the whole expression with the cheaper
   // forms put back as candidates (search/subtrees.hpp).
   bool subtrees = true;   // default (owner, 2026-09-27); --no-subtrees
-  // STOKE-style stochastic search (search/stoke.hpp; owner's go to try, 2026-10-28): off until the bench says
-  // otherwise; --stoke. stokeShare of the search time, once per region.
-  bool stoke = false;
-  double stokeShare = 0.25;
   double subtreeTime = 1.0;
   uint32_t subtreeMaxCost = 64;
   uint32_t maxSubtrees = 24;
@@ -149,6 +145,7 @@ struct RunResult {
   uint64_t rejectedV1 = 0;
   uint64_t rejectedProfiles = 0;
   uint64_t rejectedV2 = 0;
+  uint64_t v2Checks = 0;  // candidates checked on every point (V2)
   uint32_t subtreeSearches = 0;  // Options::subtrees: subexpressions searched (not cached)
   double subtreeSec = 0.0;
   double v3Sec = 0.0;  // Options::v3

@@ -1,0 +1,7 @@
+# any() / all() and chains of || / && / min / max, to judge --library-regroup and --fp-coincidence: sopt-bench --examples bench/logic
+input a : float in [-1, 1]
+input b : float in [-1, 1]
+input c : float in [-1, 1]
+input d : float in [-1, 1]
+output r = (a != 0.0 || b != 0.0 || c != 0.0 || d != 0.0) ? 1.0 : 0.0
+budget r : exact

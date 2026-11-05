@@ -78,7 +78,6 @@ Everything rests on `src/ir`: what an operation is, what it costs on each GPU, a
 | `src/search/options.cpp` | Command line options of the search, shared by sopt, sopt-fx and sopt-bench. |
 | `src/search/library.cpp` | Applies known rewrite rules from `library/rewrites.txt`. |
 | `src/search/subtrees.cpp` | Searches the small parts of a big expression on their own. |
-| `src/search/stoke.cpp` | STOKE-style random walk over expressions (off by default, `--stoke`). |
 | `src/search/cuts.cpp` | Splits an expression at a point everything depends on and searches both halves. |
 | `src/search/generalize.cpp` | Turns found numbers back into formulas of the user's settings (e.g. a far plane). |
 | `src/search/reshape.cpp` | Reorders sums and products so values that are the same for every pixel group together. |
@@ -98,7 +97,7 @@ Everything rests on `src/ir`: what an operation is, what it costs on each GPU, a
 |---|---|
 | `src/fx/codegen.cpp` | Hooks into ReShade's parser and records the shader code as a data-flow graph. |
 | `src/fx/frontend.cpp` | Loads an effect (HLSL / GLSL too), finds the regions, works out value ranges and budgets. |
-| `src/fx/variants.cpp` | Writes the new effect files with switches, the report, `sopt-found.txt` and easy mode's picks. |
+| `src/fx/variants.cpp` | Writes the new effect files with switches, the report, `sopt-found.txt` and easy mode's picks; reads and writes `sopt-cache.txt`. |
 | `src/fx/classic.cpp` | Rewrite: local arrays of constants become static tables. Also shared source text helpers. |
 | `src/fx/hoist.cpp` | Rewrite: moves math from the pixel shader to the vertex shader. |
 | `src/fx/blend.cpp` | Rewrite: moves the final mix with the screen into the GPU's blend unit. |

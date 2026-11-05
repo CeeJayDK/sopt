@@ -35,7 +35,19 @@ std::string runCommand(const std::string& cmd, int& status) {
   return out;
 }
 
-std::string quote(const std::string& s) { return "\"" + s + "\""; }
+std::string quote(const std::string& s) {
+#ifdef _WIN32
+  return "\"" + s + "\"";
+#else
+  // Single quotes: inside double quotes the shell would still run $(...) and `...` in a file name.
+  std::string r = "'";
+  for (char c : s) {
+    if (c == '\'') r += "'\\''";
+    else r += c;
+  }
+  return r + "'";
+#endif
+}
 
 std::filesystem::path makeWorkDir(const std::string& keepDir, const char* prefix,
                                   std::string& error) {

@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <fstream>
 #include <map>
+#include <regex>
 #include <set>
 
 namespace sopt::fx {
@@ -852,6 +853,63 @@ std::string foundRewrites(const std::vector<RegionResult>& results) {
     for (const auto& v : rr.variants) emit(v);
   }
   return s;
+}
+
+RunCache loadRunCache(const fs::path& path) {
+  RunCache cache;
+  std::ifstream f(path, std::ios::binary);
+  std::string line, shape;
+  CacheEntry e;
+  while (std::getline(f, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line.rfind("shape ", 0) == 0) shape = line.substr(6), e = CacheEntry{};
+    else if (line.rfind("key ", 0) == 0) e.key = line.substr(4);
+    else if (line.rfind("cand ", 0) == 0) e.cands.push_back(line.substr(5));
+    else if (line == "end" && !shape.empty()) cache[shape].push_back(e), shape.clear();
+  }
+  return cache;
+}
+
+void saveRunCache(const fs::path& path, const RunCache& cache) {
+  std::error_code ec;
+  fs::create_directories(path.parent_path(), ec);
+  std::ofstream f(path, std::ios::binary);
+  f << "# SweetOpt cache: every searched region's verified candidates, read by the next run in this output folder\n"
+       "# (unchanged regions are only verified again, changed ones start from these). Delete it or use --no-cache\n"
+       "# to search everything from scratch.\n";
+  for (const auto& [shape, list] : cache)
+    for (const auto& e : list) {
+      f << "shape " << shape << "\nkey " << e.key << "\n";
+      for (const auto& c : e.cands) f << "cand " << c << "\n";
+      f << "end\n";
+    }
+}
+
+std::string culpritSwitch(const std::string& parseError, const std::map<std::string, std::string>& where) {
+  static const std::regex at(R"((\S+\.fxh?)\((\d+), \d+\): error)");
+  std::smatch m;
+  if (!std::regex_search(parseError, m, at)) return "";
+  std::ifstream in(pathFrom(m[1].str()));
+  const int n = std::stoi(m[2].str());
+  std::vector<std::string> open;  // per open #if: its #if / #elif lines
+  std::string line;
+  for (int l = 1; l <= n && std::getline(in, line); ++l) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();  // or "#endif" would not close its #if on Linux
+    const size_t h = line.find_first_not_of(" \t");
+    if (h == std::string::npos || line[h] != '#') continue;
+    const size_t d = line.find_first_not_of(" \t", h + 1);
+    const std::string w = d == std::string::npos ? "" : line.substr(d, line.find_first_of(" \t", d) - d);
+    if (w.rfind("if", 0) == 0) open.push_back(line);
+    else if (w == "elif" && !open.empty()) open.back() += "\n" + line;
+    else if (w == "endif" && !open.empty()) open.pop_back();
+  }
+  for (auto o = open.rbegin(); o != open.rend(); ++o)
+    for (const auto& [sw, unusedAt] : where)
+      for (size_t p = o->find(sw); p != std::string::npos; p = o->find(sw, p + 1))
+        if (p + sw.size() == o->size() ||
+            !(std::isalnum(static_cast<unsigned char>((*o)[p + sw.size()])) || (*o)[p + sw.size()] == '_'))
+          return sw;
+  return "";
 }
 
 }  // namespace sopt::fx

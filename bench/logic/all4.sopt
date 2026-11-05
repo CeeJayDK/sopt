@@ -1,0 +1,4 @@
+# any() / all() and chains of || / && / min / max, to judge --library-regroup and --fp-coincidence: sopt-bench --examples bench/logic
+input v : float4 in [-1, 1]
+output r = all(v) ? 1.0 : 0.0
+budget r : exact

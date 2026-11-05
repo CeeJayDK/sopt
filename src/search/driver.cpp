@@ -3,7 +3,6 @@
 #include "search/cuts.hpp"
 #include "search/library.hpp"
 #include "search/reshape.hpp"
-#include "search/stoke.hpp"
 #include "search/subtrees.hpp"
 #include "verify/bound.hpp"
 #include "verify/exact.hpp"
@@ -256,7 +255,6 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   }
 
   std::vector<Candidate> subCands;  // Options::subtrees, computed once
-  std::vector<Candidate> stokeCands;  // Options::stoke, computed once
   bool subDone = false;
   std::vector<Candidate> cutCands;  // Options::cuts, computed once
   bool cutDone = false;
@@ -264,12 +262,6 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     res.iterations = iter + 1;
     const bool lastIter = iter + 1 == opt.maxIterations || opt.previousOnly;
 
-    if (opt.stoke && iter == 0 && !opt.previousOnly) {  // its time is the search's: the enumerator gets the rest
-      const double t0 = nowSeconds();
-      stokeCands = stokeCandidates(prog, *opt.search.model, res.targetCost, opt.search.timeLimitSec * opt.stokeShare,
-                                   opt.seed);
-      res.searchSec += nowSeconds() - t0;
-    }
     double ts = nowSeconds();
     // The time limit covers all CEGIS iterations (the overflow search runs to it); a
     // restart after counterexamples gets what is left, at least a tenth.
@@ -307,7 +299,6 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     }
     cands.insert(cands.end(), cutCands.begin(), cutCands.end());
     cands.insert(cands.end(), subCands.begin(), subCands.end());
-    cands.insert(cands.end(), stokeCands.begin(), stokeCands.end());
     cands.insert(cands.end(), libCands.begin(), libCands.end());
     cands.insert(cands.end(), shapeCands.begin(), shapeCands.end());
     cands.insert(cands.end(), prevCands.begin(), prevCands.end());
@@ -396,9 +387,13 @@ RunResult optimize(const Program& progIn, const Options& opt) {
           }
           continue;
         }
+        // Less accurate on V1 already (V2 only adds points) with no room left: skip the group before V2, which costs
+        // seconds on a large domain and counted no rejected candidate (2026-11-01: a region ran for minutes on these alone).
+        if (!worst.pass && numLoose >= opt.maxLoose) break;
         // V2: every point of a small domain, for the cheapest few.
         bool exhaustive = false;
         if (res.v2Points && res.accepted.size() < opt.v2Candidates) {
+          ++res.v2Checks;
           Metrics all;
           for (const auto& prof : kAllProfiles) {
             all.merge(compareExhaustive(prog, c.expr, prof, opt.threads));
