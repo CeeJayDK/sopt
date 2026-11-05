@@ -16,6 +16,9 @@ docs/notes/history.md.
 - **lerp stays lerp:** changes are written with lerp() where that is what they compute, instead of a harder to read mad().
 - **Also math with matrix settings:** color and position math that uses a matrix setting of an effect is now optimized too.
 
+### GPU Blueprint
+- **Sending reports:** a report is no longer lost when the connection to Dropbox fails while it is being collected, and a report sent with ShaderInfo alone now arrives.
+
 ## 0.10.0
 
 ### SweetOpt

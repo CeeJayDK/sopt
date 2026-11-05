@@ -2728,3 +2728,21 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).
 - Precomputing equivalent instruction forms per input domain to prune the search
   (only one representative per equivalence class needs to be enumerated).
+
+## Audit fixes (2026-11-05)
+
+- Report intake: a failed download stays for the next run (it used to count as junk and was deleted); a ShaderInfo report no
+  longer reads the previous report's header (first in a run: crash, upload lost; after a StageBench report: `-ps` in its
+  name); one broken report no longer loses the rest of its zip; a zip that unpacks to over 200 MB is junk.
+- classify now checks every row (rows_ok) and rejects a report with a mail address, a link, or a GPU / driver field that is
+  not a plain name (hardware_only). A row gen_expected.py could not read stopped the workflow before its delete step, so one
+  such upload blocked every later report. All reports in docs/ still pass (the 27 oldest OpBench files have the
+  pre-header format, which the intake has not taken for a long time). Limit: a short invented name or a note in a row gets through.
+- DROPBOX_FOLDER has no default any more (repository variable /Reports). `quote()` uses single quotes on POSIX: double
+  quotes still ran $(...) in a file name. `--isa` rewrite check: `2>/dev/null` kept the command from running under cmd.exe.
+- fx_main.cpp: measureRewrites and writeAndCheck out of main (moved, not changed); sopt-cache.txt reading / writing and
+  culpritSwitch moved to fx/variants.cpp, with tests. culpritSwitch now strips CR: on Linux "#endif\r" did not close its #if.
+- `--stoke` removed (owner: the bench found identical bests; src/search/stoke.cpp is in git history).
+- bench/logic: 10 problems (any / all of 3 and 4, || and && chains, min / max chains). 30 s each, rdna3 and nvidia-ampere:
+  --library-regroup and --fp-coincidence give the same best cost as neither on every problem. max4 and minabs3 have nothing
+  cheaper with or without them.

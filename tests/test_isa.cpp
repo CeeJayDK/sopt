@@ -3,6 +3,7 @@
 
 #include "ir/parser.hpp"
 #include "measure/isa.hpp"
+#include "measure/tools.hpp"
 #include "test.hpp"
 
 using namespace sopt;
@@ -107,4 +108,11 @@ TEST(isa_measure_glsl_with_rga) {
   CHECK(r[0].ok && r[1].ok && r[2].ok);
   CHECK(r[0].valu == r[2].valu + 1 && r[0].trans == 0);
   CHECK(r[1].trans == 1);
+}
+
+// A file name is data: the shell must not run what is in it.
+TEST(quote_keeps_a_name_from_the_shell) {
+  int status = 0;
+  CHECK(runCommand("echo " + quote("$(echo ran)"), status).find("$(echo ran)") != std::string::npos);
+  CHECK(runCommand("echo " + quote("it's `echo ran`"), status).find("it's `echo ran`") != std::string::npos);
 }

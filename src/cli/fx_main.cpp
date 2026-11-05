@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -222,6 +223,256 @@ void collect(const fs::path& p, std::vector<fs::path>& out) {
   } else {
     out.push_back(p);
   }
+}
+
+using LoadFor = std::function<fx::LoadOptions(const fs::path&)>;
+
+// Classical rewrites: each one's switch off and on, the effect it was found in, measured with RGA
+// (pixel and compute shaders summed) without and with performance mode.
+// Written alone into a scratch folder (with the effect copied next to its changed headers); kept
+// only where it measurably helps (fewer instructions or less scratch, with or without performance
+// mode): arrays read in loops the compiler unrolls fold anyway.
+void measureRewrites(std::vector<fx::SourceRewrite>& rewrites, const std::vector<fs::path>& rewriteEffects,
+                     const IsaConfig& isaCfg, const fs::path& outDir, unsigned jobs, const LoadFor& loadFor) {
+  const fs::path tmp = outDir / ".sopt-rewrite-check";
+  std::string tmpErrors;
+  std::error_code ec;
+  fs::remove_all(tmp, ec);
+  fx::writeVariants({}, tmp, tmpErrors, rewrites);
+  // Pixel / compute shader ISA of src with defines (RGA), summed: cost, scratch, max VGPRs.
+  struct Isa {
+    int cost = -1, scratch = -1, vgprs = -1, vmem = -1;
+  };
+  auto measure = [&](const fs::path& src, const std::string& inc, const std::string& defines, bool perf) {
+    int status = 0;
+    const std::string json = runCommand(quote(isaCfg.fxstat) + " --json --rga " + quote(isaCfg.rga) + inc +
+                                            (perf ? " --performance-mode" : " --no-performance-mode") + defines + " " +
+                                            quote(src.string()) + " 2>&1",
+                                        status);
+    Isa r;
+    for (size_t p = json.find("\"stage\": \""); p != std::string::npos; p = json.find("\"stage\": \"", p + 1)) {
+      const std::string stage = json.substr(p + 10, 7);
+      if (stage != "pixel\"," && stage != "compute") continue;
+      const size_t isaPos = json.find("\"isa\":", p);
+      if (isaPos == std::string::npos) continue;
+      const size_t end = json.find('}', isaPos);
+      auto get = [&](const char* key) {
+        const std::string k2 = std::string("\"") + key + "\":";
+        const size_t q = json.find(k2, isaPos);
+        return q == std::string::npos || q > end ? -1 : std::atoi(json.c_str() + q + k2.size());
+      };
+      const int c = get("cost"), sc = get("scratch"), v = get("vgprs"), vm = get("vmem");
+      if (c < 0) continue;
+      r.cost = (r.cost < 0 ? 0 : r.cost) + c;
+      r.vmem = (r.vmem < 0 ? 0 : r.vmem) + std::max(vm, 0);
+      r.scratch = (r.scratch < 0 ? 0 : r.scratch) + std::max(sc, 0);
+      r.vgprs = std::max(r.vgprs, v);
+    }
+    return r;
+  };
+  // Where each rewrite is compiled from; the original state (every switch 0) once per effect and mode.
+  std::vector<fs::path> srcs(rewrites.size());
+  std::vector<std::string> incs(rewrites.size());
+  std::map<std::string, size_t> effectIndex;  // src -> index into befores
+  std::vector<std::pair<fs::path, std::string>> effects;
+  for (size_t k = 0; k < rewrites.size(); ++k) {
+    const fs::path& eff = rewriteEffects[k];
+    srcs[k] = tmp / eff.filename();
+    if (!fs::exists(srcs[k], ec)) fs::copy_file(eff, srcs[k], fs::copy_options::overwrite_existing, ec);
+    if (ec) srcs[k] = eff;
+    incs[k] = " -I " + quote(tmp.string()) + " -I " + quote(eff.parent_path().string());
+    for (const auto& d : loadFor(eff).includePaths) incs[k] += " -I " + quote(d.string());
+    if (effectIndex.emplace(srcs[k].string(), effects.size()).second) effects.emplace_back(srcs[k], incs[k]);
+  }
+  std::vector<Isa> before(2 * effects.size()), after(2 * rewrites.size());
+  const size_t numJobs = before.size() + after.size();
+  parallelFor(numJobs, jobs, [&](size_t j) {
+    if (j < before.size()) {
+      const auto& [src, inc] = effects[j / 2];
+      before[j] = measure(src, inc, "", j % 2 == 1);
+    } else {
+      const size_t i = j - before.size(), k = i / 2;
+      after[i] = measure(srcs[k], incs[k], " -D " + fx::rewriteSwitch(rewrites[k]) + "=1", i % 2 == 1);
+    }
+  });
+  for (size_t k = 0; k < rewrites.size(); ++k) {
+    fx::SourceRewrite& rw = rewrites[k];
+    const size_t e = effectIndex[srcs[k].string()];
+    rw.amdBefore = before[2 * e].cost;
+    rw.scratchBefore = before[2 * e].scratch;
+    rw.vgprBefore = before[2 * e].vgprs;
+    rw.vmemBefore = before[2 * e].vmem;
+    rw.vmemAfter = after[2 * k].vmem;
+    rw.amdPerfBefore = before[2 * e + 1].cost;
+    rw.amdAfter = after[2 * k].cost;
+    rw.scratchAfter = after[2 * k].scratch;
+    rw.vgprAfter = after[2 * k].vgprs;
+    rw.amdPerfAfter = after[2 * k + 1].cost;
+    std::printf("rewrite %s:%u (%s): amd %d -> %d, scratch %d -> %d, reads %d -> %d; performance mode %d -> %d\n",
+                fs::path(rw.file).filename().string().c_str(), rw.line, rw.kind.c_str(), rw.amdBefore, rw.amdAfter,
+                rw.scratchBefore, rw.scratchAfter, rw.vmemBefore, rw.vmemAfter, rw.amdPerfBefore, rw.amdPerfAfter);
+  }
+  fs::remove_all(tmp, ec);
+  std::vector<fx::SourceRewrite> kept;
+  for (auto& rw : rewrites) {
+    const bool measured = rw.amdBefore >= 0 && rw.amdAfter >= 0;
+    // A texture read less counts too (the blend stage: the back buffer read goes, the same instructions).
+    const bool gain = rw.amdAfter < rw.amdBefore || rw.scratchAfter < rw.scratchBefore ||
+                      (rw.vmemAfter >= 0 && rw.vmemAfter < rw.vmemBefore) ||
+                      (rw.amdPerfBefore >= 0 && rw.amdPerfAfter >= 0 && rw.amdPerfAfter < rw.amdPerfBefore);
+    const bool perfWorse = rw.amdPerfAfter > rw.amdPerfBefore && rw.amdPerfBefore >= 0;
+    // Faster without performance mode, slower with it (owner, 2026-10-08: Phosphor 46 -> 18 but 11 -> 12):
+    // applied only without performance mode (ReShade's __RESHADE_PERFORMANCE_MODE__), so never slower.
+    if (measured && rw.amdAfter < rw.amdBefore && perfWorse) {
+      for (auto& e : rw.edits)
+        if (e.extra.find("__RESHADE_PERFORMANCE_MODE__") == std::string::npos) e.extra += " && !__RESHADE_PERFORMANCE_MODE__";
+      rw.description += " (not in performance mode, where it would be slower)";
+      rw.amdPerfAfter = rw.amdPerfBefore;
+      kept.push_back(std::move(rw));
+      continue;
+    }
+    const bool worse = rw.amdAfter > rw.amdBefore || perfWorse;
+    const bool table = rw.tag == "T";  // per vendor: NVIDIA's select tree gains even where AMD's table does not
+    // A zero guard gains only while its uniform is 0 (not measurable statically): kept when it costs a few
+    // instructions at most otherwise (the compare and the branch).
+    if (rw.tag == "Z") {
+      if (!measured || (rw.amdAfter <= rw.amdBefore + 4 && !perfWorse)) kept.push_back(std::move(rw));
+      continue;
+    }
+    if (measured ? (table ? !worse : gain && !worse) : (table || rw.otherEntries > 0)) kept.push_back(std::move(rw));
+  }
+  std::printf("classical rewrites: %zu of %zu kept (measured gain)\n", kept.size(), rewrites.size());
+  rewrites = std::move(kept);
+}
+
+struct WrittenFiles {
+  std::vector<fs::path> files;
+  size_t checks = 0, checkFailures = 0;
+};
+
+// Writes the variant files. Every variant must still parse: SOPT_GROUP = k selects variant k where it exists. A change
+// whose variant does not parse is dropped and the files written again (owner, 2026-10-27); the first round's failures
+// still count.
+WrittenFiles writeAndCheck(std::vector<fx::RegionResult>& results, std::vector<fx::SourceRewrite>& rewrites, bool easy,
+                           std::vector<fx::RegionResult>& easyResults, std::vector<fx::SourceRewrite>& easyRewrites,
+                           const fx::WriteOptions& wo, const fs::path& outDir, const std::vector<fs::path>& roots,
+                           const std::vector<std::pair<fs::path, std::vector<std::string>>>& effectFiles,
+                           const std::map<fs::path, std::vector<std::pair<std::string, std::string>>>& settingConfigs,
+                           size_t numVariants, const LoadFor& loadFor, std::string& errors) {
+  auto& wResults = easy ? easyResults : results;
+  auto& wRewrites = easy ? easyRewrites : rewrites;
+  size_t checks = 0, checkFailures = 0;
+  std::vector<fs::path> files;
+  for (int round = 0;; ++round) {
+    files = fx::writeVariants(wResults, outDir, errors, wRewrites, wo);
+    std::map<std::string, std::string> where;  // switch -> file:line of its change
+    for (const auto& r : wResults)
+      if (!r.variants.empty()) where[fx::switchName(r.region)] = fx::pathFrom(r.region.file).filename().string() + ":" +
+                                                                  std::to_string(r.region.line);
+    for (const auto& rw : wRewrites)
+      where[fx::rewriteSwitch(rw)] = fx::pathFrom(rw.file).filename().string() + ":" + std::to_string(rw.line);
+    std::set<std::string> drop;
+
+    // Effects that include a changed header are copied too, so that the output directory
+    // is self-contained: an effect finds headers next to it before the include paths.
+    std::set<std::string> changed;
+    for (const auto& r : wResults)
+      if (!r.variants.empty()) changed.insert(r.region.file);
+    for (const auto& rw : wRewrites) changed.insert(rw.file);
+    struct EffectOut {
+      fs::path written, original;
+      std::vector<std::string> sources;  // every file the original effect read
+    };
+    std::vector<EffectOut> effectsOut;
+    for (const auto& [p, srcs] : effectFiles) {
+      bool uses = false;
+      for (const auto& f : srcs) uses = uses || changed.count(f);
+      if (!uses) continue;
+      const fs::path dst = outDir / fx::outputName(p, roots);
+      std::error_code ec;
+      if (!changed.count(fx::pathString(p)) && !fs::exists(dst, ec)) {
+        fs::create_directories(dst.parent_path(), ec);
+        fs::copy_file(p, dst, fs::copy_options::overwrite_existing, ec);
+        if (ec) errors += "cannot copy " + p.string() + "\n";
+        else files.push_back(dst);
+      }
+      effectsOut.push_back({dst, p, srcs});
+    }
+
+    // The output as installed (sopt-out copied over the originals): a folder per effect with every file it reads, the
+    // written ones laid over them (2026-10-25, FXShaders: a changed Common.fxh in the output and the original one, both
+    // reached through different includes, defined ScaleCoord twice; real installs have one of them).
+    // shortcut: files outside the input folders (ReShade.fxh above a pack) still come from the originals' folders.
+    const std::set<fs::path> writtenFiles(files.begin(), files.end());
+    const fs::path checkDir = outDir / ".sopt-check";
+    for (size_t i = 0; i < effectsOut.size(); ++i) {
+      const fs::path& original = effectsOut[i].original;
+      const fs::path dir = checkDir / std::to_string(i);
+      std::error_code ec;
+      std::vector<std::string> srcs = effectsOut[i].sources;
+      srcs.push_back(fx::pathString(original));
+      for (const std::string& f : srcs) {
+        const fs::path rel = fx::outputName(f, roots), out = outDir / rel;
+        fs::create_directories((dir / rel).parent_path(), ec);
+        fs::copy_file(writtenFiles.count(out) ? out : fs::path(f), dir / rel, fs::copy_options::overwrite_existing, ec);
+      }
+      const fs::path e = dir / fx::outputName(original, roots);
+      // Also with each setting value that gave regions: their variants only compile then.
+      std::vector<std::pair<std::string, std::string>> configs = {{"", ""}};
+      if (const auto sc = settingConfigs.find(original); sc != settingConfigs.end())
+        configs.insert(configs.end(), sc->second.begin(), sc->second.end());
+      for (size_t k = 0; k <= 2 * numVariants; ++k)
+      for (const auto& [setName, setValue] : configs) {
+        fx::LoadOptions lo = loadFor(e);
+        if (!setName.empty()) lo.macros.emplace_back(setName, setValue);
+        // The variant files are meant to lie over the original folder: headers and `#if exists` tests
+        // that are not in the output directory resolve there (SuperDepth3D's AXAA.fxh).
+        lo.includePaths.insert(lo.includePaths.begin(), original.parent_path());
+        const auto around = fx::folderIncludePaths(original);  // the original's ReShade folders (BFBFX's bfb_inc)
+        lo.includePaths.insert(lo.includePaths.begin() + 1, around.begin(), around.end());
+        lo.macros.emplace_back("SOPT_GROUP", std::to_string(k));
+        std::string err;
+        checks += round == 0;
+        if (!fx::loadEffect(e, lo, err)) {
+          checkFailures += round == 0;
+          errors += effectsOut[i].written.string() + " (SOPT_GROUP=" + std::to_string(k) +
+                    (setName.empty() ? "" : ", " + setName + "=" + setValue) + ") does not parse:\n" + err;
+          // The change it is in: the innermost #if around the first error that tests a switch (the check copy is
+          // removed below); none (a declaration a change moved): every change in the files this effect reads.
+          const std::string culprit = fx::culpritSwitch(err, where);
+          if (!culprit.empty()) {
+            drop.insert(culprit);
+          } else {
+            for (const auto& r : wResults)
+              if (!r.variants.empty() && std::count(srcs.begin(), srcs.end(), r.region.file))
+                drop.insert(fx::switchName(r.region));
+            for (const auto& rw : wRewrites)
+              if (std::count(srcs.begin(), srcs.end(), rw.file)) drop.insert(fx::rewriteSwitch(rw));
+          }
+        }
+      }
+    }
+    {
+      std::error_code ec;
+      fs::remove_all(checkDir, ec);
+    }
+    if (drop.empty() || round == 4) break;
+    for (const std::string& sw : drop) errors += "dropped " + sw + " (" + where[sw] + "): its variant did not parse\n";
+    auto dropFrom = [&](std::vector<fx::RegionResult>& rs, std::vector<fx::SourceRewrite>& rws) {
+      for (auto& r : rs)
+        if (drop.count(fx::switchName(r.region))) r.variants.clear();
+      rws.erase(std::remove_if(rws.begin(), rws.end(), [&](const fx::SourceRewrite& rw) {
+                  return drop.count(fx::rewriteSwitch(rw)) > 0;
+                }), rws.end());
+    };
+    dropFrom(results, rewrites);
+    if (easy) dropFrom(easyResults, easyRewrites);
+    for (const fs::path& f : files) {
+      std::error_code ec;
+      fs::remove(f, ec);
+    }
+  }
+  return {files, checks, checkFailures};
 }
 
 }  // namespace
@@ -764,24 +1015,10 @@ int main(int argc, char** argv) {
                   opt.fpCoincidence ? 1 : 0);
     optionsKey = buf;
   }
-  struct CacheEntry {
-    std::string key;
-    std::vector<std::string> cands;
-  };
-  std::map<std::string, std::vector<CacheEntry>> cache;  // by shape; one entry per key (ranges, budget, options)
+  using fx::CacheEntry;
   const fs::path cachePath = outDir / "sopt-cache.txt";
-  if (useCache) {
-    std::ifstream f(cachePath, std::ios::binary);
-    std::string line, shape;
-    CacheEntry e;
-    while (std::getline(f, line)) {
-      if (!line.empty() && line.back() == '\r') line.pop_back();
-      if (line.rfind("shape ", 0) == 0) shape = line.substr(6), e = CacheEntry{};
-      else if (line.rfind("key ", 0) == 0) e.key = line.substr(4);
-      else if (line.rfind("cand ", 0) == 0) e.cands.push_back(line.substr(5));
-      else if (line == "end" && !shape.empty()) cache[shape].push_back(e), shape.clear();
-    }
-  }
+  fx::RunCache cache;
+  if (useCache) cache = fx::loadRunCache(cachePath);
   std::vector<std::vector<Expr>> previousCands(results.size());
   std::vector<char> reuse(results.size(), 0);
   size_t reused = 0, seeded = 0;
@@ -871,18 +1108,7 @@ int main(int argc, char** argv) {
       list.insert(list.begin(), std::move(e));
       if (list.size() > 8) list.resize(8);  // the newest few per shape
     }
-    std::error_code ec;
-    fs::create_directories(outDir, ec);
-    std::ofstream f(cachePath, std::ios::binary);
-    f << "# SweetOpt cache: every searched region's verified candidates, read by the next run in this output folder\n"
-         "# (unchanged regions are only verified again, changed ones start from these). Delete it or use --no-cache\n"
-         "# to search everything from scratch.\n";
-    for (const auto& [shape, list] : cache)
-      for (const auto& e : list) {
-        f << "shape " << shape << "\nkey " << e.key << "\n";
-        for (const auto& c : e.cands) f << "cand " << c << "\n";
-        f << "end\n";
-      }
+    fx::saveRunCache(cachePath, cache);
   }
   if (unique.size() < results.size())
     std::printf("%zu regions searched (%zu repeat another one with other input names)\n", unique.size(),
@@ -1143,8 +1369,7 @@ int main(int argc, char** argv) {
     console::Progress measureBar(con, toMeasure, "measuring");
     for (auto& rr : results) {
       if (rr.variants.empty()) continue;
-      std::vector<InputDecl> ins = rr.region.prog.inputs;
-      for (size_t k = 0; k < ins.size(); ++k) ins[k].name = "sopt_in" + std::to_string(k);
+      std::vector<InputDecl> ins = regionInputs(rr);
       // Performance mode as the compiler sees it: uniforms are constants (a typical value: not 0, 1 or 0.5,
       // which would fold more than a user's setting). One mode is measured as the main one, the other
       // for the scheduling measures (regions with uniforms).
@@ -1286,8 +1511,7 @@ int main(int argc, char** argv) {
     info.dxbc = !backCfg.fxc.empty();
     for (auto& rr : results) {
       if (rr.variants.empty()) continue;
-      std::vector<InputDecl> ins = rr.region.prog.inputs;
-      for (size_t k = 0; k < ins.size(); ++k) ins[k].name = "sopt_in" + std::to_string(k);
+      std::vector<InputDecl> ins = regionInputs(rr);
       std::vector<const Expr*> exprs = {&rr.region.prog.target};
       for (const auto& v : rr.variants) exprs.push_back(&v.expr);
       const auto m = measureBackends(exprs, ins, cfg);
@@ -1422,122 +1646,7 @@ int main(int argc, char** argv) {
   std::sort(results.begin(), results.end(), [](const fx::RegionResult& a, const fx::RegionResult& b) {
     return std::tie(a.region.file, a.region.line) < std::tie(b.region.file, b.region.line);
   });
-  // Classical rewrites: each one's switch off and on, the effect it was found in, measured with RGA
-  // (pixel and compute shaders summed) without and with performance mode.
-  // Written alone into a scratch folder (with the effect copied next to its changed headers); kept
-  // only where it measurably helps (fewer instructions or less scratch, with or without performance
-  // mode): arrays read in loops the compiler unrolls fold anyway.
-  if (isa && !rewrites.empty()) {
-    const fs::path tmp = outDir / ".sopt-rewrite-check";
-    std::string tmpErrors;
-    std::error_code ec;
-    fs::remove_all(tmp, ec);
-    fx::writeVariants({}, tmp, tmpErrors, rewrites);
-    // Pixel / compute shader ISA of src with defines (RGA), summed: cost, scratch, max VGPRs.
-    struct Isa {
-      int cost = -1, scratch = -1, vgprs = -1, vmem = -1;
-    };
-    auto measure = [&](const fs::path& src, const std::string& inc, const std::string& defines, bool perf) {
-      int status = 0;
-      const std::string json = runCommand(quote(isaCfg.fxstat) + " --json --rga " + quote(isaCfg.rga) + inc +
-                                              (perf ? " --performance-mode" : " --no-performance-mode") + defines + " " +
-                                              quote(src.string()) + " 2>/dev/null",
-                                          status);
-      Isa r;
-      for (size_t p = json.find("\"stage\": \""); p != std::string::npos; p = json.find("\"stage\": \"", p + 1)) {
-        const std::string stage = json.substr(p + 10, 7);
-        if (stage != "pixel\"," && stage != "compute") continue;
-        const size_t isaPos = json.find("\"isa\":", p);
-        if (isaPos == std::string::npos) continue;
-        const size_t end = json.find('}', isaPos);
-        auto get = [&](const char* key) {
-          const std::string k2 = std::string("\"") + key + "\":";
-          const size_t q = json.find(k2, isaPos);
-          return q == std::string::npos || q > end ? -1 : std::atoi(json.c_str() + q + k2.size());
-        };
-        const int c = get("cost"), sc = get("scratch"), v = get("vgprs"), vm = get("vmem");
-        if (c < 0) continue;
-        r.cost = (r.cost < 0 ? 0 : r.cost) + c;
-        r.vmem = (r.vmem < 0 ? 0 : r.vmem) + std::max(vm, 0);
-        r.scratch = (r.scratch < 0 ? 0 : r.scratch) + std::max(sc, 0);
-        r.vgprs = std::max(r.vgprs, v);
-      }
-      return r;
-    };
-    // Where each rewrite is compiled from; the original state (every switch 0) once per effect and mode.
-    std::vector<fs::path> srcs(rewrites.size());
-    std::vector<std::string> incs(rewrites.size());
-    std::map<std::string, size_t> effectIndex;  // src -> index into befores
-    std::vector<std::pair<fs::path, std::string>> effects;
-    for (size_t k = 0; k < rewrites.size(); ++k) {
-      const fs::path& eff = rewriteEffects[k];
-      srcs[k] = tmp / eff.filename();
-      if (!fs::exists(srcs[k], ec)) fs::copy_file(eff, srcs[k], fs::copy_options::overwrite_existing, ec);
-      if (ec) srcs[k] = eff;
-      incs[k] = " -I " + quote(tmp.string()) + " -I " + quote(eff.parent_path().string());
-      for (const auto& d : loadFor(eff).includePaths) incs[k] += " -I " + quote(d.string());
-      if (effectIndex.emplace(srcs[k].string(), effects.size()).second) effects.emplace_back(srcs[k], incs[k]);
-    }
-    std::vector<Isa> before(2 * effects.size()), after(2 * rewrites.size());
-    const size_t numJobs = before.size() + after.size();
-    parallelFor(numJobs, jobs, [&](size_t j) {
-      if (j < before.size()) {
-        const auto& [src, inc] = effects[j / 2];
-        before[j] = measure(src, inc, "", j % 2 == 1);
-      } else {
-        const size_t i = j - before.size(), k = i / 2;
-        after[i] = measure(srcs[k], incs[k], " -D " + fx::rewriteSwitch(rewrites[k]) + "=1", i % 2 == 1);
-      }
-    });
-    for (size_t k = 0; k < rewrites.size(); ++k) {
-      fx::SourceRewrite& rw = rewrites[k];
-      const size_t e = effectIndex[srcs[k].string()];
-      rw.amdBefore = before[2 * e].cost;
-      rw.scratchBefore = before[2 * e].scratch;
-      rw.vgprBefore = before[2 * e].vgprs;
-      rw.vmemBefore = before[2 * e].vmem;
-      rw.vmemAfter = after[2 * k].vmem;
-      rw.amdPerfBefore = before[2 * e + 1].cost;
-      rw.amdAfter = after[2 * k].cost;
-      rw.scratchAfter = after[2 * k].scratch;
-      rw.vgprAfter = after[2 * k].vgprs;
-      rw.amdPerfAfter = after[2 * k + 1].cost;
-      std::printf("rewrite %s:%u (%s): amd %d -> %d, scratch %d -> %d, reads %d -> %d; performance mode %d -> %d\n",
-                  fs::path(rw.file).filename().string().c_str(), rw.line, rw.kind.c_str(), rw.amdBefore, rw.amdAfter,
-                  rw.scratchBefore, rw.scratchAfter, rw.vmemBefore, rw.vmemAfter, rw.amdPerfBefore, rw.amdPerfAfter);
-    }
-    fs::remove_all(tmp, ec);
-    std::vector<fx::SourceRewrite> kept;
-    for (auto& rw : rewrites) {
-      const bool measured = rw.amdBefore >= 0 && rw.amdAfter >= 0;
-      // A texture read less counts too (the blend stage: the back buffer read goes, the same instructions).
-      const bool gain = rw.amdAfter < rw.amdBefore || rw.scratchAfter < rw.scratchBefore ||
-                        (rw.vmemAfter >= 0 && rw.vmemAfter < rw.vmemBefore) ||
-                        (rw.amdPerfBefore >= 0 && rw.amdPerfAfter >= 0 && rw.amdPerfAfter < rw.amdPerfBefore);
-      const bool perfWorse = rw.amdPerfAfter > rw.amdPerfBefore && rw.amdPerfBefore >= 0;
-      // Faster without performance mode, slower with it (owner, 2026-10-08: Phosphor 46 -> 18 but 11 -> 12):
-      // applied only without performance mode (ReShade's __RESHADE_PERFORMANCE_MODE__), so never slower.
-      if (measured && rw.amdAfter < rw.amdBefore && perfWorse) {
-        for (auto& e : rw.edits)
-          if (e.extra.find("__RESHADE_PERFORMANCE_MODE__") == std::string::npos) e.extra += " && !__RESHADE_PERFORMANCE_MODE__";
-        rw.description += " (not in performance mode, where it would be slower)";
-        rw.amdPerfAfter = rw.amdPerfBefore;
-        kept.push_back(std::move(rw));
-        continue;
-      }
-      const bool worse = rw.amdAfter > rw.amdBefore || perfWorse;
-      const bool table = rw.tag == "T";  // per vendor: NVIDIA's select tree gains even where AMD's table does not
-      // A zero guard gains only while its uniform is 0 (not measurable statically): kept when it costs a few
-      // instructions at most otherwise (the compare and the branch).
-      if (rw.tag == "Z") {
-        if (!measured || (rw.amdAfter <= rw.amdBefore + 4 && !perfWorse)) kept.push_back(std::move(rw));
-        continue;
-      }
-      if (measured ? (table ? !worse : gain && !worse) : (table || rw.otherEntries > 0)) kept.push_back(std::move(rw));
-    }
-    std::printf("classical rewrites: %zu of %zu kept (measured gain)\n", kept.size(), rewrites.size());
-    rewrites = std::move(kept);
-  }
+  if (isa && !rewrites.empty()) measureRewrites(rewrites, rewriteEffects, isaCfg, outDir, jobs, loadFor);
   std::string errors;
   // Easy mode: the files get only our picks (the report still lists every variant).
   std::vector<fx::RegionResult> easyResults;
@@ -1556,141 +1665,10 @@ int main(int argc, char** argv) {
   fx::WriteOptions wo = easy ? easyWrite : fx::WriteOptions{};
   wo.roots = roots;
   console::section(con, "Writing");
-  // Every variant must still parse: SOPT_GROUP = k selects variant k where it exists. A change whose variant does not
-  // parse is dropped and the files written again (owner, 2026-10-27); the first round's failures still count.
-  size_t checks = 0, checkFailures = 0;
-  std::vector<fs::path> files;
-  for (int round = 0;; ++round) {
-    files = fx::writeVariants(wResults, outDir, errors, wRewrites, wo);
-    std::map<std::string, std::string> where;  // switch -> file:line of its change
-    for (const auto& r : wResults)
-      if (!r.variants.empty()) where[fx::switchName(r.region)] = fx::pathFrom(r.region.file).filename().string() + ":" +
-                                                                  std::to_string(r.region.line);
-    for (const auto& rw : wRewrites)
-      where[fx::rewriteSwitch(rw)] = fx::pathFrom(rw.file).filename().string() + ":" + std::to_string(rw.line);
-    std::set<std::string> drop;
-
-    // Effects that include a changed header are copied too, so that the output directory
-    // is self-contained: an effect finds headers next to it before the include paths.
-    std::set<std::string> changed;
-    for (const auto& r : wResults)
-      if (!r.variants.empty()) changed.insert(r.region.file);
-    for (const auto& rw : wRewrites) changed.insert(rw.file);
-    struct EffectOut {
-      fs::path written, original;
-      std::vector<std::string> sources;  // every file the original effect read
-    };
-    std::vector<EffectOut> effectsOut;
-    for (const auto& [p, srcs] : effectFiles) {
-      bool uses = false;
-      for (const auto& f : srcs) uses = uses || changed.count(f);
-      if (!uses) continue;
-      const fs::path dst = outDir / fx::outputName(p, roots);
-      std::error_code ec;
-      if (!changed.count(fx::pathString(p)) && !fs::exists(dst, ec)) {
-        fs::create_directories(dst.parent_path(), ec);
-        fs::copy_file(p, dst, fs::copy_options::overwrite_existing, ec);
-        if (ec) errors += "cannot copy " + p.string() + "\n";
-        else files.push_back(dst);
-      }
-      effectsOut.push_back({dst, p, srcs});
-    }
-
-    // The output as installed (sopt-out copied over the originals): a folder per effect with every file it reads, the
-    // written ones laid over them (2026-10-25, FXShaders: a changed Common.fxh in the output and the original one, both
-    // reached through different includes, defined ScaleCoord twice; real installs have one of them).
-    // shortcut: files outside the input folders (ReShade.fxh above a pack) still come from the originals' folders.
-    const std::set<fs::path> writtenFiles(files.begin(), files.end());
-    const fs::path checkDir = outDir / ".sopt-check";
-    for (size_t i = 0; i < effectsOut.size(); ++i) {
-      const fs::path& original = effectsOut[i].original;
-      const fs::path dir = checkDir / std::to_string(i);
-      std::error_code ec;
-      std::vector<std::string> srcs = effectsOut[i].sources;
-      srcs.push_back(fx::pathString(original));
-      for (const std::string& f : srcs) {
-        const fs::path rel = fx::outputName(f, roots), out = outDir / rel;
-        fs::create_directories((dir / rel).parent_path(), ec);
-        fs::copy_file(writtenFiles.count(out) ? out : fs::path(f), dir / rel, fs::copy_options::overwrite_existing, ec);
-      }
-      const fs::path e = dir / fx::outputName(original, roots);
-      // Also with each setting value that gave regions: their variants only compile then.
-      std::vector<std::pair<std::string, std::string>> configs = {{"", ""}};
-      if (const auto sc = settingConfigs.find(original); sc != settingConfigs.end())
-        configs.insert(configs.end(), sc->second.begin(), sc->second.end());
-      for (size_t k = 0; k <= 2 * numVariants; ++k)
-      for (const auto& [setName, setValue] : configs) {
-        fx::LoadOptions lo = loadFor(e);
-        if (!setName.empty()) lo.macros.emplace_back(setName, setValue);
-        // The variant files are meant to lie over the original folder: headers and `#if exists` tests
-        // that are not in the output directory resolve there (SuperDepth3D's AXAA.fxh).
-        lo.includePaths.insert(lo.includePaths.begin(), original.parent_path());
-        const auto around = fx::folderIncludePaths(original);  // the original's ReShade folders (BFBFX's bfb_inc)
-        lo.includePaths.insert(lo.includePaths.begin() + 1, around.begin(), around.end());
-        lo.macros.emplace_back("SOPT_GROUP", std::to_string(k));
-        std::string err;
-        checks += round == 0;
-        if (!fx::loadEffect(e, lo, err)) {
-          checkFailures += round == 0;
-          errors += effectsOut[i].written.string() + " (SOPT_GROUP=" + std::to_string(k) +
-                    (setName.empty() ? "" : ", " + setName + "=" + setValue) + ") does not parse:\n" + err;
-          // The change it is in: the innermost #if around the first error that tests a switch (the check copy is
-          // removed below); none (a declaration a change moved): every change in the files this effect reads.
-          static const std::regex at(R"((\S+\.fxh?)\((\d+), \d+\): error)");
-          std::string culprit;
-          if (std::smatch m; std::regex_search(err, m, at)) {
-            std::ifstream in(fx::pathFrom(m[1].str()));
-            const int n = std::stoi(m[2].str());
-            std::vector<std::string> open;  // per open #if: its #if / #elif lines
-            std::string line;
-            for (int l = 1; l <= n && std::getline(in, line); ++l) {
-              const size_t h = line.find_first_not_of(" \t");
-              if (h == std::string::npos || line[h] != '#') continue;
-              const size_t d = line.find_first_not_of(" \t", h + 1);
-              const std::string w = d == std::string::npos ? "" : line.substr(d, line.find_first_of(" \t", d) - d);
-              if (w.rfind("if", 0) == 0) open.push_back(line);
-              else if (w == "elif" && !open.empty()) open.back() += "\n" + line;
-              else if (w == "endif" && !open.empty()) open.pop_back();
-            }
-            for (auto o = open.rbegin(); o != open.rend() && culprit.empty(); ++o)
-              for (const auto& [sw, unusedAt] : where)
-                for (size_t p = o->find(sw); p != std::string::npos && culprit.empty(); p = o->find(sw, p + 1))
-                  if (p + sw.size() == o->size() || !(std::isalnum(static_cast<unsigned char>((*o)[p + sw.size()])) ||
-                                                      (*o)[p + sw.size()] == '_'))
-                    culprit = sw;
-          }
-          if (!culprit.empty()) {
-            drop.insert(culprit);
-          } else {
-            for (const auto& r : wResults)
-              if (!r.variants.empty() && std::count(srcs.begin(), srcs.end(), r.region.file))
-                drop.insert(fx::switchName(r.region));
-            for (const auto& rw : wRewrites)
-              if (std::count(srcs.begin(), srcs.end(), rw.file)) drop.insert(fx::rewriteSwitch(rw));
-          }
-        }
-      }
-    }
-    {
-      std::error_code ec;
-      fs::remove_all(checkDir, ec);
-    }
-    if (drop.empty() || round == 4) break;
-    for (const std::string& sw : drop) errors += "dropped " + sw + " (" + where[sw] + "): its variant did not parse\n";
-    auto dropFrom = [&](std::vector<fx::RegionResult>& rs, std::vector<fx::SourceRewrite>& rws) {
-      for (auto& r : rs)
-        if (drop.count(fx::switchName(r.region))) r.variants.clear();
-      rws.erase(std::remove_if(rws.begin(), rws.end(), [&](const fx::SourceRewrite& rw) {
-                  return drop.count(fx::rewriteSwitch(rw)) > 0;
-                }), rws.end());
-    };
-    dropFrom(results, rewrites);
-    if (easy) dropFrom(easyResults, easyRewrites);
-    for (const fs::path& f : files) {
-      std::error_code ec;
-      fs::remove(f, ec);
-    }
-  }
+  const WrittenFiles written = writeAndCheck(results, rewrites, easy, easyResults, easyRewrites, wo, outDir, roots,
+                                            effectFiles, settingConfigs, numVariants, loadFor, errors);
+  const std::vector<fs::path>& files = written.files;
+  const size_t checks = written.checks, checkFailures = written.checkFailures;
   info.rewrites = &rewrites;
   info.checks = checks;
   info.checkFailures = checkFailures;
