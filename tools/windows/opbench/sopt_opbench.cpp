@@ -40,6 +40,7 @@
 
 #include "../benchkit.hpp"
 #include "../expected.hpp"
+#include "precise_check.hpp"
 #include <d3dcompiler.h>
 
 #include <cstdint>
@@ -526,13 +527,17 @@ Config kConfigs[] = {
 #endif
 };
 
+// precise keeps fxc from folding (v + c) - c to v; drivers do not always keep it (precise_check.hpp).
+const char* const kPreciseForms =
+    "float roundAdd(float v) { precise float t = v + 12582912.0; precise float r = t - 12582912.0; return r; }\n"
+    "float floorAdd(float v) { precise float r = (v + 12582912.0) - 12582912.0; precise float f = r - saturate((r - v) * 1e38); return f; }\n"
+    "float fracAdd(float v) { precise float d = v - ((v + 12582912.0) - 12582912.0); precise float f = d + saturate(d * -1e38); return f; }\n";
+
 std::string shaderSource(const Test& t, int chains) {
   std::string s =
       "cbuffer C : register(b0) { float4 U[16]; uint iters; float seed; float2 pad; };\n"
       "RWStructuredBuffer<float> O : register(u0);\n"
-      // precise keeps fxc from folding (v + c) - c to v
-      "float roundAdd(float v) { precise float t = v + 12582912.0; precise float r = t - 12582912.0; return r; }\n"
-      "float floorAdd(float v) { precise float r = (v + 12582912.0) - 12582912.0; precise float f = r - saturate((r - v) * 1e38); return f; }\n"
+      + std::string(kPreciseForms) +
       "float frexpM(float v) { float e; float m = frexp(v, e); return m + e * 0.01; }\n"
       "float modfS(float v) { float i; float f = modf(v, i); return f + i * 0.5; }\n"
       "float rsqrtNR1(float v) { float g = asfloat(0x5F375A86u - (asuint(v) >> 1)); return g * (1.5 - 0.5 * v * g * g); }\n"
@@ -546,7 +551,6 @@ std::string shaderSource(const Test& t, int chains) {
       "  float r = 0.785398 + ((0.0892423 * t1 - 0.301029) * t1 + 0.998422) * t; return v < 0.0 ? -r : r; }\n"
       "float atan2Q(float y, float x) { float t = (y - x) / (y + x); float t1 = t * t;\n"
       "  return 0.785398 + ((0.0892423 * t1 - 0.301029) * t1 + 0.998422) * t; }\n"
-      "float fracAdd(float v) { precise float d = v - ((v + 12582912.0) - 12582912.0); precise float f = d + saturate(d * -1e38); return f; }\n"
       "static const float K[16] = {0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.59, 0.60, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66};\n";
   if (t.setup & kGroupshared) s += "groupshared float GS[2048];\ngroupshared uint GSI[64];\n";
   if (t.setup & kGroupshared4) s += "groupshared float4 GS4[512];\n";
@@ -956,6 +960,9 @@ int main(int argc, char** argv) {
     }
   }
 
+  const std::string preciseForms = precisecheck::run(ad.adapter, desc.VendorId, desc.DeviceId, kPreciseForms);
+  std::printf("precise forms against the real round / floor / frac (how far \"precise\" holds): %s\n", preciseForms.c_str());
+
   const std::filesystem::path reports = reportsDir();
   std::string safeName = gpuName;
   for (char& ch : safeName)
@@ -1221,6 +1228,7 @@ int main(int argc, char** argv) {
   std::fprintf(csv, "# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\n", gpuName.c_str(), desc.VendorId,
                desc.DeviceId, driver.c_str());
   g.timer.reportLines(csv);
+  std::fprintf(csv, "# precise forms: %s\n", preciseForms.c_str());
   std::fprintf(csv, "# min16float: %s\n", half16 ? "16-bit" : "32-bit (no 16-bit min precision reported)");
   for (const Config& c : kConfigs) std::fprintf(csv, "# reference drift %s: %.2f%%\n", c.name, driftOf(c.name));
   std::fprintf(csv, "# run time: %.0f s\n", (GetTickCount64() - programStart) / 1000.0);

@@ -76,7 +76,7 @@ are searched too, so a whole <code>reshade-shaders</code> folder can go there.</
 <h2>What is in the bin folder</h2>
 <table>
   <tr><td><code>sopt-host.exe</code></td><td>the test window: a fixed test image and a synthetic depth buffer, vsync off, on
-  any of the six APIs (<code>--api dx9|dx10|dx11|dx12|vulkan|gl</code>)</td></tr>
+  any of the six APIs (<code>--api dx9|dx10|dx11|dx12|vulkan|gl</code>); <code>--gpu 630</code> runs on the card with that in its name (not on OpenGL; Direct3D 9 only sees cards with a monitor attached)</td></tr>
   <tr><td><code>sopt-timer.addon64</code> / <code>.addon32</code></td><td>the ReShade add-on that times techniques, runs the
   benchmark and takes the test screenshots</td></tr>
   <tr><td><code>run-test.ps1</code>, <code>run-bench.ps1</code>, <code>common.ps1</code></td><td>the scripts behind the

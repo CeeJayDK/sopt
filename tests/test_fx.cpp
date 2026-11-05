@@ -1200,19 +1200,22 @@ TEST(fx_include_from_folder_above) {
 }
 
 TEST(fx_include_from_subfolder) {
-  // As ReShade's Shaders\** search path: Pack\a.fx includes "b.fxh" from Pack\inc (BFBFX's bfb_inc).
-  const fs::path root = fs::temp_directory_path() / "sopt-test-sub" / "reshade-shaders" / "Shaders";
-  fs::create_directories(root / "Pack" / "inc");
-  std::ofstream(root / "Pack" / "inc" / "b.fxh") << "float4 VS(uint id : SV_VertexID) : SV_Position { return 0; }\n"
-                                                    "float4 PS(float4 p : SV_Position) : SV_Target { return p; }\n";
-  std::ofstream(root / "Pack" / "a.fx") << "#include \"b.fxh\"\n"
-                                           "technique T { pass { VertexShader = VS; PixelShader = PS; } }\n";
-  std::string err;
-  auto e = fx::loadEffect(root / "Pack" / "a.fx", fx::LoadOptions(), err);
-  CHECK(e != nullptr);
-  if (!e) std::printf("  %s\n", err.c_str());
-  std::error_code ec;
-  fs::remove_all(root.parent_path().parent_path(), ec);
+  // As ReShade's Shaders\** search path: Pack\a.fx includes "b.fxh" from Pack\inc (BFBFX's bfb_inc). Also in a package
+  // as it was downloaded (iMMERSE-main\Shaders, 2026-11-02).
+  for (const char* top : {"reshade-shaders", "iMMERSE-main"}) {
+    const fs::path root = fs::temp_directory_path() / "sopt-test-sub" / top / "Shaders";
+    fs::create_directories(root / "Pack" / "inc");
+    std::ofstream(root / "Pack" / "inc" / "b.fxh") << "float4 VS(uint id : SV_VertexID) : SV_Position { return 0; }\n"
+                                                      "float4 PS(float4 p : SV_Position) : SV_Target { return p; }\n";
+    std::ofstream(root / "Pack" / "a.fx") << "#include \"b.fxh\"\n"
+                                             "technique T { pass { VertexShader = VS; PixelShader = PS; } }\n";
+    std::string err;
+    auto e = fx::loadEffect(root / "Pack" / "a.fx", fx::LoadOptions(), err);
+    CHECK(e != nullptr);
+    if (!e) std::printf("  %s\n", err.c_str());
+    std::error_code ec;
+    fs::remove_all(root.parent_path().parent_path(), ec);
+  }
 }
 
 TEST(fx_pragma_once_one_spelling) {

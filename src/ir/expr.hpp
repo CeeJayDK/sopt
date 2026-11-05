@@ -160,8 +160,8 @@ bool fusesIntPair(uint16_t fuse, Op op, Op child, int childArg, std::optional<ui
 bool containsInexact(const Expr& e);
 bool containsOp(const Expr& e, Op op);
 // Whether e relies on exact float rounding that fxc -O3 would reassociate away: (v + c) - c,
-// (v + c) + -c or mad(a, b, c) - c with |c| >= 2^22 (the add-round trick). Such forms must be
-// written as precise.
+// (v + c) + -c or mad(a, b, c) - c with |c| >= 2^22 (the add-round trick). Measuring such a form
+// needs precise; sopt-fx never writes one as a variant, as some drivers cancel it even then.
 bool needsPrecise(const Expr& e);
 Type nodeType(const Expr& e, uint32_t node);
 unsigned operandCount(const Node& n);

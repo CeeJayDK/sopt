@@ -178,9 +178,9 @@ std::vector<fs::path> folderIncludePaths(const fs::path& file) {
   std::vector<fs::path> dirs;
   // The folders above the file (owner, 2026-10-19: no setup for ReShade.fxh): an effect in
   // reshade-shaders\Shaders\SweetFX finds ReShade.fxh in Shaders. Up to a reshade-shaders folder or the drive root.
-  fs::path shaders;  // the reshade-shaders\Shaders folder above the file, if any
+  fs::path shaders;  // the nearest Shaders folder above the file, if any: also in a package's own (iMMERSE-main\Shaders)
   for (fs::path dir = fs::absolute(file).parent_path(); dir.has_relative_path() && dir.filename() != "reshade-shaders";) {
-    if (dir.filename() == "Shaders" && dir.parent_path().filename() == "reshade-shaders") shaders = dir;
+    if (shaders.empty() && (dir.filename() == "Shaders" || dir.filename() == "shaders")) shaders = dir;
     dir = dir.parent_path();
     dirs.push_back(dir);
   }

@@ -480,23 +480,6 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
             intInputs = true;
           }
         if (intInputs) text = toString(v.expr, codeInputs);
-        if (needsPrecise(v.expr)) {
-          // fxc -O3 folds (v + c) - c to v: the add-round trick only survives as precise.
-          const unsigned w = width(v.expr.nodes[v.expr.root].type);
-          // GLSL reserves names with "__" (glslang warns): sopt_p there.
-          const std::string tmp = (r.glsl ? "sopt_p" : "__sopt_p") + std::to_string(r.line) + "_" + std::to_string(k + 1);
-          const std::string ty = w > 1 ? (r.glsl ? "vec" : "float") + std::to_string(w) : std::string("float");
-          const std::string decl = "precise " + ty + " " + tmp + " = " + text + ";";
-          text = tmp;
-          if (!r.prefix.empty()) {
-            // Code before it on its line (a one-line function, a case label, an if): the temporary goes in a block
-            // where the statement is (fx_main leaves out declarator lists, whose tail does not start with ';').
-            out += ind + r.prefix + "{ " + decl + " " + r.lhs + " " + text + r.rhs + "; }" + r.tail.substr(1) + note +
-                   back + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
-            continue;
-          }
-          out += ind + decl + "\n";
-        }
         out += ind + variantStatement(r, text) + note + back + (v.problems.empty() ? "" : "; " + v.problems) + "\n";
       }
       if (wo.clean) {

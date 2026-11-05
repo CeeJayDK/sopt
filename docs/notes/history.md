@@ -2335,6 +2335,27 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   beyondSlider (frontend.cpp): a slider compared with a value at / beyond its ends or with one subtracted (X - hi, lo -
   X) gets no ui_min / ui_max range. (3) HLSL prints mad(b - a, t, a) as lerp(a, b, t); sopt-found.txt leaves out
   variants with the same DXBC (dxbcSame). MXAO after: 1 written (the acos), 7 regions need ranges, no wrong rule.
+  Small lookup tables in TexBench (topt's request, owner 2026-11-02, 0.10.2): sections "Small tables, 2D dither / 1D LUT /
+  3D LUT", names "lut ..." (--filter "lut "), 263 tests, about 15-30 s; results and conclusions in docs/texbench/FINDINGS.md.
+  Traps met: x8 offsets must differ in row and column or the driver merges lookups (first runs: 4 x 4 Load 4.8 fma on UHD 630,
+  packed 1.5 with shared rows; lutCells); select trilinear x8 took 0.5 s a pass on UHD 630 (TDR risk on slow cards: x1 only);
+  a float3 table is not the cause of NVIDIA's cheap 3D reads (const rgb costs double): the index's coherence is. Same icb read
+  in DXBC for all. Open: sopt's table rewrite (NVIDIA: select tree up to 32 entries, history 2026-10-17) was measured with a
+  noisy index only and loses about 10x when the index is smooth (64 entries: const 4 against select 39), so it may be wrong for
+  some regions. Not changed: owner's call. RGA (vk-offline, GLSL; script not kept): scratch 0 everywhere. Faster decoders
+  (owner, same day): Bayer by 2 multiplies from a small search ((a * 73 >> 1) & 42 spreads 3 bits; no single multiply does
+  both a and y, carries collide), checked against the bit form on every cell. A cbuffer table costs what icb does on
+  NVIDIA, which rules out "known values lowered to branches". sopt on the float forms (--cost-model nvidia-turing,
+  intel-gen9, ampere): only frac(g), and on Ampere rounding tricks (x + 12582912 - 12582912) for floor.
+  tools/bitsearch (sopt-bitsearch, owner's go, same day): bottom-up integer search with constants, meet in the middle on two
+  pieces with no bit in common, output scale 2^0..6 (no right shift), weights from OpBench. Bank cap 800 MB: level 3 fills it
+  in 5 s, so level 3 is not complete. Found the "Bayer add" forms, checked against the bit form on every cell. Random 4 x 4
+  tables are out of its reach (constants). TexBench's reference drift does not catch a clock drop mid-run on the 1660 (990-1200
+  MHz, all times about 1.6x, drift below 1%): testers' numbers can be off the same way. Includes (tester report, same day):
+  folderIncludePaths took a Shaders folder only under reshade-shaders; now the nearest one above the file (iMMERSE-main\Shaders).
+  Tile sizes and blue noise (owner, 2026-11-02): sizes 5, 6, 7, 10, 12; three index forms; quality script not kept (plain Python,
+  void-and-cluster, flat grays to 1 bit). First version used grays on 1/16 steps: this favoured Bayer and hid the levels lost by
+  packing, so use grays between levels. The best void-and-cluster 4 x 4 of 200 tries is exactly Bayer 4 x 4 (others: lines at mid gray), so it costs the Bayer decoder; on small tiles blur 2 mostly measures the level count (16 levels, no pattern: 0.01785).
   GLSL for other projects (owner, 2026-10-31: HLSL / GLSL beyond ReShade, also .comp / .vert and texture instructions
   ReShade lacks, read as inputs; AnyPS5's 35 shaders as the test): .vert / .comp read; a GLSL main writing gl_Position is
   a vertex shader (gl_VertexIndex / InstanceIndex in, gl_Position / gl_PointSize out; gl_PerVertex redeclarations
@@ -2730,6 +2751,19 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   plain instruction per converted component until mix16 reports arrive. Steps 2-5 (fp16 evaluator with half / float / mixed
   profiles, half variants with conversions at the region's edges in the family table, D3D10-12 only output, corpus A/B +
   sopt-timer on the owner's NUC) follow. (6) uniform zero guard: on the list (owner).
+- 2026-11-03 (owner: B-spline timing on D3D9 through the Test Host, card choice, two-add rule). sopt-host --gpu <part of the
+  name> (run-bench.ps1 -Gpu): D3D9 lists only cards with a monitor attached, so no D3D9 on this PC's UHD 630; Vulkan
+  there fails under ReShade (VK_KHR_maintenance5, driver 31.0.101.2145). Add-round removed: rules out of
+  library/rewrites.txt, needsPrecise variants no longer written (details and pixel check: docs/inexact-tricks.md).
+  An earlier reading "two adds win by 72 us on D3D9, new B-spline -130 us" was false: the round had been cancelled.
+  B-spline, original against tex2D + round() without precise, us at 3840 x 2160, alone / + 400 mads: 1660 D3D11 0 / -64,
+  D3D12 -3 / -66, D3D9 -2 / -57; 630 D3D11 -442 (-10%) / -696, D3D12 -812 (-15%) / -902. Hidden math table:
+  docs/texbench/FINDINGS.md. Quirk: run-bench's screenshot of the first preset can show the image without the effect
+  (seen on the APIs where the pixel check passed); its timing is not affected. A check belongs in a later preset.
+  Scaled forms against round(): docs/inexact-tricks.md. OpBench / StageBench check precise on every run (owner:
+  "precise seems to mean anything but"; opbench/precise_check.hpp, `# precise forms:` in the CSV, D3D9 / 10 / 11 pixel and
+  compute / 12, no Vulkan or OpenGL: they need SPIR-V or a GL context). GTX 1660: D3D9 wrong (all forms), D3D12 wrong
+  (float2 in one line only), the rest right. UHD 630: D3D10 wrong (all), D3D11 and D3D12 right, D3D9 not run (no monitor).
 - Pattern / dither search (owner's idea, 2026-10-02, out of scope for sopt): search for cheap functions
   that make good noise or dither patterns. Owner invented the frac(dot(coords, k)) dither in late 2011 /
   early 2012 (Valve and Øyvind Kolås' "a dither" (2013) came up with similar ones).

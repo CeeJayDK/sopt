@@ -5,9 +5,10 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.10.1
+## 0.10.5
 
 ### SweetOpt
+- **Wrong pixels fixed:** SweetOpt could replace `round`, `floor`, `ceil` or `frac` with a trick that some graphics drivers undo, which broke the picture on those cards. It no longer uses that trick. Effects optimized with an older version should be optimized again.
 - **More GLSL:** GLSL vertex and compute shaders (.vert, .comp) are read too, and more of the GLSL that Vulkan projects use: named uniform blocks, multisampled textures, more built-in values and bit functions. Vertex shaders of other projects (plain HLSL and GLSL) are optimized too.
 - **Older NVIDIA cards:** SweetOpt now knows what math costs on GeForce GT / GTX 400 and 500 cards (Fermi).
 - **Settings used beyond their slider:** when an effect's code handles values beyond a slider's range (you can type them in), SweetOpt no longer treats the slider's ends as limits there.
@@ -15,10 +16,13 @@ docs/notes/history.md.
 - **No guessing where the code checks itself:** where an effect's code clamps or tests a value (like an on-screen check), SweetOpt no longer guesses that value's range from its name.
 - **lerp stays lerp:** changes are written with lerp() where that is what they compute, instead of a harder to read mad().
 - **Also math with matrix settings:** color and position math that uses a matrix setting of an effect is now optimized too.
+- **Header files in packages:** effects in a downloaded package's own Shaders folder now find header files in its subfolders, as they do in ReShade.
 - **Fixed:** the search of some small pieces of math (one setting or color value over a wide range) could run far past its time limit. It is much shorter now.
 
 ### GPU Blueprint
 - **Sending reports:** a report is no longer lost when the connection to Dropbox fails while it is being collected, and a report sent with ShaderInfo alone now arrives.
+- **Driver check:** OpBench and StageBench now also report whether your driver keeps a shader's `precise` math as written, on each version of Direct3D.
+- **Small lookup tables:** TexBench now measures whether small dither tables and color tables are faster as a texture or written out in the shader, on your card.
 
 ## 0.10.0
 

@@ -124,7 +124,7 @@ Everything rests on `src/ir`: what an operation is, what it costs on each GPU, a
 | File | What it does |
 |---|---|
 | `SweetOpt.bat`, `GPU-Blueprint.bat`, `Test-Host.bat` | The menus users double-click. |
-| `opbench/`, `texbench/`, `shaderinfo/` | **GPU Blueprint**: measures math costs, texture costs and driver info of a graphics card. `opbench/` also builds StageBench (the math tests in vertex and pixel shaders). |
+| `opbench/`, `texbench/`, `shaderinfo/` | **GPU Blueprint**: measures math costs, texture costs and driver info of a graphics card (`opbench/precise_check.hpp`: does the driver keep `precise`, per API). `opbench/` also builds StageBench (the math tests in vertex and pixel shaders). |
 | `host/sopt_host.cpp` | **Test Host**: shows a fixed image on any graphics API so ReShade can run without a game. |
 | `timer/sopt_timer.cpp` | ReShade add-on that times effects on the GPU. |
 | `run-test.ps1`, `run-bench.ps1`, `common.ps1` | Scripts behind Test-Host.bat. |
@@ -135,6 +135,7 @@ Everything rests on `src/ir`: what an operation is, what it costs on each GPU, a
 ### Other tools
 | File | What it does |
 |---|---|
+| `tools/bitsearch/bitsearch.cpp` | Finds the cheapest integer formula for a small dither table (`sopt-bitsearch`). |
 | `tools/fxc/sopt_fxc.c` | Small wrapper around Microsoft's shader compiler (fxc). |
 | `tools/site/build.py` | Builds the web site (`site/`) from the reports. |
 | `tools/site/report_intake.py` | Fetches GPU Blueprint reports from Dropbox (run by a GitHub Action). |

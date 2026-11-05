@@ -174,13 +174,8 @@ sign(x) -> clamp(x * 1e38, -1.0, 1.0)                 # [clamp] mul + med3 on AM
 sign(x) -> x > 0.0 ? 1.0 : (x < 0.0 ? -1.0 : 0.0)    # [select] lt, lt, and, movc
 # a two-way select is not sign (1 at x = 0), but is where the product is 0 at x = 0
 sign(x) * pow(abs(x), c) -> (x >= 0.0 ? 1.0 : -1.0) * pow(abs(x), c)   where c const, c in [0.01, 16]
-# round to nearest even with two adds (|x| < 2^22: x + 1.5 * 2^23 lands where the float spacing is 1);
-# fxc -O3 folds (x + c) - c back to x, so sopt-fx writes the adds as precise
-round(x) -> (x + 12582912.0) - 12582912.0   where x in [-4194304, 4194304]   # [add-round]
-# floor / ceil / frac from that round: r - x is in [-0.5, 0.5]; saturate(d * 1e38) is 1 for any normal d > 0
-floor(x) -> ((x + 12582912.0) - 12582912.0) - saturate((((x + 12582912.0) - 12582912.0) - x) * 1e38)   where x in [-4194304, 4194304]   # [add-round]
-ceil(x) -> ((x + 12582912.0) - 12582912.0) + saturate((x - ((x + 12582912.0) - 12582912.0)) * 1e38)   where x in [-4194304, 4194304]   # [add-round]
-frac(x) -> (x - ((x + 12582912.0) - 12582912.0)) + saturate((x - ((x + 12582912.0) - 12582912.0)) * -1e38)   where x in [-4194304, 4194304]   # [add-round]
+# Not here: round(x) -> (x + 12582912.0) - 12582912.0 and the floor / ceil / frac built on it. Even as precise the
+# adds get cancelled on some card and API pairs, which gives wrong pixels (docs/inexact-tricks.md).
 
 # from LLVM as built into DXC (lib/Transforms/InstCombine, lib/Transforms/Utils/SimplifyLibCalls.cpp):
 # constant multiplies pushed into adds, divide chains, and pow / exp / log / sqrt identities. The

@@ -173,6 +173,7 @@
   <tr><td>Target size</td><td>a 2 &times; 2 average (one bilinear read) into 1/4 down to 1/1024 of the screen: where small targets stop getting faster.</td></tr>
   <tr><td>Quad exchange</td><td>16 reads against 4 reads whose 2 &times; 2 neighbours come from <code>ddx_fine</code> / <code>ddy_fine</code>; the cost of one exchange in fma.</td></tr>
   <tr><td>Noise sources</td><td>1 and 8 lookups per pixel: noise textures of 4&sup2; to 512&sup2; (RG8, at 64&sup2; also R8, RGBA8, two 4-bit values in R8 and Load), a table of 16 values, interleaved gradient noise, R2 and a sine-free hash; the cost per lookup in fma.</td></tr>
+  <tr><td>Small tables</td><td>can anything beat a texture for a small lookup? 1 and 8 lookups per pixel: dither tables of 4&sup2; to 64&sup2;, curves of 16 to 64 entries, color tables of 3&sup3; and 4&sup3;, each as a texture, a constant table, a constant buffer and a tree of selects; also values packed into integers, Bayer computed from the pixel position, and forms that D3D9 shaders can compile. In fma per lookup.</td></tr>
   <tr><td>Fetch order</td><td>25 taps (full size) and 81 taps (a 16&times; downsample) read row by row, serpentine, Morton, spiral and random.</td></tr>
   <tr><td>Branches</td><td>a 16-tap loop with <code>[branch] if (k &lt; n)</code>, n from a uniform or per pixel, against the loop unrolled.</td></tr>
   <tr><td>Compute</td><td>chains of 1 to 32 small dependent dispatches (240 &times; 135).</td></tr>

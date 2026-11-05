@@ -4,7 +4,10 @@
 // starts where Direct3D 12 is missing).
 //
 //   sopt-host [--api dx9|dx10|dx11|dx12|vulkan|gl] [--width 3840] [--height 2160] [--image file.png]
-//             [--frames N] [--bench] [--no-depth] [--msaa N]
+//             [--frames N] [--bench] [--no-depth] [--msaa N] [--gpu name]
+//
+// --gpu runs on the graphics card whose name contains this text (not case-sensitive), e.g. --gpu 630; without it
+// the system's default card. Not for --api gl (Windows picks the card there).
 //
 // --bench sets SOPT_TIMER_AUTO=1 and SOPT_TIMER_EXIT=1: sopt-timer runs its bench over the
 // sopt-*.ini presets and closes the window when done. Without --image the input is a
@@ -66,12 +69,51 @@ struct Options {
   bool bench = false;
   bool depth = true;
   uint32_t msaa = 1;     // dx11: back buffer sample count
+  std::string gpu;       // part of the card's name; empty = the default card
 };
 
 void fail(const char* what) {
   std::fprintf(stderr, "sopt-host: %s\n", what);
   MessageBoxA(nullptr, what, "sopt-host", MB_ICONERROR);
   std::exit(1);
+}
+
+// ---- choosing the card -----------------------------------------------------------------
+
+bool nameHas(std::string name, std::string part) {
+  auto lower = [](std::string& s) {
+    for (auto& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
+  };
+  lower(name);
+  lower(part);
+  return name.find(part) != std::string::npos;
+}
+
+void failNoGpu(const Options& o, const std::string& names) {
+  fail(("no graphics card named \"" + o.gpu + "\" on this API; it has:\n" + names).c_str());
+}
+
+// nullptr = the default card. The caller keeps the adapter for the life of the device.
+IDXGIAdapter* findAdapter(const Options& o) {
+  if (o.gpu.empty()) return nullptr;
+  IDXGIFactory1* factory = nullptr;
+  if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) fail("CreateDXGIFactory1 failed");
+  std::string names;
+  IDXGIAdapter* adapter = nullptr;
+  for (UINT i = 0; factory->EnumAdapters(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+    DXGI_ADAPTER_DESC desc = {};
+    adapter->GetDesc(&desc);
+    char name[256] = {};
+    WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, name, sizeof(name) - 1, nullptr, nullptr);
+    if (nameHas(name, o.gpu)) {
+      factory->Release();
+      return adapter;
+    }
+    names += std::string(name) + "\n";
+    adapter->Release();
+  }
+  failNoGpu(o, names);
+  return nullptr;
 }
 
 // ---- image -----------------------------------------------------------------------------
@@ -229,8 +271,9 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   ID3D11Device* dev = nullptr;
   ID3D11DeviceContext* ctx = nullptr;
   const D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;
-  if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, &level, 1, D3D11_SDK_VERSION, &dev,
-                               nullptr, &ctx)))
+  IDXGIAdapter* chosen = findAdapter(o);
+  if (FAILED(D3D11CreateDevice(chosen, chosen ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, &level, 1,
+                               D3D11_SDK_VERSION, &dev, nullptr, &ctx)))
     fail("D3D11CreateDevice failed");
   IDXGIDevice* dxgiDev = nullptr;
   IDXGIAdapter* adapter = nullptr;
@@ -397,8 +440,23 @@ int runD3d9(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   pp.hDeviceWindow = hwnd;
   pp.Windowed = TRUE;
   pp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+  UINT chosen = D3DADAPTER_DEFAULT;
+  if (!o.gpu.empty()) {
+    std::string names;
+    bool found = false;
+    for (UINT i = 0; i < d3d->GetAdapterCount() && !found; ++i) {
+      D3DADAPTER_IDENTIFIER9 id = {};
+      d3d->GetAdapterIdentifier(i, 0, &id);
+      if (nameHas(id.Description, o.gpu)) {
+        chosen = i;
+        found = true;
+      }
+      names += std::string(id.Description) + "\n";
+    }
+    if (!found) failNoGpu(o, names);  // Direct3D 9 only lists cards with a monitor attached
+  }
   IDirect3DDevice9* dev = nullptr;
-  if (FAILED(d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hwnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &pp, &dev)))
+  if (FAILED(d3d->CreateDevice(chosen, D3DDEVTYPE_HAL, hwnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &pp, &dev)))
     fail("IDirect3D9::CreateDevice failed");
 
   // The image in a default-pool surface (BGRX), copied to the back buffer every frame.
@@ -495,7 +553,7 @@ int runD3d10(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
   ID3D10Device* dev = nullptr;
   IDXGISwapChain* sc = nullptr;
-  if (FAILED(D3D10CreateDeviceAndSwapChain(nullptr, D3D10_DRIVER_TYPE_HARDWARE, nullptr, 0, D3D10_SDK_VERSION, &sd, &sc,
+  if (FAILED(D3D10CreateDeviceAndSwapChain(findAdapter(o), D3D10_DRIVER_TYPE_HARDWARE, nullptr, 0, D3D10_SDK_VERSION, &sd, &sc,
                                            &dev)))
     fail("D3D10CreateDeviceAndSwapChain failed");
 
@@ -600,7 +658,7 @@ int runD3d12(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
   auto serializeRoot = reinterpret_cast<SerializeRoot>(GetProcAddress(lib, "D3D12SerializeRootSignature"));
   if (!createDevice || !serializeRoot) fail("d3d12.dll lacks D3D12CreateDevice");
   ID3D12Device* dev = nullptr;
-  if (FAILED(createDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev)))) fail("D3D12CreateDevice failed");
+  if (FAILED(createDevice(findAdapter(o), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev)))) fail("D3D12CreateDevice failed");
   D3D12_COMMAND_QUEUE_DESC qd = {};
   qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
   ID3D12CommandQueue* queue = nullptr;
@@ -938,6 +996,7 @@ int runVulkan(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
       VkPhysicalDeviceProperties props;
       vkGetPhysicalDeviceProperties(cand, &props);
       if (pass == 0 && props.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) continue;
+      if (!o.gpu.empty() && !nameHas(props.deviceName, o.gpu)) continue;
       uint32_t nf = 0;
       vkGetPhysicalDeviceQueueFamilyProperties(cand, &nf, nullptr);
       std::vector<VkQueueFamilyProperties> fams(nf);
@@ -1327,9 +1386,10 @@ int main(int argc, char** argv) {
     else if (a == "--bench") o.bench = true;
     else if (a == "--no-depth") o.depth = false;
     else if (a == "--msaa") o.msaa = uint32_t(std::strtoul(next(), nullptr, 10));
+    else if (a == "--gpu") o.gpu = next();
     else {
       std::printf("usage: sopt-host [--api dx9|dx10|dx11|dx12|vulkan|gl] [--width 3840] [--height 2160] [--image file] [--frames N] "
-                  "[--bench] [--no-depth] [--msaa N]\n");
+                  "[--bench] [--no-depth] [--msaa N] [--gpu name]\n");
       return a == "-h" || a == "--help" ? 0 : 1;
     }
   }
@@ -1341,6 +1401,7 @@ int main(int argc, char** argv) {
   if (o.width == 0 || o.height == 0 || o.width > 16384 || o.height > 16384) fail("bad size");
   if (o.msaa < 1 || o.msaa > 8 || (o.msaa & (o.msaa - 1)) != 0) fail("--msaa must be 1, 2, 4 or 8");
   if (o.msaa > 1 && o.api != "dx11") fail("--msaa needs --api dx11");
+  if (!o.gpu.empty() && o.api == "gl") fail("--gpu does not work with --api gl: Windows picks the card there");
   if (o.bench) {
     SetEnvironmentVariableA("SOPT_TIMER_AUTO", "1");
     SetEnvironmentVariableA("SOPT_TIMER_EXIT", "1");

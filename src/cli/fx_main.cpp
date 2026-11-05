@@ -1176,15 +1176,8 @@ int main(int argc, char** argv) {
           moreFetches = moreFetches || count(a.text, nm) > count(targetText, nm);
         }
       if (moreFetches) continue;
-      // A precise temporary of a statement sharing its line goes in a block where the statement is (variants.cpp):
-      // only where a statement may stand (after { ; : ) or else), not in a declarator list or a for (...) header.
-      if (const std::string& pre = rr.region.prefix; needsPrecise(a.expr) && !pre.empty()) {
-        const std::string p = pre.substr(0, pre.find_last_not_of(" \t") + 1);
-        const bool afterElse = p.size() >= 4 && p.compare(p.size() - 4, 4, "else") == 0 &&
-                               (p.size() == 4 || !std::isalnum(static_cast<unsigned char>(p[p.size() - 5])));
-        if (rr.region.tail[0] != ';' || (std::string("{;:)").find(p.back()) == std::string::npos && !afterElse))
-          continue;
-      }
+      // Relies on precise, which not every driver keeps: wrong pixels on some card and API pairs.
+      if (needsPrecise(a.expr)) continue;
       // The same code as the original once printed (a - c and a + -c print alike): no variant.
       if (a.text == targetText) continue;
       const uint32_t compiled = fx::compiledCost(a.expr, *opt.search.model, mainIns, rr.region.prog.half);

@@ -98,7 +98,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 - `tools/windows`: opbench (OpBench; StageBench = the same source with SOPT_STAGEBENCH), texbench (TexBench), shaderinfo (ShaderInfo), benchkit.hpp (shared console /
   timing), host (sopt-host), timer (sopt-timer ReShade add-on), GPU-Blueprint.bat / SweetOpt.bat / Test-Host.bat menus,
   docs/*.html (shipped guides), stage.ps1, expected.hpp. `tools/reshade`: ReShade patches, IEEE754 test effect.
-  `tools/site`: site build, Steam share script. `tools/sweetfx`: proposed SweetFX changes, BlendModes.fxh.
+  `tools/bitsearch`: integer decoder search (sopt-bitsearch). `tools/site`: site build, Steam share script. `tools/sweetfx`: proposed SweetFX changes, BlendModes.fxh.
 - Data: docs/opbench, docs/texbench (+ FINDINGS.md), docs/shaderinfo; data/steam-gpu-share.txt; library/rewrites.txt
   (+ library/found/); docs/inexact-tricks.md (every not-exact / conditional trick with its limits: add new ones there).
 - `bench/bench.cpp` + `examples/*.sopt` (`# expect:`).
@@ -123,7 +123,8 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 - Every new search technique goes behind a flag and must improve the bench before becoming default (unless the owner
   decides). Tests of what the bank alone reaches turn off overflow, shared leaves, subtrees, cuts, top-down, two-phase,
   library.
-- `precise` regions keep float semantics; rounding-dependent variants are written as `precise` (`needsPrecise`).
+- `precise` regions keep float semantics. Variants that rely on `precise` are never written (`needsPrecise`): drivers
+  cancel `(x + c) - c` even then on some card and API pairs (2026-11-03, docs/inexact-tricks.md).
 - Variants of regions with assumed (unproven) ranges are not written; facts files / `--ask` supply ranges.
 
 ## Facts worth keeping in mind
