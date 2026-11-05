@@ -162,8 +162,9 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
    rule's original (library/found/, 1165 from the 0.6.4 corpus run; library/rewrites.txt's "found by sopt" rules) and
    compare with the found replacement; owner, sopt and Claude then try to beat them by hand too. An Action, not tokens. Not yet
    (owner, 2026-10-27): each improvement of sopt may find more, so it runs once sopt stops improving much.
-9. Flags --library-regroup / --fp-coincidence (2026-10-11): off. bench/logic (any / all / chains, 2026-11-05): identical
-   bests at 30 s on rdna3 and nvidia-ampere. Owner to decide whether they go.
+9. Search flags, both stay off by default (owner, 2026-11-05; corpus A/B in history). Fix the first one first:
+   --fp-coincidence: finds big wins nothing else finds (82 -> 58) but loses more regions than it wins. Good idea, flawed:
+   find out why it loses and fix it. --library-regroup: rarely finds anything; revisit later, change it or find a better idea.
 7. sign() fast forms (owner, 2026-10-10): one (mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0), 2.25 on every model so far)
    beats the others everywhere; once OpBench reports cover the families, drop the slower ones from library/rewrites.txt.
    Not before.

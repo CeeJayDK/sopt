@@ -2787,3 +2787,12 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
 - bench/logic: 10 problems (any / all of 3 and 4, || and && chains, min / max chains). 30 s each, rdna3 and nvidia-ampere:
   --library-regroup and --fp-coincidence give the same best cost as neither on every problem. max4 and minabs3 have nothing
   cheaper with or without them.
+- Corpus A/B of the same flags (19,868 regions, 1 s per region, two runs without flags, one run per flag). Total cost about
+  1,036,000. Run 1 vs run 2: 56 regions differ, 24 cheaper (186), 32 dearer (155), total -31. --library-regroup vs each run:
+  53 / 65 differ, 19 / 29 cheaper (205 / 189), 34 / 36 dearer (107 / 122), total -98 / -67: about the noise, with a few real
+  finds (MaskGlowAdvanced.fx:752 81 -> 66, also WinUaeMaskGlow.fx). --fp-coincidence vs each run: 148 / 150 differ, 64 / 69
+  cheaper (386 / 317), 84 / 81 dearer (436 / 398), total +50 / +81. Wins neither other run found: VirtualResolution.fx:130
+  82 -> 58, SharpContrast.fx:421 62 -> 41, PD80_00_Blend_Modes.fxh:134 253 -> 241. Why it loses is not known yet; a slower
+  search within the time limit is only a guess. Owner's decision: both stay off by default; --fp-coincidence is a good idea
+  but flawed and fixing it comes first; --library-regroup rarely finds anything, revisit later or replace it. The goal is the
+  most optimal shaders, not a shorter sopt run.
