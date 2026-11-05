@@ -31,9 +31,11 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel --target sopt-fx
       - id: ids
+        env:
+          PACKAGES: ${{ inputs.packages }}
         run: |
           curl -sfL -o EffectPackages.ini https://raw.githubusercontent.com/crosire/reshade-shaders/list/EffectPackages.ini
-          echo "ids=$(python3 -I tools/corpus/effect_packages.py ids EffectPackages.ini '${{ inputs.packages }}')" >> "$GITHUB_OUTPUT"
+          echo "ids=$(python3 -I tools/corpus/effect_packages.py ids EffectPackages.ini "$PACKAGES")" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: sopt-fx
@@ -56,11 +58,15 @@ jobs:
         with:
           name: sopt-fx
       - name: Install and run
+        env:
+          ID: ${{ matrix.id }}
+          SECONDS_EACH: ${{ inputs.time || '1' }}
+          ARGS: ${{ inputs.args }}
         run: |
           chmod +x build/sopt-fx
-          python3 -I tools/corpus/effect_packages.py install EffectPackages.ini "$RUNNER_TEMP/corpus" "${{ matrix.id }}"
-          python3 -I tools/corpus/effect_packages.py run "$RUNNER_TEMP/corpus" build/sopt-fx "out/${{ matrix.id }}" \
-            --time "${{ inputs.time || '1' }}" --timeout 6000 --args "${{ inputs.args }}"
+          python3 -I tools/corpus/effect_packages.py install EffectPackages.ini "$RUNNER_TEMP/corpus" "$ID"
+          python3 -I tools/corpus/effect_packages.py run "$RUNNER_TEMP/corpus" build/sopt-fx "out/$ID" \
+            --time "$SECONDS_EACH" --timeout 6000 --args "$ARGS"
       - uses: actions/upload-artifact@v7
         if: always()
         with:

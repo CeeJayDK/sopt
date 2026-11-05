@@ -17,6 +17,9 @@ docs/notes/history.md.
 - **Also math with matrix settings:** color and position math that uses a matrix setting of an effect is now optimized too.
 - **Fixed:** the search of some small pieces of math (one setting or color value over a wide range) could run far past its time limit. It is much shorter now.
 
+### GPU Blueprint
+- **Sending reports:** a report is no longer lost when the connection to Dropbox fails while it is being collected, and a report sent with ShaderInfo alone now arrives.
+
 ## 0.10.0
 
 ### SweetOpt

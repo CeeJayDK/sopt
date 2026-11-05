@@ -37,7 +37,6 @@ int parseSearchOption(const std::string& a, const std::function<const char*()>& 
   else if (a == "--no-div-form") opt.search.divForm = false;
   else if (a == "--no-overflow") opt.search.overflow = false;
   else if (a == "--no-subtrees") opt.subtrees = false;
-  else if (a == "--stoke") opt.stoke = true;
   else if (a == "--no-cuts") opt.cuts = false;
   else if (a == "--slack") opt.search.slack = std::atoi(next());
   else if (a == "--no-best-bound") opt.search.bestBound = false;

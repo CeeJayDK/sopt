@@ -30,8 +30,11 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel --target sopt
       - id: list
+        env:
+          PROBLEMS: ${{ inputs.problems }}
+          MODELS: ${{ inputs.models || 'nvidia-ampere,nvidia-turing,rdna3,intel-gen9' }}
         run: |
-          python3 -I - "${{ inputs.problems }}" "${{ inputs.models || 'nvidia-ampere,nvidia-turing,rdna3,intel-gen9' }}" >> "$GITHUB_OUTPUT" <<'EOF'
+          python3 -I - "$PROBLEMS" "$MODELS" >> "$GITHUB_OUTPUT" <<'EOF'
           import json, os, sys
           names = [p.strip() for p in sys.argv[1].split(",") if p.strip()] or \
                   sorted(f[:-5] for f in os.listdir("bench/intrinsics") if f.endswith(".sopt"))
@@ -60,12 +63,16 @@ jobs:
           name: sopt
           path: build
       - name: Search
+        env:
+          PROBLEM: ${{ matrix.problem }}
+          MODEL: ${{ matrix.model }}
+          SECONDS_EACH: ${{ inputs.time || '1800' }}
         run: |
           chmod +x build/sopt
           mkdir -p out
-          build/sopt "bench/intrinsics/${{ matrix.problem }}.sopt" --time "${{ inputs.time || '1800' }}" \
-            --cost-model "${{ matrix.model }}" > "out/${{ matrix.problem }}.${{ matrix.model }}.txt" 2>&1 || true
-          tail -5 "out/${{ matrix.problem }}.${{ matrix.model }}.txt"
+          build/sopt "bench/intrinsics/$PROBLEM.sopt" --time "$SECONDS_EACH" \
+            --cost-model "$MODEL" > "out/$PROBLEM.$MODEL.txt" 2>&1 || true
+          tail -5 "out/$PROBLEM.$MODEL.txt"
       - uses: actions/upload-artifact@v7
         if: always()
         with:

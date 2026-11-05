@@ -11,6 +11,8 @@
 #include "fx/hoist.hpp"
 #include "fx/variants.hpp"
 #include "fx/platforms.hpp"
+#include "measure/driverstats.hpp"
+#include "measure/tools.hpp"
 #include "search/driver.hpp"
 #include "test.hpp"
 
@@ -1941,4 +1943,107 @@ TEST(fx_easy_mode) {
     CHECK(fx::loadEffect(out / file.filename(), lo, err) != nullptr);
   }
   fs::remove_all(out, ec);
+}
+
+namespace {
+
+void writeText(const std::filesystem::path& p, const std::string& text) {
+  std::ofstream f(p, std::ios::binary);
+  f << text;
+}
+
+}  // namespace
+
+TEST(run_cache_round_trip) {
+  std::string err;
+  const auto dir = sopt::makeWorkDir("", "sopt-test-cache-", err);
+  const auto path = dir / "sub" / "sopt-cache.txt";
+  fx::RunCache c;
+  c["1 |in0 + in0"].push_back({"k1", {"in0 * 2.0", "mad(in0, 2.0, 0.0)"}});
+  c["1 |in0 + in0"].push_back({"k2", {}});
+  fx::saveRunCache(path, c);
+  fx::RunCache r = fx::loadRunCache(path);
+  CHECK(r.size() == 1 && r["1 |in0 + in0"].size() == 2);
+  CHECK(r["1 |in0 + in0"][0].key == "k1" && r["1 |in0 + in0"][0].cands.size() == 2);
+  CHECK(r["1 |in0 + in0"][1].cands.empty());
+  // Windows line ends, and an entry cut off by a crash: the complete ones stay.
+  writeText(path, "shape a\r\nkey k\r\ncand x\r\nend\r\nshape b\nkey k2\ncand y\n");
+  r = fx::loadRunCache(path);
+  CHECK(r.size() == 1 && r["a"][0].cands[0] == "x");
+  CHECK(fx::loadRunCache(dir / "missing.txt").empty());
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+// The previous run's candidates are verified again: a wrong one is not accepted, and one over inputs the region does not
+// have is left out (2026-10-25: it read past the points, a crash on Linux).
+TEST(previous_candidates_are_verified_again) {
+  const Program p = parseProgram("input x : float in [0, 1]\noutput r = x + x + x\nbudget r : rel 1e-6\n");
+  const std::vector<InputDecl> two = {{"x", 0.0, 1.0, 0}, {"y", 0.0, 1.0, 0}};
+  Options opt;
+  opt.search.timeLimitSec = 1;
+  opt.previousOnly = true;
+  opt.previous = {parseExpr("x * 3.0", two), parseExpr("x * 4.0", two), parseExpr("x * y", two)};
+  const RunResult res = optimize(p, opt);
+  bool right = false;
+  for (const auto& a : res.accepted) {
+    right = right || a.text.find("3") != std::string::npos;
+    CHECK(a.text.find("4") == std::string::npos);
+    CHECK(a.text.find("y") == std::string::npos);
+  }
+  CHECK(right);
+}
+
+TEST(culprit_switch_of_a_parse_error) {
+  std::string err;
+  const auto dir = sopt::makeWorkDir("", "sopt-test-culprit-", err);
+  const std::map<std::string, std::string> where = {{"SOPT_A", ""}, {"SOPT_B", ""}};
+  for (const std::string eol : {"\n", "\r\n"}) {
+    const auto file = dir / "t.fx";
+    writeText(file, "#if SOPT_A" + eol + "a" + eol + "#endif" + eol +       // 1-3
+                        "#if SOPT_B" + eol + "#if OTHER" + eol + "b" + eol +  // 4-6
+                        "#endif" + eol + "c" + eol + "#endif" + eol +         // 7-9
+                        "d" + eol +                                           // 10
+                        "#if SOPT_AB" + eol + "e" + eol + "#endif" + eol +    // 11-13
+                        "#if X" + eol + "#elif SOPT_A" + eol + "f" + eol);    // 14-16
+    auto at = [&](int line) { return file.generic_string() + "(" + std::to_string(line) + ", 1): error X"; };
+    CHECK(fx::culpritSwitch(at(2), where) == "SOPT_A");
+    CHECK(fx::culpritSwitch(at(6), where) == "SOPT_B");  // the #if around it that tests a switch
+    CHECK(fx::culpritSwitch(at(8), where) == "SOPT_B");
+    CHECK(fx::culpritSwitch(at(10), where).empty());      // closed: none of them
+    CHECK(fx::culpritSwitch(at(12), where).empty());      // another name
+    CHECK(fx::culpritSwitch(at(16), where) == "SOPT_A");
+  }
+  CHECK(fx::culpritSwitch("no position here", where).empty());
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+TEST(driver_statistics_file) {
+  std::string err;
+  const auto dir = sopt::makeWorkDir("", "sopt-test-stats-", err);
+  const auto csv = dir / "stats.csv";
+  const std::string text =
+      "# gpu: Intel Foo\n# vendor: 0x8086\nshader,executable,statistic,value\n"
+      "n_0,Vertex,Instruction Count,50\nn_0,Fragment,Instruction Count,12\nn_0,,compiled,yes\n"
+      "n_1,Vertex,Instruction Count,70\nn_1,\"Last, one\",Instruction Count,7\n"
+      "n_2,Vertex,Register Count,3\n";
+  writeText(csv, text);
+  DriverStats ds;
+  CHECK(!loadDriverStats(csv, ds, err));  // the manifest belongs to it
+  writeText(dir / "manifest.txt", "n_0\tt.fx:3\torig\r\nn_1\tt.fx:3\tx * 3.0\n");
+  ds = DriverStats();
+  err.clear();
+  CHECK(loadDriverStats(csv, ds, err));
+  CHECK(ds.vendor == 0x8086 && ds.gpu == "Intel Foo" && ds.compiled["n_0"]);
+  CHECK(ds.byKey[driverKey("dir/t.fx", 3, "orig")] == "n_0");
+  CHECK(driverCost(ds, "n_0") == 12);  // the pixel shader
+  CHECK(driverCost(ds, "n_1") == 7);   // not named: the last one
+  CHECK(driverCost(ds, "n_2") == -1);  // no instruction count
+  CHECK(driverCost(ds, "missing") == -1);
+  ds.vendor = 0x10DE;
+  CHECK(driverCost(ds, "n_0") == -1);  // only Intel counts so far
+  CHECK(!loadDriverStats(dir / "missing.csv", ds, err));
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
 }
