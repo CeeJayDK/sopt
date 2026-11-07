@@ -241,6 +241,136 @@ std::vector<std::vector<float>> thresholdPoints(const Program& prog, Rng& rng) {
   return pts;
 }
 
+// Comparison boundaries (2026-11-08): a comparison of expressions (abs(uv.x - pos.x) < 0.003, a character box
+// step(0.0, min(p.x, p.y))) can hold only in a window that random points never hit, so a candidate without it (0.0 for
+// a marker, Out without its character) passed as bit-exact. From random starts, each comparison component in turn is
+// flipped by a search along one input it depends on (a scan of the range, zoomed in on the closest approach when no
+// sample flips it), and the point stays there for the next comparison, so several conditions hold together
+// (all(abs(d) < r)). Kept: the point inside each flip and the two floats on either side of its boundary.
+std::vector<std::vector<float>> boundaryPoints(const Program& prog, Rng& rng) {
+  const Expr& e = prog.target;
+  const std::vector<InputDecl> slots = slotDecls(prog.inputs);
+  const std::vector<uint32_t> first = inputSlots(prog.inputs);
+  std::vector<std::vector<float>> pts;
+  // The inputs each node depends on (bit i: input i; inputs past 63 count as every input).
+  std::vector<uint64_t> deps(e.nodes.size(), 0);
+  for (size_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op == Op::Input) deps[i] = n.input < 64 ? uint64_t{1} << n.input : ~uint64_t{0};
+    for (unsigned a = 0; a < n.nargs; ++a) deps[i] |= deps[n.args[a]];
+  }
+  struct Cmp {
+    uint32_t node;
+    unsigned c;
+    std::vector<size_t> slots;  // with a finite range, that the comparison depends on
+  };
+  std::vector<Cmp> cmps;
+  for (uint32_t i = 0; i < e.nodes.size() && cmps.size() < 64; ++i) {
+    const Node& n = e.nodes[i];
+    if (!((n.op >= Op::Lt && n.op <= Op::Ne) || n.op == Op::Step)) continue;
+    std::vector<size_t> on;
+    for (size_t in = 0; in < prog.inputs.size(); ++in) {
+      if (!(deps[i] >> std::min<size_t>(in, 63) & 1)) continue;
+      const size_t end = in + 1 < first.size() ? first[in + 1] : slots.size();
+      for (size_t s = first[in]; s < end; ++s)
+        if (std::isfinite(slots[s].lo) && std::isfinite(slots[s].hi) && slots[s].hi > slots[s].lo) on.push_back(s);
+    }
+    if (on.empty()) continue;
+    const unsigned w = width(n.type);
+    for (unsigned c = 0; c < w; ++c) cmps.push_back({i, c, on});
+  }
+  if (cmps.empty()) return pts;
+  constexpr size_t kScan = 128;
+  PointSet line;
+  line.cols.resize(slots.size());
+  line.slot = first;
+  BlockEvaluator ev;
+  auto evalAt = [&](const std::vector<float>& pt, size_t s, const std::vector<float>& xs) {
+    for (size_t k = 0; k < slots.size(); ++k) line.cols[k].assign(xs.size(), pt[k]);
+    line.cols[s] = xs;
+    ev.eval(e, line, 0, xs.size(), kProfileRef);
+  };
+  auto out = [&](const Cmp& k, size_t j) { return ev.ptr[k.node][width(e.nodes[k.node].type) == 1 ? 0 : k.c][j]; };
+  auto gap = [&](const Cmp& k, size_t j) {  // operand difference: how close the comparison is to flipping
+    const Node& n = e.nodes[k.node];
+    auto at = [&](uint32_t a) { return double(ev.ptr[a][width(e.nodes[a].type) == 1 ? 0 : k.c][j]); };
+    return std::fabs(at(n.args[0]) - at(n.args[1]));
+  };
+  size_t work = 0;  // line evaluations: bounds the time on regions with many comparisons that never flip
+  for (int base = 0; base < 8 && pts.size() < 1024 && work < 4000; ++base) {
+    std::vector<float> pt(slots.size());
+    for (size_t k = 0; k < pt.size(); ++k) pt[k] = sampleInput(slots[k], rng);
+    std::vector<size_t> order(cmps.size());
+    for (size_t k = 0; k < order.size(); ++k) order[k] = k;
+    for (size_t k = order.size(); k > 1; --k) std::swap(order[k - 1], order[rng.next() % k]);
+    // Per input moved: the window it was moved into. Points spread over all of them together reach what lies
+    // inside the windows (a character's lit pixels inside its box: floor steps, no comparison), 2026-11-08.
+    std::vector<std::pair<float, float>> window(slots.size(), {NAN, NAN});
+    for (size_t ci : order) {
+      const Cmp& k = cmps[ci];
+      bool moved = false;
+      for (size_t t = 0, off = rng.next() % k.slots.size(); t < k.slots.size() && !moved && work < 4000; ++t) {
+        const size_t s = k.slots[(t + off) % k.slots.size()];
+        const InputDecl& d = slots[s];
+        evalAt(pt, s, {pt[s]});
+        const float cur = out(k, 0);
+        double lo = d.lo, hi = d.hi;
+        std::vector<float> xs(kScan);
+        for (int zoom = 0; zoom < 6 && !moved && hi > lo; ++zoom, ++work) {
+          for (size_t j = 0; j < kScan; ++j) xs[j] = snap(d, lo + (hi - lo) * double(j) / double(kScan - 1));
+          evalAt(pt, s, xs);
+          size_t hit = kScan, best = kScan;
+          for (size_t j = 0; j < kScan; ++j) {
+            const double g = gap(k, j);
+            if (!std::isfinite(g)) continue;
+            if (out(k, j) != cur && (hit == kScan || std::fabs(xs[j] - pt[s]) < std::fabs(xs[hit] - pt[s]))) hit = j;
+            if (best == kScan || g < gap(k, best)) best = j;
+          }
+          if (hit < kScan) {
+            // The flipped stretch of the scan (and one sample past each end): spread points go there below.
+            size_t a = hit, b = hit;
+            while (a > 0 && out(k, a - 1) != cur) --a;
+            while (b + 1 < kScan && out(k, b + 1) != cur) ++b;
+            window[s] = {xs[a > 0 ? a - 1 : a], xs[b + 1 < kScan ? b + 1 : b]};
+            // The boundary between the flipped sample and its neighbour towards the start, by bisection.
+            float in = xs[hit], other = hit > 0 && xs[hit - 1] != in ? xs[hit - 1] : xs[std::min(hit + 1, kScan - 1)];
+            evalAt(pt, s, {other});
+            if (out(k, 0) == cur)
+              for (int it = 0; it < 40; ++it) {
+                const float mid = snap(d, 0.5 * (double(in) + double(other)));
+                if (mid == in || mid == other) break;
+                evalAt(pt, s, {mid});
+                (out(k, 0) != cur ? in : other) = mid;
+              }
+            std::vector<float> q = pt;
+            for (float x : {in, other}) q[s] = x, pts.push_back(q);
+            pt[s] = xs[hit];  // well inside the flip: stays true while the next comparisons move
+            pts.push_back(pt);
+            moved = true;
+          } else if (best < kScan) {
+            const size_t a = best > 0 ? best - 1 : 0, b = std::min(best + 1, kScan - 1);
+            lo = xs[a];
+            hi = xs[b];
+          }
+        }
+      }
+    }
+    for (int j = 0; j < 32; ++j) {
+      std::vector<float> q = pt;
+      bool any = false;
+      for (size_t s = 0; s < slots.size(); ++s)
+        if (!std::isnan(window[s].first)) {
+          const double u = double(rng.next() >> 11) * 0x1p-53;
+          q[s] = snap(slots[s], window[s].first + (double(window[s].second) - window[s].first) * u);
+          any = true;
+        }
+      if (!any) break;
+      pts.push_back(q);
+    }
+  }
+  return pts;
+}
+
 }  // namespace
 
 void PointSet::add(const std::vector<float>& point) {
@@ -404,6 +534,11 @@ PointSet makeRandomPoints(const Program& prog, size_t count, uint64_t seed, bool
       ps.add(p);
     }
     for (const auto& p : thresholdPoints(prog, rng)) {
+      if (ps.size() >= count) break;
+      ps.add(p);
+    }
+    Rng rb(seed + 99);  // its own generator: the points after these stay what they were
+    for (const auto& p : boundaryPoints(prog, rb)) {
       if (ps.size() >= count) break;
       ps.add(p);
     }

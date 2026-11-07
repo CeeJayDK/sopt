@@ -8,6 +8,7 @@ docs/notes/history.md.
 ## 0.10.5
 
 ### SweetOpt
+- **Small details kept:** SweetOpt could offer a variant that drops a small on-screen marker or letter, because its checks never landed inside such a small area. It now looks for those areas and checks inside them.
 - **Finds more:** the search no longer throws away good candidates when it has to start over, and a fresh start gets its full time. In a test on every effect package, dozens more spots in shaders got cheaper.
 - **Wrong pixels fixed:** SweetOpt could replace `round`, `floor`, `ceil` or `frac` with a trick that some graphics drivers undo, which broke the picture on those cards. It no longer uses that trick. Effects optimized with an older version should be optimized again.
 - **More GLSL:** GLSL vertex and compute shaders (.vert, .comp) are read too, and more of the GLSL that Vulkan projects use: named uniform blocks, multisampled textures, more built-in values and bit functions. Vertex shaders of other projects (plain HLSL and GLSL) are optimized too.

@@ -2822,3 +2822,10 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   on top 92 (1055) / 17 (34); --seeds 3 vs the four alone: 68 (735) / 20 (63). Owner: --keep-survivors and
   --full-restarts default; find the cause behind what more seeds find. (The older plain runs were not comparable:
   PR #110 removed the two-add round trick, e.g. Dither.fx:127 148 -> 68 is gone.)
+- Verification hole (2026-11-08): --seeds 3's cost-0 "wins" were wrong variants. Smart_Sharp.fx:690-692 (a ring marker,
+  0.004% of the screen) as 0.0 "bit-exact"; DLAA_Plus.fx:363 (a full stop drawn in a box) as Out "more accurate": no
+  stage-2 / V1 point landed in the window (more seeds: more chances that none does). Fix: comparison boundary points
+  (verify/points.cpp boundaryPoints, in every verification point set): from random starts each comparison is flipped by a
+  scan along an input it depends on (zoomed in on the closest approach), the point stays for the next comparison
+  (several conditions together), plus the floats on both sides of each boundary and 32 points spread over the windows
+  found (the lit pixel inside a character box is floor steps, not a comparison). Both regions now: no variant / 176.

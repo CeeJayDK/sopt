@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <string>
 
@@ -239,3 +240,27 @@ TEST(uint_input_points) {
   CHECK(whole && neg && top);
 }
 
+
+// A small marker (Smart_Sharp.fx:690-692): random points never land in its window, so 0.0 passed as bit-exact
+// (2026-11-08). The comparison boundary points land inside it, so 0.0 fails.
+TEST(boundary_points_small_window) {
+  Program p = parseProgram("input u : float2 in [0, 1]\ninput q : float2 in [0.2, 0.8]\n"
+                           "output r = (abs(u.x - q.x) < 0.003 && abs(u.y - q.y) < 0.005) ? 1.0 : 0.0\nbudget r : exact\n");
+  const PointSet ps = makeRandomPoints(p, 4096, 5, true);
+  const std::vector<float> t = evalAll(p.target, ps, kProfileRef);
+  CHECK(std::count(t.begin(), t.end(), 1.0f) > 0);
+  CHECK(!compare(p, parseExpr("0.0", p.inputs), ps, kProfileRef, 1).pass);
+}
+
+// A character drawn in a box (DLAA_Plus.fx:363): the box is a comparison window, the lit pixel inside it only floor
+// steps. Out without the character passed as "more accurate" (2026-11-08); spread points inside the box reach the pixel.
+TEST(boundary_points_inside_window) {
+  Program p = parseProgram("input o : float in [0, 7]\ninput t : float2 in [0, 1]\ninput q : float2 in [0.02, 0.95]\n"
+                           "input s : float2 in [0.012, 0.017]\n"
+                           "output r = o + (step(0.0, min(((t - q) / s).x, ((t - q) / s).y)) - "
+                           "step(1.0, max(((t - q) / s).x, ((t - q) / s).y))) * "
+                           "(floor(((t - q) / s).x * 4.0) == 1.0 ? (floor(((t - q) / s).y * 5.0) == 0.0 ? 1.0 : 0.0) : 0.0)\n"
+                           "budget r : rel 1e-6\n");
+  const PointSet ps = makeRandomPoints(p, 4096, 5, true);
+  CHECK(!compare(p, parseExpr("o", p.inputs), ps, kProfileRef, 1).pass);
+}
