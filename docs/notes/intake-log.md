@@ -602,3 +602,10 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 5: stagebench, NVIDIA GeForce RTX 5070 Ti (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-5070-ti-ps.csv` (StageBench 0.10.0)
 - upload 5: stagebench, NVIDIA GeForce RTX 5070 Ti (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-5070-ti-vs.csv` (StageBench 0.10.0)
 - upload 5: texbench, NVIDIA GeForce RTX 5070 Ti (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-5070-ti.csv`, `docs/texbench/nvidia-rtx-5070-ti-order.png`, `docs/texbench/nvidia-rtx-5070-ti-order-zoom.png` (TexBench 0.10.0)
+
+## 2026-11-07 21:59 UTC
+- upload 1: opbench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/opbench/nvidia-gt-1030-3.csv` (OpBench 0.10.5)
+- upload 1: shaderinfo, NVIDIA GeForce GT 1030 (driver NVIDIA 582.78 (582.78)): `docs/shaderinfo/nvidia-gt-1030-2.txt`
+- upload 1: stagebench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/stagebench/nvidia-gt-1030-ps-2.csv` (StageBench 0.10.5)
+- upload 1: stagebench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/stagebench/nvidia-gt-1030-vs-2.csv` (StageBench 0.10.5)
+- upload 1: texbench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/texbench/nvidia-gt-1030-2.csv`, `docs/texbench/nvidia-gt-1030-2-order.png`, `docs/texbench/nvidia-gt-1030-2-order-zoom.png` (TexBench 0.10.5)
