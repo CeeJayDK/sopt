@@ -162,12 +162,11 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
    rule's original (library/found/, 1165 from the 0.6.4 corpus run; library/rewrites.txt's "found by sopt" rules) and
    compare with the found replacement; owner, sopt and Claude then try to beat them by hand too. An Action, not tokens. Not yet
    (owner, 2026-10-27): each improvement of sopt may find more, so it runs once sopt stops improving much.
-9. Search flags, off by default (owner, 2026-11-05; corpus A/B and the investigation in history). --fp-coincidence
-   (written regions: wins 22, losses 16) lost by moving the top-down lookups onto flat zero points; fixed (its points
-   now come on top of the random ones). Experiments from that, all behind flags, corpus A/B pending: --fp-more,
-   --keep-survivors, --full-restarts, --td-random-points, --td-spread, --td-pairs N, --seeds N. Goal (owner): fewer
-   regions where the search misses, by fixing causes, not by relying on seed luck. --library-regroup: rarely finds
-   anything (written regions: 0 wins, 3 losses); revisit later, change it or find a better idea.
+9. Search misses (owner, 2026-11-05 / 08; corpus A/B in history). Goal: fewer regions where the search misses, by
+   fixing causes, not by relying on seed luck. Default since 2026-11-08: keep stage-2 survivors across a CEGIS restart,
+   full time per restart (--no-keep-survivors / --no-full-restarts). Off: --fp-coincidence (fixed, small plus),
+   --td-spread (small plus), --fp-more (mixed), --td-pairs, --td-random-points (worse), --library-regroup (rarely finds
+   anything). --seeds 3 still wins ~68 written regions on top of the defaults: next, find the cause behind those.
 7. sign() fast forms (owner, 2026-10-10): one (mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0), 2.25 on every model so far)
    beats the others everywhere; once OpBench reports cover the families, drop the slower ones from library/rewrites.txt.
    Not before.

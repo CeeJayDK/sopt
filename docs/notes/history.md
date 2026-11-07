@@ -2814,3 +2814,11 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   flag (Zenteon_TurboGI.fx:492 56 / 77, Halftone.fx:79 25 / 39): the lookup points after a restart are counterexamples.
 - New flags to measure (corpus): --fp-more, --keep-survivors, --full-restarts, --td-random-points, --td-spread,
   --td-pairs N, --seeds N (each seed starts from the earlier seeds' finds, as a later run does from sopt-cache.txt).
+- Corpus A/B (2026-11-06 / 08, 1 s per region, written regions where two runs without flags agree; the two runs
+  without flags differ in 23): --seeds 3 wins 69 (804) / loses 7 (16); --full-restarts 31 (315) / 8 (13);
+  --keep-survivors 28 (304) / 1 (4); --fp-more 13 (108) / 26 (80); --fp-coincidence (fixed) 12 (98) / 5 (11);
+  --td-spread 10 (44) / 2 (4); --td-pairs 3 10 (70) / 28 (186); --td-random-points 2 (5) / 10 (59). Together
+  (--keep-survivors --full-restarts --fp-coincidence --td-spread) 44 (376) / 14 (24): the fixes overlap. With --seeds 3
+  on top 92 (1055) / 17 (34); --seeds 3 vs the four alone: 68 (735) / 20 (63). Owner: --keep-survivors and
+  --full-restarts default; find the cause behind what more seeds find. (The older plain runs were not comparable:
+  PR #110 removed the two-add round trick, e.g. Dither.fx:127 148 -> 68 is gone.)

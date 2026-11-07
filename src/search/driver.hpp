@@ -87,8 +87,8 @@ struct Options {
   //   left, at least a tenth). --seeds N: the search runs with N seeds, each starting from the earlier seeds' finds
   //   (as a later run starts from sopt-cache.txt); the cheapest result is kept.
   bool fpMore = false;
-  bool keepSurvivors = false;
-  bool fullRestarts = false;
+  bool keepSurvivors = true;   // default (owner, 2026-11-08, corpus); --no-keep-survivors
+  bool fullRestarts = true;    // default (owner, 2026-11-08, corpus); --no-full-restarts
   uint32_t seeds = 1;
   // The previous run's results (owner, 2026-10-09: "the next run could start with the variants found in the previous
   // run"; sopt-fx keeps them in sopt-cache.txt): candidates over this program's inputs, verified again like the
