@@ -609,3 +609,10 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/stagebench/nvidia-gt-1030-ps-2.csv` (StageBench 0.10.5)
 - upload 1: stagebench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/stagebench/nvidia-gt-1030-vs-2.csv` (StageBench 0.10.5)
 - upload 1: texbench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/texbench/nvidia-gt-1030-2.csv`, `docs/texbench/nvidia-gt-1030-2-order.png`, `docs/texbench/nvidia-gt-1030-2-order-zoom.png` (TexBench 0.10.5)
+
+## 2026-11-08 22:16 UTC
+- upload 1: opbench, Radeon RX 580 Series (driver 31.0.21924.61): `docs/opbench/amd-radeon-rx-580-series.csv` (OpBench 0.10.0)
+- upload 1: shaderinfo, Radeon RX 580 Series (driver AMD proprietary driver 26.1.1 (AMD proprietary shader compiler) (2.0.279)): `docs/shaderinfo/amd-radeon-rx-580-series.txt`
+- upload 1: stagebench, Radeon RX 580 Series (driver 31.0.21924.61): `docs/stagebench/amd-radeon-rx-580-series-ps.csv` (StageBench 0.10.0)
+- upload 1: stagebench, Radeon RX 580 Series (driver 31.0.21924.61): `docs/stagebench/amd-radeon-rx-580-series-vs.csv` (StageBench 0.10.0)
+- upload 1: texbench, Radeon RX 580 Series (driver 31.0.21924.61): `docs/texbench/amd-radeon-rx-580-series.csv`, `docs/texbench/amd-radeon-rx-580-series-order.png`, `docs/texbench/amd-radeon-rx-580-series-order-zoom.png` (TexBench 0.10.0)
