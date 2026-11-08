@@ -90,6 +90,9 @@ struct Options {
   bool keepSurvivors = true;   // default (owner, 2026-11-08, corpus); --no-keep-survivors
   bool fullRestarts = true;    // default (owner, 2026-11-08, corpus); --no-full-restarts
   uint32_t seeds = 1;
+  // --refine N: up to N rounds with the same seed, each starting from the earlier rounds' finds (their parts become
+  // shared leaves); stops after a round that finds nothing cheaper (2026-11-08, cause of --seeds' wins).
+  uint32_t refine = 1;
   // The previous run's results (owner, 2026-10-09: "the next run could start with the variants found in the previous
   // run"; sopt-fx keeps them in sopt-cache.txt): candidates over this program's inputs, verified again like the
   // library's forms; the cheapest that passes stage 2 starts the best-so-far bound. previousOnly: nothing about the

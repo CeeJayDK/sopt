@@ -126,8 +126,9 @@ void finish(const Program& prog, const Options& opt, RunResult& res) {
 }  // namespace
 
 RunResult optimize(const Program& progIn, const Options& opt) {
-  if (opt.seeds > 1 && !opt.previousOnly) {
+  if ((opt.seeds > 1 || opt.refine > 1) && !opt.previousOnly) {
     // --seeds: each later seed starts from the earlier seeds' finds (like a later run from sopt-cache.txt).
+    // --refine: the same with one seed, until a round finds nothing cheaper.
     auto best = [](const RunResult& r) {
       uint32_t c = r.targetCost;
       for (const auto& a : r.accepted) c = std::min(c, a.cost);
@@ -135,12 +136,15 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     };
     Options o = opt;
     o.seeds = 1;
+    o.refine = 1;
     RunResult res;
-    for (uint32_t k = 0; k < opt.seeds; ++k) {
-      o.seed = opt.seed + 1000003ull * k;
+    for (uint32_t k = 0; k < std::max(opt.seeds, opt.refine); ++k) {
+      if (opt.seeds > 1) o.seed = opt.seed + 1000003ull * k;
       RunResult r = optimize(progIn, o);
       for (const auto& a : r.accepted) o.previous.push_back(a.expr);
+      const bool cheaper = k == 0 || best(r) < best(res);
       if (k == 0 || best(r) <= best(res)) res = std::move(r);  // a later run at the same cost re-verified the earlier finds
+      if (opt.seeds <= 1 && !cheaper) break;
     }
     return res;
   }
