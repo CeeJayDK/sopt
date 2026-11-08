@@ -19,7 +19,7 @@ const Data& data() {
   static const Data d = [] {
     Data r;
     r.list = {
-        {"amd-gcn5", "GCN", "AMD"},           {"amd-rdna2", "RDNA 2", "AMD"},
+        {"amd-gcn4", "GCN 4", "AMD"}, {"amd-gcn5", "GCN 5", "AMD"}, {"amd-rdna2", "RDNA 2", "AMD"},
         {"rdna3", "RDNA 3", "AMD"},           {"amd-rdna4", "RDNA 4", "AMD"},
         {"nvidia-fermi", "Fermi", "NVIDIA"},        {"nvidia-maxwell1", "Maxwell 1", "NVIDIA"},
         {"nvidia-maxwell2", "Maxwell 2", "NVIDIA"}, {"nvidia-pascal", "Pascal", "NVIDIA"},

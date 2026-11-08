@@ -2864,3 +2864,6 @@ the points must be far off. Second cause: a run never builds on its own finds (-
 (plain vs plain: 4 cheaper / 9 dearer): --noise-share 22 cheaper (-298) / 3 dearer (+13); --noise-share --refine 3 52 (-396) / 8 (+25); --seeds 3 58 (-415) /
 12 (+38). --seeds 3 vs --noise-share --refine 3 directly: 34 / 31 regions (292 / 288), level. Regions that need value ranges: --seeds 3 still clearly ahead
 (115 / 14 against 41 / 31 for --noise-share --refine 3). Not explained yet. Small regions still seed-dependent: Border.fx:58 (10 -> 5), Clarity2.fx:297 (13 -> 8).
+
+## amd-gcn4 (2026-11-08, owner's go)
+amd-gcn5's table with sin / cos 32 (measured 16.5 = twice rcp, RX 580 and RX 590 alike; 10.6 on Vega), no HalfCosts entry (fp16 = fp32) and fuse bits only bfi / bfe (or3, and_or, add3, lshl_add, add_lshl are GFX9 and measure as separate steps). Cards: RX 4[6-9]0, 5[5-9]0, 640; GCN 1-3 (R7 / R9) use it as the nearest measured family. Steam share follows at the next steam-survey cron. fxc's imul for (x << k) + x on GCN 4 (open item 10) is not modelled yet.

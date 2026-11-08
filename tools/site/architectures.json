@@ -20,7 +20,7 @@
       {"name": "GCN 1", "examples": "Radeon HD 7000, R7 / R9 200 (Tahiti, Pitcairn)", "model": null},
       {"name": "GCN 2", "examples": "Radeon R9 290, R7 260, Kaveri APUs", "model": null},
       {"name": "GCN 3", "examples": "Radeon R9 285 / 380, Fury, Carrizo APUs", "model": null},
-      {"name": "GCN 4", "examples": "Radeon RX 400 / 500 (Polaris)", "model": null},
+      {"name": "GCN 4", "examples": "Radeon RX 400 / 500 (Polaris)", "model": "amd-gcn4"},
       {"name": "GCN 5 (Vega)", "examples": "Radeon RX Vega, Radeon VII, Vega APUs", "model": "amd-gcn5"},
       {"name": "RDNA 1", "examples": "Radeon RX 5000", "model": null},
       {"name": "RDNA 2", "examples": "Radeon RX 6000, Radeon 680M, Steam Deck", "model": "amd-rdna2"},

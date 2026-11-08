@@ -8,6 +8,7 @@ docs/notes/history.md.
 ## 0.10.5
 
 ### SweetOpt
+- **Radeon RX 400 and RX 500:** these cards now have their own measurements, so SweetOpt no longer treats them like newer Vega cards when it picks the fastest version.
 - **More reliable results:** whether SweetOpt found a cheaper version of some math could depend on chance. It now builds on what it finds and no longer gives up on these for a random reason, so more effects get faster, the same way every run.
 - **Small details kept:** SweetOpt could offer a variant that drops a small on-screen marker or letter, because its checks never landed inside such a small area. It now looks for those areas and checks inside them.
 - **Finds more:** the search no longer throws away good candidates when it has to start over, and a fresh start gets its full time. In a test on every effect package, dozens more spots in shaders got cheaper.

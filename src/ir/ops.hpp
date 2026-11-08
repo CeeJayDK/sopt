@@ -183,6 +183,7 @@ const CostModel& costIntelXe2();
 // RX 9070 XT; Renoir Vega; HD 7400M), quarter units with one plain VALU instruction = 4.
 const CostModel& costAmdRdna2();
 const CostModel& costAmdRdna4();
+const CostModel& costAmdGcn4();
 const CostModel& costAmdGcn5();
 const CostModel& costAmdTerascale2();
 // Default is rdna3 (searched in search order); --isa / --sass rank by real machine code.

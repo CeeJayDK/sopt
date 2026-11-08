@@ -18,6 +18,24 @@ struct Family {
 };
 
 inline const Family kFamilies[] = {
+    {"amd-gcn4", "GCN 4", 1, "cs",
+     "aAdd 7.7 aAdd1 253.4 aAnd 7.7 aAnd1 253.4 aCmpXchg 4.7 aCmpXchg1 253.3 aMax 2.3 aMax1 253.4 aMin 2.3 "
+     "aMin1 253.4 aOr 4.1 aOr1 253.4 aXchg 2.3 aXchg1 253.4 aXor 4.1 aXor1 253.4 abs 0.0 acos 33.3 add 2.1 "
+     "add16 2.1 arraybase 9.2 arrayread 167.9 arraywrite 277.1 asin 35.9 atan 46.5 atan2 53.4 "
+     "atombase 10.2 barrier -2.4 bitcast 0.0 bitor 2.1 branchdiv 135.7 branchuni 70.8 ceil 2.1 clamp 4.2 "
+     "constarray 119.6 contract 4.2 cos 16.9 cosh 21.3 cross 12.7 cvt1 0.2 det3 13.8 distance 27.7 div 7.1 "
+     "divxy 10.6 dot2 0.5 dot3 0.8 dot4 0.9 exp 10.7 exp2 8.4 exp2_16 8.4 f16round 3.2 faceforward 17.6 "
+     "floor 2.1 flooradd 12.4 fma+cvt -0.1 fma+fma -0.0 fma+half -0.0 fma+int -0.1 fma+minmax -0.2 "
+     "fma+rcp -3.2 fma1 2.1 fmod 10.3 frac 2.1 fracadd 11.9 frexp 20.8 ftoitof 9.8 groupbarrier -2.5 "
+     "gsbase 18.9 gsbase32 15.6 gsread 0.8 gsread32 99.2 gswrite 3.8 gswrite32 115.8 gswriteread 6.1 "
+     "half1 -0.0 int 0.2 isinf 8.4 isnan 6.3 ixmul 6.6 ldexp 10.6 length 21.4 lerp 6.3 log 8.7 log10 8.7 "
+     "log2 8.4 mad 4.0 mad16 0.0 mad2 4.2 mad2v 4.0 mad3v 8.0 mad4v 12.2 matmul4 26.4 max 2.1 max3 1.2 "
+     "membarrier -4.0 min 2.1 minmax 2.1 minmax1 0.4 modf 6.3 mul -1.4 mul16 -1.4 neg -0.0 negabs 0.0 "
+     "normalize 11.6 omod0.125 2.2 omod0.25 2.2 omod2 -0.0 omod3 2.2 omod4 0.0 omod8 2.2 omodhalf 0.0 "
+     "pow 19.0 radians 0.2 rcp 8.4 rcp1 6.6 rcp16 8.4 rcpmax 10.6 reflect 12.7 refract 40.6 round 2.1 "
+     "roundadd 5.5 rsqrt 8.4 satmad -1.0 saturate -1.4 select 6.3 selectboth 129.0 sign 10.6 signbits 4.4 "
+     "signclamp 4.4 signmad 4.4 signsat 6.3 signsel 8.5 signsel2 4.2 sin 16.9 sincos 25.4 sinh 21.3 "
+     "smoothstep 10.8 sqrt 8.4 sqrt16 8.4 step 4.2 sub 2.1 tan 39.3 tanh 33.9 trunc 2.1 "},
     {"amd-gcn5", "GCN 5 (Vega)", 4, "cs",
      "aAdd 6.8 aAdd1 251.6 aAnd 6.8 aAnd1 251.6 aCmpXchg 10.9 aCmpXchg1 251.6 aMax 6.8 aMax1 251.6 "
      "aMin 6.8 aMin1 251.6 aOr 6.8 aOr1 251.6 aXchg 6.8 aXchg1 251.7 aXor 6.8 aXor1 251.6 abs -0.0 "
@@ -1640,6 +1658,7 @@ inline const Rule kRules[] = {
     {R"(RX 7\d\d\d)", "rdna3"},
     {R"(RX 6\d\d\d|Radeon 6[68]0M|Raphael|Granite Ridge)", "amd-rdna2"},
     {R"(Vega)", "amd-gcn5"},
+    {R"(RX (4[6-9]\d|5[5-9]\d|640)\b)", "amd-gcn4"},
     {R"(HD [67]\d\d\dM?\b)", "amd-terascale2"},
     {R"(Arc\S* B\d\d\d|Arc\S* 1[34]0V)", "intel-xe2"},
     {R"(Iris\S* Xe|UHD Graphics (7\d\d|\(Tiger Lake\)))", "intel-gen12"},

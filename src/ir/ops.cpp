@@ -429,6 +429,17 @@ const CostModel kAmdGcn5{"amd-gcn5",
    1, 1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 16,
    4, 4, 1},
   1, true, true, true};
+// GCN 4 (Polaris: RX 590 and RX 580, OpBench and StageBench; two cards): GCN 5 with sin / cos 32 (16.5 measured against 10.6 on
+// Vega, twice rcp), no fp16 gain (no HalfCosts entry) and no GFX9 fused integer instructions (fuseBits: or3, and_or, add3,
+// lshl_add, add_lshl measured as separate steps).
+const CostModel kAmdGcn4{"amd-gcn4",
+  {0, 0, 1, 1, 1, 4, 4, 20, 16,
+   16, 16, 20, 16, 32, 32, 16, 16, 4, 4, 4, 4, 4, 4, 16, 4, 4, 8, 35,
+   4, 4, 4, 4, 4, 4, 4, 12, 8, 4, 1,
+   4, 20, 24, 24, 1, 1,
+   1, 1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 16,
+   4, 4, 1},
+  1, true, true, true};
 // TeraScale 2 (VLIW5: Radeon HD 7400M, amd-radeon-hd-7400m-as-intel-hd-3000.csv; one card): every
 // ALU op one slot (4), abs included (not a free modifier here; compiledCost still treats it as one),
 // the transcendental (t) slot 16, sin 25, cos 21, pow 37, sign 17, compare + select 8, lerp 8,
@@ -458,6 +469,7 @@ uint16_t fuseBits(const CostModel& m) {
   constexpr uint16_t nv = kFuseLop3 | kFuseAdd3 | kFuseAdd3Neg | kFuseShlAdd;
   static const std::pair<std::string_view, uint16_t> table[] = {
       {"amd-terascale2", kFuseBfi | kFuseBfe},
+      {"amd-gcn4", kFuseBfi | kFuseBfe},
       {"amd-gcn5", amd9},
       {"amd-rdna2", amd9 | kFuseXor3},
       {"rdna3", amd9 | kFuseXor3},
@@ -556,6 +568,7 @@ const CostModel& costIntelGen12() { return kIntelGen12; }
 const CostModel& costIntelXe2() { return kIntelXe2; }
 const CostModel& costAmdRdna2() { return kAmdRdna2; }
 const CostModel& costAmdRdna4() { return kAmdRdna4; }
+const CostModel& costAmdGcn4() { return kAmdGcn4; }
 const CostModel& costAmdGcn5() { return kAmdGcn5; }
 const CostModel& costAmdTerascale2() { return kAmdTerascale2; }
 // The largest group of Steam users (owner, 2026-10-10: Ampere / Ada, 37.6%, and the closest model to Blackwell's 23%).
@@ -571,7 +584,7 @@ const CostModel& defaultOrderFor(const CostModel& objective) {
   return &objective == &kRdna3 || &objective == &kRdna3NoFolds || &objective == &kRdna3Rga || &objective == &kNvidia ||
                  &objective == &kNvidiaMaxwell2 || &objective == &kNvidiaMaxwell1 || &objective == &kNvidiaFermi || &objective == &kNvidiaPascal || &objective == &kNvidiaTuring || &objective == &kNvidiaTuringRtx || &objective == &kNvidiaAda || &objective == &kNvidiaAmpere ||
                  &objective == &kNvidiaBlackwell || &objective == &kIntelGen9 || &objective == &kIntelGen75 || &objective == &kIntelGen6 || &objective == &kIntelGen12 || &objective == &kIntelXe2 || &objective == &kAmdRdna2 ||
-                 &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdTerascale2
+                 &objective == &kAmdRdna4 || &objective == &kAmdGcn5 || &objective == &kAmdGcn4 || &objective == &kAmdTerascale2
              ? kSearch
              : objective;
 }
@@ -601,6 +614,7 @@ const CostModel* costModelByName(std::string_view name) {
   if (name == kIntelXe2.name) return &kIntelXe2;
   if (name == kAmdRdna2.name) return &kAmdRdna2;
   if (name == kAmdRdna4.name) return &kAmdRdna4;
+  if (name == kAmdGcn4.name) return &kAmdGcn4;
   if (name == kAmdGcn5.name) return &kAmdGcn5;
   if (name == kAmdTerascale2.name) return &kAmdTerascale2;
   return nullptr;

@@ -16,11 +16,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from build import MODEL_RULES, clean_name  # noqa: E402
 
-# Families without a measured model: the closest one (by architecture; RX 590 = GCN 4 measured like GCN 5 on
-# simple ops, RDNA 1 lacks RDNA 2's extras but issues alike, Kepler is closest to Maxwell 1 (no hardware sqrt either), Arc A-series / Meteor Lake Arc is Xe like Gen12).
+# Families without a measured model: the closest one (by architecture; GCN 1-3 as GCN 4 (also no GFX9 instructions); RDNA 1
+# lacks RDNA 2's extras but issues alike, Kepler is closest to Maxwell 1 (no hardware sqrt either), Arc A-series / Meteor Lake Arc is Xe like Gen12).
 NEAREST = [
     (r"RX 5[5-7]\d\d", "amd-rdna2"),
-    (r"RX (4[6-9]\d|5[5-9]\d)\b|R9 |R7 |RX 640", "amd-gcn5"),
+    (r"R9 |R7 ", "amd-gcn4"),  # GCN 1-3: the closest measured family
     (r"GTX (6[5-9]\d|7[5-9]\d|TITAN)\b|GT 7\d\d", "nvidia-maxwell1"),
     (r"\bArc\b", "intel-gen12"),
     (r"Radeon [78][4-9]0M", "rdna3"),
