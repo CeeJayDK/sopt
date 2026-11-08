@@ -4383,6 +4383,21 @@ bool readUserRanges(const fs::path& file, UserRanges& out, std::string& error) {
 
 std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const RegionOptions& opt,
                                    SkipCount& skipped) {
+  // --skips: how integer divisions are written (a corpus count for possible rewrites; regions do not contain them).
+  if (skipped.keepDetails)
+    for (const auto& [id, v] : fx.cg->values) {
+      using T = reshadefx::tokenid;
+      const bool mod = v.op == T::percent || v.op == T::percent_equal;
+      const bool div = v.op == T::slash || v.op == T::slash_equal;
+      if (v.kind != Value::Kind::Binary || (!mod && !div) || !v.type.is_integral() || v.type.is_boolean()) continue;
+      const Value* d = &fx.cg->values.at(v.args[1]);
+      if (d->kind == Value::Kind::Chain) d = &fx.cg->values.at(d->base);
+      const bool konst = d->kind == Value::Kind::Const;
+      const uint32_t k = konst && v.type.is_scalar() ? d->constant.as_uint[0] : 0;
+      const char* divisor = !konst ? "variable" : k != 0 && (k & (k - 1)) == 0 ? "constant power of 2" : "constant";
+      skipped.add(std::string("count: ") + (mod ? "%" : "/") + (v.type.is_signed() ? " int" : " uint") + ", divisor " + divisor,
+                  v.loc.source, v.loc.line);
+    }
   std::vector<Region> regions = Extractor(fx, opt).run(skipped);
   if (!alt) return regions;
   SkipCount ignored;

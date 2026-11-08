@@ -2867,3 +2867,7 @@ the points must be far off. Second cause: a run never builds on its own finds (-
 
 ## amd-gcn4 (2026-11-08, owner's go)
 amd-gcn5's table with sin / cos 32 (measured 16.5 = twice rcp, RX 580 and RX 590 alike; 10.6 on Vega), no HalfCosts entry (fp16 = fp32) and fuse bits only bfi / bfe (or3, and_or, add3, lshl_add, add_lshl are GFX9 and measure as separate steps). Cards: RX 4[6-9]0, 5[5-9]0, 640; GCN 1-3 (R7 / R9) use it as the nearest measured family. Steam share follows at the next steam-survey cron. fxc's imul for (x << k) + x on GCN 4 (open item 10) is not modelled yet.
+
+## fxc X3556 "integer modulus / divides may be much slower, try using uints" (2026-11-08)
+Tested on the existing reports (udiv / umod / idiv / imod, variable divisor, units with mad = 4; 162 cs, 83 ps, 84 vs reports). imod / umod median 1.17 cs, 1.15 ps, 1.16 vs. By family (cs): RDNA 2 / 3 / 4 1.3, Ampere / Ada / Blackwell / Turing 1.2, Xe2 1.2, Pascal / Maxwell 2 1.1, TeraScale 2 1.5, Gen6 1.6; no difference on Gen7.5 / Gen9 / Gen12 and Maxwell 1 cs. So true on most cards, but +15-30%, not "much". The division itself is the cost: umod 34-140 units.
+DXBC has only udiv: int adds imax for abs (one per variable operand), ineg, and for the sign, movc. x % 7: 1 instruction vs 5. Constant power of two: uint x % 16u is one and, int x % 16 is 5 (and, imax, and, ineg, movc); x / 16 ushr vs 6. OpBench has no constant-divisor test, so that case is DXBC only, not measured.
