@@ -2844,5 +2844,6 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   bitsearch decoders win less. R2 3.0, IGN 5.2. static const 54 / 109 / 190 (4 x 4 / 8 x 8 / 16 x 16), cbuffer the same.
   1D noisy index, 16 / 32 / 64: const 14 / 27 / 47, select tree 19 / 37 / 76: on Pascal the select tree loses to a static
   const table (1660: tree 6.9 / 18 / 39 wins). 2D 4 x 4: select 23, const 54. 1D 64 smooth index: const 3.7, texture 10.4.
-  3D 4^3: const 11 (slow colors) / 103 (noisy), texture 17. Not changed: classic.cpp's table rewrite picks the tree on all
-  NVIDIA; a Pascal split needs the owner's go.
+  3D 4^3: const 11 (slow colors) / 103 (noisy), texture 17. Owner (2026-11-08): keep classic.cpp's tree on all
+  NVIDIA, Pascal too: up to 32 entries the tree is at most 1.4x the const table, the const table up to 2.3x the tree
+  (2D dither index 4 x 4: const 54, tree 23), and the index pattern of real tables is not known.
