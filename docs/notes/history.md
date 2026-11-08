@@ -2829,3 +2829,20 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   scan along an input it depends on (zoomed in on the closest approach), the point stays for the next comparison
   (several conditions together), plus the floats on both sides of each boundary and 32 points spread over the windows
   found (the lit pixel inside a character box is floor steps, not a comparison). Both regions now: no variant / 176.
+  Corpus after the boundary points (2026-11-08, runs 42426859864 / 42426865135 plain, 42426870969 --seeds 3): plain vs plain
+  4 wins / 9 losses (noise); the earlier combo run vs plain 37 regions dearer now, e.g. 11 Smart_Sharp box tests whose
+  "variant" ignored dy (all(abs(d) < float2(0.002, 0.009))): rejected now. --seeds 3 vs plain: 58 written regions cheaper
+  (-415), 12 dearer (+38): seeds' wins are mostly real search misses.
+
+## Reports 2026-11-07 (GT 1030, 0.10.5, driver 582.78)
+
+- OpBench / StageBench: nvidia-pascal, no differences; tput drift 30% as before on this card.
+- precise check: D3D9 wrong (round, floor-frac, float2 round), D3D10 / D3D11 pixel and compute / D3D12 right
+  (GTX 1660: D3D9 wrong, D3D12 wrong for the float2 form only; UHD 630: D3D10 wrong).
+- Small tables (fma per lookup, x8): texture 11.1; best forms 6.0 (packed 4 x 4, "Bayer packed", packed int), Bayer add 7.7
+  (4 x 4 and 8 x 8; 1660: 2.0), 2 multiplies 8.6 / 9.3 (1660 2.8 / 3.7): Pascal's integer multiply is not full rate, so the
+  bitsearch decoders win less. R2 3.0, IGN 5.2. static const 54 / 109 / 190 (4 x 4 / 8 x 8 / 16 x 16), cbuffer the same.
+  1D noisy index, 16 / 32 / 64: const 14 / 27 / 47, select tree 19 / 37 / 76: on Pascal the select tree loses to a static
+  const table (1660: tree 6.9 / 18 / 39 wins). 2D 4 x 4: select 23, const 54. 1D 64 smooth index: const 3.7, texture 10.4.
+  3D 4^3: const 11 (slow colors) / 103 (noisy), texture 17. Not changed: classic.cpp's table rewrite picks the tree on all
+  NVIDIA; a Pascal split needs the owner's go.
