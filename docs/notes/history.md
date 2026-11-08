@@ -2847,3 +2847,20 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
   3D 4^3: const 11 (slow colors) / 103 (noisy), texture 17. Owner (2026-11-08): keep classic.cpp's tree on all
   NVIDIA, Pascal too: up to 32 entries the tree is at most 1.4x the const table, the const table up to 2.3x the tree
   (2D dither index 4 x 4: const 54, tree 23), and the index pattern of real tables is not known.
+
+## Report 2026-11-08 (RX 580, Polaris, GCN 4, 0.10.0, driver 31.0.21924.61)
+Second GCN 4 card, first GCN 4 StageBench. Float tests equal the RX 590: only 9 of 156 cs tests differ, all integer / barrier ones, and the
+integer ones are a changed base test (the RX 590 report is OpBench 0.6.0, base ixmul; now int). Against Vega 7 again 33 of 156: sin / cos 16.5 vs
+10.6 (so the branch tests built on them too), fp16 = fp32 (mad16 -0.07 vs -2.9). Confirms the earlier estimate: a GCN 4 model = amd-gcn5 with
+sin / cos ~1.6x and fp16 at fp32 cost (still needs the owner's go; RX 580 / 570 are about 1.5% of Steam and map to amd-gcn5 today).
+Open item 10's pair: shladd5 8.3 (fxc's imul x, 5) vs shladd5-od 4.15 (shift + add) in cs and ps: fxc's imul costs twice the code as written here;
+Renoir ps has 1.93 for both. ps = cs apart from the array tests. vs differs in 24 tests (mul +1.9 vs -1.4, normalize 19.0 vs 11.4, any / all): not investigated.
+fp32 6.14 TFLOPS, ps 6.14, vs 4.67 (drift 6.7% on ps / vs); TexBench 150 s, 171.7 GTexels/s, 43.0 GPixels/s, 214.9 GB/s (0.87x the RX 590, as the clocks).
+
+## Cause of --seeds' wins (2026-11-08)
+followsExact compared the largest error over 4096 random points: x % c is off by a whole period only just below each multiple, so one point decided
+whether the accuracy rule was on, and that depended on the seed (Timer % 1000: seeds 1, 1000004, 6, 7 off; 2000007, 5, 8 on). --noise-share: over 1% of
+the points must be far off. Second cause: a run never builds on its own finds (--refine N). Corpus, written regions, against two plain runs that agree
+(plain vs plain: 4 cheaper / 9 dearer): --noise-share 22 cheaper (-298) / 3 dearer (+13); --noise-share --refine 3 52 (-396) / 8 (+25); --seeds 3 58 (-415) /
+12 (+38). --seeds 3 vs --noise-share --refine 3 directly: 34 / 31 regions (292 / 288), level. Regions that need value ranges: --seeds 3 still clearly ahead
+(115 / 14 against 41 / 31 for --noise-share --refine 3). Not explained yet. Small regions still seed-dependent: Border.fx:58 (10 -> 5), Clarity2.fx:297 (13 -> 8).

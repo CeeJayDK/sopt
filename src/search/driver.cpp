@@ -149,12 +149,35 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     o.seeds = 1;
     o.refine = 1;
     RunResult res;
+    const auto addCounts = [](RunResult& to, const RunResult& from) {  // the report's times and counts cover every round
+      to.iterations += from.iterations;
+      to.counterexamples += from.counterexamples;
+      to.rejectedStage2 += from.rejectedStage2;
+      to.rejectedV1 += from.rejectedV1;
+      to.rejectedProfiles += from.rejectedProfiles;
+      to.rejectedV2 += from.rejectedV2;
+      to.v2Checks += from.v2Checks;
+      to.subtreeSearches += from.subtreeSearches;
+      to.subtreeSec += from.subtreeSec;
+      to.v3Sec += from.v3Sec;
+      to.libraryForms += from.libraryForms;
+      to.cutSearches += from.cutSearches;
+      to.cutSec += from.cutSec;
+      to.searchSec += from.searchSec;
+      to.verifySec += from.verifySec;
+      to.totalSec += from.totalSec;
+    };
     for (uint32_t k = 0; k < std::max(opt.seeds, opt.refine); ++k) {
       if (opt.seeds > 1) o.seed = opt.seed + 1000003ull * k;
       RunResult r = optimize(progIn, o);
       for (const auto& a : r.accepted) o.previous.push_back(a.expr);
       const bool cheaper = k == 0 || best(r) < best(res);
-      if (k == 0 || best(r) <= best(res)) res = std::move(r);  // a later run at the same cost re-verified the earlier finds
+      if (k == 0 || best(r) <= best(res)) {  // a later run at the same cost re-verified the earlier finds
+        addCounts(r, res);
+        res = std::move(r);
+      } else {
+        addCounts(res, r);
+      }
       if (opt.seeds <= 1 && !cheaper) break;
     }
     return res;
@@ -313,7 +336,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     // A library seed's bound can end the search early without a limit: "complete" then only
     // means nothing below the seed in the bank's space (no vector constructors, no
     // helpers), so the part searches run as well.
-    const bool partSearch = !opt.previousOnly && (res.search.limitHit || haveSeed);
+    const bool partSearch = !opt.previousOnly && (res.search.limitHit || haveSeed || opt.partsAlways);
     if (opt.subtrees && !subDone && partSearch) {
       subDone = true;
       const double tsub = nowSeconds();

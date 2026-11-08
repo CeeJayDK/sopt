@@ -1003,7 +1003,7 @@ int main(int argc, char** argv) {
     char buf[512];
     std::snprintf(buf, sizeof(buf),
                   "%s %s t%g b%d l%g x%d a%d L%d s%d c%d td%d tp%d bb%d sl%d sc%d pf%d n%u seed%u ap%d "
-                  "lf%zx mb%llu of%d q%u ct%g st%g sm%u sh%d rg%d fc%d fm%d ks%d fr%d se%u te%d ts%d tp%u rf%u ns%d",
+                  "lf%zx mb%llu of%d q%u ct%g st%g sm%u sh%d rg%d fc%d fm%d ks%d fr%d se%u te%d ts%d tp%u rf%u ns%d pa%d",
                   SOPT_VERSION, opt.search.model ? std::string(opt.search.model->name).c_str() : "?",
                   opt.search.timeLimitSec, opt.search.bits ? 1 : 0, opt.loose, opt.exactRule ? 1 : 0,
                   opt.accuracyVariants ? 1 : 0, opt.library ? 1 : 0, opt.subtrees ? 1 : 0, opt.cuts ? 1 : 0,
@@ -1014,7 +1014,7 @@ int main(int argc, char** argv) {
                   static_cast<unsigned>(opt.subtreeMaxCost), opt.search.sharedLeaves ? 1 : 0, opt.libraryRegroup ? 1 : 0,
                   opt.fpCoincidence ? 1 : 0, opt.fpMore ? 1 : 0, opt.keepSurvivors ? 1 : 0, opt.fullRestarts ? 1 : 0,
                   static_cast<unsigned>(opt.seeds), opt.search.tdEnd ? 1 : 0, opt.search.tdSpread ? 1 : 0,
-                  static_cast<unsigned>(opt.search.tdPairs), static_cast<unsigned>(opt.refine), opt.noiseShare ? 1 : 0);
+                  static_cast<unsigned>(opt.search.tdPairs), static_cast<unsigned>(opt.refine), opt.noiseShare ? 1 : 0, opt.partsAlways ? 1 : 0);
     optionsKey = buf;
   }
   using fx::CacheEntry;

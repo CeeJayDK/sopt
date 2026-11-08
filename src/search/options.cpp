@@ -93,6 +93,8 @@ int parseSearchOption(const std::string& a, const std::function<const char*()>& 
   else if (a == "--td-random-points") opt.search.tdEnd = 1;  // the driver sets the real count
   else if (a == "--td-spread") opt.search.tdSpread = true;
   else if (a == "--noise-share") opt.noiseShare = true;
+  else if (a == "--no-noise-share") opt.noiseShare = false;
+  else if (a == "--parts-always") opt.partsAlways = true;
   else if (a == "--td-pairs") opt.search.tdPairs = std::max(1u, static_cast<uint32_t>(std::strtoul(next(), nullptr, 10)));
   else return 0;
   return 1;
