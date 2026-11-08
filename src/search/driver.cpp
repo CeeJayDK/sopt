@@ -31,7 +31,10 @@ bool containsPoint(const PointSet& ps, const std::vector<float>& p) {
 // frac(sin(dot(uv, k)) * 43758.5) does not (float32 sin of large arguments is chaotic):
 // there the original's error vs exact is as large as its range, so "at least as close to
 // exact" or "within F times the original's error" would accept any value, even 0.
-bool followsExact(const Program& prog, uint64_t seed) {
+// noiseShare (--noise-share): over 1% of the points must be that far off. The largest error alone made one point in 4096
+// decide it: Timer % 1000 is off by a whole period only just below each multiple, so the rule's state depended on the seed
+// (2026-11-08, most of what --seeds still won).
+bool followsExact(const Program& prog, uint64_t seed, bool noiseShare) {
   const PointSet ps = makeRandomPoints(prog, 4096, seed + 7, false);
   const std::vector<float> t = evalAll(prog.target, ps, kProfileRef);
   const std::vector<double> x = evalExactAll(prog.target, ps);
@@ -42,7 +45,15 @@ bool followsExact(const Program& prog, uint64_t seed) {
     hi = std::max(hi, double(t[i]));
     err = std::max(err, std::fabs(double(t[i]) - x[i]));
   }
-  return !(hi > lo) || err <= 0.1 * (hi - lo);
+  if (!(hi > lo)) return true;
+  if (!noiseShare) return err <= 0.1 * (hi - lo);
+  size_t n = 0, bad = 0;
+  for (size_t i = 0; i < t.size() && i < x.size(); ++i) {
+    if (!std::isfinite(t[i]) || !std::isfinite(x[i])) continue;
+    ++n;
+    bad += std::fabs(double(t[i]) - x[i]) > 0.1 * (hi - lo);
+  }
+  return bad * 100 <= n;
 }
 
 // Scheduling measures of e (Accepted / RunResult fields); prog's inputs may have their uniforms
@@ -154,7 +165,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     p.budget.loose = opt.loose;
     return optimize(p, opt);
   }
-  if ((accuracyRule(progIn.budget) || progIn.budget.scaledRel()) && !followsExact(progIn, opt.seed)) {
+  if ((accuracyRule(progIn.budget) || progIn.budget.scaledRel()) && !followsExact(progIn, opt.seed, opt.noiseShare)) {
     Program p = progIn;
     p.budget.vsExact = false;      // the float32 original is the only meaningful reference
     p.budget.errorScale = false;

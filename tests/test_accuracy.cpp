@@ -264,3 +264,17 @@ TEST(boundary_points_inside_window) {
   const PointSet ps = makeRandomPoints(p, 4096, 5, true);
   CHECK(!compare(p, parseExpr("o", p.inputs), ps, kProfileRef, 1).pass);
 }
+
+// Timer % 1000 is off by a whole period at a few points only: not noise, whatever the seed. A hash is off nearly everywhere.
+TEST(noise_share_ignores_rare_jumps) {
+  Program fmod = parseProgram("input t : float in [0, 1e7]\noutput r = 1000.0 * frac(t * rcp(1000.0))\nbudget r : rel 1e-6\n");
+  Program hash = parseProgram("input x : float in [0, 1e6]\noutput r = frac(sin(x * 12.9898) * 43758.5453)\nbudget r : rel 1e-6\n");
+  Options opt;
+  opt.previousOnly = true;
+  opt.noiseShare = true;
+  for (uint64_t seed : {1ull, 6ull, 7ull, 8ull}) {
+    opt.seed = seed;
+    CHECK(!optimize(fmod, opt).exactOff);
+    CHECK(optimize(hash, opt).exactOff);
+  }
+}
