@@ -401,6 +401,13 @@ namespace {
 bool isWordChar(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
 bool isBlank(char c) { return c == ' ' || c == '\t'; }
 
+std::string codeOnly(const std::string& s) {  // without spaces and a // comment
+  std::string out;
+  for (size_t p = 0; p < s.size() && s.compare(p, 2, "//") != 0; ++p)
+    if (!isBlank(s[p]) && s[p] != '\r') out += s[p];
+  return out;
+}
+
 // The / and % of a line, up to a // comment. False: something this rewrite does not read (a block comment, /=, %=).
 bool divisionOperators(const std::string& s, std::vector<size_t>& ops) {
   for (size_t p = 0; p < s.size(); ++p) {
@@ -477,7 +484,7 @@ size_t rightOperand(const std::string& s, size_t begin) {
 }
 
 // `line` with its operator number `index` done as uint; false when an operand cannot be read.
-bool divisionAsUint(std::string& line, size_t index, unsigned rows) {
+bool divisionAsUint(std::string& line, size_t index, const IntDivision& d) {
   std::vector<size_t> ops;
   if (!divisionOperators(line, ops) || index >= ops.size()) return false;
   const size_t op = ops[index];
@@ -487,11 +494,11 @@ bool divisionAsUint(std::string& line, size_t index, unsigned rows) {
   while (rightBegin < line.size() && isBlank(line[rightBegin])) ++rightBegin;
   const size_t leftBegin = leftOperand(line, leftEnd), rightEnd = rightOperand(line, rightBegin);
   if (leftBegin == std::string::npos || rightEnd == std::string::npos) return false;
-  const std::string size = rows > 1 ? std::to_string(rows) : "";
+  const auto sized = [](unsigned rows) { return rows > 1 ? std::to_string(rows) : std::string(); };  // uint2(scalar) does not parse
   const std::string left = line.substr(leftBegin, leftEnd - leftBegin), right = line.substr(rightBegin, rightEnd - rightBegin);
   const bool literal = std::all_of(right.begin(), right.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; });
-  line = line.substr(0, leftBegin) + "int" + size + "(uint" + size + "(" + left + ") " + line[op] + " " +
-         (literal ? right + "u" : "uint" + size + "(" + right + ")") + ")" + line.substr(rightEnd);
+  line = line.substr(0, leftBegin) + "int" + sized(d.rows) + "(uint" + sized(d.leftRows) + "(" + left + ") " + line[op] + " " +
+         (literal ? right + "u" : "uint" + sized(d.rightRows) + "(" + right + ")") + ")" + line.substr(rightEnd);
   return true;
 }
 
@@ -506,18 +513,22 @@ std::vector<SourceRewrite> intDivRewrites(const Effect& fx, const RegionOptions&
     const unsigned rows = divisions[0].rows;
     // shortcut: decided in the first effect that includes a header; a header's ranges could differ per effect, none seen.
     if (rows == 0 || !std::all_of(divisions.begin(), divisions.end(), [&](const IntDivision& d) {
-          return d.isSigned && d.proven && !d.compileTime && d.rows == rows;
+          return d.isSigned && d.proven && !d.compileTime && d.rows == rows && d.leftRows == divisions[0].leftRows &&
+                 d.rightRows == divisions[0].rightRows;
         }))
       continue;
     const std::vector<std::string>* lines = sourceLines(file);
     if (!lines || line == 0 || line > lines->size()) continue;
     std::string text = (*lines)[line - 1];
     if (source::trim(text).rfind('#', 0) == 0 || text.find('"') != std::string::npos) continue;
+    // A macro on the line: the text of an operand is not what gets compiled (BUFFER_SIZE / RESV_SCALE did not parse as uint2).
+    const auto expanded = fx.ppLines.find({file, line});
+    if (expanded == fx.ppLines.end() || codeOnly(expanded->second) != codeOnly(text)) continue;
     // Macros that expand to divisions, or float divisions on the line, make the counts differ.
     std::vector<size_t> ops;
     if (!divisionOperators(text, ops) || ops.size() != divisions.size()) continue;
     bool ok = true;
-    for (size_t k = ops.size(); k-- > 0 && ok;) ok = divisionAsUint(text, k, rows);
+    for (size_t k = ops.size(); k-- > 0 && ok;) ok = divisionAsUint(text, k, divisions[0]);
     if (!ok) continue;
     SourceRewrite rw;
     rw.file = file;

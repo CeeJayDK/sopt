@@ -1128,6 +1128,7 @@ class Extractor {
       case Value::Kind::Unary:
       case Value::Kind::Binary:
       case Value::Kind::Ternary:
+      case Value::Kind::Construct:
         return std::all_of(x.args.begin(), x.args.end(), [&](uint32_t a) { return compileTimeInt(a, depth + 1); });
       default: return false;
     }
@@ -1146,6 +1147,14 @@ class Extractor {
       d.mod = mod;
       d.isSigned = v.type.is_signed();
       d.rows = v.type.is_matrix() ? 0 : v.type.rows;
+      const auto asWritten = [&](uint32_t a) {
+        const Value& x = cg_.values.at(a);
+        return !x.chain.empty() && x.chain.back().op == reshadefx::expression::operation::op_cast
+                   ? x.chain.back().from.rows
+                   : x.type.rows;
+      };
+      d.leftRows = asWritten(v.args[0]);
+      d.rightRows = asWritten(v.args[1]);
       const Value* divisor = &cg_.values.at(v.args[1]);
       if (divisor->kind == Value::Kind::Chain && cg_.values.count(divisor->base)) divisor = &cg_.values.at(divisor->base);
       const bool konst = divisor->kind == Value::Kind::Const;

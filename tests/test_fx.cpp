@@ -1104,6 +1104,8 @@ TEST(fx_int_to_uint_rewrite) {
   CHECK(!at.count(12));  // the dividend can be negative
   CHECK(!at.count(13));  // a * b / c: the left operand is not a plain one
   CHECK(!at.count(14));  // compile-time: nothing to gain
+  CHECK(!at.count(15));  // a macro on the line: its text is not the operand
+  CHECK(at.count(18) && at[18].find("(int2(uint2(a) / uint(s))).x") != std::string::npos);  // uint2(scalar) does not parse
 }
 
 TEST(fx_table_rewrite) {
