@@ -75,5 +75,9 @@ std::vector<SourceRewrite> tableRewrites(const Effect& fx);
 // One version for all GPUs (owner, 2026-10-25): the table rewrites without vendor branches (the select tree on every GPU
 // from D3D10 on, the static const table on D3D9).
 void oneVersionForAllGpus(std::vector<SourceRewrite>& rewrites);
+// int / and % as uint (owner, 2026-11-09; fxc's X3556): exact when the dividend is proven >= 0 and the divisor >= 1, and
+// cheaper because DXBC only has udiv (fxc wraps the signed forms in imax / ineg / movc). Switch SOPT_<file>_U<line>;
+// D3D10 and later only (shader model 3 has no integers). Only lines where every / and % can be matched and qualifies.
+std::vector<SourceRewrite> intDivRewrites(const Effect& fx, const RegionOptions& opt);
 
 }  // namespace sopt::fx

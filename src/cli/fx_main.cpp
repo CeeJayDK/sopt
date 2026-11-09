@@ -148,7 +148,8 @@ void usage() {
       "                    indexed at run time become static const tables, switch SOPT_<file>_T<line>;\n"
       "                    pixel shader math of uniforms only, or affine in the texture coordinates,\n"
       "                    moves to the vertex shader, switch SOPT_<file>_V<line>; kept where --isa\n"
-      "                    measures a gain)\n"
+      "                    measures a gain; signed integer / and %% with both sides proven not\n"
+      "                    negative become unsigned, D3D10 and later, switch SOPT_<file>_U<line>)\n"
       "  --no-hoist        no moving to the vertex shader (the table rewrites stay)\n"
       "  --no-setting-paths  only the code the effect's current settings compile (default: also each\n"
       "                    value its #if lines test a setting for, variants under that #if)\n"
@@ -332,7 +333,8 @@ void measureRewrites(std::vector<fx::SourceRewrite>& rewrites, const std::vector
       continue;
     }
     const bool worse = rw.amdAfter > rw.amdBefore || perfWorse;
-    const bool table = rw.tag == "T";  // per vendor: NVIDIA's select tree gains even where AMD's table does not
+    // Per vendor: NVIDIA's select tree gains even where AMD's table does not. int to uint: exact, and measured with OpBench.
+    const bool table = rw.tag == "T" || rw.tag == "U";
     // A zero guard gains only while its uniform is 0 (not measurable statically): kept when it costs a few
     // instructions at most otherwise (the compare and the branch).
     if (rw.tag == "Z") {
@@ -796,6 +798,8 @@ int main(int argc, char** argv) {
         for (auto& rw : fx::blendRewrites(*fx, ropt, opt.seed)) more.push_back(std::move(rw));
       if (zeroGuard)
         for (auto& rw : fx::zeroGuardRewrites(*fx, ropt, opt.seed)) more.push_back(std::move(rw));
+      if (classic && !fx->hlsl && !fx->glsl)
+        for (auto& rw : fx::intDivRewrites(*fx, ropt)) more.push_back(std::move(rw));
       for (auto& rw : more)
         if (rewriteSeen.insert({rw.file, rw.tag + std::to_string(rw.line)}).second) {
           rewriteEffects.push_back(p);

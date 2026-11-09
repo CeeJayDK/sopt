@@ -396,6 +396,147 @@ std::string rewriteSwitch(const SourceRewrite& r) {
   return "SOPT_" + stem + "_" + r.tag + std::to_string(r.line);
 }
 
+namespace {
+
+bool isWordChar(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
+bool isBlank(char c) { return c == ' ' || c == '\t'; }
+
+// The / and % of a line, up to a // comment. False: something this rewrite does not read (a block comment, /=, %=).
+bool divisionOperators(const std::string& s, std::vector<size_t>& ops) {
+  for (size_t p = 0; p < s.size(); ++p) {
+    if (s[p] != '/' && s[p] != '%') continue;
+    const char next = p + 1 < s.size() ? s[p + 1] : '\0';
+    if (s[p] == '/' && next == '/') break;
+    if (next == '*' || next == '=') return false;
+    ops.push_back(p);
+  }
+  return true;
+}
+
+// Start of the operand that ends at `end` (one past its last character): names, calls, indices, swizzles and groups, and
+// only where the division really takes that operand (no a * b / c, no unary minus, no "(int) x"). npos: not readable.
+size_t leftOperand(const std::string& s, size_t end) {
+  size_t p = end;
+  while (p > 0) {
+    const char c = s[p - 1];
+    if (c == ')' || c == ']') {
+      int depth = 0;
+      size_t q = p;
+      do {
+        --q;
+        if (s[q] == ')' || s[q] == ']') ++depth;
+        else if (s[q] == '(' || s[q] == '[') --depth;
+      } while (depth > 0 && q > 0);
+      if (depth != 0) return std::string::npos;
+      p = q;
+    } else if (isWordChar(c) || c == '.') {
+      --p;
+    } else {
+      break;
+    }
+  }
+  if (p == end) return std::string::npos;
+  size_t q = p;
+  while (q > 0 && isBlank(s[q - 1])) --q;
+  if (q == 0) return p;
+  const char before = s[q - 1];
+  if (before == '*' || before == '/' || before == '%' || before == '~' || before == '!' || before == ')' || before == ']')
+    return std::string::npos;
+  if (isWordChar(before))
+    return q >= 6 && s.compare(q - 6, 6, "return") == 0 && (q == 6 || !isWordChar(s[q - 7])) ? p : std::string::npos;
+  if (before == '-' || before == '+') {  // only a binary one: a value has to end before it
+    size_t r = q - 1;
+    while (r > 0 && isBlank(s[r - 1])) --r;
+    if (r == 0 || !(isWordChar(s[r - 1]) || s[r - 1] == ')' || s[r - 1] == ']')) return std::string::npos;
+  }
+  return p;
+}
+
+// One past the operand that starts at `begin`; npos: not readable (a unary operator, a cast, a group left open).
+size_t rightOperand(const std::string& s, size_t begin) {
+  size_t p = begin;
+  while (p < s.size()) {
+    if (s[p] == '(' || s[p] == '[') {
+      int depth = 0;
+      do {
+        if (s[p] == '(' || s[p] == '[') ++depth;
+        else if (s[p] == ')' || s[p] == ']') --depth;
+        ++p;
+      } while (depth > 0 && p < s.size());
+      if (depth != 0) return std::string::npos;
+    } else if (isWordChar(s[p]) || s[p] == '.') {
+      ++p;
+    } else {
+      break;
+    }
+  }
+  if (p == begin) return std::string::npos;
+  size_t q = p;
+  while (q < s.size() && isBlank(s[q])) ++q;
+  return q < s.size() && (isWordChar(s[q]) || s[q] == '(') ? std::string::npos : p;
+}
+
+// `line` with its operator number `index` done as uint; false when an operand cannot be read.
+bool divisionAsUint(std::string& line, size_t index, unsigned rows) {
+  std::vector<size_t> ops;
+  if (!divisionOperators(line, ops) || index >= ops.size()) return false;
+  const size_t op = ops[index];
+  size_t leftEnd = op;
+  while (leftEnd > 0 && isBlank(line[leftEnd - 1])) --leftEnd;
+  size_t rightBegin = op + 1;
+  while (rightBegin < line.size() && isBlank(line[rightBegin])) ++rightBegin;
+  const size_t leftBegin = leftOperand(line, leftEnd), rightEnd = rightOperand(line, rightBegin);
+  if (leftBegin == std::string::npos || rightEnd == std::string::npos) return false;
+  const std::string size = rows > 1 ? std::to_string(rows) : "";
+  const std::string left = line.substr(leftBegin, leftEnd - leftBegin), right = line.substr(rightBegin, rightEnd - rightBegin);
+  const bool literal = std::all_of(right.begin(), right.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; });
+  line = line.substr(0, leftBegin) + "int" + size + "(uint" + size + "(" + left + ") " + line[op] + " " +
+         (literal ? right + "u" : "uint" + size + "(" + right + ")") + ")" + line.substr(rightEnd);
+  return true;
+}
+
+}  // namespace
+
+std::vector<SourceRewrite> intDivRewrites(const Effect& fx, const RegionOptions& opt) {
+  std::vector<SourceRewrite> out;
+  std::map<std::pair<std::string, uint32_t>, std::vector<IntDivision>> byLine;
+  for (auto& d : intDivisions(fx, opt)) byLine[{d.file, d.line}].push_back(std::move(d));
+  for (const auto& [where, divisions] : byLine) {
+    const auto& [file, line] = where;
+    const unsigned rows = divisions[0].rows;
+    // shortcut: decided in the first effect that includes a header; a header's ranges could differ per effect, none seen.
+    if (rows == 0 || !std::all_of(divisions.begin(), divisions.end(), [&](const IntDivision& d) {
+          return d.isSigned && d.proven && !d.compileTime && d.rows == rows;
+        }))
+      continue;
+    const std::vector<std::string>* lines = sourceLines(file);
+    if (!lines || line == 0 || line > lines->size()) continue;
+    std::string text = (*lines)[line - 1];
+    if (source::trim(text).rfind('#', 0) == 0 || text.find('"') != std::string::npos) continue;
+    // Macros that expand to divisions, or float divisions on the line, make the counts differ.
+    std::vector<size_t> ops;
+    if (!divisionOperators(text, ops) || ops.size() != divisions.size()) continue;
+    bool ok = true;
+    for (size_t k = ops.size(); k-- > 0 && ok;) ok = divisionAsUint(text, k, rows);
+    if (!ok) continue;
+    SourceRewrite rw;
+    rw.file = file;
+    rw.line = line;
+    uint32_t nearest = 0;
+    for (const auto& f : fx.cg->functions)
+      if (f->loc.source == file && f->loc.line <= line && f->loc.line >= nearest) {
+        nearest = f->loc.line;
+        rw.function = f->name;
+      }
+    rw.kind = "int to uint";
+    rw.tag = "U";
+    rw.description = "integer division as unsigned (both sides proven not negative; same result)";
+    rw.edits.push_back({line, line, {text}, " && __RENDERER__ >= 0xa000"});
+    out.push_back(std::move(rw));
+  }
+  return out;
+}
+
 std::vector<SourceRewrite> tableRewrites(const Effect& fx) {
   std::vector<SourceRewrite> out;
   if (!fx.cg) return out;

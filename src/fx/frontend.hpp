@@ -210,6 +210,18 @@ bool underCondition(const Effect& fx, const std::string& file, uint32_t first, u
 // the #if conditions it is under in cfg (variants apply only with that setting).
 std::vector<Region> settingRegions(const Effect& def, const Effect& cfg, const Effect* alt, const RegionOptions& opt);
 
+// One integer / or % of an effect (the --skips count, the int-to-uint rewrite in classic.hpp).
+struct IntDivision {
+  std::string file;
+  uint32_t line = 0;
+  bool mod = false, isSigned = false;
+  unsigned rows = 1;            // vector size; 0 = a matrix
+  const char* divisor = "";     // "variable", "constant power of 2", "constant"
+  bool compileTime = false;     // nothing at run time (the compiler folds it)
+  bool proven = false;          // dividend >= 0 and divisor >= 1, both from known ranges (none assumed)
+};
+std::vector<IntDivision> intDivisions(const Effect& fx, const RegionOptions& opt);
+
 // UTF-8 path strings, as the preprocessor writes them into #line directives.
 std::string pathString(const std::filesystem::path& p);
 std::filesystem::path pathFrom(const std::string& s);

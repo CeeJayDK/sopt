@@ -2875,3 +2875,8 @@ DXBC has only udiv: int adds imax for abs (one per variable operand), ineg, and 
 ## Division candidates (2026-11-08)
 Exactness on the CPU, float32, every d in 1..4096, rcp up to 3 steps off: uint(float(y) * rcp(float(d))) is wrong already at y = 41 (d = 41); uint((float(y) + 0.5) * rcp(float(d))) is right below y = 1,051,900 (so y < 2^20).
 OpBench 0.10.6 adds: constant divisors (umodc16, imodc16, udivc16, idivc16, umodc7, imodc7, udivc7, idivc7), signed power-of-2 forms for any int (idivs16, imods16) and, for a dividend below 65536 (base uhi): udivs / umods, udivs7 / umods7, multiply and shift (udivm7, umodm7), through float with the +0.5 (udivf7, umodf7, udivvf, umodvf). --skips counts integer divisions per kind ("count: ...").
+
+## int to uint, count of integer divisions, --parts-always (2026-11-09)
+Owner's go. Classic rewrite (intDivRewrites in fx/classic.cpp, switch U, D3D10+ only: shader model 3 has no integers, ReShade writes uint as int there and fxc has no power-of-two path). Written only where the dividend is proven >= 0 and the divisor >= 1 from known ranges (none assumed or likely), every / and % on the line matched one to one. fxc ps_5_0: int / 16 is 8 instructions, int(uint(i) / 16u) 3; int % 7 is 7, the uint form 3.
+Corpus count (run 42533622065, generated copies, not source lines): 4270 integer divisions, of which 3393 are one CONST_LOG2 macro over BUFFER_WIDTH on 22 lines of one package (compile time). --skips now reports the dividend as compile-time, proven or unknown.
+--parts-always vs defaults at 5 s, 7 packages, one run each: written 6 wins (-58), 1 loss (+2); needs ranges 5 wins (-15), 2 losses (+13). At 1 s, full corpus: 0 wins, 4 losses of 1, time +0.6%. Default since 2026-11-09 (--no-parts-always).

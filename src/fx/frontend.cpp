@@ -1116,6 +1116,49 @@ class Extractor {
   }
 
   std::vector<Region> run(SkipCount& skipped);
+  // Nothing at run time: constants and macros (BUFFER_WIDTH / 2 stays symbolic here; the compiler folds it).
+  bool compileTimeInt(uint32_t id, int depth = 0) const {
+    const auto it = cg_.values.find(id);
+    if (it == cg_.values.end() || depth > 64) return false;
+    const Value& x = it->second;
+    switch (x.kind) {
+      case Value::Kind::Const: return true;
+      case Value::Kind::Load: return isSymbolic(x.base);
+      case Value::Kind::Chain: return isSymbolic(x.base) || compileTimeInt(x.base, depth + 1);
+      case Value::Kind::Unary:
+      case Value::Kind::Binary:
+      case Value::Kind::Ternary:
+        return std::all_of(x.args.begin(), x.args.end(), [&](uint32_t a) { return compileTimeInt(a, depth + 1); });
+      default: return false;
+    }
+  }
+  std::vector<IntDivision> intDivisions() {
+    std::vector<IntDivision> out;
+    for (const auto& [id, v] : cg_.values) {
+      const bool compound = v.op == tokenid::percent_equal || v.op == tokenid::slash_equal;
+      const bool mod = v.op == tokenid::percent || v.op == tokenid::percent_equal;
+      if (v.kind != Value::Kind::Binary || (!mod && !compound && v.op != tokenid::slash) || !v.type.is_integral() ||
+          v.type.is_boolean())
+        continue;
+      IntDivision d;
+      d.file = v.loc.source;
+      d.line = v.loc.line;
+      d.mod = mod;
+      d.isSigned = v.type.is_signed();
+      d.rows = v.type.is_matrix() ? 0 : v.type.rows;
+      const Value* divisor = &cg_.values.at(v.args[1]);
+      if (divisor->kind == Value::Kind::Chain && cg_.values.count(divisor->base)) divisor = &cg_.values.at(divisor->base);
+      const bool konst = divisor->kind == Value::Kind::Const;
+      const uint32_t k = konst && v.type.is_scalar() ? divisor->constant.as_uint[0] : 0;
+      d.divisor = !konst ? "variable" : k != 0 && (k & (k - 1)) == 0 ? "constant power of 2" : "constant";
+      d.compileTime = compileTimeInt(id);
+      const Range a = range(v.args[0]), b = range(v.args[1]);
+      d.proven = a.known && !a.assumed && !a.likely && a.lo >= 0 && a.hi < 2147483648.0 && b.known && !b.assumed && !b.likely &&
+                 b.lo >= 1 && b.hi < 2147483648.0;
+      out.push_back(std::move(d));
+    }
+    return out;
+  }
 
  private:
   bool shapeOf(const Statement& s, Region& reg, std::string& why);
@@ -4381,23 +4424,18 @@ bool readUserRanges(const fs::path& file, UserRanges& out, std::string& error) {
   return true;
 }
 
+std::vector<IntDivision> intDivisions(const Effect& fx, const RegionOptions& opt) {
+  return fx.cg ? Extractor(fx, opt).intDivisions() : std::vector<IntDivision>{};
+}
+
 std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const RegionOptions& opt,
                                    SkipCount& skipped) {
-  // --skips: how integer divisions are written (a corpus count for possible rewrites; regions do not contain them).
+  // --skips: how integer divisions are written (a corpus count; regions do not contain them).
   if (skipped.keepDetails)
-    for (const auto& [id, v] : fx.cg->values) {
-      using T = reshadefx::tokenid;
-      const bool mod = v.op == T::percent || v.op == T::percent_equal;
-      const bool div = v.op == T::slash || v.op == T::slash_equal;
-      if (v.kind != Value::Kind::Binary || (!mod && !div) || !v.type.is_integral() || v.type.is_boolean()) continue;
-      const Value* d = &fx.cg->values.at(v.args[1]);
-      if (d->kind == Value::Kind::Chain) d = &fx.cg->values.at(d->base);
-      const bool konst = d->kind == Value::Kind::Const;
-      const uint32_t k = konst && v.type.is_scalar() ? d->constant.as_uint[0] : 0;
-      const char* divisor = !konst ? "variable" : k != 0 && (k & (k - 1)) == 0 ? "constant power of 2" : "constant";
-      skipped.add(std::string("count: ") + (mod ? "%" : "/") + (v.type.is_signed() ? " int" : " uint") + ", divisor " + divisor,
-                  v.loc.source, v.loc.line);
-    }
+    for (const IntDivision& d : intDivisions(fx, opt))
+      skipped.add(std::string("count: ") + (d.mod ? "%" : "/") + (d.isSigned ? " int" : " uint") + ", divisor " + d.divisor +
+                      ", dividend " + (d.compileTime ? "compile-time" : d.proven ? "proven" : "unknown"),
+                  d.file, d.line);
   std::vector<Region> regions = Extractor(fx, opt).run(skipped);
   if (!alt) return regions;
   SkipCount ignored;

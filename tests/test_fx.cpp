@@ -1086,6 +1086,26 @@ TEST(fx_namespace) {
 }
 
 
+TEST(fx_int_to_uint_rewrite) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_intdiv.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  std::map<uint32_t, std::string> at;
+  for (const auto& r : fx::intDivRewrites(*e, fx::RegionOptions())) {
+    CHECK(r.tag == "U" && r.edits.size() == 1 && r.edits[0].extra.find("__RENDERER__ >= 0xa000") != std::string::npos);
+    at[r.line] = r.edits[0].lines[0];
+  }
+  CHECK(at.count(9) && at[9].find("sum += int(uint(i) / 2u);") != std::string::npos);
+  CHECK(at.count(10) && at[10].find("sum += int(uint(i) % 3u);") != std::string::npos);
+  CHECK(at.count(11) && at[11].find("sum += int(uint((i + 1)) / uint((i + 1)));") != std::string::npos);
+  CHECK(!at.count(12));  // the dividend can be negative
+  CHECK(!at.count(13));  // a * b / c: the left operand is not a plain one
+  CHECK(!at.count(14));  // compile-time: nothing to gain
+}
+
 TEST(fx_table_rewrite) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_table.fx";
   fx::LoadOptions lo;

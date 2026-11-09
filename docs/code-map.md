@@ -98,7 +98,7 @@ Everything rests on `src/ir`: what an operation is, what it costs on each GPU, a
 | `src/fx/codegen.cpp` | Hooks into ReShade's parser and records the shader code as a data-flow graph. |
 | `src/fx/frontend.cpp` | Loads an effect (HLSL / GLSL too), finds the regions, works out value ranges and budgets. |
 | `src/fx/variants.cpp` | Writes the new effect files with switches, the report, `sopt-found.txt` and easy mode's picks; reads and writes `sopt-cache.txt`. |
-| `src/fx/classic.cpp` | Rewrite: local arrays of constants become static tables. Also shared source text helpers. |
+| `src/fx/classic.cpp` | Rewrites: local arrays of constants become static tables; int division as uint. Also shared source text helpers. |
 | `src/fx/hoist.cpp` | Rewrite: moves math from the pixel shader to the vertex shader. |
 | `src/fx/blend.cpp` | Rewrite: moves the final mix with the screen into the GPU's blend unit. |
 | `src/fx/guard.cpp` | Rewrite: returns early where a uniform at 0 (Strength, Amount) leaves the output an earlier value. |
