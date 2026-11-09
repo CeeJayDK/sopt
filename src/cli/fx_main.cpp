@@ -148,7 +148,7 @@ void usage() {
       "                    indexed at run time become static const tables, switch SOPT_<file>_T<line>;\n"
       "                    pixel shader math of uniforms only, or affine in the texture coordinates,\n"
       "                    moves to the vertex shader, switch SOPT_<file>_V<line>; kept where --isa\n"
-      "                    measures a gain; signed integer / and %% with both sides proven not\n"
+      "                    measures a gain; signed integer / and % with both sides proven not\n"
       "                    negative become unsigned, D3D10 and later, switch SOPT_<file>_U<line>)\n"
       "  --no-hoist        no moving to the vertex shader (the table rewrites stay)\n"
       "  --no-setting-paths  only the code the effect's current settings compile (default: also each\n"
