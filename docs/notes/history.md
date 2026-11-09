@@ -2877,6 +2877,15 @@ Exactness on the CPU, float32, every d in 1..4096, rcp up to 3 steps off: uint(f
 OpBench 0.10.6 adds: constant divisors (umodc16, imodc16, udivc16, idivc16, umodc7, imodc7, udivc7, idivc7), signed power-of-2 forms for any int (idivs16, imods16) and, for a dividend below 65536 (base uhi): udivs / umods, udivs7 / umods7, multiply and shift (udivm7, umodm7), through float with the +0.5 (udivf7, umodf7, udivvf, umodvf). --skips counts integer divisions per kind ("count: ...").
 
 ## int to uint, count of integer divisions, --parts-always (2026-11-09)
+
+Range analysis follow-up (same day). Integer `%`, `<<`, `>>` and truncating `/` now have ranges (`intModR`, `intShiftR`, `intDivR`;
+an operand the type cannot hold counts as the whole type). On their own these proved nothing new: in the 6 packages with 78 of the
+101 unknown signed divisions, 16 of 73 distinct lines were proven before and after. The missing facts were the leaves.
+Checked in ReShade's runtime.cpp: framecount is `unsigned(_frame_count % UINT_MAX)`, a bool reads it as 0 / 1 alternating;
+random is `min + rand() % (|max - min| + 1)`. Ranges: framecount [0, 2^31 - 1] as int (owner: never negative is fine, 172 days
+nonstop at 144 fps), [0, 2^32 - 2] otherwise; random [min, min + 32767], `max` ignored because `BUFFER_WIDTH*BUFFER_HEIGHT` is
+only seen at sopt's placeholder size. With both: 32 of 73 proven. Still unknown there: value from a slider or pixel size
+(CMYK 12, dh_uber_rt 9), Floyd-Steinberg error (really negative, 5), function parameters, tex2Dsize.
 Owner's go. Classic rewrite (intDivRewrites in fx/classic.cpp, switch U, D3D10+ only: shader model 3 has no integers, ReShade writes uint as int there and fxc has no power-of-two path). Written only where the dividend is proven >= 0 and the divisor >= 1 from known ranges (none assumed or likely), every / and % on the line matched one to one. fxc ps_5_0: int / 16 is 8 instructions, int(uint(i) / 16u) 3; int % 7 is 7, the uint form 3.
 Corpus count (run 42533622065, generated copies, not source lines): 4270 integer divisions, of which 3393 are one CONST_LOG2 macro over BUFFER_WIDTH on 22 lines of one package (compile time). --skips now reports the dividend as compile-time, proven or unknown.
 --parts-always vs defaults at 5 s, 7 packages, one run each: written 6 wins (-58), 1 loss (+2); needs ranges 5 wins (-15), 2 losses (+13). At 1 s, full corpus: 0 wins, 4 losses of 1, time +0.6%. Default since 2026-11-09 (--no-parts-always).

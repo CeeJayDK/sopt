@@ -728,6 +728,41 @@ Range clampR(const Range& a, double lo, double hi) {
   return derived(std::clamp(a.lo, lo, hi), std::clamp(a.hi, lo, hi), {&a});
 }
 
+// What an integer operand can be: its range if the type can hold it, otherwise (unknown, or it wraps) the whole type.
+Range intOperand(const Range& a, bool isUnsigned) {
+  const double lo = isUnsigned ? 0 : -2147483648.0, hi = isUnsigned ? 4294967295.0 : 2147483647.0;
+  return a.known && a.lo >= lo && a.hi <= hi ? a : Range::of(lo, hi, "derived");
+}
+// Integer a / b truncates (monotone, so the bounds of the real quotient give the bounds of the result).
+Range intDivR(const Range& x, const Range& y, bool isUnsigned) {
+  if (!x.known || !y.known) return Range::unknown();
+  const Range a = intOperand(x, isUnsigned), b = intOperand(y, isUnsigned);
+  if (b.lo <= 0 && b.hi >= 0) return Range::unknown();
+  const double q[] = {a.lo / b.lo, a.lo / b.hi, a.hi / b.lo, a.hi / b.hi};
+  return derived(std::trunc(*std::min_element(q, q + 4)), std::trunc(*std::max_element(q, q + 4)), {&a, &b});
+}
+// Integer a % b has the sign of a and is smaller than |a| + 1 and |b|.
+Range intModR(const Range& x, const Range& y, bool isUnsigned) {
+  if (!x.known && !y.known) return Range::unknown();
+  const Range a = intOperand(x, isUnsigned), b = intOperand(y, isUnsigned);
+  if (a.lo >= 0 && a.hi < b.lo) return derived(std::floor(a.lo), std::floor(a.hi), {&a, &b});
+  const double m = std::max(std::abs(b.lo), std::abs(b.hi)) - 1;
+  return derived(a.lo >= 0 ? 0 : std::max(a.lo, -m), a.hi <= 0 ? 0 : std::min(a.hi, m), {&a, &b});
+}
+// Shift counts use their low 5 bits, so a count outside 0..31 says nothing about the amount.
+Range intShiftR(const Range& x, const Range& y, bool left, bool isUnsigned) {
+  if (!x.known && !y.known) return Range::unknown();
+  const Range a = intOperand(x, isUnsigned);
+  const Range b = y.known && y.lo >= 0 && y.hi <= 31 ? y : Range::of(0, 31, "derived");
+  const double kLo = std::ldexp(1.0, static_cast<int>(b.lo)), kHi = std::ldexp(1.0, static_cast<int>(b.hi));
+  if (left) {
+    // Bits shifted out make the result unrelated to the bounds.
+    if (a.lo < 0 || a.hi * kHi > (isUnsigned ? 4294967295.0 : 2147483647.0)) return Range::unknown();
+    return derived(a.lo * kLo, a.hi * kHi, {&a, &b});
+  }
+  return derived(std::floor(std::min(a.lo / kLo, a.lo / kHi)), std::floor(std::max(a.hi / kLo, a.hi / kHi)), {&a, &b});
+}
+
 std::string semanticKey(std::string s);
 Range semanticConvention(const std::string& semantic, double maxWidth);
 Range computeInputRange(const Function& cs, const std::string& semantic, double maxWidth);
@@ -2637,11 +2672,15 @@ Range Extractor::range(uint32_t id) {
       break;
     case K::Binary: {
       Range a = arg(0), b = arg(1);
+      const bool isUint = v.type.base == reshadefx::type::t_uint, isInt = isUint || v.type.base == reshadefx::type::t_int;
       switch (v.op) {
         case tokenid::plus: case tokenid::plus_equal: r = addR(a, b); break;
         case tokenid::minus: case tokenid::minus_equal: r = subR(a, b); break;
         case tokenid::star: case tokenid::star_equal: r = mulR(a, b); break;
-        case tokenid::slash: case tokenid::slash_equal: r = mulR(a, rcpR(b)); break;
+        case tokenid::slash: case tokenid::slash_equal: r = isInt ? intDivR(a, b, isUint) : mulR(a, rcpR(b)); break;
+        case tokenid::percent: case tokenid::percent_equal: if (isInt) r = intModR(a, b, isUint); break;
+        case tokenid::less_less: case tokenid::less_less_equal: if (isInt) r = intShiftR(a, b, true, isUint); break;
+        case tokenid::greater_greater: case tokenid::greater_greater_equal: if (isInt) r = intShiftR(a, b, false, isUint); break;
         default: break;
       }
       break;
@@ -2890,6 +2929,7 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
     case Variable::Kind::Uniform: {
       double lo = NAN, hi = NAN;
       std::string uiType, source, items;
+      double randomMin = 0;
       for (const auto& a : v.annotations) {
         auto num = [&]() -> double {
           if (a.type.is_floating_point()) return a.value.as_float[0];
@@ -2901,6 +2941,7 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         else if (a.name == "ui_type") uiType = a.value.string_data;
         else if (a.name == "source") source = a.value.string_data;
         else if (a.name == "ui_items") items = a.value.string_data;
+        else if (a.name == "min") randomMin = num();
       }
       // An int combo / radio list: one value per item, 0 to items - 1 (items end with '\0').
       if (v.type.is_integral() && !v.type.is_boolean() && (uiType == "combo" || uiType == "radio") && !items.empty() &&
@@ -2909,6 +2950,14 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         return Range::of(0, n - 1, "ui_items", static_cast<uint32_t>(n - 1));
       }
       if (!source.empty()) {
+        if ((source == "framecount" || source == "random") && v.type.is_boolean()) return Range::of(0, 1, "bool", 1);
+        // ReShade: an unsigned frame count. Read as int it turns negative only after 2^31 frames (172 days nonstop at
+        // 144 fps), accepted as "never" (owner, 2026-11-09).
+        if (source == "framecount")
+          return Range::of(0, v.type.base == reshadefx::type::t_int ? 2147483647.0 : 4294967294.0, "source = framecount");
+        // ReShade: min + rand() % (|max - min| + 1), and rand() <= RAND_MAX.
+        // shortcut: max is ignored (it can be a buffer-size macro, seen here only at its placeholder), read it if a tighter range ever matters
+        if (source == "random") return Range::of(std::floor(randomMin), std::floor(randomMin) + 32767, "source = random", 32767);
         if (source == "timer") return Range::of(0, 1e7, "source = timer (ms)");
         if (source == "frametime") return Range::of(0, 1000, "source = frametime (ms)");
         if (source == "pingpong") return Range::of(lo == lo ? lo : 0, hi == hi ? hi : 1, "source = pingpong");

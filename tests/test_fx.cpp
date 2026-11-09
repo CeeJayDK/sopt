@@ -1106,6 +1106,13 @@ TEST(fx_int_to_uint_rewrite) {
   CHECK(!at.count(14));  // compile-time: nothing to gain
   CHECK(!at.count(15));  // a macro on the line: its text is not the operand
   CHECK(at.count(18) && at[18].find("(int2(uint2(a) / uint(s))).x") != std::string::npos);  // uint2(scalar) does not parse
+  CHECK(at.count(20) && at[20].find("int(uint(m) / 2u)") != std::string::npos);  // ranges through %
+  CHECK(at.count(22) && at[22].find("int(uint(sh) % 3u)") != std::string::npos);  // through >>
+  CHECK(at.count(24) && at[24].find("int(uint(i) / uint(d))") != std::string::npos);  // through <<, divisor >= 1
+  CHECK(!at.count(26));  // (i - 4) % 3 can be negative
+  CHECK(at.count(27) && at[27].find("int(uint(fc) % 8u)") != std::string::npos);  // source = framecount
+  CHECK(at.count(28) && at[28].find("uint(rnd)") != std::string::npos);  // source = random, min >= 1
+  CHECK(!at.count(29));  // min = -1
 }
 
 TEST(fx_table_rewrite) {
