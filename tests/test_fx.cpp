@@ -1105,6 +1105,29 @@ TEST(fx_step_is_two_valued) {
   CHECK(m >= 0 && b->prog.inputs[m].grid == 0);
 }
 
+TEST(fx_range_of_repeated_variable) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_rangesplit.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* a = regionOn(regions, 14);
+  const fx::Region* b = regionOn(regions, 15);
+  CHECK(a != nullptr && b != nullptr);
+  if (!a || !b) return;
+  const int q = inputNamed(*a, "q"), l = inputNamed(*a, "l"), d = inputNamed(*b, "d"), c = inputNamed(*b, "e");
+  CHECK(q >= 0 && l >= 0 && d >= 0 && c >= 0);
+  if (q < 0 || l < 0 || d < 0 || c < 0) return;
+  CHECK(a->prog.inputs[q].lo >= 0.0 && a->prog.inputs[q].hi < 0.27);  // x * (1 - x): the uses of x are the same value
+  CHECK(a->prog.inputs[l].lo == 0.0 && a->prog.inputs[l].hi == 1.0);  // lerp stays between its ends
+  // Different values must stay independent: another definition between the loads, another component.
+  CHECK(b->prog.inputs[d].lo == -1.0 && b->prog.inputs[d].hi == 1.0);
+  CHECK(b->prog.inputs[c].lo == -1.0 && b->prog.inputs[c].hi == 1.0);
+}
+
 TEST(fx_int_to_uint_rewrite) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_intdiv.fx";
   fx::LoadOptions lo;

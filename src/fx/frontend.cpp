@@ -1348,6 +1348,12 @@ class Extractor {
   int sizeFix_ = -1;
   std::vector<std::unordered_map<uint32_t, Range>> sizeMemo_;
   Range leafRange(uint32_t valueId);
+  Range splitRange(uint32_t valueId, Range r);
+  // During splitRange: the loads of the split variable, their range piece, and the values that depend on them.
+  const std::unordered_set<uint32_t>* splitLoads_ = nullptr;
+  Range splitPiece_;
+  std::unordered_set<uint32_t> splitDeps_;
+  std::unordered_map<uint32_t, Range> splitMemo_;
   std::unordered_set<uint32_t> varBusy_;
   std::unordered_set<uint64_t> localBusy_;  // (variable, load seq)
   std::vector<const Statement*> reaching(uint32_t var, uint32_t seq, uint32_t block, bool& killed) const;
@@ -2626,7 +2632,13 @@ Range Extractor::samplerRange(uint32_t valueId) {
 }
 
 Range Extractor::range(uint32_t id) {
-  auto& memo = sizeFix_ < 0 ? rangeMemo_ : sizeMemo_[sizeFix_];
+  if (splitLoads_ && !splitDeps_.count(id)) {
+    const auto* saved = std::exchange(splitLoads_, nullptr);
+    const Range x = range(id);
+    splitLoads_ = saved;
+    return x;
+  }
+  auto& memo = splitLoads_ ? splitMemo_ : sizeFix_ < 0 ? rangeMemo_ : sizeMemo_[sizeFix_];
   if (auto it = memo.find(id); it != memo.end()) return it->second;
   if (cg_.variables.count(id)) {
     // Call arguments are passed as variables (the parser copies them).
@@ -2664,7 +2676,7 @@ Range Extractor::range(uint32_t id) {
       r = Range::of(lo, hi, "constant");
       break;
     }
-    case K::Load: r = varRange(v.base, v.seq, v.block); break;
+    case K::Load: r = splitLoads_ && splitLoads_->count(id) ? splitPiece_ : varRange(v.base, v.seq, v.block); break;
     case K::Chain: r = range(v.base); break;
     case K::Unary:
       if (v.op == tokenid::minus) { Range a = arg(0); r = derived(-a.hi, -a.lo, {&a}); }
@@ -2731,8 +2743,17 @@ Range Extractor::range(uint32_t id) {
       else if (n == "clamp" && na == 3) r = minR(maxR(arg(0), arg(1)), arg(2));
       else if (n == "mad" && na == 3) r = addR(mulR(arg(0), arg(1)), arg(2));
       else if (n == "lerp" && na == 3) {
+        // Linear in each argument, so its extremes are at the corners (as intervals, a + (b - a) * t counts a twice).
         Range a = arg(0), b = arg(1), t = arg(2);
-        r = addR(a, mulR(subR(b, a), t));
+        double lo = INFINITY, hi = -INFINITY;
+        for (double x : {a.lo, a.hi})
+          for (double y : {b.lo, b.hi})
+            for (double u : {t.lo, t.hi}) {
+              const double p = x + (y - x) * u;
+              lo = std::min(lo, p);
+              hi = std::max(hi, p);
+            }
+        r = derived(lo, hi, {&a, &b, &t});
       } else if (n == "dot" && na == 2) {
         const double w = cg_.values.count(v.args[0]) ? cg_.values.at(v.args[0]).type.rows : 4;
         Range p = mulR(arg(0), arg(1));
@@ -2792,7 +2813,7 @@ constexpr unsigned kBufferSizes[][2] = {{640, 480},   {800, 600},   {1280, 720},
 
 Range Extractor::leafRange(uint32_t id) {
   Range r = range(id);
-  if (!fx_.bufferSymbolic) return r;
+  if (!fx_.bufferSymbolic) return splitRange(id, r);
   constexpr size_t n = sizeof(kBufferSizes) / sizeof(kBufferSizes[0]);
   sizeMemo_.resize(n);
   Range u;
@@ -2802,9 +2823,107 @@ Range Extractor::leafRange(uint32_t id) {
     u = k == 0 ? rk : unite(u, rk);
   }
   sizeFix_ = -1;
-  if (!u.known || (r.known && u.lo <= r.lo && u.hi >= r.hi)) return r;
+  if (!u.known || (r.known && u.lo <= r.lo && u.hi >= r.hi)) return splitRange(id, r);
   u.why = "derived (at common back buffer sizes)";
-  return u;
+  return splitRange(id, u);
+}
+
+// A value that uses one variable several times: interval arithmetic treats every use as independent (x * (1 - x) on
+// [0, 1] gives [0, 1]). So compute it again on small pieces of that variable's range and take what the pieces reach.
+Range Extractor::splitRange(uint32_t id, Range r) {
+  constexpr size_t kMaxNodes = 2000, kMaxVars = 3;
+  constexpr uint32_t kPieces = 64;
+  if (!r.known || r.lo == r.hi) return r;
+  // The same value: one variable, one access, the same definitions (so no store between the loads).
+  struct Use {
+    uint32_t var;
+    const std::vector<reshadefx::expression::operation>* chain;
+    std::vector<const Statement*> reach;
+    std::unordered_set<uint32_t> loads;
+  };
+  const auto sameChain = [](const auto& a, const auto& b) {
+    return std::equal(a.begin(), a.end(), b.begin(), b.end(), [](const auto& x, const auto& y) {
+      return x.op == y.op && x.index == y.index && x.to == y.to && !std::memcmp(x.swizzle, y.swizzle, 4);
+    });
+  };
+  std::vector<Use> uses;
+  std::unordered_map<uint32_t, std::vector<uint32_t>> kids;
+  // False: the value uses a variable across loop iterations, where two loads of it can differ.
+  std::function<bool(uint32_t)> walk = [&](uint32_t x) {
+    if (kids.count(x)) return true;
+    if (kids.size() >= kMaxNodes) return false;
+    kids[x];
+    const auto vi = cg_.values.find(x);
+    if (vi == cg_.values.end()) return true;
+    const Value& v = vi->second;
+    if (v.kind == Value::Kind::Call) return true;  // a parameter differs per call: not followed
+    std::vector<uint32_t> next;
+    if (v.kind == Value::Kind::Load) {
+      if (const auto di = defs_.find(v.base); di != defs_.end())
+        for (const Statement* d : di->second)
+          for (const auto& [lo, hi] : cg_.loops)
+            if (lo <= v.seq && v.seq <= hi && lo <= d->seq && d->seq <= hi) return false;
+      bool killed = false;
+      std::vector<const Statement*> reach = reaching(v.base, v.seq, v.block, killed);
+      for (const Statement* d : reach) next.push_back(d->value);
+      if (v.type.is_scalar()) {
+        auto u = std::find_if(uses.begin(), uses.end(), [&](const Use& e) {
+          return e.var == v.base && e.reach == reach && sameChain(*e.chain, v.chain);
+        });
+        if (u == uses.end()) u = uses.insert(uses.end(), Use{v.base, &v.chain, reach, {}});
+        u->loads.insert(x);
+      }
+    } else {
+      next = v.args;
+      if (v.kind == Value::Kind::Chain) next.push_back(v.base);
+    }
+    kids[x] = next;
+    for (const uint32_t n : next)
+      if (!walk(n)) return false;
+    return true;
+  };
+  if (!walk(id)) return r;
+  std::stable_sort(uses.begin(), uses.end(), [](const Use& a, const Use& b) { return a.loads.size() > b.loads.size(); });
+  if (uses.size() > kMaxVars) uses.erase(uses.begin() + kMaxVars, uses.end());
+  Range best = r;
+  for (const Use& u : uses) {
+    const Range t = range(*u.loads.begin());
+    if (!t.known || t.lo == t.hi) continue;
+    std::unordered_map<uint32_t, bool> depends;
+    std::function<bool(uint32_t)> dep = [&](uint32_t x) {
+      if (const auto it = depends.find(x); it != depends.end()) return it->second;
+      bool any = u.loads.count(x) != 0;
+      for (const uint32_t k : kids[x]) any = dep(k) || any;
+      return depends[x] = any;
+    };
+    if (!dep(id)) continue;
+    splitDeps_.clear();
+    for (const auto& [x, yes] : depends)
+      if (yes) splitDeps_.insert(x);
+    const bool points = t.grid > 0 && t.grid <= kPieces;  // each possible value on its own
+    const uint32_t n = points ? t.grid + 1 : kPieces;
+    const auto at = [&](uint32_t k, uint32_t of) { return k >= of ? t.hi : t.lo + (t.hi - t.lo) * k / of; };
+    double lo = INFINITY, hi = -INFINITY;
+    bool ok = true;
+    splitLoads_ = &u.loads;
+    for (uint32_t k = 0; k < n && ok; ++k) {
+      splitPiece_ = points ? Range::of(at(k, t.grid), at(k, t.grid), "derived")
+                           : Range::of(at(k, n), at(k + 1, n), "derived");
+      splitMemo_.clear();
+      const Range p = range(id);
+      ok = p.known;
+      lo = std::min(lo, p.lo);
+      hi = std::max(hi, p.hi);
+    }
+    splitLoads_ = nullptr;
+    if (ok && lo <= hi) {
+      best.lo = std::max(best.lo, lo);
+      best.hi = std::min(best.hi, hi);
+    }
+  }
+  if (best.lo > best.hi) return r;
+  if (best.lo != r.lo || best.hi != r.hi) best.grid = 0;
+  return best;
 }
 
 // "<file> <function> <name>" (uniforms: function "global").
