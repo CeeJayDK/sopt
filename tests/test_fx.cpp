@@ -1086,6 +1086,25 @@ TEST(fx_namespace) {
 }
 
 
+// step() gives 0 or 1 only: without that, whether a variant passes depended on the random test points.
+TEST(fx_step_is_two_valued) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_stepgrid.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* a = regionOn(regions, 6);
+  const fx::Region* b = regionOn(regions, 7);
+  CHECK(a != nullptr && b != nullptr);
+  if (!a || !b) return;
+  const int s = inputNamed(*a, "s"), m = inputNamed(*b, "m");
+  CHECK(s >= 0 && a->prog.inputs[s].grid == 1);
+  CHECK(m >= 0 && b->prog.inputs[m].grid == 0);
+}
+
 TEST(fx_int_to_uint_rewrite) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_intdiv.fx";
   fx::LoadOptions lo;

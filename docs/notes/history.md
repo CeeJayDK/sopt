@@ -2865,6 +2865,8 @@ the points must be far off. Second cause: a run never builds on its own finds (-
 12 (+38). --seeds 3 vs --noise-share --refine 3 directly: 34 / 31 regions (292 / 288), level. Regions that need value ranges: --seeds 3 still clearly ahead
 (115 / 14 against 41 / 31 for --noise-share --refine 3). Not explained yet. Small regions still seed-dependent: Border.fx:58 (10 -> 5), Clarity2.fx:297 (13 -> 8).
 
+step() is two-valued (2026-11-09). Clarity2.fx:297 `a * (1 - s) + s * b` with s = step(...): seeds gave nothing, 8, 9 or 10, independent of the time limit (0.2 s = 5 s). Every candidate was "less accurate" and passed only if no random point hit a cancellation (a's range was [-7588, 6982] from interval blow-up). A .sopt copy, 8 seeds each: wide range with s continuous 8 / 9 / 12; s grid 1 (wide or unit range) `mad(b, s, mad(a, -s, a))` 9 bit-exact on all 8; unit range with s continuous `lerp` 8 on all 8. Range of step() now has grid 1. Not done: the blow-up itself, sign() ({-1, 0, 1}), float(bool).
+
 ## amd-gcn4 (2026-11-08, owner's go)
 amd-gcn5's table with sin / cos 32 (measured 16.5 = twice rcp, RX 580 and RX 590 alike; 10.6 on Vega), no HalfCosts entry (fp16 = fp32) and fuse bits only bfi / bfe (or3, and_or, add3, lshl_add, add_lshl are GFX9 and measure as separate steps). Cards: RX 4[6-9]0, 5[5-9]0, 640; GCN 1-3 (R7 / R9) use it as the nearest measured family. Steam share follows at the next steam-survey cron. fxc's imul for (x << k) + x on GCN 4 (open item 10) is not modelled yet.
 

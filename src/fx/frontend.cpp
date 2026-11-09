@@ -2724,7 +2724,8 @@ Range Extractor::range(uint32_t id) {
       else if (n == "trunc") r = monotone(arg(0), [](double x) { return std::trunc(x); });
       else if (n == "frac") r = Range::of(0, 1, "derived");
       else if (n == "sign" || n == "sin" || n == "cos" || n == "normalize") r = Range::of(-1, 1, "derived");
-      else if (n == "step" || n == "smoothstep") r = Range::of(0, 1, "derived");
+      else if (n == "step") r = Range::of(0, 1, "derived", 1);  // only 0 or 1
+      else if (n == "smoothstep") r = Range::of(0, 1, "derived");
       else if (n == "min" && na == 2) r = minR(arg(0), arg(1));
       else if (n == "max" && na == 2) r = maxR(arg(0), arg(1));
       else if (n == "clamp" && na == 3) r = minR(maxR(arg(0), arg(1)), arg(2));
