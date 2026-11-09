@@ -1149,7 +1149,7 @@ class Extractor {
       d.rows = v.type.is_matrix() ? 0 : v.type.rows;
       const auto asWritten = [&](uint32_t a) {
         const Value& x = cg_.values.at(a);
-        return !x.chain.empty() && x.chain.back().op == reshadefx::expression::operation::op_cast
+        return !x.chain.empty() && x.chain.back().from.is_scalar()
                    ? x.chain.back().from.rows
                    : x.type.rows;
       };
