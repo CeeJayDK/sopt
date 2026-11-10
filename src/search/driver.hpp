@@ -80,9 +80,15 @@ struct Options {
   //   Bool expressions that differ only there (z != 0 || w != 0 vs z != 0) stay apart in the bank.
   bool libraryRegroup = false;
   bool fpCoincidence = false;
-  // --exact-undefined (2026-11-10): points where exact math is not finite (the original is finite only by float
-  //   rounding, e.g. x / (y + 1e-10) at y = -1e-10) are don't-care, like points where the original is not finite.
-  bool exactUndefined = false;
+  // Points where exact math is not finite (the original is finite only by float rounding, e.g. x / (y + 1e-10) at
+  //   y = -1e-10) are don't-care, like points where the original is not finite. Default since 2026-11-10 (owner);
+  //   --no-exact-undefined turns it off.
+  bool exactUndefined = true;
+  // Verification points at jumps (floor / ceil / round / trunc / frac change their integer part) and at cancellations
+  //   (an add / sub / mad / dot crosses zero), found like the comparison boundaries (owner, 2026-11-10: results
+  //   there must not depend on the seed). --no-jump-points / --no-cancel-points turn them off.
+  bool jumpPoints = true;
+  bool cancelPoints = true;
   // Search experiments (owner, 2026-11-05: the goal is the most optimal shaders; corpus decides):
   // --fp-more: fingerprint points also at the special points that did not fit, threshold points and inputs pairwise
   //   equal (on top of the random points). --keep-survivors: candidates that passed stage 2 stay candidates after a

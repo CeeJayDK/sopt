@@ -42,8 +42,9 @@ TEST(accuracy_exact_undefined) {
   ps.add({-606.31f, -1e-10f});
   CHECK(std::isinf(evalExactAll(p.target, ps)[0]));
   const Expr cand = parseExpr("1.0 / (max(c, y) + 1e-10)", p.inputs);
+  p.budget.exactUndefined = false;  // --no-exact-undefined
   CHECK(!compare(p, cand, ps, kProfileRef, 1).pass);
-  p.budget.exactUndefined = true;  // --exact-undefined: such points are don't-care
+  p.budget.exactUndefined = true;  // default: such points are don't-care
   CHECK(compare(p, cand, ps, kProfileRef, 1).pass);
 }
 

@@ -144,7 +144,10 @@ TEST(eval_sugar_intrinsics) {
         return std::max(std::fabs(x[0]), std::fabs(x[1])) < 1.17549435e-38f || std::fabs(r - std::atan2(x[0], x[1])) <= 1e-4f;
       });
   run("input x : float in [-50, 50]\ninput y : float in [0.5, 3]\noutput r = fmod(x, y)\nbudget r : abs 1e-4\n",
-      [](const std::vector<float>& x, float r) { return std::fabs(r - std::fmod(x[0], x[1])) <= 1e-4f; });
+      [](const std::vector<float>& x, float r) {  // at a jump (x / y rounds to an integer) fxc's form is one period off
+        const float d = std::fabs(r - std::fmod(x[0], x[1]));
+        return d <= 1e-4f || std::fabs(d - x[1]) <= 1e-4f;
+      });
   run("input v : float2 in [-1, 1]\noutput r = all(v) ? 1.0 : 0.0\nbudget r : exact\n",
       [](const std::vector<float>& x, float r) { return r == ((x[0] != 0.0f && x[1] != 0.0f) ? 1.0f : 0.0f); });
   run("input v : float2 in [-1, 1]\noutput r = any(v) ? 1.0 : 0.0\nbudget r : exact\n",

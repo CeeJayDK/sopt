@@ -247,7 +247,11 @@ std::vector<std::vector<float>> thresholdPoints(const Program& prog, Rng& rng) {
 // flipped by a search along one input it depends on (a scan of the range, zoomed in on the closest approach when no
 // sample flips it), and the point stays there for the next comparison, so several conditions hold together
 // (all(abs(d) < r)). Kept: the point inside each flip and the two floats on either side of its boundary.
-std::vector<std::vector<float>> boundaryPoints(const Program& prog, Rng& rng) {
+// The same search, other flips (owner, 2026-11-10: verdicts there decided by the seed): Jumps, where floor / ceil /
+// round / trunc / frac change their integer part (step(0.024, y % 0.025)); Cancels, where an add / sub / mad / dot
+// crosses zero (dot(c, w) + 0.5 * hash ~ 0: the relative error of a near-cancellation).
+enum class Flip { Compare, Jump, Cancel };
+std::vector<std::vector<float>> boundaryPoints(const Program& prog, Rng& rng, Flip kind = Flip::Compare) {
   const Expr& e = prog.target;
   const std::vector<InputDecl> slots = slotDecls(prog.inputs);
   const std::vector<uint32_t> first = inputSlots(prog.inputs);
@@ -267,7 +271,12 @@ std::vector<std::vector<float>> boundaryPoints(const Program& prog, Rng& rng) {
   std::vector<Cmp> cmps;
   for (uint32_t i = 0; i < e.nodes.size() && cmps.size() < 64; ++i) {
     const Node& n = e.nodes[i];
-    if (!((n.op >= Op::Lt && n.op <= Op::Ne) || n.op == Op::Step)) continue;
+    const Op o = n.op;
+    const bool take = kind == Flip::Compare ? (o >= Op::Lt && o <= Op::Ne) || o == Op::Step
+                      : kind == Flip::Jump  ? o == Op::Floor || o == Op::Ceil || o == Op::Round || o == Op::Trunc ||
+                                                 o == Op::Frac
+                                            : o == Op::Add || o == Op::Sub || o == Op::Mad || o == Op::Dot;
+    if (!take) continue;
     std::vector<size_t> on;
     for (size_t in = 0; in < prog.inputs.size(); ++in) {
       if (!(deps[i] >> std::min<size_t>(in, 63) & 1)) continue;
@@ -290,11 +299,21 @@ std::vector<std::vector<float>> boundaryPoints(const Program& prog, Rng& rng) {
     line.cols[s] = xs;
     ev.eval(e, line, 0, xs.size(), kProfileRef);
   };
-  auto out = [&](const Cmp& k, size_t j) { return ev.ptr[k.node][width(e.nodes[k.node].type) == 1 ? 0 : k.c][j]; };
-  auto gap = [&](const Cmp& k, size_t j) {  // operand difference: how close the comparison is to flipping
+  auto at = [&](uint32_t a, unsigned c, size_t j) { return double(ev.ptr[a][width(e.nodes[a].type) == 1 ? 0 : c][j]); };
+  auto out = [&](const Cmp& k, size_t j) -> double {  // what flips: the result, frac's integer part, a sum's sign
+    const double v = at(k.node, k.c, j);
+    if (kind == Flip::Cancel) return v > 0.0 ? 1.0 : v < 0.0 ? -1.0 : 0.0;
+    if (e.nodes[k.node].op == Op::Frac) return std::floor(at(e.nodes[k.node].args[0], k.c, j));
+    return v;
+  };
+  auto gap = [&](const Cmp& k, size_t j) {  // how close it is to flipping
     const Node& n = e.nodes[k.node];
-    auto at = [&](uint32_t a) { return double(ev.ptr[a][width(e.nodes[a].type) == 1 ? 0 : k.c][j]); };
-    return std::fabs(at(n.args[0]) - at(n.args[1]));
+    if (kind == Flip::Cancel) return std::fabs(at(k.node, k.c, j));
+    if (kind == Flip::Jump) {  // distance to the next integer (round: to the next half)
+      const double x = at(n.args[0], k.c, j) + (n.op == Op::Round ? 0.5 : 0.0);
+      return std::fabs(x - std::nearbyint(x));
+    }
+    return std::fabs(at(n.args[0], k.c, j) - at(n.args[1], k.c, j));
   };
   size_t work = 0;  // line evaluations: bounds the time on regions with many comparisons that never flip
   for (int base = 0; base < 8 && pts.size() < 1024 && work < 4000; ++base) {
@@ -313,25 +332,32 @@ std::vector<std::vector<float>> boundaryPoints(const Program& prog, Rng& rng) {
         const size_t s = k.slots[(t + off) % k.slots.size()];
         const InputDecl& d = slots[s];
         evalAt(pt, s, {pt[s]});
-        const float cur = out(k, 0);
+        const double cur = out(k, 0);
         double lo = d.lo, hi = d.hi;
         std::vector<float> xs(kScan);
-        for (int zoom = 0; zoom < 6 && !moved && hi > lo; ++zoom, ++work) {
+        bool rejected = false;
+        float bestX = pt[s];  // Cancel: the closest approach to zero so far
+        double bestG = gap(cmps[ci], 0);
+        for (int zoom = 0; zoom < 6 && !moved && !rejected && hi > lo; ++zoom, ++work) {
           for (size_t j = 0; j < kScan; ++j) xs[j] = snap(d, lo + (hi - lo) * double(j) / double(kScan - 1));
           evalAt(pt, s, xs);
           size_t hit = kScan, best = kScan;
+          double maxGap = 0.0;
           for (size_t j = 0; j < kScan; ++j) {
             const double g = gap(k, j);
             if (!std::isfinite(g)) continue;
+            maxGap = std::max(maxGap, g);
             if (out(k, j) != cur && (hit == kScan || std::fabs(xs[j] - pt[s]) < std::fabs(xs[hit] - pt[s]))) hit = j;
             if (best == kScan || g < gap(k, best)) best = j;
           }
+          if (best < kScan && gap(k, best) < bestG) bestG = gap(k, best), bestX = xs[best];
           if (hit < kScan) {
             // The flipped stretch of the scan (and one sample past each end): spread points go there below.
             size_t a = hit, b = hit;
             while (a > 0 && out(k, a - 1) != cur) --a;
             while (b + 1 < kScan && out(k, b + 1) != cur) ++b;
-            window[s] = {xs[a > 0 ? a - 1 : a], xs[b + 1 < kScan ? b + 1 : b]};
+            const std::pair<float, float> win = {xs[a > 0 ? a - 1 : a], xs[b + 1 < kScan ? b + 1 : b]};
+            const float inside = xs[hit];
             // The boundary between the flipped sample and its neighbour towards the start, by bisection.
             float in = xs[hit], other = hit > 0 && xs[hit - 1] != in ? xs[hit - 1] : xs[std::min(hit + 1, kScan - 1)];
             evalAt(pt, s, {other});
@@ -342,9 +368,17 @@ std::vector<std::vector<float>> boundaryPoints(const Program& prog, Rng& rng) {
                 evalAt(pt, s, {mid});
                 (out(k, 0) != cur ? in : other) = mid;
               }
+            if (kind == Flip::Cancel) {  // a sign flip across a jump (a hash's frac) is no cancellation: next input
+              evalAt(pt, s, {in, other});
+              if (!(gap(k, 0) <= 1e-4 * maxGap && gap(k, 1) <= 1e-4 * maxGap)) {
+                rejected = true;
+                continue;
+              }
+            }
+            window[s] = win;
             std::vector<float> q = pt;
             for (float x : {in, other}) q[s] = x, pts.push_back(q);
-            pt[s] = xs[hit];  // well inside the flip: stays true while the next comparisons move
+            pt[s] = inside;  // well inside the flip: stays true while the next comparisons move
             pts.push_back(pt);
             moved = true;
           } else if (best < kScan) {
@@ -353,6 +387,9 @@ std::vector<std::vector<float>> boundaryPoints(const Program& prog, Rng& rng) {
             hi = xs[b];
           }
         }
+        // Cancel: no zero crossing along this input: keep its closest approach, the next input goes on from there
+        // (a sum that reaches zero only with two inputs at once: dot(c, w) + 0.5 * hash, NightVision.fx).
+        if (kind == Flip::Cancel && !moved) pt[s] = bestX;
       }
     }
     for (int j = 0; j < 32; ++j) {
@@ -542,6 +579,17 @@ PointSet makeRandomPoints(const Program& prog, size_t count, uint64_t seed, bool
       if (ps.size() >= count) break;
       ps.add(p);
     }
+    Rng rj(0x7a3b), rc(0xca9c);  // fixed sets (owner, 2026-11-10): the same points for every seed
+    if (prog.budget.jumpPoints)
+      for (const auto& p : boundaryPoints(prog, rj, Flip::Jump)) {
+        if (ps.size() >= count) break;
+        ps.add(p);
+      }
+    if (prog.budget.cancelPoints)
+      for (const auto& p : boundaryPoints(prog, rc, Flip::Cancel)) {
+        if (ps.size() >= count) break;
+        ps.add(p);
+      }
     for (const auto& p : coincidencePoints(slots, rng, std::min<size_t>(4096, count / 8))) {
       if (ps.size() >= count) break;
       ps.add(p);

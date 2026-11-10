@@ -83,6 +83,9 @@ int parseSearchOption(const std::string& a, const std::function<const char*()>& 
   else if (a == "--library-regroup") opt.libraryRegroup = true;
   else if (a == "--fp-coincidence") opt.fpCoincidence = true;
   else if (a == "--exact-undefined") opt.exactUndefined = true;
+  else if (a == "--no-exact-undefined") opt.exactUndefined = false;
+  else if (a == "--no-jump-points") opt.jumpPoints = false;
+  else if (a == "--no-cancel-points") opt.cancelPoints = false;
   else if (a == "--seed") opt.seed = std::strtoull(next(), nullptr, 10);
   else if (a == "--fp-more") opt.fpMore = true;
   else if (a == "--keep-survivors") opt.keepSurvivors = true;

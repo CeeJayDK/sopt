@@ -63,7 +63,10 @@ struct Budget {
   // it (see pointAccurate). Never for Exact budgets.
   bool vsExact = true;
   // With vsExact: points where the exact value is not finite are don't-care (Options::exactUndefined).
-  bool exactUndefined = false;
+  bool exactUndefined = true;
+  // Extra verification points (Options::jumpPoints / cancelPoints, makeRandomPoints).
+  bool jumpPoints = true;
+  bool cancelPoints = true;
   // Less accurate variants (owner: listed with their accuracy, the user decides): a
   // factor > 1 also accepts candidates within `loose` times the budget (color budgets:
   // one more code) and `loose` times the original's own error. 0 = off.
