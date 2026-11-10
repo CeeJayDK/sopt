@@ -2897,6 +2897,12 @@ Corpus 0.1 s: lerp fix alone (0.10.11 -> 0.10.12 plain) 2265 -> 2268 written, 42
 one near-cancellation point, dot(c, w) + 0.5 * hash ~ 0, fails only under gpu+ / gpu-), Sketch / PiecewiseFilmicTonemap / cMath (step or frac
 of a large argument: whether points land near a jump). Questions to the owner on both.
 
+## UHD 770 reports (2026-11-10, via the owner)
+UHD Graphics 770 (Xe-LP, driver 31.0.101.4502), first OpBench / StageBench / TexBench of the card: OpBench family intel-gen12, 0.71 TFLOPS
+(fp16 min16float 1.33), drift 7 / 17 / 13%, 73 s; differs: gsread4 14.0 (8.2), arraywrite 173 (8633). StageBench ps / vs 25 s each, drift 15%;
+ps fp16 1.86x, vs fp16 = fp32 (0.70); ps differs: ddx / ddy 6.3 (3.6), the max ops ~10 (7.4), scale2 0.8 (4.0); vs: ilp1 / ilp2 4.9 / 4.5
+(7.8 / 7.1). TexBench drift 35%, 179 s, 23.9 GTexels/s. ShaderInfo -3. Gen12 holds; expected.hpp regenerated.
+
 ## amd-gcn4 (2026-11-08, owner's go)
 amd-gcn5's table with sin / cos 32 (measured 16.5 = twice rcp, RX 580 and RX 590 alike; 10.6 on Vega), no HalfCosts entry (fp16 = fp32) and fuse bits only bfi / bfe (or3, and_or, add3, lshl_add, add_lshl are GFX9 and measure as separate steps). Cards: RX 4[6-9]0, 5[5-9]0, 640; GCN 1-3 (R7 / R9) use it as the nearest measured family. Steam share follows at the next steam-survey cron. fxc's imul for (x << k) + x on GCN 4 (open item 10) is not modelled yet.
 
