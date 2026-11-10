@@ -2870,6 +2870,16 @@ step() is two-valued (2026-11-09). Clarity2.fx:297 `a * (1 - s) + s * b` with s 
 ## Tighter ranges for values that repeat a variable (2026-11-10)
 Clarity2.fx:297: sharpMin in [-7588, 6982] where the true range is about [-3.6, 93]. Two causes: lerp was bounded as a + (b - a) * t (a counted twice; [0, 1] gave [-1, 2]; now the 8 corners, exact) and interval arithmetic treats each use of a variable as independent. `Extractor::splitRange` (leaf ranges only): up to 3 most-used scalar variables, 64 pieces each (or each grid value), intersected. Same value = same variable, access chain and reaching definitions. Not split: whole-vector loads, values through a call's arguments, anything using a variable stored inside a loop around the load. Other range() users (proofs) do not get it.
 
+## --seeds 3 vs time, and mod's range (2026-11-10)
+Corpus at equal total time, written regions: --seeds 3 vs --time 0.03: 26 / 58 regions (seeds better / time better); needs ranges 85 / 46. At 0.01 s
+many corpus "misses" are only the time limit (UniqFX_ConditionalUIMask.fx:1502 clamp -> min: found at 0.005 s locally, not 0.003; CI runners are
+slower). At 0.1 s: --seeds 3 vs plain 41 / 18 (written), 78 / 28 (needs ranges); plain 0.1 vs 0.01: 2263 / 2212 written, 42283 / 41816 saved.
+Same commit twice at 0.01: 2212 / 2214 written, 41816 / 41826 saved, packages within +-2 regions / +-240.
+VHS_RA.fx:111: --seeds 3 gave 224 -> 1 (`look.x`, the jitter term dropped), class "too exact", written behind SOPT_TOO_EXACT. Cause: fc =
+mod(float(FrameCount), 7.0) with `#define mod(x,y) (x-y*floor(x/y))` had range [-2^31, 2^31], where the original's own float math is noise and a
+point with small fc decided. `modRange`: x - y * floor(x / y) is [0, y] plus |x| * 2^-22 (float rounding; [-512, 519] here). Now 224 -> 209.
+Still open: a candidate can pass as "too exact" wherever part of a wide domain makes the original noisy.
+
 ## amd-gcn4 (2026-11-08, owner's go)
 amd-gcn5's table with sin / cos 32 (measured 16.5 = twice rcp, RX 580 and RX 590 alike; 10.6 on Vega), no HalfCosts entry (fp16 = fp32) and fuse bits only bfi / bfe (or3, and_or, add3, lshl_add, add_lshl are GFX9 and measure as separate steps). Cards: RX 4[6-9]0, 5[5-9]0, 640; GCN 1-3 (R7 / R9) use it as the nearest measured family. Steam share follows at the next steam-survey cron. fxc's imul for (x << k) + x on GCN 4 (open item 10) is not modelled yet.
 

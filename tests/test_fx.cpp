@@ -1126,6 +1126,10 @@ TEST(fx_range_of_repeated_variable) {
   // Different values must stay independent: another definition between the loads, another component.
   CHECK(b->prog.inputs[d].lo == -1.0 && b->prog.inputs[d].hi == 1.0);
   CHECK(b->prog.inputs[c].lo == -1.0 && b->prog.inputs[c].hi == 1.0);
+  // x - y * floor(x / y): [0, y] plus a few ulps of x (frame count up to 2^31: about 512), not [-2^31, 2^31].
+  const fx::Region* m = regionOn(regions, 17);
+  const int f = m ? inputNamed(*m, "f") : -1;
+  CHECK(f >= 0 && m->prog.inputs[f].lo > -600 && m->prog.inputs[f].hi < 600);
 }
 
 TEST(fx_int_to_uint_rewrite) {

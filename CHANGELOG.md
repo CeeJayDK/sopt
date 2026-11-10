@@ -5,7 +5,7 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.10.10
+## 0.10.11
 
 ### SweetOpt
 - **Faster whole-number division:** where a shader divides whole numbers that can never be negative, SweetOpt now offers a cheaper version with exactly the same result.

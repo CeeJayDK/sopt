@@ -1349,6 +1349,8 @@ class Extractor {
   std::vector<std::unordered_map<uint32_t, Range>> sizeMemo_;
   Range leafRange(uint32_t valueId);
   Range splitRange(uint32_t valueId, Range r);
+  bool sameValue(uint32_t a, uint32_t b) const;
+  Range modRange(const Value& v);
   // During splitRange: the loads of the split variable, their range piece, and the values that depend on them.
   const std::unordered_set<uint32_t>* splitLoads_ = nullptr;
   Range splitPiece_;
@@ -2631,6 +2633,57 @@ Range Extractor::samplerRange(uint32_t valueId) {
   return Range::unknown();
 }
 
+bool sameChain(const std::vector<reshadefx::expression::operation>& a,
+               const std::vector<reshadefx::expression::operation>& b) {
+  return std::equal(a.begin(), a.end(), b.begin(), b.end(), [](const auto& x, const auto& y) {
+    return x.op == y.op && x.index == y.index && x.to == y.to && !std::memcmp(x.swizzle, y.swizzle, 4);
+  });
+}
+
+// Two values that are the same at run time: the same expression of the same loads (same variable, access chain and
+// definitions, so no store between them).
+bool Extractor::sameValue(uint32_t a, uint32_t b) const {
+  if (a == b) return true;
+  const auto ia = cg_.values.find(a), ib = cg_.values.find(b);
+  if (ia == cg_.values.end() || ib == cg_.values.end()) return false;
+  const Value &x = ia->second, &y = ib->second;
+  if (x.kind != y.kind || x.kind == Value::Kind::Call || !(x.type == y.type) || x.op != y.op || x.name != y.name ||
+      x.args.size() != y.args.size() || !sameChain(x.chain, y.chain))
+    return false;
+  if (x.kind == Value::Kind::Const)
+    return x.constant.array_data.empty() && y.constant.array_data.empty() &&
+           !std::memcmp(x.constant.as_uint, y.constant.as_uint, sizeof(x.constant.as_uint));
+  if (x.kind == Value::Kind::Load) {
+    bool kx = false, ky = false;
+    return x.base == y.base && reaching(x.base, x.seq, x.block, kx) == reaching(y.base, y.seq, y.block, ky);
+  }
+  if (x.kind == Value::Kind::Chain && !sameValue(x.base, y.base)) return false;
+  for (size_t k = 0; k < x.args.size(); ++k)
+    if (!sameValue(x.args[k], y.args[k])) return false;
+  return true;
+}
+
+// x - y * floor(x / y) (GLSL's mod, often a macro): [0, y] for y > 0, plus the float rounding of x / y and the product,
+// a few ulps of x (x = 2^31: about 512).
+Range Extractor::modRange(const Value& v) {
+  const auto value = [&](uint32_t id) { const auto it = cg_.values.find(id); return it == cg_.values.end() ? nullptr : &it->second; };
+  const Value* mul = value(v.args[1]);
+  if (!mul || mul->kind != Value::Kind::Binary || mul->op != reshadefx::tokenid::star) return Range::unknown();
+  for (int k = 0; k < 2; ++k) {
+    const Value* fl = value(mul->args[1 - k]);
+    if (!fl || fl->kind != Value::Kind::Intrinsic || fl->name != "floor" || fl->args.size() != 1) continue;
+    const Value* q = value(fl->args[0]);
+    if (!q || q->kind != Value::Kind::Binary || q->op != reshadefx::tokenid::slash || !sameValue(q->args[0], v.args[0]) ||
+        !sameValue(q->args[1], mul->args[k]))
+      continue;
+    const Range x = range(v.args[0]), y = range(mul->args[k]);
+    if (!x.known || !y.known || (y.lo <= 0 && y.hi >= 0)) return Range::unknown();
+    const double e = std::max(std::fabs(x.lo), std::fabs(x.hi)) * std::ldexp(1.0, -22);
+    return y.lo > 0 ? derived(-e, y.hi + e, {&x, &y}) : derived(y.lo - e, e, {&x, &y});
+  }
+  return Range::unknown();
+}
+
 Range Extractor::range(uint32_t id) {
   if (splitLoads_ && !splitDeps_.count(id)) {
     const auto* saved = std::exchange(splitLoads_, nullptr);
@@ -2687,7 +2740,12 @@ Range Extractor::range(uint32_t id) {
       const bool isUint = v.type.base == reshadefx::type::t_uint, isInt = isUint || v.type.base == reshadefx::type::t_int;
       switch (v.op) {
         case tokenid::plus: case tokenid::plus_equal: r = addR(a, b); break;
-        case tokenid::minus: case tokenid::minus_equal: r = subR(a, b); break;
+        case tokenid::minus: case tokenid::minus_equal: {
+          r = subR(a, b);
+          const Range m = v.op == tokenid::minus ? modRange(v) : Range::unknown();
+          if (m.known && (!r.known || m.hi - m.lo < r.hi - r.lo)) r = m;
+          break;
+        }
         case tokenid::star: case tokenid::star_equal: r = mulR(a, b); break;
         case tokenid::slash: case tokenid::slash_equal: r = isInt ? intDivR(a, b, isUint) : mulR(a, rcpR(b)); break;
         case tokenid::percent: case tokenid::percent_equal: if (isInt) r = intModR(a, b, isUint); break;
@@ -2840,11 +2898,6 @@ Range Extractor::splitRange(uint32_t id, Range r) {
     const std::vector<reshadefx::expression::operation>* chain;
     std::vector<const Statement*> reach;
     std::unordered_set<uint32_t> loads;
-  };
-  const auto sameChain = [](const auto& a, const auto& b) {
-    return std::equal(a.begin(), a.end(), b.begin(), b.end(), [](const auto& x, const auto& y) {
-      return x.op == y.op && x.index == y.index && x.to == y.to && !std::memcmp(x.swizzle, y.swizzle, 4);
-    });
   };
   std::vector<Use> uses;
   std::unordered_map<uint32_t, std::vector<uint32_t>> kids;
