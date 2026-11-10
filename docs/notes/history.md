@@ -2897,6 +2897,21 @@ Corpus 0.1 s: lerp fix alone (0.10.11 -> 0.10.12 plain) 2265 -> 2268 written, 42
 one near-cancellation point, dot(c, w) + 0.5 * hash ~ 0, fails only under gpu+ / gpu-), Sketch / PiecewiseFilmicTonemap / cMath (step or frac
 of a large argument: whether points land near a jump). Questions to the owner on both.
 
+## Jump and cancellation points, --exact-undefined default (2026-11-10, owner's answers: fixed points, jump points yes)
+0.10.13: makeRandomPoints adds boundaryPoints of two more kinds, from fixed generators (the same for every seed): Jump (floor / ceil
+/ round / trunc / frac change their integer part) and Cancel (add / sub / mad / dot cross zero; a flip across a jump of a hash is
+rejected: |v| at the boundary must be <= 1e-4 of the scan's largest; with no crossing, the input keeps its closest approach and the next
+input goes on from there). Budget::jumpPoints / cancelPoints, --no-jump-points / --no-cancel-points. --exact-undefined default
+(--no-exact-undefined). test_eval's fmod check: at a jump fxc's form is one period off C's fmod (found by the jump points at once).
+NightVision.fx:26 stays seed-dependent (268 "within budget" on 4 of 6 seeds): its failures are at iGlobalTime ~ 3.75e6 where the
+candidate's reassociated sin argument changes the hash noise itself, not a cancellation.
+Corpus 0.1 s, same build: off 2267 / 42345; jump only 2268 / 42269 (written 8 / 15, needs ranges 18 / 9: neutral; ReShade.fxh:105 13 vs 16
+is timing, the region has no jumps); both 2252 / 41983 (cancel vs jump only: written 9 (13) / 40 (246), needs ranges 22 (66) / 122 (1947)).
+Cancel losses checked: SuperDepth3D.fx:4545 / 4547 (cursor SDF, `> 0 ? 1 : 0`): without the points a constant 0 was accepted (no point
+inside the cursor): a real bug caught. dh_anime.fx:661 lerp(black, color, m) for color * m + (1 - m) * black: at color 0, m 0.99966 the
+lerp's black - m * black cancels (2e-8 abs, 1e-4 rel; the original's (1 - m) * black is exact, budget rel 1e-6 intermediate): less accurate
+by the rules, passed before only because random m rarely lands that close to 1.
+
 ## UHD 770 reports (2026-11-10, via the owner)
 UHD Graphics 770 (Xe-LP, driver 31.0.101.4502), first OpBench / StageBench / TexBench of the card: OpBench family intel-gen12, 0.71 TFLOPS
 (fp16 min16float 1.33), drift 7 / 17 / 13%, 73 s; differs: gsread4 14.0 (8.2), arraywrite 173 (8633). StageBench ps / vs 25 s each, drift 15%;
