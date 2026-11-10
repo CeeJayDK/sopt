@@ -2891,6 +2891,11 @@ points hit that point decided the result. (A likely [0, 1] from the name does no
 Two changes: the exact evaluator's lerp returns b at t = 1 (in double, a + (b - a) lost 1e-10 next to 606, so "exact" was a finite 6e15);
 --exact-undefined (Budget::exactUndefined, Options::exactUndefined): points where exact math is not finite are don't-care in verification
 and in the enumerator, like points where the original is not finite. Glitch.fx:109 with the flag: 139 on seeds 1 and 2.
+Corpus 0.1 s: lerp fix alone (0.10.11 -> 0.10.12 plain) 2265 -> 2268 written, 42298 -> 42332 saved, written 17 / 16 regions, needs ranges
+25 / 18 (noise level). --exact-undefined vs 0.10.12 plain: 2268 -> 2270, 42332 -> 42327; written 21 (74) / 16 (58), needs ranges 22 (182) /
+12 (39): the DH rgb2hsv regions 151 -> 139. Parse failures 0. Other seed wins traced: NightVision.fx:26 (268 "less accurate" with seed 1:
+one near-cancellation point, dot(c, w) + 0.5 * hash ~ 0, fails only under gpu+ / gpu-), Sketch / PiecewiseFilmicTonemap / cMath (step or frac
+of a large argument: whether points land near a jump). Questions to the owner on both.
 
 ## amd-gcn4 (2026-11-08, owner's go)
 amd-gcn5's table with sin / cos 32 (measured 16.5 = twice rcp, RX 580 and RX 590 alike; 10.6 on Vega), no HalfCosts entry (fp16 = fp32) and fuse bits only bfi / bfe (or3, and_or, add3, lshl_add, add_lshl are GFX9 and measure as separate steps). Cards: RX 4[6-9]0, 5[5-9]0, 640; GCN 1-3 (R7 / R9) use it as the nearest measured family. Steam share follows at the next steam-survey cron. fxc's imul for (x << k) + x on GCN 4 (open item 10) is not modelled yet.
