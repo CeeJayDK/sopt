@@ -2879,6 +2879,18 @@ VHS_RA.fx:111: --seeds 3 gave 224 -> 1 (`look.x`, the jitter term dropped), clas
 mod(float(FrameCount), 7.0) with `#define mod(x,y) (x-y*floor(x/y))` had range [-2^31, 2^31], where the original's own float math is noise and a
 point with small fc decided. `modRange`: x - y * floor(x / y) is [0, y] plus |x| * 2^-22 (float rounding; [-512, 519] here). Now 224 -> 209.
 Still open: a candidate can pass as "too exact" wherever part of a wide domain makes the original noisy.
+0.10.11 at 0.1 s: 2265 / 42298 (plain 0.10.11-less 2263 / 42283, noise). Plain 0.3 s (= --seeds 3 at 0.1 in total time): 2292 written / 42550
+saved vs --seeds 3 at 0.1 2277 / 42722; per region (seeds vs 0.3) written 31 better (459) / 61 worse (215), needs ranges 78 (336) / 50 (172).
+Most of the gap is time (ReShade.fxh:105 13 vs 16 and SharpContrast.fx:298 48 -> 28 found every time at 0.3 s).
+
+## --exact-undefined, and lerp exact at t = 1 (2026-11-10, owner's go)
+Glitch.fx:109 (rgb2hsv, rgb from a sampler parameter: assumed [-1000, 1000]): 151 at 20 s with the default seed, 139 with seed 1000004
+(the DH effects, rgb known [0, 1], always 139). The 139 form fails at rgb = (-45.48, -1e-10, -606.31): lerp(c, y, step(c, y)) is
+c + (y - c) = 0 in float, so s = d / (q.x + 1e-10) stays finite; real math gives y = -1e-10 and a division by zero. Whether a seed's
+points hit that point decided the result. (A likely [0, 1] from the name does not apply: regions that compare take no name guess.)
+Two changes: the exact evaluator's lerp returns b at t = 1 (in double, a + (b - a) lost 1e-10 next to 606, so "exact" was a finite 6e15);
+--exact-undefined (Budget::exactUndefined, Options::exactUndefined): points where exact math is not finite are don't-care in verification
+and in the enumerator, like points where the original is not finite. Glitch.fx:109 with the flag: 139 on seeds 1 and 2.
 
 ## amd-gcn4 (2026-11-08, owner's go)
 amd-gcn5's table with sin / cos 32 (measured 16.5 = twice rcp, RX 580 and RX 590 alike; 10.6 on Vega), no HalfCosts entry (fp16 = fp32) and fuse bits only bfi / bfe (or3, and_or, add3, lshl_add, add_lshl are GFX9 and measure as separate steps). Cards: RX 4[6-9]0, 5[5-9]0, 640; GCN 1-3 (R7 / R9) use it as the nearest measured family. Steam share follows at the next steam-survey cron. fxc's imul for (x << k) + x on GCN 4 (open item 10) is not modelled yet.

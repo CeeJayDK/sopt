@@ -138,6 +138,7 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
       exact_ = std::move(ex);
       for (size_t i = 0; i < tn_; ++i)
         if (std::isfinite(exact_[i])) fit_[i] = exact_[i];
+        else if (prog.budget.exactUndefined) targetFinite_[i] = 0;
     }
   }
 

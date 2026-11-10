@@ -32,6 +32,21 @@ TEST(accuracy_exact_values) {
   }
 }
 
+TEST(accuracy_exact_undefined) {
+  // rgb2hsv's lerp(c, y, step(c, y)) / (.. + 1e-10) at y = -1e-10 (Glitch.fx, 2026-11-10): float rounding makes
+  // the original finite (c + (y - c) = 0), exact math divides by zero. lerp must be exact at t = 1 for that.
+  Program p = parseProgram("input c : float in [-1000, 1000]\ninput y : float in [-1000, 1000]\n"
+                           "output r = 1.0 / (lerp(c, y, step(c, y)) + 1e-10)\nbudget r : rel 1e-6\n");
+  PointSet ps;
+  ps.cols.resize(2);
+  ps.add({-606.31f, -1e-10f});
+  CHECK(std::isinf(evalExactAll(p.target, ps)[0]));
+  const Expr cand = parseExpr("1.0 / (max(c, y) + 1e-10)", p.inputs);
+  CHECK(!compare(p, cand, ps, kProfileRef, 1).pass);
+  p.budget.exactUndefined = true;  // --exact-undefined: such points are don't-care
+  CHECK(compare(p, cand, ps, kProfileRef, 1).pass);
+}
+
 TEST(accuracy_rule_depth) {
   // ReShade's reversed depth linearization: the float32 original is off by up to 4e-4
   // from exact math at F = 10000. The cancellation-free rewrite (1 - t) / (1 + (F - 1) t)

@@ -75,7 +75,7 @@ double exactOp(Op op, double x, double y, double z) {
     case Op::Eq: return x == y ? 1.0 : 0.0;
     case Op::Ne: return x != y ? 1.0 : 0.0;
     case Op::Mad: return x * y + z;
-    case Op::Lerp: return x + z * (y - x);
+    case Op::Lerp: return z == 1.0 ? y : x + z * (y - x);  // exact at t = 1 too (lerp(a, b, step(..)) selects b)
     case Op::Clamp: return std::min(std::max(x, y), z);
     case Op::Select: return x != 0.0 ? y : z;
     case Op::Smoothstep: {  // smoothstep(a = x, b = y, t = z)

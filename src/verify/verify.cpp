@@ -172,6 +172,7 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
       for (unsigned comp = 0; comp < w; ++comp) {
         const float t = tv[comp][i], c = cv[comp][i];
         if (!std::isfinite(t)) continue;
+        if (rule && prog.budget.exactUndefined && !std::isfinite(xv[comp][i])) continue;
         {
           uint32_t bits = std::bit_cast<uint32_t>(c == 0.0f ? 0.0f : c);
           if (std::isnan(c)) bits = 0x7fc00000u;

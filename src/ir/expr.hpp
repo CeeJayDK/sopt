@@ -62,6 +62,8 @@ struct Budget {
   // it is at least as close to the exact (real-number) value, or within the budget of
   // it (see pointAccurate). Never for Exact budgets.
   bool vsExact = true;
+  // With vsExact: points where the exact value is not finite are don't-care (Options::exactUndefined).
+  bool exactUndefined = false;
   // Less accurate variants (owner: listed with their accuracy, the user decides): a
   // factor > 1 also accepts candidates within `loose` times the budget (color budgets:
   // one more code) and `loose` times the original's own error. 0 = off.

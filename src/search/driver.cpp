@@ -182,10 +182,12 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     }
     return res;
   }
-  if ((!opt.exactRule && progIn.budget.vsExact) || progIn.budget.loose != opt.loose) {
+  if ((!opt.exactRule && progIn.budget.vsExact) || progIn.budget.loose != opt.loose ||
+      progIn.budget.exactUndefined != opt.exactUndefined) {
     Program p = progIn;
     p.budget.vsExact = p.budget.vsExact && opt.exactRule;
     p.budget.loose = opt.loose;
+    p.budget.exactUndefined = opt.exactUndefined;
     return optimize(p, opt);
   }
   if ((accuracyRule(progIn.budget) || progIn.budget.scaledRel()) && !followsExact(progIn, opt.seed, opt.noiseShare)) {
