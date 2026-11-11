@@ -18,6 +18,8 @@
 
 #include "effect_parser.hpp"
 #include "effect_preprocessor.hpp"
+#include "verify/points.hpp"
+#include "verify/verify.hpp"
 
 namespace sopt::fx {
 
@@ -1225,6 +1227,10 @@ class Extractor {
     bool uintLeaf = false;       // ... or read as an integer (intOps_): a Type::Uint input
   };
   Leaf& fetchLeaf(uint32_t id);
+  bool outFetch(uint32_t id) const {  // output math: any texture fetch is an input
+    const auto v = cg_.values.find(id);
+    return outValue_ && v != cg_.values.end() && v->second.kind == Value::Kind::Intrinsic && isTexFetch(v->second.name);
+  }
 
   // Pass 1 / 2 over the value tree.
   void collect(uint32_t id);
@@ -1402,9 +1408,13 @@ class Extractor {
   class CallScope {
    public:
     CallScope(Extractor& x, const Value& call);
+    // A pixel shader's own body (output budgets): its parameters stay inputs where no store reaches; ret is its
+    // return value, or the value its SV_Target / COLOR out parameter holds at the end.
+    CallScope(Extractor& x, const Function& entry);
     ~CallScope();
     uint32_t ret = 0;  // the callee's return value
    private:
+    void init(const Function* f, const std::vector<uint32_t>* args);  // args null: entry
     struct Saved {
       uint32_t key;
       std::optional<uint32_t> old;
@@ -1421,6 +1431,33 @@ class Extractor {
   void mapCalls(const Statement& s, const std::string& text);
   std::unordered_map<uint32_t, std::string> callText_;
   std::unordered_set<uint32_t> callLeaf_;  // calls read as inputs
+  // Budgets from the output (owner, 2026-10-27): while outValue_ is set, buildRegion builds a pixel shader's output
+  // with that value (a region's result) as the input "__r__" and no size limits; outSeen_ counts where it is reached.
+  uint32_t outValue_ = 0;
+  int outSeen_ = 0;
+  bool outInner_ = false;  // building the value itself (its perturbation is added around it)
+  Leaf& outLeaf();
+  bool dependsOnOut(uint32_t id, int depth = 0) const;
+  bool outputBudget(const Function& f, const Statement& s, const Region& reg, Budget& b, std::string& reason);
+  bool loopFree(const Function& ps, uint32_t value, const std::set<const Function*>& reaching);
+  struct OutDown {  // the output math of one value, per pixel shader it reaches (outDownstream)
+    struct Out {
+      Program prog;
+      size_t ri = 0;  // the value's input
+      int bits = 8;   // target: 8 / 10 bits, 16 = 16F
+    };
+    bool done = false;
+    std::string fail;
+    std::vector<Out> outs;
+  };
+  std::string outDownstream(const Function& f, const Statement& s, OutDown& D);
+  std::unordered_map<uint32_t, OutDown> outDown_;
+  size_t outWork_ = 0;                          // collect() steps of the current output build (limit: too large)
+  std::unordered_set<const Function*> outTooBig_;
+  std::map<std::tuple<uint32_t, double, double>, std::pair<bool, Budget>> outBudgets_;
+  std::map<std::tuple<uint32_t, double, double>, std::string> outReasons_;
+  std::vector<std::vector<uint32_t>> loopValues_;          // per loop of cg_.loops: the values inside it
+  std::vector<std::pair<uint32_t, uint32_t>> calls_;       // (seq, id) of every call, by seq
   bool pureCall(const std::string& uniqueName, int depth = 0) const;
   std::unordered_set<std::string> callBusy_;  // range(): helpers being followed
 };
@@ -1567,9 +1604,43 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
 }
 
 // A texture fetch of the root statement as an input, named by its call text.
+Extractor::Leaf& Extractor::outLeaf() {
+  for (auto& l : leaves_)
+    if (l.fetch && l.prefix == "__r__") return l;
+  Leaf l;
+  l.prefix = "__r__";
+  l.type = cg_.values.at(outValue_).type;
+  if (!isFloatType(l.type)) throw Unsupported("output: not a float value");
+  l.loadValue = outValue_;
+  l.fetch = true;
+  l.mask = (1u << l.type.rows) - 1;
+  leaves_.push_back(l);
+  return leaves_.back();
+}
+
+// Whether value id is computed from outValue_ (through inlined temporaries too).
+bool Extractor::dependsOnOut(uint32_t id, int depth) const {
+  if (id == outValue_) return true;
+  const auto it = cg_.values.find(id);
+  if (it == cg_.values.end() || depth > 64) return false;
+  const Value& v = it->second;
+  if (v.kind == Value::Kind::Load) {
+    if (const auto il = inlineLoad_.find(id); il != inlineLoad_.end()) return dependsOnOut(il->second, depth + 1);
+    if (const auto in = inline_.find(v.base); in != inline_.end()) return dependsOnOut(in->second, depth + 1);
+  }
+  if (v.kind == Value::Kind::Chain && dependsOnOut(v.base, depth + 1)) return true;
+  for (uint32_t a : v.args)
+    if (dependsOnOut(a, depth + 1)) return true;
+  return false;
+}
+
 Extractor::Leaf& Extractor::fetchLeaf(uint32_t id) {
+  // The output math (outputBudget) reads texture fetches of other statements: no source text, a name of their own.
+  if (outValue_ && !fetchText_.count(id)) fetchText_[id] = "__fetch" + std::to_string(id) + "__";
   const auto it = fetchText_.find(id);
   if (it == fetchText_.end()) throw Unsupported("texture fetch");
+  // A texture read at coordinates computed from the region's result: the output math cannot follow it.
+  if (outValue_ && dependsOnOut(id)) throw Unsupported("output: texture read from the value");
   const Value& v = cg_.values.at(id);
   if (!isFloatType(v.type)) throw Unsupported("non-float texture fetch");
   for (auto& l : leaves_)
@@ -1616,7 +1687,12 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
     const auto pv = x.cg_.variables.find(f->params[k]);
     if (pv == x.cg_.variables.end() || pv->second.type.has(reshadefx::type::q_out))
       throw Unsupported("function call: out parameter");
-    if (pv->second.type.is_object()) throw Unsupported("function call: texture or sampler argument");
+    if (pv->second.type.is_object()) {
+      // The output math reads every texture fetch as an input: a sampler parameter needs no value there.
+      if (!x.outValue_) throw Unsupported("function call: texture or sampler argument");
+      args.push_back(0);
+      continue;
+    }
     const Statement* st = nullptr;
     if (const auto d = x.defs_.find(call.args[k]); d != x.defs_.end())
       for (const Statement* s : d->second)
@@ -1624,22 +1700,67 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
     if (!st || !st->chain.empty()) throw Unsupported("function call: arguments");
     args.push_back(st->value);
   }
+  init(f, &args);
+}
+
+Extractor::CallScope::CallScope(Extractor& x, const Function& entry) : x_(x) { init(&entry, nullptr); }
+
+void Extractor::CallScope::init(const Function* f, const std::vector<uint32_t>* argsIn) {
+  Extractor& x = x_;
+  const bool isEntry = !argsIn;
+  const std::vector<uint32_t> args = isEntry ? std::vector<uint32_t>(f->params.size(), 0u) : *argsIn;
+  uint32_t target = 0;  // entry: the SV_Target / COLOR out parameter
+  if (isEntry)
+    for (const uint32_t p : f->params) {
+      const Variable& pv = x.cg_.variables.at(p);
+      if (!pv.type.has(reshadefx::type::q_out)) continue;
+      std::string sem = pv.semantic;
+      for (char& ch : sem) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+      if (sem != "SV_TARGET" && sem != "SV_TARGET0" && sem != "COLOR" && sem != "COLOR0")
+        throw Unsupported("output: another out parameter");
+      if (target) throw Unsupported("output: several targets");
+      target = p;
+    }
+  // Entry parameters read where no store reaches stay loads (inputs); a store under a condition or into some
+  // components would need their value at the start, which is not a value here.
+  auto entryIn = [&](uint32_t var) {
+    return isEntry && std::find(f->params.begin(), f->params.end(), var) != f->params.end() && var != target;
+  };
   // Stores to its locals and parameters (whole, or components: c.rgb = ...) and returns, also under ifs (2026-10-26),
   // not in loops or switches: each read is what the stores before it on its path leave, a select where an if decides.
   using O = reshadefx::expression::operation;
   auto condsOf = [&](uint32_t block) -> const std::vector<uint32_t>& {
     const auto c = x.cg_.blockConds.find(block);
     if (c == x.cg_.blockConds.end() || std::find(c->second.begin(), c->second.end(), 0u) != c->second.end())
-      throw Unsupported("function call: switch");
+    {
+      throw Unsupported(isEntry ? "output: switch or loop block" : "function call: switch"); }
     return c->second;
   };
   std::unordered_set<uint32_t> vars(f->params.begin(), f->params.end());
   std::unordered_map<uint32_t, std::vector<const Statement*>> stores;  // var -> stores in order
   std::vector<const Statement*> returns;
-  for (const Statement& s : f->stmts) {
-    condsOf(s.block);
+  auto inLoop = [&](uint32_t seq) {
     for (const auto& [lo, hi] : x.cg_.loops)
-      if (lo <= s.seq && s.seq <= hi) throw Unsupported("function call: loop");
+      if (lo <= seq && seq <= hi) return true;
+    return false;
+  };
+  // Entry: a switch case (a block of unknown conditions) is not followed either, as a loop.
+  auto unknownBlock = [&](uint32_t block) {
+    const auto c = x.cg_.blockConds.find(block);
+    return c == x.cg_.blockConds.end() || std::find(c->second.begin(), c->second.end(), 0u) != c->second.end();
+  };
+  // Entry: a variable stored in a loop is not followed; its reads stay loads (inputs with the loop's range).
+  // outputBudget makes sure nothing in a loop depends on the value.
+  std::unordered_set<uint32_t> opaque;
+  for (const Statement& s : f->stmts) {
+    if (isEntry && (inLoop(s.seq) || unknownBlock(s.block))) {
+      if (s.kind != Statement::Kind::Init && s.kind != Statement::Kind::Store)
+        throw Unsupported("output: return or write in a loop");
+      opaque.insert(s.var);
+      continue;
+    }
+    condsOf(s.block);
+    if (inLoop(s.seq)) throw Unsupported("function call: loop");
     if (s.kind == Statement::Kind::Return) {
       returns.push_back(&s);
     } else if (s.kind == Statement::Kind::Write) {
@@ -1657,46 +1778,78 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
       stores[s.var].push_back(&s);
     }
   }
-  if (returns.empty()) throw Unsupported("function call: no return value");
+  if (opaque.count(target)) throw Unsupported("output: target written in a loop");
+  for (const uint32_t p : f->params)
+    if (x.cg_.variables.at(p).type.is_object()) vars.erase(p);  // read only by fetches: inputs
+  for (const uint32_t v : opaque) {
+    stores.erase(v);
+    vars.erase(v);
+  }
+  if (returns.empty() && !target) throw Unsupported("function call: no return value");
+  if (!returns.empty() && target) throw Unsupported("output: a return and an out parameter");
   // The value a read sees: fold the stores before it; one on the other side of an if the read is in does not reach
   // it, one under conditions the read is not under is a select.
+  // Reads that see the same stores under the same conditions share one result (a big pixel shader read its color
+  // hundreds of times: a copy of the whole select chain each, 2026-11-11).
+  std::map<std::tuple<uint32_t, uint32_t, size_t, std::vector<uint32_t>>, uint32_t> memo;
   auto valueAt = [&](uint32_t var, const Value& load, uint32_t entry) -> uint32_t {
     const std::vector<uint32_t>& lc = condsOf(load.block);
     uint32_t v = entry;
     const auto st = stores.find(var);
     if (st == stores.end()) return v;
-    for (const Statement* d : st->second) {
-      if (d->seq >= load.seq) break;
+    size_t before = 0;
+    while (before < st->second.size() && st->second[before]->seq < load.seq) ++before;
+    size_t start = 0;
+    for (size_t j = before; j > 0; --j)
+      if (const auto m = memo.find(std::make_tuple(var, entry, j, lc)); m != memo.end()) {
+        v = m->second;
+        start = j;
+        break;
+      }
+    for (size_t i = start; i < before; ++i) {
+      const Statement* d = st->second[i];
       const std::vector<uint32_t>& dc = condsOf(d->block);
       size_t k = 0;
       while (k < dc.size() && k < lc.size() && dc[k] == lc[k]) ++k;
-      if (k < dc.size() && k < lc.size() && (dc[k] & ~kCondFalse) == (lc[k] & ~kCondFalse)) continue;
-      uint32_t nv = d->value;
-      if (!d->chain.empty()) {
-        if (!v) throw Unsupported("function call: reads an unset variable");
-        Synth m;
-        m.kind = Synth::Kind::Merge;
-        m.a = d->value;
-        m.b = v;
-        m.chain = d->chain;
-        m.rows = x.cg_.variables.at(var).type.rows;
-        nv = x.addSynth(std::move(m));
+      if (!(k < dc.size() && k < lc.size() && (dc[k] & ~kCondFalse) == (lc[k] & ~kCondFalse))) {
+        uint32_t nv = d->value;
+        if (!v && entryIn(var) && (!d->chain.empty() || k < dc.size()))
+          throw Unsupported("output: a parameter changed in part or under a condition");
+        if (!d->chain.empty()) {
+          if (!v) throw Unsupported("function call: reads an unset variable");
+          Synth m;
+          m.kind = Synth::Kind::Merge;
+          m.a = d->value;
+          m.b = v;
+          m.chain = d->chain;
+          m.rows = x.cg_.variables.at(var).type.rows;
+          nv = x.addSynth(std::move(m));
+        }
+        if (k == dc.size() || !v) {
+          v = nv;  // on every path to the read (or the first value: an unset variable is read only where it was set)
+        } else {
+          Synth s;
+          s.conds.assign(dc.begin() + static_cast<std::ptrdiff_t>(k), dc.end());
+          s.a = nv;
+          s.b = v;
+          v = x.addSynth(std::move(s));
+        }
       }
-      if (k == dc.size() || !v) {
-        v = nv;  // on every path to the read (or the first value: an unset variable is read only where it was set)
-      } else {
-        Synth s;
-        s.conds.assign(dc.begin() + static_cast<std::ptrdiff_t>(k), dc.end());
-        s.a = nv;
-        s.b = v;
-        v = x.addSynth(std::move(s));
-      }
+      memo[std::make_tuple(var, entry, i + 1, lc)] = v;
     }
     return v;
   };
+  if (target) {  // the out parameter at the end of the function
+    Value end;
+    end.seq = UINT32_MAX;
+    end.block = f->stmts.empty() ? 0 : f->stmts.front().block;
+    if (f->stmts.empty() || !condsOf(end.block).empty()) throw Unsupported("output: no entry block");
+    ret = valueAt(target, end, 0);
+    if (!ret) throw Unsupported("output: target not written");
+  }
   // An earlier return wins where its conditions hold.
-  ret = returns.back()->value;
-  for (size_t i = returns.size() - 1; i-- > 0;) {
+  if (!returns.empty()) ret = returns.back()->value;
+  for (size_t i = returns.empty() ? 0 : returns.size() - 1; i-- > 0;) {
     const std::vector<uint32_t>& rc = condsOf(returns[i]->block);
     if (rc.empty()) {
       ret = returns[i]->value;
@@ -1723,12 +1876,17 @@ Extractor::CallScope::CallScope(Extractor& x, const Value& call) : x_(x) {
     const auto pk = std::find(f->params.begin(), f->params.end(), var);
     const uint32_t entry = pk == f->params.end() ? 0 : args[static_cast<size_t>(pk - f->params.begin())];
     for (const uint32_t id : lv->second) {
+      if (isEntry && (inLoop(x.cg_.values.at(id).seq) || unknownBlock(x.cg_.values.at(id).block)))
+        continue;  // read in a loop or case: not on the output's path
       const uint32_t v = valueAt(var, x.cg_.values.at(id), entry);
+      if (!v && entryIn(var)) continue;  // the parameter itself: an input
       if (!v) throw Unsupported("function call: reads an unset variable");
       loads.emplace_back(id, v);
     }
   }
-  for (size_t k = 0; k < f->params.size(); ++k) bind(x_.inline_, saved_, f->params[k], args[k]);
+  if (!isEntry)
+    for (size_t k = 0; k < f->params.size(); ++k)
+      if (args[k]) bind(x_.inline_, saved_, f->params[k], args[k]);
   for (const auto& [load, value] : loads) bind(x_.inlineLoad_, savedLoads_, load, value);
 }
 
@@ -1994,7 +2152,17 @@ void Extractor::collect(uint32_t id) {
   // Each value once per scope: a value read several times (a helper's parameter, a shared temporary) would otherwise
   // be walked again for every path to it, exponentially in nested helpers (CRT.fx, 2026-10-26).
   // A value is built differently on the integer ops path (uint leaves): its own memo entry there.
+  // The output math: the value itself plus the perturbation input "__r__" (outLeaf), so the value keeps its real
+  // relation to the other inputs.
+  if (outValue_ && id == outValue_ && !outInner_) {
+    if (!outSeen_++) outLeaf();
+    outInner_ = true;
+    collect(id);
+    outInner_ = false;
+    return;
+  }
   if (!collected_.insert(intOps_ ? id | 0x80000000u : id).second) return;
+  if (outValue_ && ++outWork_ > 200000) throw Unsupported("output: too large");
   if (const auto s = synth_.find(id); s != synth_.end()) {
     collectSynth(s->second);
     return;
@@ -2031,7 +2199,7 @@ void Extractor::collect(uint32_t id) {
       return;
     }
     case K::Chain:
-      if (fetchText_.count(v.base)) {
+      if (fetchText_.count(v.base) || outFetch(v.base)) {
         Leaf& l = fetchLeaf(v.base);
         l.mask |= chainMask(v.chain, 0, l.type.rows);
         return;
@@ -2108,7 +2276,7 @@ void Extractor::collect(uint32_t id) {
       return;
     }
     case K::Intrinsic: {
-      if (fetchText_.count(id)) {
+      if (fetchText_.count(id) || outFetch(id)) {
         Leaf& l = fetchLeaf(id);
         l.mask |= (1u << l.type.rows) - 1;
         return;
@@ -2190,7 +2358,7 @@ void Extractor::collect(uint32_t id) {
         collected_ = std::move(outer);
       } catch (const Unsupported&) {
         const auto t = callText_.find(id);
-        if (t == callText_.end() || !isFloatType(v.type) || !pureCall(v.name)) throw;
+        if (t == callText_.end() || !isFloatType(v.type) || !pureCall(v.name) || (outValue_ && dependsOnOut(id))) throw;
         leaves_ = before;
         collected_ = std::move(outer);
         collected_.insert(id);
@@ -2318,6 +2486,13 @@ uint32_t Extractor::buildSynth(const Synth& s, ExprBuilder& b) {
 }
 
 uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
+  if (outValue_ && id == outValue_ && !outInner_) {  // see collect
+    outInner_ = true;
+    const uint32_t v = build(id, b);
+    outInner_ = false;
+    const Leaf& l = outLeaf();
+    return b.op(Op::Add, v, b.input(l.input, floatType(std::popcount(l.mask))));
+  }
   const uint32_t memo = intOps_ ? id | 0x80000000u : id;  // see collect
   if (auto it = built_.find(memo); it != built_.end()) return it->second;
   if (const auto s = synth_.find(id); s != synth_.end()) {
@@ -2358,7 +2533,7 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       break;
     }
     case K::Chain:
-      if (fetchText_.count(v.base)) {
+      if (fetchText_.count(v.base) || outFetch(v.base)) {
         const Leaf& l = fetchLeaf(v.base);
         r = applyVectorChain(b.input(l.input, floatType(std::popcount(l.mask))), v.chain, 0, b, &l);
       } else if (intCast(v) && intScalar(v)) {
@@ -2452,7 +2627,7 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       break;
     }
     case K::Intrinsic: {
-      if (fetchText_.count(id)) {
+      if (fetchText_.count(id) || outFetch(id)) {
         const Leaf& l = fetchLeaf(id);
         r = b.input(l.input, floatType(std::popcount(l.mask)));
         break;
@@ -3449,6 +3624,262 @@ void Extractor::useKinds(uint32_t id, bool& cmp, bool& coord, bool& other, int d
     }
 }
 
+// Budgets from the output (owner, 2026-10-27, stage 1): the largest error at s's value that keeps the output of the one
+// pixel shader it reaches within a quarter of the target format's step, at every sample point of the output math. The
+// value and the output's other inputs are sampled independently over their ranges (every combination, so no less safe
+// than the real ones). Straight-line code only: the pixel shader's temporaries declared once in its body, helpers
+// inlined where the extractor sees through them; the value reached once (a helper called twice is not followed).
+static void obStat(const std::string& k) {  // shortcut: dev counter for output budgets (SOPT_OBSTAT), remove when done
+  static std::map<std::string, int> m;
+  static bool at = (std::atexit([] { for (auto& [a, n] : m) std::fprintf(stderr, "OBSTAT %6d %s\n", n, a.c_str()); }), true);
+  (void)at;
+  if (std::getenv("SOPT_OBSTAT")) ++m[k];
+}
+
+// Whether nothing in a loop of pixel shader ps depends on value (directly, through variables stored from it, calls of
+// the functions in reaching, which compute it, or out arguments of calls that depend on it): CallScope's entry mode
+// does not follow variables stored in loops, so a value reaching the output through a loop would be missed.
+// Conservative: order and conditions are ignored.
+bool Extractor::loopFree(const Function& ps, uint32_t value, const std::set<const Function*>& reaching) {
+  if (ps.stmts.empty()) return true;
+  const uint32_t first = ps.stmts.front().seq, last = ps.stmts.back().seq;
+  if (loopValues_.empty()) {
+    loopValues_.resize(cg_.loops.size() + 1);  // the last: values in blocks of unknown conditions (switch cases)
+    for (const auto& [id, v] : cg_.values) {
+      if (const auto c = cg_.blockConds.find(v.block);
+          c == cg_.blockConds.end() || std::find(c->second.begin(), c->second.end(), 0u) != c->second.end())
+        loopValues_.back().push_back(id);
+      for (size_t k = 0; k < cg_.loops.size(); ++k)
+        if (cg_.loops[k].first <= v.seq && v.seq <= cg_.loops[k].second) loopValues_[k].push_back(id);
+      if (v.kind == Value::Kind::Call) calls_.emplace_back(v.seq, id);
+    }
+    std::sort(calls_.begin(), calls_.end());
+  }
+  std::unordered_set<uint32_t> vars;
+  std::unordered_map<uint32_t, bool> memo;
+  std::function<bool(uint32_t, int)> dep = [&](uint32_t id, int depth) -> bool {
+    if (id == value || depth > 200) return true;
+    if (const auto m = memo.find(id); m != memo.end()) return m->second;
+    memo[id] = false;  // a cycle (phi) adds nothing
+    bool r = false;
+    if (const auto it = cg_.values.find(id); it != cg_.values.end()) {
+      const Value& v = it->second;
+      if (v.kind == Value::Kind::Load) r = vars.count(v.base) > 0;
+      if (v.kind == Value::Kind::Chain) r = dep(v.base, depth + 1);
+      if (v.kind == Value::Kind::Call) {
+        const Function* g = cg_.function(v);
+        r = !g || reaching.count(g) > 0;
+        for (uint32_t a : v.args) r = r || vars.count(a) > 0;  // arguments are temporary variables
+      } else {
+        for (uint32_t a : v.args) r = r || dep(a, depth + 1);
+      }
+      for (const auto& op : v.chain)
+        if (op.op == reshadefx::expression::operation::op_dynamic_index) r = r || dep(op.index, depth + 1);
+    }
+    memo[id] = r;
+    return r;
+  };
+  const auto c0 = std::lower_bound(calls_.begin(), calls_.end(), std::make_pair(first, 0u));
+  for (bool changed = true; changed;) {
+    changed = false;
+    memo.clear();
+    for (const Statement& t : ps.stmts)
+      if ((t.kind == Statement::Kind::Init || t.kind == Statement::Kind::Store) && !vars.count(t.var) && dep(t.value, 0))
+        changed = vars.insert(t.var).second || changed;
+    for (auto c = c0; c != calls_.end() && c->first <= last; ++c)  // out arguments of a call that depends on it
+      if (dep(c->second, 0))
+        for (uint32_t a : cg_.values.at(c->second).args) changed = vars.insert(a).second || changed;
+  }
+  for (size_t k = 0; k < cg_.loops.size(); ++k) {
+    if (cg_.loops[k].second < first || cg_.loops[k].first > last) continue;
+    for (const uint32_t id : loopValues_[k])
+      if (dep(id, 0)) return false;
+  }
+  for (const uint32_t id : loopValues_.back())
+    if (const uint32_t q = cg_.values.at(id).seq; first <= q && q <= last && dep(id, 0)) return false;
+  return true;
+}
+
+bool Extractor::outputBudget(const Function& f, const Statement& s, const Region& reg, Budget& b, std::string& reason) {
+  // The value's range: the region's own values.
+  const PointSet rp = makeRandomPoints(reg.prog, 4096, 5, true);
+  double lo = INFINITY, hi = -INFINITY;
+  for (const float v : evalAll(reg.prog.target, rp, kProfileRef))
+    if (std::isfinite(v)) {
+      lo = std::min(lo, double(v));
+      hi = std::max(hi, double(v));
+    }
+  if (!(lo <= hi)) return false;
+  const auto key = std::make_tuple(s.value, lo, hi);
+  if (const auto c = outBudgets_.find(key); c != outBudgets_.end()) {
+    if (!c->second.first) return false;
+    b = c->second.second;
+    reason = outReasons_[key];
+    return true;
+  }
+  outBudgets_[key] = {false, Budget()};
+  OutDown& D = outDown_[s.value];
+  if (!D.done) {
+    D.done = true;
+    D.fail = outDownstream(f, s, D);
+    obStat(D.fail.empty() ? "OK (built)" : D.fail);
+  }
+  if (!D.fail.empty()) return false;
+  const double scale = std::max({std::fabs(lo), std::fabs(hi), 1e-6});
+  double eMin = INFINITY;
+  int bitsMin = 0;
+  for (OutDown::Out& o : D.outs) {
+    Program& d = o.prog;
+    d.inputs[o.ri].lo = d.inputs[o.ri].hi = 0.0;  // the perturbation: 0 here, moved by +-e below
+    const PointSet ps0 = makeRandomPoints(d, 4096, 7, true);
+    const std::vector<float> base = evalAll(d.target, ps0, kProfileRef);
+    const uint32_t slot = ps0.slotOf(static_cast<uint32_t>(o.ri));
+    const unsigned rw = width(d.inputs[o.ri].type);
+    const int bits = o.bits;
+    auto clampOut = [&](double y) { return bits <= 10 ? std::clamp(y, 0.0, 1.0) : y; };  // unorm targets clamp
+    auto tol = [&](double y) { return outputTolerance(bits, y); };
+    // Every component moved by +e, -e, and alternately: the output stays within tol everywhere.
+    auto fits = [&](double e) {
+      for (int pattern = 0; pattern < 3; ++pattern) {
+        PointSet q = ps0;
+        for (unsigned c = 0; c < rw; ++c) {
+          const double sgn = pattern == 0 ? 1.0 : pattern == 1 ? -1.0 : (c & 1 ? -1.0 : 1.0);
+          for (float& x : q.cols[slot + c]) x = static_cast<float>(x + sgn * e);
+        }
+        const std::vector<float> out = evalAll(d.target, q, kProfileRef);
+        for (size_t k = 0; k < out.size(); ++k)
+          if (std::isfinite(base[k]) &&
+              (!std::isfinite(out[k]) || std::fabs(clampOut(out[k]) - clampOut(base[k])) > tol(base[k])))
+            return false;
+      }
+      return true;
+    };
+    // The largest e = scale * 2^-k (k in 0..40) that fits, by bisection on k.
+    int kLo = 0, kHi = 41;  // fits(kHi) is taken as true (e tiny), kLo is tested
+    if (fits(scale)) {
+      kHi = 0;
+    } else {
+      while (kHi - kLo > 1) {
+        const int m = (kLo + kHi) / 2;
+        (fits(std::ldexp(scale, -m)) ? kHi : kLo) = m;
+      }
+    }
+    const double e = kHi > 40 ? 0.0 : std::ldexp(scale, -kHi);
+    if (e < eMin) eMin = e, bitsMin = bits;
+  }
+  if (eMin <= 1e-6 * scale) { obStat("not looser"); return false; }  // no looser than the region's own budget
+  b = Budget();
+  b.kind = Budget::Kind::Abs;
+  b.eps = eMin;
+  b.vsExact = false;  // strict: the bound holds at every point, closer to exact math or not
+  char buf[112];
+  std::snprintf(buf, sizeof(buf), "from the output (%s target%s): within %.3g here",
+                bitsMin == 8 ? "8-bit" : bitsMin == 10 ? "10-bit" : "16F", D.outs.size() > 1 ? ", tightest shader" : "",
+                eMin);
+  reason = buf;
+  outBudgets_[key] = {true, b};
+  outReasons_[key] = reason;
+  obStat("OK");
+  return true;
+}
+
+// The output math of every pixel shader value s reaches (f: its function), with the value as the input "__r__":
+// empty, or why not.
+std::string Extractor::outDownstream(const Function& f, const Statement& s, OutDown& D) {
+  // The entry points f is reached from (itself or its callers, through the call graph): all pixel shaders.
+  std::map<std::string, std::vector<const Function*>> callers;
+  for (const auto& F : cg_.functions)
+    for (const auto& c : F->calls) callers[c].push_back(F.get());
+  std::set<const Function*> seen;
+  std::vector<const Function*> todo{&f}, entries;
+  while (!todo.empty()) {
+    const Function* g = todo.back();
+    todo.pop_back();
+    if (!seen.insert(g).second) continue;
+    if (g->type != reshadefx::shader_type::unknown) {
+      entries.push_back(g);
+      continue;
+    }
+    for (const Function* c : callers[g->uniqueName]) todo.push_back(c);
+  }
+  if (entries.empty()) return "entry: none";
+  for (const Function* psp : entries) {
+    const Function& ps = *psp;
+    if (ps.type != reshadefx::shader_type::pixel) return "entry: not a pixel shader";
+    if (ps.returnType.is_struct()) return "entry: struct output";
+    // Every pass drawing with it writes one kind of target, without blending or sRGB: 8 / 10 bits or 16F.
+    int bits = 0;
+    for (const auto& t : cg_.mod().techniques)
+      for (const auto& p : t.passes) {
+        if (p.ps_entry_point != ps.uniqueName) continue;
+        if (p.blend_enable[0] || p.srgb_write_enable) return "blending or sRGB";
+        int k = 8;  // the back buffer, assumed 8-bit SDR (as budgetFor)
+        if (!p.render_target_names[0].empty()) {
+          k = 0;
+          using F = reshadefx::texture_format;
+          for (const auto& tex : cg_.mod().textures)
+            if (tex.unique_name == p.render_target_names[0] || tex.name == p.render_target_names[0])
+              k = tex.format == F::rgba8 || tex.format == F::r8 || tex.format == F::rg8 ? 8
+                  : tex.format == F::rgb10a2                                         ? 10
+                  : tex.format == F::rgba16f || tex.format == F::r16f || tex.format == F::rg16f ? 16 : 0;
+        }
+        if (!k || (bits && bits != k)) return "target format";
+        bits = k;
+      }
+    if (!bits) return "no pass";
+    if (outTooBig_.count(&ps)) return "output: too large";
+    if (!loopFree(ps, s.value, seen)) return "value used in a loop";
+    // The output math: the pixel shader run symbolically (CallScope's entry mode), the value as the input "__r__".
+    auto savedInline = inline_;
+    auto savedLoads = inlineLoad_;
+    auto savedWindow = window_;
+    inline_.clear();
+    inlineLoad_.clear();
+    window_.clear();
+    outValue_ = s.value;
+    outSeen_ = 0;
+    outWork_ = 0;
+    Region out;
+    out.function = ps.name;
+    out.hlsl = fx_.hlsl;
+    out.glsl = fx_.glsl;
+    std::string why;
+    bool ok = false;
+    const uint32_t synth0 = nextSynth_;  // the run's synthetic values are dropped after the build
+    try {
+      const CallScope scope(*this, ps);
+      Statement root;
+      root.kind = Statement::Kind::Return;
+      root.value = scope.ret;
+      root.loc = ps.loc;
+      ok = buildRegion(root, out, why);
+    } catch (const Unsupported& u) {
+      why = u.what();
+    }
+    if (ok && !outSeen_) ok = false, why = "value not reached";
+    // A load of the value's variable left as an input of its own: the output math does not see the value there.
+    for (const Leaf& l : leaves_) ok = ok && (l.fetch || s.kind == Statement::Kind::Return || l.var != s.var);
+    outValue_ = 0;
+    inline_ = std::move(savedInline);
+    inlineLoad_ = std::move(savedLoads);
+    window_ = std::move(savedWindow);
+    if (why == "output: too large") outTooBig_.insert(&ps);  // the next values of this shader fail fast
+    for (uint32_t k = synth0; k < nextSynth_; ++k) synth_.erase(k);
+    nextSynth_ = synth0;
+    if (!ok) return "build: " + (why.empty() ? std::string("variable read again") : why);
+    size_t ri = out.prog.inputs.size();
+    for (size_t k = 0; k < out.prog.inputs.size(); ++k) {
+      if (out.prog.inputs[k].name == "__r__") ri = k;
+      else if (out.facts[k].assumed) return "output input without range";
+    }
+    if (ri == out.prog.inputs.size()) return "value not an input";
+    out.prog.inputs[ri].grid = 0;
+    out.prog.inputs[ri].compileTime = false;
+    D.outs.push_back({std::move(out.prog), ri, bits});
+  }
+  return {};
+}
+
 Budget Extractor::budgetFor(const Function& f, const Statement& s, std::string& reason) {
   Budget b;
   if (s.kind == Statement::Kind::Write) {
@@ -3971,7 +4402,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   }
   try {
     collect(s.value);
-    if (leaves_.size() > opt_.maxInputs) throw Unsupported("too many inputs");
+    if (leaves_.size() > opt_.maxInputs && !outValue_) throw Unsupported("too many inputs");
     uint32_t slots = 0;
     for (auto& l : leaves_) {
       l.remap.assign(4, 0);
@@ -3980,7 +4411,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
         if (l.mask & (1u << c)) l.remap[c] = k++;
       slots += k;
     }
-    if (slots > opt_.maxSlots) throw Unsupported("too many inputs");
+    if (slots > opt_.maxSlots && !outValue_) throw Unsupported("too many inputs");
     for (size_t i = 0; i < leaves_.size(); ++i) {
       Leaf& l = leaves_[i];
       l.input = static_cast<uint32_t>(i);
@@ -4102,7 +4533,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   }
   // A single helper of several instructions (smoothstep, lerp, sign, pow, ...) can get cheaper alone (owner,
   // 2026-10-26); a single instruction cannot. Its uses tell whether a region with several results could help.
-  if (ops < opt_.minOps && !(ops == 1 && compound)) {
+  if (ops < opt_.minOps && !(ops == 1 && compound) && !outValue_) {
     if (ops == 0) { why = "copy or constant"; return false; }
     const int uses = s.kind == Statement::Kind::Return ? -1 : usesOf(s);
     why = uses < 0    ? "one instruction (returned)"
@@ -4111,7 +4542,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
                       : "one instruction (value used several times)";
     return false;
   }
-  if (ops > opt_.maxOps) { why = "more than maxOps operations"; return false; }
+  if (ops > opt_.maxOps && !outValue_) { why = "more than maxOps operations"; return false; }
   if (reg.prog.inputs.empty()) { why = "constant expression"; return false; }
   bool runtime = false;
   for (const auto& d : reg.prog.inputs) runtime = runtime || !d.compileTime;
@@ -4521,6 +4952,14 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
         single.prog.budget.errorScale = false;  // the rounding is wanted, not noise
           single.budgetReason += "; precise: float math only";
         }
+        if (opt_.outputBudgets && single.prog.budget.kind == Budget::Kind::Rel && single.budgetReason.find("precise") == std::string::npos) {
+          Budget ob;
+          std::string why2;
+          if (outputBudget(f, s, single, ob, why2)) {
+            single.prog.budget = ob;
+            single.budgetReason = why2;
+          }
+        }
         if (constGuard(fx_, single, why)) out.push_back(single);
         else SKIPADD("constant: " + why);
       } else {
@@ -4598,6 +5037,14 @@ std::vector<Region> Extractor::run(SkipCount& skipped) {
             win.prog.budget.vsExact = false;
           win.prog.budget.errorScale = false;  // the rounding is wanted, not noise
             win.budgetReason += "; precise: float math only";
+          }
+          if (opt_.outputBudgets && win.prog.budget.kind == Budget::Kind::Rel && win.budgetReason.find("precise") == std::string::npos) {
+            Budget ob;
+            std::string why2;
+            if (outputBudget(f, s, win, ob, why2)) {
+              win.prog.budget = ob;
+              win.budgetReason = why2;
+            }
           }
           if (constGuard(fx_, win, why)) out.push_back(std::move(win));
           else SKIPADD("window constant: " + why);

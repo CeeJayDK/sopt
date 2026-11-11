@@ -150,8 +150,10 @@ class Codegen final : public reshadefx::codegen {
     loops.emplace_back(it == blockSeq_.end() ? 0 : it->second, seq_);
     blockConds[_current_block] = blockConds[prev_block];  // after the loop
   }
-  void emit_switch(const reshadefx::location&, id, id, id, id, const std::vector<id>&,
-                   const std::vector<id>&, unsigned int) override {}
+  void emit_switch(const reshadefx::location&, id, id selector_block, id, id, const std::vector<id>&,
+                   const std::vector<id>&, unsigned int) override {
+    blockConds[_current_block] = blockConds[selector_block];  // the merge block: no longer in a case (2026-11-11)
+  }
   void emit_pragma(const std::string&) override {}
   id set_block(id id) override;
   void enter_block(id id) override {

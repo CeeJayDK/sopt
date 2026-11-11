@@ -100,6 +100,8 @@ void usage() {
       "                    (fxstat, $SOPT_FXSTAT) to DIR, for ShaderInfo --batch DIR on a PC\n"
       "  --driver-stats F  the driver statistics ShaderInfo --batch wrote (F, with the export's\n"
       "                    manifest.txt next to it): Intel instruction counts as a measured vendor\n"
+      "  --no-output-budgets  budgets from each value's own use only, not from the pixel shader's\n"
+      "                    output (a value that ends in an 8-bit color may err as far as the color allows)\n"
       "  --no-likely       no likely ranges: inputs without facts get the default range, not the\n"
       "                    suggestion (a texture read 0..1, a color-like name ...); variants on likely\n"
       "                    ranges are written behind their switches, marked, never in easy mode\n"
@@ -573,6 +575,7 @@ int main(int argc, char** argv) {
     } else if (a == "--isa") isa = true;
     else if (a == "--assumed") allowAssumed = true;
     else if (a == "--no-likely") ropt.likelyRanges = false;
+    else if (a == "--no-output-budgets") ropt.outputBudgets = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--facts") factsFile = next();
     else if (a == "--ask") ask = true;
