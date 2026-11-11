@@ -5173,6 +5173,26 @@ std::vector<IntDivision> intDivisions(const Effect& fx, const RegionOptions& opt
   return fx.cg ? Extractor(fx, opt).intDivisions() : std::vector<IntDivision>{};
 }
 
+// StageBench ps, 84 reports (2026-11-11): ddx = ddx_coarse and ddy = ddy_coarse in speed everywhere; the _fine forms take
+// 2-3x less time on NVIDIA (Fermi to Blackwell), the same on AMD; ddx_fine the same on Intel, ddy_fine 2.5x (Gen9 / 12)
+// to 12x (Xe2) more there. Fine and coarse differ in result (one value per 2x2 quad, or per pixel row / column).
+std::vector<Hint> derivativeHints(const Effect& fx) {
+  std::vector<Hint> out;
+  std::set<std::tuple<std::string, uint32_t, std::string>> seen;
+  for (const auto& [id, v] : fx.cg->values) {
+    if (v.kind != Value::Kind::Intrinsic) continue;
+    const bool x = v.name == "ddx" || v.name == "ddx_coarse", y = v.name == "ddy" || v.name == "ddy_coarse";
+    if ((!x && !y) || v.loc.source.empty() || !seen.emplace(v.loc.source, v.loc.line, v.name).second) continue;
+    out.push_back({v.loc.source, v.loc.line,
+                   "`" + v.name + "`: " +
+                       (x ? "`ddx_fine` takes 2-3x less time on NVIDIA and is never slower on the cards measured."
+                          : "`ddy_fine` takes 2-3x less time on NVIDIA, but 2.5-12x more on Intel (Arc B the most).") +
+                       " Its result differs (per pixel, not per 2x2 block): use it where that is fine."});
+  }
+  std::sort(out.begin(), out.end(), [](const Hint& a, const Hint& b) { return std::tie(a.file, a.line, a.text) < std::tie(b.file, b.line, b.text); });
+  return out;
+}
+
 std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const RegionOptions& opt,
                                    SkipCount& skipped) {
   // --skips: how integer divisions are written (a corpus count; regions do not contain them).

@@ -174,6 +174,7 @@ struct ReportInfo {
   bool schedule = false;                  // scheduling measures (some region has them)
   const std::vector<SourceRewrite>* rewrites = nullptr;  // classical source rewrites
   bool perfFirst = false;                 // the performance mode cost is the main cost
+  std::vector<Hint> hints;                // advice on code sopt does not change (derivativeHints)
 };
 
 std::string markdownReport(const std::vector<RegionResult>& results, const ReportInfo& info);

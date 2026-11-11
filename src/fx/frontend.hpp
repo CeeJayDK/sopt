@@ -209,6 +209,15 @@ std::string groupsharedFactKey(const Effect& fx, const std::string& name);
 // The float groupshared variables of an effect (by source name).
 std::vector<std::string> groupsharedVariables(const Effect& fx);
 
+// Hints for the report (owner, 2026-11-11): code sopt cannot change itself, with measured advice for its author.
+struct Hint {
+  std::string file;
+  uint32_t line = 0;
+  std::string text;
+};
+// ddx / ddy / ddx_coarse / ddy_coarse: what their _fine forms cost (StageBench, pixel shaders).
+std::vector<Hint> derivativeHints(const Effect& fx);
+
 std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const RegionOptions& opt,
                                    SkipCount& skipped);
 

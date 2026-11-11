@@ -605,6 +605,13 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     }
     s += "\n";
   }
+  if (!info.hints.empty()) {
+    s += "## Hints\n\nCode SweetOpt does not change itself, with what the alternative costs on the cards measured "
+         "(GPU Blueprint).\n\n";
+    for (const auto& h : info.hints)
+      s += "- " + pathFrom(h.file).filename().string() + ":" + std::to_string(h.line) + " " + h.text + "\n";
+    s += "\n";
+  }
   if (!info.failed.empty()) {
     s += "## Effects that failed to parse\n\n";
     for (const auto& [f, e] : info.failed) s += "- `" + f + "`: " + escapeCell(e.substr(0, 300)) + "\n";

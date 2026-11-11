@@ -746,6 +746,7 @@ int main(int argc, char** argv) {
       }
       std::vector<fx::Region> effectRegions;  // for the vertex shader rewrites
       std::vector<fx::Region> found = fx::extractRegions(*fx, fx2.get(), ropt, info.skipped);
+      for (auto& h : fx::derivativeHints(*fx)) info.hints.push_back(std::move(h));
       // Code other values of the settings compile (owner, 2026-10-26): one parse per value an #if tests, regions on
       // lines the default parse leaves out, each under its #if (not moved to the vertex shader: hoist sees only
       // the default parse).

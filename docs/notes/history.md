@@ -2918,6 +2918,31 @@ UHD Graphics 770 (Xe-LP, driver 31.0.101.4502), first OpBench / StageBench / Tex
 ps fp16 1.86x, vs fp16 = fp32 (0.70); ps differs: ddx / ddy 6.3 (3.6), the max ops ~10 (7.4), scale2 0.8 (4.0); vs: ilp1 / ilp2 4.9 / 4.5
 (7.8 / 7.1). TexBench drift 35%, 179 s, 23.9 GTexels/s. ShaderInfo -3. Gen12 holds; expected.hpp regenerated.
 
+## Output budgets, ranges, reflect / transpose (2026-11-11, owner's go)
+Output budgets (plan in local notes; WIP branch output-budgets stage 1 ported): the pixel shader runs symbolically
+(CallScope's entry mode: parameters stay inputs, the SV_Target / COLOR out parameter at the end, several returns as
+selects; variables stored in loops or switch cases are not followed and stay inputs, loopFree checks that nothing there
+depends on the value). The value is kept with its own expression plus a perturbation input (sampling it apart from the
+other inputs, stage 1's way, made 2754 of 3446 values "not looser": combinations that never happen). Budget: the largest
+abs e (bisection on scale 2^-k) keeping the output within an eighth of a code (16F 2^-13 rel; plan step 4's share),
+tightest over every pixel shader reached, strict (vsExact off). A composed final check was built and dropped: with the
+value sampled jointly it would refuse what the derivation allows. Work limit 200000 collect steps per build (PD80
+Selective Color took > 300 s), fold memo in CallScope (reads that see the same stores share one value). The codegen now
+records the block after a switch (it counted as unknown, with everything after it). Reach, main package: 102 regions
+(was 3); listing 102 s -> 705 s. Blockers by value: used in a loop 19535, helper with switch 5810, bool / int variables
+~9000, parameter changed under a condition 4486, blending / sRGB 3948, too large 3900, not looser 2250.
+Ranges ("needs value ranges", root causes traced through calls and call-site arguments, package set 2, per attempt):
+written in a loop ~26k, texture reads ~12k (float formats), preprocessor definitions ~4.8k, division / pow ~4.5k,
+uniforms without ui range ~1.5k. Float render targets now get the union of what their writers return (+0): 1856 ->
+1846 (main), 1581 -> 1558 (set 2) unknown inputs. Tried and dropped: loop-carried variables by interval iteration
+(trip bound x stores, or until stable, 256 steps): 1558 -> 1551 at 10x the listing time; per variable most ranges are
+lost inside the body (float texture reads, divisions), not by the loop.
+reflect(i, n) as fxc writes it (mad(-(d + d), n, i)); mul(transpose(constant matrix), v) = mul(v, M) (GTU's YIQ macros).
+Derivative hints (owner): a "Hints" section in sopt-report.md for every ddx / ddy / ddx_coarse / ddy_coarse. StageBench ps,
+84 reports, medians in mad steps: plain = coarse everywhere (82 / 83 of 84 within 10%); fine vs plain: Turing 8.0 vs 23.8,
+Ampere / Blackwell 20 vs 47, Fermi 7.0 vs 14.4; AMD (GCN 5, RDNA 2, TeraScale 2) the same; Intel ddx_fine the same, ddy_fine
+10.4 vs 4.1 (Gen9), 10.2 vs 6.3 (Gen12), 49.5 vs 3.9 (Xe2). Not a variant: fine and coarse give different results.
+
 ## amd-gcn4 (2026-11-08, owner's go)
 amd-gcn5's table with sin / cos 32 (measured 16.5 = twice rcp, RX 580 and RX 590 alike; 10.6 on Vega), no HalfCosts entry (fp16 = fp32) and fuse bits only bfi / bfe (or3, and_or, add3, lshl_add, add_lshl are GFX9 and measure as separate steps). Cards: RX 4[6-9]0, 5[5-9]0, 640; GCN 1-3 (R7 / R9) use it as the nearest measured family. Steam share follows at the next steam-survey cron. fxc's imul for (x << k) + x on GCN 4 (open item 10) is not modelled yet.
 
