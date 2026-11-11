@@ -2937,6 +2937,13 @@ uniforms without ui range ~1.5k. Float render targets now get the union of what 
 1846 (main), 1581 -> 1558 (set 2) unknown inputs. Tried and dropped: loop-carried variables by interval iteration
 (trip bound x stores, or until stable, 256 steps): 1558 -> 1551 at 10x the listing time; per variable most ranges are
 lost inside the body (float texture reads, divisions), not by the loop.
+Corpus 0.1 s, output budgets on (43050247655) vs --no-output-budgets (43050257523), package 18 left out (cancelled at the
+120 min job limit with them on; now 300): written 1402 -> 1490, saved 23762 -> 26647; per region written 102 better (3547) /
+10 worse (290), needs ranges 16 (203) / 4 (17). Job time 695 -> 893 min in all.
+Integer / and % (owner's go): the U rewrite takes 14 of 37 proven lines in package set 2; the rest have a float division
+on the line (the count match fails) or macros. Matching operators by the division's column failed: a binary op's
+location is not its left operand's start (sum += i / 2: column 14). Next way, if wanted: match by order (textual order =
+emission order for divisions not nested in one another), recording float divisions too.
 reflect(i, n) as fxc writes it (mad(-(d + d), n, i)); mul(transpose(constant matrix), v) = mul(v, M) (GTU's YIQ macros).
 Derivative hints (owner): a "Hints" section in sopt-report.md for every ddx / ddy / ddx_coarse / ddy_coarse. StageBench ps,
 84 reports, medians in mad steps: plain = coarse everywhere (82 / 83 of 84 within 10%); fine vs plain: Turing 8.0 vs 23.8,
