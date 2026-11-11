@@ -1460,6 +1460,7 @@ class Extractor {
   std::vector<std::pair<uint32_t, uint32_t>> calls_;       // (seq, id) of every call, by seq
   bool pureCall(const std::string& uniqueName, int depth = 0) const;
   std::unordered_set<std::string> callBusy_;  // range(): helpers being followed
+  std::unordered_set<std::string> texBusy_;   // samplerRange(): render targets being followed
 };
 
 std::string Extractor::varText(uint32_t var, bool relative) const {
@@ -2796,6 +2797,63 @@ Range Extractor::samplerRange(uint32_t valueId) {
   if (opt_.userRanges) {
     const auto u = opt_.userRanges->find(textureFactKey(fx_, s.textureName));
     if (u != opt_.userRanges->end()) return Range::of(u->second.first, u->second.second, "user (facts file)");
+  }
+  // A ReShade render target of a float format (2026-11-11): what the pixel shaders of the passes drawing into it
+  // return, and 0 (its content before the first draw). None if a compute shader writes it, a pass blends into it or
+  // writes it as another target than the first, or the shaders read it back on the way (a feedback loop).
+  if (!fx_.hlsl && !fx_.glsl && !s.textureName.empty() && texBusy_.insert(s.textureName).second) {
+    Range r = Range::of(0, 0, "constant");
+    bool any = false, ok = true;
+    auto names = [&](const std::string& a) {  // a texture's unique or source name names this one
+      if (a == s.textureName) return true;
+      for (const auto& tex : cg_.mod().textures)
+        if ((tex.name == a || tex.unique_name == a) && (tex.name == s.textureName || tex.unique_name == s.textureName))
+          return true;
+      return false;
+    };
+    for (const auto& st : cg_.mod().storages) ok = ok && !names(st.texture_name);
+    for (const auto& t : cg_.mod().techniques)
+      for (const auto& p : t.passes)
+        for (size_t k = 0; k < 8 && ok; ++k) {
+          const std::string& rt = p.render_target_names[k];
+          if (rt.empty() || !names(rt)) continue;
+          const Function* ps = cg_.function(p.ps_entry_point);
+          if (k != 0 || p.blend_enable[k] || !ps) {
+            ok = false;
+            break;
+          }
+          Range o;
+          bool has = false;
+          for (const Statement& st : ps->stmts)
+            if (st.kind == Statement::Kind::Return) {
+              const Range x = range(st.value);
+              o = has ? unite(o, x) : x;
+              has = true;
+            }
+          for (const uint32_t pv : ps->params)  // void PS(..., out float4 c : SV_Target): every store to it
+            if (cg_.variables.at(pv).type.has(reshadefx::type::q_out))
+              for (const Statement* d : defs_[pv]) {
+                const Range x = range(d->value);
+                o = has ? unite(o, x) : x;
+                has = true;
+              }
+          if (!has || !o.known) {
+            ok = false;
+            break;
+          }
+          r = unite(r, o);
+          any = true;
+        }
+    texBusy_.erase(s.textureName);
+    // A half float holds up to 65504 and rounds to 11 bits.
+    if (ok && any && r.known && std::max(std::fabs(r.lo), std::fabs(r.hi)) < 60000.0) {
+      const double e = std::max(std::fabs(r.lo), std::fabs(r.hi)) * std::ldexp(1.0, -11);
+      Range w = Range::of(r.lo - e, r.hi + e, "what the passes drawing into it write");
+      w.assumed = r.assumed;
+      w.likely = r.likely;
+      w.likelyWhy = r.likelyWhy;
+      return w;
+    }
   }
   // Plain HLSL / GLSL: the format is not in the shader. A likely [0, 1] (most textures are color or unorm data; see
   // Fact::likely). ReShade FX declares float formats, which keep no range.
