@@ -148,6 +148,11 @@ TEST(eval_sugar_intrinsics) {
         const float d = std::fabs(r - std::fmod(x[0], x[1]));
         return d <= 1e-4f || std::fabs(d - x[1]) <= 1e-4f;
       });
+  run("input i : float3 in [-1, 1]\ninput n : float3 in [-1, 1]\noutput r = reflect(i, n).y\nbudget r : abs 1e-5\n",
+      [](const std::vector<float>& x, float r) {
+        const double d = double(x[3]) * x[0] + double(x[4]) * x[1] + double(x[5]) * x[2];
+        return std::fabs(r - (x[1] - 2.0 * d * x[4])) <= 1e-5;
+      });
   run("input v : float2 in [-1, 1]\noutput r = all(v) ? 1.0 : 0.0\nbudget r : exact\n",
       [](const std::vector<float>& x, float r) { return r == ((x[0] != 0.0f && x[1] != 0.0f) ? 1.0f : 0.0f); });
   run("input v : float2 in [-1, 1]\noutput r = any(v) ? 1.0 : 0.0\nbudget r : exact\n",

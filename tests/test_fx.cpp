@@ -1563,7 +1563,7 @@ TEST(fx_matrix_variables) {
   CHECK(e != nullptr);
   if (!e) return;
   fx::SkipCount sk;
-  bool lms = false, local = false, helper = false, rows = false, cols = false;
+  bool lms = false, local = false, helper = false, rows = false, cols = false, tr = false;
   for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
     if (!r.removed.empty()) continue;
     const std::string t = toString(r.prog.target, r.prog.inputs);
@@ -1573,8 +1573,10 @@ TEST(fx_matrix_variables) {
     // A uniform matrix (2026-10-31): its rows are inputs; mul(v, M) reads a column across them.
     rows = rows || (r.line == 17 && t.find("dot(c, Mix[1])") != std::string::npos);
     cols = cols || (r.line == 18 && t.find("dot(c, float3(Mix[0].y, Mix[1].y, Mix[2].y))") != std::string::npos);
+    // transpose(M) of constants (2026-11-11): mul(transpose(M), c) = mul(c, M), a dot per column.
+    tr = tr || (r.line == 19 && t.find("dot(c, float3(0.5, 0.1, 0.2))") != std::string::npos);
   }
-  CHECK(lms && local && helper && rows && cols);
+  CHECK(lms && local && helper && rows && cols && tr);
 }
 
 TEST(fx_soft_slider) {

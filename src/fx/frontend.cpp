@@ -2068,11 +2068,20 @@ Extractor::MatMul Extractor::matMul(const Value& v) const {
     }
     mp = &iv->second;
   }
+  // transpose(M) (2026-11-11, a #define of transpose(float3x3(...))): mul(transpose(M), v) = mul(v, M).
+  const bool vecFirst = !first;
+  bool rowsFirst = first;
+  if (mp->kind == Value::Kind::Intrinsic && mp->name == "transpose" && mp->args.size() == 1) {
+    const auto ti = cg_.values.find(mp->args[0]);
+    if (ti == cg_.values.end()) return mm;
+    mp = &ti->second;
+    rowsFirst = !rowsFirst;
+  }
   const Value& mat = *mp;
-  const Value& vec = first ? c->second : a->second;
+  const Value& vec = vecFirst ? a->second : c->second;
   const reshadefx::type& t = mat.type;
   if (!t.is_matrix() || t.base != reshadefx::type::t_float || t.rows > 4 || t.cols > 4 || !isFloatType(vec.type) ||
-      vec.type.rows != (first ? t.cols : t.rows) || v.type.rows != (first ? t.rows : t.cols))
+      vec.type.rows != (rowsFirst ? t.cols : t.rows) || v.type.rows != (rowsFirst ? t.rows : t.cols))
     return mm;
   if (mat.kind == Value::Kind::Construct) {
     if (mat.args.size() != t.rows * t.cols) return mm;
@@ -2087,7 +2096,7 @@ Extractor::MatMul Extractor::matMul(const Value& v) const {
   }
   mm.matrix = &mat;
   mm.vector = first ? v.args[1] : v.args[0];
-  mm.rowsFirst = first;
+  mm.rowsFirst = rowsFirst;
   return mm;
 }
 
