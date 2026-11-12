@@ -1175,12 +1175,17 @@ class Extractor {
     for (const auto& [id, v] : cg_.values) {
       const bool compound = v.op == tokenid::percent_equal || v.op == tokenid::slash_equal;
       const bool mod = v.op == tokenid::percent || v.op == tokenid::percent_equal;
-      if (v.kind != Value::Kind::Binary || (!mod && !compound && v.op != tokenid::slash) || !v.type.is_integral() ||
-          v.type.is_boolean())
+      if (v.kind != Value::Kind::Binary || (!mod && !compound && v.op != tokenid::slash) || v.type.is_boolean())
         continue;
       IntDivision d;
       d.file = v.loc.source;
       d.line = v.loc.line;
+      d.seq = v.seq;
+      if (!v.type.is_integral()) {
+        d.isFloat = true;
+        out.push_back(std::move(d));
+        continue;
+      }
       d.mod = mod;
       d.isSigned = v.type.is_signed();
       d.rows = v.type.is_matrix() ? 0 : v.type.rows;
@@ -5198,7 +5203,8 @@ std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const Re
   // --skips: how integer divisions are written (a corpus count; regions do not contain them).
   if (skipped.keepDetails)
     for (const IntDivision& d : intDivisions(fx, opt))
-      skipped.add(std::string("count: ") + (d.mod ? "%" : "/") + (d.isSigned ? " int" : " uint") + ", divisor " + d.divisor +
+      if (!d.isFloat)
+        skipped.add(std::string("count: ") + (d.mod ? "%" : "/") + (d.isSigned ? " int" : " uint") + ", divisor " + d.divisor +
                       ", dividend " + (d.compileTime ? "compile-time" : d.proven ? "proven" : "unknown"),
                   d.file, d.line);
   std::vector<Region> regions = Extractor(fx, opt).run(skipped);

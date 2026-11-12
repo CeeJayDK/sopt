@@ -483,6 +483,32 @@ size_t rightOperand(const std::string& s, size_t begin) {
   return q < s.size() && (isWordChar(s[q]) || s[q] == '(') ? std::string::npos : p;
 }
 
+bool divisionAsUint(std::string& line, size_t index, const IntDivision& d);
+
+// A line with float divisions too (2026-11-11: i % 3 next to i / 3.0 kept the line as it was): operators matched to
+// divisions by order. Text and emission order agree unless a division is inside another's right operand (emitted
+// before it, written after it; one in a left operand comes first both ways): every right operand readable and holding
+// no other operator. The proven signed ones done as uint. False when nothing changed.
+bool mixedAsUint(std::string& line, const std::vector<size_t>& ops, std::vector<IntDivision> divisions) {
+  std::sort(divisions.begin(), divisions.end(), [](const IntDivision& a, const IntDivision& b) { return a.seq < b.seq; });
+  for (size_t k = 0; k < ops.size(); ++k) {
+    size_t rightBegin = ops[k] + 1;
+    while (rightBegin < line.size() && isBlank(line[rightBegin])) ++rightBegin;
+    const size_t b = rightOperand(line, rightBegin);
+    if (b == std::string::npos) return false;
+    for (size_t j = k + 1; j < ops.size(); ++j)
+      if (ops[j] < b) return false;
+  }
+  size_t changed = 0;
+  for (size_t k = ops.size(); k-- > 0;) {
+    const IntDivision& d = divisions[k];
+    if (d.isFloat || !d.isSigned || !d.proven || d.compileTime || d.rows == 0) continue;
+    if (!divisionAsUint(line, k, d)) return false;
+    ++changed;
+  }
+  return changed > 0;
+}
+
 // `line` with its operator number `index` done as uint; false when an operand cannot be read.
 bool divisionAsUint(std::string& line, size_t index, const IntDivision& d) {
   std::vector<size_t> ops;
@@ -510,12 +536,13 @@ std::vector<SourceRewrite> intDivRewrites(const Effect& fx, const RegionOptions&
   for (auto& d : intDivisions(fx, opt)) byLine[{d.file, d.line}].push_back(std::move(d));
   for (const auto& [where, divisions] : byLine) {
     const auto& [file, line] = where;
+    const bool mixed = std::any_of(divisions.begin(), divisions.end(), [](const IntDivision& d) { return d.isFloat; });
     const unsigned rows = divisions[0].rows;
     // shortcut: decided in the first effect that includes a header; a header's ranges could differ per effect, none seen.
-    if (rows == 0 || !std::all_of(divisions.begin(), divisions.end(), [&](const IntDivision& d) {
+    if (!mixed && (rows == 0 || !std::all_of(divisions.begin(), divisions.end(), [&](const IntDivision& d) {
           return d.isSigned && d.proven && !d.compileTime && d.rows == rows && d.leftRows == divisions[0].leftRows &&
                  d.rightRows == divisions[0].rightRows;
-        }))
+        })))
       continue;
     const std::vector<std::string>* lines = sourceLines(file);
     if (!lines || line == 0 || line > lines->size()) continue;
@@ -527,9 +554,13 @@ std::vector<SourceRewrite> intDivRewrites(const Effect& fx, const RegionOptions&
     // Macros that expand to divisions, or float divisions on the line, make the counts differ.
     std::vector<size_t> ops;
     if (!divisionOperators(text, ops) || ops.size() != divisions.size()) continue;
-    bool ok = true;
-    for (size_t k = ops.size(); k-- > 0 && ok;) ok = divisionAsUint(text, k, divisions[0]);
-    if (!ok) continue;
+    if (!mixed) {
+      bool ok = true;
+      for (size_t k = ops.size(); k-- > 0 && ok;) ok = divisionAsUint(text, k, divisions[0]);
+      if (!ok) continue;
+    } else if (!mixedAsUint(text, ops, divisions)) {
+      continue;
+    }
     SourceRewrite rw;
     rw.file = file;
     rw.line = line;

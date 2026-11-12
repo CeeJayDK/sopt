@@ -234,6 +234,8 @@ std::vector<Region> settingRegions(const Effect& def, const Effect& cfg, const E
 struct IntDivision {
   std::string file;
   uint32_t line = 0;
+  uint32_t seq = 0;             // emission order
+  bool isFloat = false;         // a float division: only its place among the line's divisions (intDivRewrites)
   bool mod = false, isSigned = false;
   unsigned rows = 1;            // vector size; 0 = a matrix
   unsigned leftRows = 1, rightRows = 1;  // operands as written (a scalar the parser promoted to the vector's size stays 1)

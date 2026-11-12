@@ -2942,8 +2942,16 @@ Corpus 0.1 s, output budgets on (43050247655) vs --no-output-budgets (4305025752
 10 worse (290), needs ranges 16 (203) / 4 (17). Job time 695 -> 893 min in all.
 Integer / and % (owner's go): the U rewrite takes 14 of 37 proven lines in package set 2; the rest have a float division
 on the line (the count match fails) or macros. Matching operators by the division's column failed: a binary op's
-location is not its left operand's start (sum += i / 2: column 14). Next way, if wanted: match by order (textual order =
-emission order for divisions not nested in one another), recording float divisions too.
+location is not its left operand's start (sum += i / 2: column 14). Done instead (2026-11-12, owner's go): lines with
+float divisions too match operators to divisions by order (intDivisions records float ones, isFloat, and seq); text and
+emission order agree unless a division sits in another's right operand, so every right operand must be readable and
+hold no other operator. Package set 2: 14 -> 20 of 37 proven lines (Zenteon_ATA: floor(i / 3.0), int(uint(i) % 3u)).
+Still not: macros on the line (FRAME_MOD, BUFFER_SIZE, mod()), a division in a right operand (DINN's x % 3 inside
+/ (...)).
+Integer math otherwise left for now (owner, 2026-11-12), why: the other skipped integer statements (int2 / int4 math,
+results that stay integers such as PCG hashes, integer min / max; 172 in package set 2) are mostly 1-3 instructions
+with nothing cheaper; they need vector integer ops, integer region results and GLSL's strict int / uint conversions in
+the printers. Revisit if effects turn up where integer math is a real share of the cost.
 reflect(i, n) as fxc writes it (mad(-(d + d), n, i)); mul(transpose(constant matrix), v) = mul(v, M) (GTU's YIQ macros).
 Derivative hints (owner): a "Hints" section in sopt-report.md for every ddx / ddy / ddx_coarse / ddy_coarse. StageBench ps,
 84 reports, medians in mad steps: plain = coarse everywhere (82 / 83 of 84 within 10%); fine vs plain: Turing 8.0 vs 23.8,
