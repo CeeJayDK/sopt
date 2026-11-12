@@ -2943,6 +2943,11 @@ Corpus 0.1 s, output budgets on (43050247655) vs --no-output-budgets (4305025752
 After the speedups (sample points once per pixel shader, bound once per value, bisection on 1024 points), all 44
 packages: on (43143435165) vs off (43143442457): written 2293 -> 2395, saved 42431 -> 46392 (+9.3%); job time 712 ->
 750 min in all, package 18 (RSRetroArch) 41 -> 60 min.
+The losses (21 written regions, 344): time-limit noise (ReShade.fxh:105 16 at 0.1 s, 13 at 1 s in both modes; NightVision
+at 1 s the same or better with them on), seed luck (GuestCRT.fx:572 flips the other way locally), and VHSPro.fx:1607,
+where off wrote `ns` alone (cost 0, "too exact"): the film grain hash dropped. The noise guard looked at the whole sum
+only (grain <= 0.1 next to ns up to 200: error 0.05% of the range). Fix (owner's go, 2026-11-12): followsExact checks
+every part too (--no-noise-parts), a part also off by 0.1% of its own size (1.0 + x * 1e-7 is rounding, not noise).
 Integer / and % (owner's go): the U rewrite takes 14 of 37 proven lines in package set 2; the rest have a float division
 on the line (the count match fails) or macros. Matching operators by the division's column failed: a binary op's
 location is not its left operand's start (sum += i / 2: column 14). Done instead (2026-11-12, owner's go): lines with

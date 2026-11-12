@@ -34,26 +34,43 @@ bool containsPoint(const PointSet& ps, const std::vector<float>& p) {
 // noiseShare (--noise-share): over 1% of the points must be that far off. The largest error alone made one point in 4096
 // decide it: Timer % 1000 is off by a whole period only just below each multiple, so the rule's state depended on the seed
 // (2026-11-08, most of what --seeds still won).
-bool followsExact(const Program& prog, uint64_t seed, bool noiseShare) {
+// noiseParts (--no-noise-parts): every part of the expression too. A hash added to a much larger value (ns += grain * 0.1,
+// VHSPro.fx:1607) stays within 10% of the sum's range, and dropping it passed as "closer to exact" (2026-11-12). A part
+// must also be off by 0.1% of its size: 1.0 + x * 1e-7 is off by rounding only, nearly its whole (tiny) range.
+bool followsExact(const Program& prog, uint64_t seed, bool noiseShare, bool noiseParts) {
   const PointSet ps = makeRandomPoints(prog, 4096, seed + 7, false);
-  const std::vector<float> t = evalAll(prog.target, ps, kProfileRef);
-  const std::vector<double> x = evalExactAll(prog.target, ps);
-  double lo = INFINITY, hi = -INFINITY, err = 0.0;
-  for (size_t i = 0; i < t.size() && i < x.size(); ++i) {
-    if (!std::isfinite(t[i]) || !std::isfinite(x[i])) continue;
-    lo = std::min(lo, double(t[i]));
-    hi = std::max(hi, double(t[i]));
-    err = std::max(err, std::fabs(double(t[i]) - x[i]));
+  auto follows = [&](const Expr& e, bool part) {
+    const std::vector<float> t = evalAll(e, ps, kProfileRef);
+    const std::vector<double> x = evalExactAll(e, ps);
+    double lo = INFINITY, hi = -INFINITY, err = 0.0;
+    for (size_t i = 0; i < t.size() && i < x.size(); ++i) {
+      if (!std::isfinite(t[i]) || !std::isfinite(x[i])) continue;
+      lo = std::min(lo, double(t[i]));
+      hi = std::max(hi, double(t[i]));
+      err = std::max(err, std::fabs(double(t[i]) - x[i]));
+    }
+    if (!(hi > lo)) return true;
+    const double off = std::max(0.1 * (hi - lo), part ? 1e-3 * std::max(std::fabs(lo), std::fabs(hi)) : 0.0);
+    if (!noiseShare) return err <= off;
+    size_t n = 0, bad = 0;
+    for (size_t i = 0; i < t.size() && i < x.size(); ++i) {
+      if (!std::isfinite(t[i]) || !std::isfinite(x[i])) continue;
+      ++n;
+      bad += std::fabs(double(t[i]) - x[i]) > off;
+    }
+    return bad * 100 <= n;
+  };
+  if (!follows(prog.target, false)) return false;
+  if (!noiseParts) return true;
+  for (uint32_t k = 0; k < prog.target.root; ++k) {
+    const Op op = prog.target.nodes[k].op;
+    if (op == Op::Const || op == Op::Input) continue;
+    Expr part;  // nodes are topologically ordered: the prefix up to k holds k's whole subtree
+    part.nodes.assign(prog.target.nodes.begin(), prog.target.nodes.begin() + k + 1);
+    part.root = k;
+    if (!follows(part, true)) return false;
   }
-  if (!(hi > lo)) return true;
-  if (!noiseShare) return err <= 0.1 * (hi - lo);
-  size_t n = 0, bad = 0;
-  for (size_t i = 0; i < t.size() && i < x.size(); ++i) {
-    if (!std::isfinite(t[i]) || !std::isfinite(x[i])) continue;
-    ++n;
-    bad += std::fabs(double(t[i]) - x[i]) > 0.1 * (hi - lo);
-  }
-  return bad * 100 <= n;
+  return true;
 }
 
 // Scheduling measures of e (Accepted / RunResult fields); prog's inputs may have their uniforms
@@ -193,7 +210,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     p.budget.cancelPoints = opt.cancelPoints;
     return optimize(p, opt);
   }
-  if ((accuracyRule(progIn.budget) || progIn.budget.scaledRel()) && !followsExact(progIn, opt.seed, opt.noiseShare)) {
+  if ((accuracyRule(progIn.budget) || progIn.budget.scaledRel()) && !followsExact(progIn, opt.seed, opt.noiseShare, opt.noiseParts)) {
     Program p = progIn;
     p.budget.vsExact = false;      // the float32 original is the only meaningful reference
     p.budget.errorScale = false;

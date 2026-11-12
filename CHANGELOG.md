@@ -8,6 +8,7 @@ docs/notes/history.md.
 ## 0.10.13
 
 ### SweetOpt
+- **Fixed:** a faster version could leave out a small noise or film grain effect that is added on top of a bigger value. SweetOpt now spots noise inside a calculation, not only when the whole calculation is noise.
 - **Faster whole-number division:** where a shader divides whole numbers that can never be negative, SweetOpt now offers a cheaper version with exactly the same result.
 - **Looks harder at small pieces of math:** SweetOpt now also tries the parts of a calculation when it has time left, and finds cheaper versions it used to miss.
 - **Radeon RX 400 and RX 500:** these cards now have their own measurements, so SweetOpt no longer treats them like newer Vega cards when it picks the fastest version.

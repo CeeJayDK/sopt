@@ -294,3 +294,14 @@ TEST(noise_share_ignores_rare_jumps) {
     CHECK(optimize(hash, opt).exactOff);
   }
 }
+
+// A hash added to a much larger value (VHSPro.fx:1607): within 10% of the sum's range, but its own part is noise.
+TEST(noise_parts_find_small_hash) {
+  Program p = parseProgram("input n : float in [0, 200]\ninput x : float in [0, 1e6]\n"
+                           "output r = n + frac(sin(x * 12.9898) * 43758.5453) * 0.1\nbudget r : rel 1e-6\n");
+  Options opt;
+  opt.previousOnly = true;
+  CHECK(optimize(p, opt).exactOff);
+  opt.noiseParts = false;
+  CHECK(!optimize(p, opt).exactOff);
+}

@@ -103,6 +103,7 @@ struct Options {
   // shared leaves); stops after a round that finds nothing cheaper (2026-11-08, cause of --seeds' wins).
   uint32_t refine = 3;  // default (owner, 2026-11-08, corpus); --refine 1 turns it off
   bool noiseShare = true;  // default (owner, 2026-11-08, corpus); --no-noise-share; see followsExact
+  bool noiseParts = true;  // the noise guard on every part too (owner, 2026-11-12); --no-noise-parts; see followsExact
   // --parts-always: subtree and cut searches also when the bottom-up search finished within its limits. "Finished" only means
   // nothing cheaper in the bank's space (no vector constructors, no helpers), so a region found its form only when it ran out of time.
   bool partsAlways = true;  // default (owner, 2026-11-09, corpus at 5 s); --no-parts-always
