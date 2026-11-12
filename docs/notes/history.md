@@ -2940,6 +2940,9 @@ lost inside the body (float texture reads, divisions), not by the loop.
 Corpus 0.1 s, output budgets on (43050247655) vs --no-output-budgets (43050257523), package 18 left out (cancelled at the
 120 min job limit with them on; now 300): written 1402 -> 1490, saved 23762 -> 26647; per region written 102 better (3547) /
 10 worse (290), needs ranges 16 (203) / 4 (17). Job time 695 -> 893 min in all.
+After the speedups (sample points once per pixel shader, bound once per value, bisection on 1024 points), all 44
+packages: on (43143435165) vs off (43143442457): written 2293 -> 2395, saved 42431 -> 46392 (+9.3%); job time 712 ->
+750 min in all, package 18 (RSRetroArch) 41 -> 60 min.
 Integer / and % (owner's go): the U rewrite takes 14 of 37 proven lines in package set 2; the rest have a float division
 on the line (the count match fails) or macros. Matching operators by the division's column failed: a binary op's
 location is not its left operand's start (sum += i / 2: column 14). Done instead (2026-11-12, owner's go): lines with
