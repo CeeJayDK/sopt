@@ -1449,6 +1449,9 @@ class Extractor {
     struct Out {
       Program prog;
       size_t ri = 0;  // the value's input
+      PointSet points;  // its sample points, made once (the perturbation is 0 there whatever the region's range)
+      std::vector<float> base;  // the output there
+      double e = -1;            // the largest error at the value that fits (outputBudget; -1: not yet)
       int bits = 8;   // target: 8 / 10 bits, 16 = 16F
     };
     bool done = false;
@@ -1456,11 +1459,37 @@ class Extractor {
     std::vector<Out> outs;
   };
   std::string outDownstream(const Function& f, const Statement& s, OutDown& D);
+  static constexpr uint32_t kNoValue = 0xffffffffu;  // outValue_ for the plain output (no value id is this)
+  struct PsPoints {  // a pixel shader's output math and its sample points (outDownstream)
+    bool done = false, ok = false;
+    Program prog;
+    PointSet points;
+  };
+  std::unordered_map<const Function*, PsPoints> psPoints_;
+  // The shader's points for program d (inputs found by name and type), its input ri (the perturbation) 0; empty when an
+  // input is not in the shader's program.
+  static PointSet pointsFor(const Program& d, size_t ri, const PsPoints& P) {
+    PointSet q;
+    q.slot = inputSlots(d.inputs);
+    const size_t n = P.points.size();
+    for (size_t k = 0; k < d.inputs.size(); ++k) {
+      const unsigned w = width(d.inputs[k].type);
+      if (k == ri) {
+        for (unsigned c = 0; c < w; ++c) q.cols.emplace_back(n, 0.0f);
+        continue;
+      }
+      size_t j = 0;
+      while (j < P.prog.inputs.size() &&
+             (P.prog.inputs[j].name != d.inputs[k].name || P.prog.inputs[j].type != d.inputs[k].type))
+        ++j;
+      if (j == P.prog.inputs.size()) return PointSet();
+      for (unsigned c = 0; c < w; ++c) q.cols.push_back(P.points.cols[P.points.slotOf(static_cast<uint32_t>(j)) + c]);
+    }
+    return q;
+  }
   std::unordered_map<uint32_t, OutDown> outDown_;
   size_t outWork_ = 0;                          // collect() steps of the current output build (limit: too large)
   std::unordered_set<const Function*> outTooBig_;
-  std::map<std::tuple<uint32_t, double, double>, std::pair<bool, Budget>> outBudgets_;
-  std::map<std::tuple<uint32_t, double, double>, std::string> outReasons_;
   std::vector<std::vector<uint32_t>> loopValues_;          // per loop of cg_.loops: the values inside it
   std::vector<std::pair<uint32_t, uint32_t>> calls_;       // (seq, id) of every call, by seq
   bool pureCall(const std::string& uniqueName, int depth = 0) const;
@@ -3773,23 +3802,6 @@ bool Extractor::loopFree(const Function& ps, uint32_t value, const std::set<cons
 }
 
 bool Extractor::outputBudget(const Function& f, const Statement& s, const Region& reg, Budget& b, std::string& reason) {
-  // The value's range: the region's own values.
-  const PointSet rp = makeRandomPoints(reg.prog, 4096, 5, true);
-  double lo = INFINITY, hi = -INFINITY;
-  for (const float v : evalAll(reg.prog.target, rp, kProfileRef))
-    if (std::isfinite(v)) {
-      lo = std::min(lo, double(v));
-      hi = std::max(hi, double(v));
-    }
-  if (!(lo <= hi)) return false;
-  const auto key = std::make_tuple(s.value, lo, hi);
-  if (const auto c = outBudgets_.find(key); c != outBudgets_.end()) {
-    if (!c->second.first) return false;
-    b = c->second.second;
-    reason = outReasons_[key];
-    return true;
-  }
-  outBudgets_[key] = {false, Budget()};
   OutDown& D = outDown_[s.value];
   if (!D.done) {
     D.done = true;
@@ -3797,49 +3809,67 @@ bool Extractor::outputBudget(const Function& f, const Statement& s, const Region
     obStat(D.fail.empty() ? "OK (built)" : D.fail);
   }
   if (!D.fail.empty()) return false;
-  const double scale = std::max({std::fabs(lo), std::fabs(hi), 1e-6});
+  // The largest error at the value that keeps each output within its share (a power of two; per value, once).
   double eMin = INFINITY;
   int bitsMin = 0;
   for (OutDown::Out& o : D.outs) {
-    Program& d = o.prog;
-    d.inputs[o.ri].lo = d.inputs[o.ri].hi = 0.0;  // the perturbation: 0 here, moved by +-e below
-    const PointSet ps0 = makeRandomPoints(d, 4096, 7, true);
-    const std::vector<float> base = evalAll(d.target, ps0, kProfileRef);
-    const uint32_t slot = ps0.slotOf(static_cast<uint32_t>(o.ri));
-    const unsigned rw = width(d.inputs[o.ri].type);
-    const int bits = o.bits;
-    auto clampOut = [&](double y) { return bits <= 10 ? std::clamp(y, 0.0, 1.0) : y; };  // unorm targets clamp
-    auto tol = [&](double y) { return outputTolerance(bits, y); };
-    // Every component moved by +e, -e, and alternately: the output stays within tol everywhere.
-    auto fits = [&](double e) {
-      for (int pattern = 0; pattern < 3; ++pattern) {
-        PointSet q = ps0;
-        for (unsigned c = 0; c < rw; ++c) {
-          const double sgn = pattern == 0 ? 1.0 : pattern == 1 ? -1.0 : (c & 1 ? -1.0 : 1.0);
-          for (float& x : q.cols[slot + c]) x = static_cast<float>(x + sgn * e);
+    if (o.e < 0) {
+      const Program& d = o.prog;
+      const PointSet& ps0 = o.points;
+      const std::vector<float>& base = o.base;
+      const uint32_t slot = ps0.slotOf(static_cast<uint32_t>(o.ri));
+      const unsigned rw = width(d.inputs[o.ri].type);
+      const int bits = o.bits;
+      auto clampOut = [&](double y) { return bits <= 10 ? std::clamp(y, 0.0, 1.0) : y; };  // unorm targets clamp
+      // Every component moved by +e, -e, and alternately: the output stays within its share at the first n points.
+      auto fits = [&](double e, size_t n) {
+        for (int pattern = 0; pattern < 3; ++pattern) {
+          PointSet q = ps0;
+          if (n < q.size())
+            for (auto& col : q.cols) col.resize(n);
+          for (unsigned c = 0; c < rw; ++c) {
+            const double sgn = pattern == 0 ? 1.0 : pattern == 1 ? -1.0 : (c & 1 ? -1.0 : 1.0);
+            for (float& x : q.cols[slot + c]) x = static_cast<float>(x + sgn * e);
+          }
+          const std::vector<float> out = evalAll(d.target, q, kProfileRef);
+          const size_t m = q.size(), all = ps0.size();  // results are per component: [c * points + i]
+          for (size_t k = 0; k < out.size(); ++k) {
+            const float t = base[(k / m) * all + k % m];
+            if (std::isfinite(t) &&
+                (!std::isfinite(out[k]) || std::fabs(clampOut(out[k]) - clampOut(t)) > outputTolerance(bits, t)))
+              return false;
+          }
         }
-        const std::vector<float> out = evalAll(d.target, q, kProfileRef);
-        for (size_t k = 0; k < out.size(); ++k)
-          if (std::isfinite(base[k]) &&
-              (!std::isfinite(out[k]) || std::fabs(clampOut(out[k]) - clampOut(base[k])) > tol(base[k])))
-            return false;
+        return true;
+      };
+      // e = 2^-k, k in -12..60, by bisection on the first 1024 points (the special ones come first; fits(2^-kHi)
+      // taken as true, 2^-kLo as false), then halved until every point holds (2026-11-12: 4x faster, RSRetroArch).
+      constexpr size_t kFew = 1024;
+      int kLo = -12, kHi = 61;
+      if (fits(std::ldexp(1.0, 12), kFew)) {
+        kHi = -12;
+      } else {
+        while (kHi - kLo > 1) {
+          const int m = (kLo + kHi) / 2;
+          (fits(std::ldexp(1.0, -m), kFew) ? kHi : kLo) = m;
+        }
       }
-      return true;
-    };
-    // The largest e = scale * 2^-k (k in 0..40) that fits, by bisection on k.
-    int kLo = 0, kHi = 41;  // fits(kHi) is taken as true (e tiny), kLo is tested
-    if (fits(scale)) {
-      kHi = 0;
-    } else {
-      while (kHi - kLo > 1) {
-        const int m = (kLo + kHi) / 2;
-        (fits(std::ldexp(scale, -m)) ? kHi : kLo) = m;
-      }
+      while (kHi <= 60 && !fits(std::ldexp(1.0, -kHi), ps0.size())) ++kHi;
+      o.e = kHi > 60 ? 0.0 : std::ldexp(1.0, -kHi);
     }
-    const double e = kHi > 40 ? 0.0 : std::ldexp(scale, -kHi);
-    if (e < eMin) eMin = e, bitsMin = bits;
+    if (o.e < eMin) eMin = o.e, bitsMin = o.bits;
   }
-  if (eMin <= 1e-6 * scale) { obStat("not looser"); return false; }  // no looser than the region's own budget
+  // No looser than the region's own budget (relative 1e-6 of its values' size): from the range analysis, else samples.
+  double scale = 0.0;
+  if (const Range rv = range(s.value); rv.known && !rv.assumed) {
+    scale = std::max(std::fabs(rv.lo), std::fabs(rv.hi));
+  } else {
+    const PointSet rp = makeRandomPoints(reg.prog, 1024, 5, false);
+    for (const float v : evalAll(reg.prog.target, rp, kProfileRef))
+      if (std::isfinite(v)) scale = std::max(scale, double(std::fabs(v)));
+  }
+  scale = std::max(scale, 1e-6);
+  if (eMin <= 1e-6 * scale) { obStat("not looser"); return false; }
   b = Budget();
   b.kind = Budget::Kind::Abs;
   b.eps = eMin;
@@ -3849,8 +3879,6 @@ bool Extractor::outputBudget(const Function& f, const Statement& s, const Region
                 bitsMin == 8 ? "8-bit" : bitsMin == 10 ? "10-bit" : "16F", D.outs.size() > 1 ? ", tightest shader" : "",
                 eMin);
   reason = buf;
-  outBudgets_[key] = {true, b};
-  outReasons_[key] = reason;
   obStat("OK");
   return true;
 }
@@ -3901,44 +3929,64 @@ std::string Extractor::outDownstream(const Function& f, const Statement& s, OutD
     if (!bits) return "no pass";
     if (outTooBig_.count(&ps)) return "output: too large";
     if (!loopFree(ps, s.value, seen)) return "value used in a loop";
-    // The output math: the pixel shader run symbolically (CallScope's entry mode), the value as the input "__r__".
-    auto savedInline = inline_;
-    auto savedLoads = inlineLoad_;
-    auto savedWindow = window_;
-    inline_.clear();
-    inlineLoad_.clear();
-    window_.clear();
-    outValue_ = s.value;
-    outSeen_ = 0;
-    outWork_ = 0;
-    Region out;
-    out.function = ps.name;
-    out.hlsl = fx_.hlsl;
-    out.glsl = fx_.glsl;
-    std::string why;
-    bool ok = false;
-    const uint32_t synth0 = nextSynth_;  // the run's synthetic values are dropped after the build
-    try {
-      const CallScope scope(*this, ps);
-      Statement root;
-      root.kind = Statement::Kind::Return;
-      root.value = scope.ret;
-      root.loc = ps.loc;
-      ok = buildRegion(root, out, why);
-    } catch (const Unsupported& u) {
-      why = u.what();
+    // The output math: the pixel shader run symbolically (CallScope's entry mode), the value as the input "__r__"
+    // (value kNoValue: the plain output, for the shader's sample points).
+    bool valueVarRead = false;  // a load of the value's variable left as an input of its own
+    auto build = [&](uint32_t value, Region& out, std::string& why) {
+      auto savedInline = inline_;
+      auto savedLoads = inlineLoad_;
+      auto savedWindow = window_;
+      inline_.clear();
+      inlineLoad_.clear();
+      window_.clear();
+      outValue_ = value;
+      outSeen_ = 0;
+      outWork_ = 0;
+      out.function = ps.name;
+      out.hlsl = fx_.hlsl;
+      out.glsl = fx_.glsl;
+      bool ok = false;
+      const uint32_t synth0 = nextSynth_;  // the run's synthetic values are dropped after the build
+      try {
+        const CallScope scope(*this, ps);
+        Statement root;
+        root.kind = Statement::Kind::Return;
+        root.value = scope.ret;
+        root.loc = ps.loc;
+        ok = buildRegion(root, out, why);
+      } catch (const Unsupported& u) {
+        why = u.what();
+      }
+      valueVarRead = false;
+      for (const Leaf& l : leaves_) valueVarRead = valueVarRead || (!l.fetch && s.kind != Statement::Kind::Return && l.var == s.var);
+      outValue_ = 0;
+      inline_ = std::move(savedInline);
+      inlineLoad_ = std::move(savedLoads);
+      window_ = std::move(savedWindow);
+      if (why == "output: too large") outTooBig_.insert(&ps);  // the next values of this shader fail fast
+      for (uint32_t k = synth0; k < nextSynth_; ++k) synth_.erase(k);
+      nextSynth_ = synth0;
+      return ok;
+    };
+    // The shader's sample points, made once (boundary / jump / cancellation searches over the whole output are slow:
+    // RSRetroArch took over 100 min, 2026-11-12); a value's output math takes their columns by input name.
+    PsPoints& P = psPoints_[&ps];
+    if (!P.done) {
+      P.done = true;
+      Region full;
+      std::string w;
+      if (build(kNoValue, full, w)) {
+        P.prog = std::move(full.prog);
+        P.points = makeRandomPoints(P.prog, 4096, 7, true);
+        P.ok = true;
+      }
     }
+    Region out;
+    std::string why;
+    bool ok = build(s.value, out, why);
     if (ok && !outSeen_) ok = false, why = "value not reached";
-    // A load of the value's variable left as an input of its own: the output math does not see the value there.
-    for (const Leaf& l : leaves_) ok = ok && (l.fetch || s.kind == Statement::Kind::Return || l.var != s.var);
-    outValue_ = 0;
-    inline_ = std::move(savedInline);
-    inlineLoad_ = std::move(savedLoads);
-    window_ = std::move(savedWindow);
-    if (why == "output: too large") outTooBig_.insert(&ps);  // the next values of this shader fail fast
-    for (uint32_t k = synth0; k < nextSynth_; ++k) synth_.erase(k);
-    nextSynth_ = synth0;
-    if (!ok) return "build: " + (why.empty() ? std::string("variable read again") : why);
+    if (ok && valueVarRead) ok = false, why = "variable read again";
+    if (!ok) return "build: " + why;
     size_t ri = out.prog.inputs.size();
     for (size_t k = 0; k < out.prog.inputs.size(); ++k) {
       if (out.prog.inputs[k].name == "__r__") ri = k;
@@ -3947,7 +3995,15 @@ std::string Extractor::outDownstream(const Function& f, const Statement& s, OutD
     if (ri == out.prog.inputs.size()) return "value not an input";
     out.prog.inputs[ri].grid = 0;
     out.prog.inputs[ri].compileTime = false;
-    D.outs.push_back({std::move(out.prog), ri, bits});
+    OutDown::Out o;
+    o.prog = std::move(out.prog);
+    o.ri = ri;
+    o.bits = bits;
+    o.prog.inputs[ri].lo = o.prog.inputs[ri].hi = 0.0;  // the perturbation: 0 here, moved by +-e in outputBudget
+    o.points = P.ok ? pointsFor(o.prog, ri, P) : PointSet();
+    if (!o.points.size()) o.points = makeRandomPoints(o.prog, 4096, 7, true);
+    o.base = evalAll(o.prog.target, o.points, kProfileRef);
+    D.outs.push_back(std::move(o));
   }
   return {};
 }
