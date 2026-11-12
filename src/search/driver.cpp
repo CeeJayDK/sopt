@@ -37,7 +37,9 @@ bool containsPoint(const PointSet& ps, const std::vector<float>& p) {
 // noiseParts (--no-noise-parts): every part of the expression too. A hash added to a much larger value (ns += grain * 0.1,
 // VHSPro.fx:1607) stays within 10% of the sum's range, and dropping it passed as "closer to exact" (2026-11-12). A part
 // must also be off by 0.1% of its size: 1.0 + x * 1e-7 is off by rounding only, nearly its whole (tiny) range.
-bool followsExact(const Program& prog, uint64_t seed, bool noiseShare, bool noiseParts) {
+// Returns 0: follows, 1: parts do not (listed in noisy: "closer to exact" goes off, their error scale restarts), 2: the
+// whole does not.
+int followsExact(const Program& prog, uint64_t seed, bool noiseShare, bool noiseParts, std::vector<uint32_t>& noisy) {
   const PointSet ps = makeRandomPoints(prog, 4096, seed + 7, false);
   auto follows = [&](const Expr& e, bool part) {
     const std::vector<float> t = evalAll(e, ps, kProfileRef);
@@ -60,17 +62,17 @@ bool followsExact(const Program& prog, uint64_t seed, bool noiseShare, bool nois
     }
     return bad * 100 <= n;
   };
-  if (!follows(prog.target, false)) return false;
-  if (!noiseParts) return true;
+  if (!follows(prog.target, false)) return 2;
+  if (!noiseParts) return 0;
   for (uint32_t k = 0; k < prog.target.root; ++k) {
     const Op op = prog.target.nodes[k].op;
     if (op == Op::Const || op == Op::Input) continue;
     Expr part;  // nodes are topologically ordered: the prefix up to k holds k's whole subtree
     part.nodes.assign(prog.target.nodes.begin(), prog.target.nodes.begin() + k + 1);
     part.root = k;
-    if (!follows(part, true)) return false;
+    if (!follows(part, true)) noisy.push_back(k);
   }
-  return true;
+  return noisy.empty() ? 0 : 1;
 }
 
 // Scheduling measures of e (Accepted / RunResult fields); prog's inputs may have their uniforms
@@ -210,10 +212,14 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     p.budget.cancelPoints = opt.cancelPoints;
     return optimize(p, opt);
   }
-  if ((accuracyRule(progIn.budget) || progIn.budget.scaledRel()) && !followsExact(progIn, opt.seed, opt.noiseShare, opt.noiseParts)) {
+  std::vector<uint32_t> noisy;
+  const int noise = accuracyRule(progIn.budget) || progIn.budget.scaledRel()
+                        ? followsExact(progIn, opt.seed, opt.noiseShare, opt.noiseParts, noisy) : 0;
+  if (noise == 2 || (noise == 1 && (accuracyRule(progIn.budget) || progIn.budget.noiseNodes.empty()))) {
     Program p = progIn;
     p.budget.vsExact = false;      // the float32 original is the only meaningful reference
-    p.budget.errorScale = false;
+    if (noise == 2) p.budget.errorScale = false;
+    else p.budget.noiseNodes = std::move(noisy);  // noisy parts: the error scale stays, restarted at them
     RunResult r = optimize(p, opt);
     r.exactOff = true;
     return r;
@@ -254,10 +260,10 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   const bool rel = prog.budget.scaledRel();
   std::vector<double> stage2Scale, v1Scale;
   const std::vector<double> stage2Exact =
-      rule || rel ? evalExactAll(prog.target, stage2, rel ? &stage2Scale : nullptr) : std::vector<double>();
+      rule || rel ? evalExactAll(prog.target, stage2, rel ? &stage2Scale : nullptr, &prog.budget.noiseNodes) : std::vector<double>();
   const bool v1Scaled = rel || prog.half;
   const std::vector<double> v1Exact =
-      rule || v1Scaled ? evalExactAll(prog.target, v1, v1Scaled ? &v1Scale : nullptr) : std::vector<double>();
+      rule || v1Scaled ? evalExactAll(prog.target, v1, v1Scaled ? &v1Scale : nullptr, &prog.budget.noiseNodes) : std::vector<double>();
   // min16float: also at half precision, with its budget and error scale (halfBudget).
   Program halfProg;
   std::vector<double> halfScale;

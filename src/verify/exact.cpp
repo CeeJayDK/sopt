@@ -152,7 +152,14 @@ const ExactEvaluator::Cols& ExactEvaluator::eval(const Expr& e, const PointSet& 
     sptr.assign(nn, Cols{});
   }
   double* snext = sscratch.data();
+  // A noise node's scale restarts at |value| (noiseNodes): applied to node k once it is done.
+  auto restart = [&](size_t k) {
+    if (!withScale || !noiseNodes || std::find(noiseNodes->begin(), noiseNodes->end(), k) == noiseNodes->end()) return;
+    for (unsigned c = 0; c < width(e.nodes[k].type); ++c)
+      for (size_t j = 0; j < count; ++j) const_cast<double*>(sptr[k][c])[j] = std::fabs(ptr[k][c][j]);
+  };
   for (size_t i = 0; i < nn; ++i) {
+    if (i > 0) restart(i - 1);
     const Node& n = e.nodes[i];
     const unsigned w = width(n.type);
     double* out[4] = {nullptr, nullptr, nullptr, nullptr};
@@ -259,10 +266,12 @@ const ExactEvaluator::Cols& ExactEvaluator::eval(const Expr& e, const PointSet& 
         }
     }
   }
+  if (nn > 0) restart(nn - 1);
   return ptr[e.root];
 }
 
-std::vector<double> evalExactAll(const Expr& e, const PointSet& ps, std::vector<double>* scales) {
+std::vector<double> evalExactAll(const Expr& e, const PointSet& ps, std::vector<double>* scales,
+                                 const std::vector<uint32_t>* noiseNodes) {
   constexpr size_t kBlock = 4096;
   const unsigned w = width(e.nodes[e.root].type);
   const size_t total = ps.size();
@@ -270,6 +279,7 @@ std::vector<double> evalExactAll(const Expr& e, const PointSet& ps, std::vector<
   if (scales) scales->assign(w * total, 0.0);
   ExactEvaluator ev;
   ev.withScale = scales != nullptr;
+  ev.noiseNodes = noiseNodes;
   for (size_t b = 0; b < total; b += kBlock) {
     const size_t count = std::min(kBlock, total - b);
     const ExactEvaluator::Cols& v = ev.eval(e, ps, b, count);

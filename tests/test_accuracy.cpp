@@ -304,4 +304,17 @@ TEST(noise_parts_find_small_hash) {
   CHECK(optimize(p, opt).exactOff);
   opt.noiseParts = false;
   CHECK(!optimize(p, opt).exactOff);
+  // The hash's inner terms (x 43758) no longer set the sum's error scale once it is a noise node.
+  uint32_t hash = 0;
+  for (uint32_t k = 0; k < p.target.nodes.size(); ++k)
+    if (p.target.nodes[k].op == Op::Frac) hash = k;
+  const PointSet ps = makeRandomPoints(p, 256, 3, false);
+  std::vector<double> loose, tight;
+  const std::vector<uint32_t> nodes{hash};
+  evalExactAll(p.target, ps, &loose);
+  evalExactAll(p.target, ps, &tight, &nodes);
+  double maxLoose = 0.0, maxTight = 0.0;
+  for (size_t i = 0; i < loose.size(); ++i) maxLoose = std::max(maxLoose, loose[i]), maxTight = std::max(maxTight, tight[i]);
+  CHECK(maxLoose > 1e4);
+  CHECK(maxTight < 1e3);
 }

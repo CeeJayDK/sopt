@@ -133,7 +133,7 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   const bool rel = prog.budget.scaledRel();
   scale_.assign(tn_, 0.0);  // the target's error scales (Rel budgets, see relBase)
   if (rule_ || rel) {
-    std::vector<double> ex = evalExactAll(prog.target, tests, rel ? &scale_ : nullptr);
+    std::vector<double> ex = evalExactAll(prog.target, tests, rel ? &scale_ : nullptr, &prog.budget.noiseNodes);
     if (rule_) {
       exact_ = std::move(ex);
       for (size_t i = 0; i < tn_; ++i)

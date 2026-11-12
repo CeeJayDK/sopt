@@ -74,6 +74,9 @@ struct Budget {
   // Rel: relative to max(|t|, S), S = the original's own rounding-error scale (see
   // relBase). Off where the float32 original does not follow exact math (driver).
   bool errorScale = true;
+  // Target nodes that do not follow exact math (hash noise, set by the driver): their error scale restarts at |value|, so
+  // the hash's huge inner terms (x 43758) do not loosen the budget (Clarity2.fx:303 / CRT-NewPixie.fx:246, 2026-11-12).
+  std::vector<uint32_t> noiseNodes;
   bool scaledRel() const { return kind == Kind::Rel && errorScale; }
   int codeBits() const { return kind == Kind::Color10 ? 10 : 8; }
 };

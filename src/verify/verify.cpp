@@ -139,6 +139,7 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
   const bool rule = accuracyRule(prog.budget);
   const bool rel = prog.budget.scaledRel();
   ex.withScale = rel && !scaleVals;
+  ex.noiseNodes = &prog.budget.noiseNodes;
   Metrics m;
   const unsigned w = width(prog.target.nodes[prog.target.root].type);
   const int bits = prog.budget.codeBits();

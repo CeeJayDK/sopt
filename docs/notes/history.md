@@ -2948,6 +2948,12 @@ at 1 s the same or better with them on), seed luck (GuestCRT.fx:572 flips the ot
 where off wrote `ns` alone (cost 0, "too exact"): the film grain hash dropped. The noise guard looked at the whole sum
 only (grain <= 0.1 next to ns up to 200: error 0.05% of the range). Fix (owner's go, 2026-11-12): followsExact checks
 every part too (--no-noise-parts), a part also off by 0.1% of its own size (1.0 + x * 1e-7 is rounding, not noise).
+First version (both rules off on a noisy part), corpus on (43264440913) vs off (43264446572): written 2409 -> 2408, saved
+46688 -> 46308; lost real wins (Clarity2.fx:303 lerp -> mad, phosphor 0.5 * rcp(1/3) * 2 -> 3, PD80 Posterize,
+CurvedMonitor) and rightly refused CRT-NewPixie.fx:246 (304: the hash's input rewritten, error 0.015 = other noise).
+Now (owner's go, option C): a noisy part turns "closer to exact" off and lists its nodes (Budget::noiseNodes); the error
+scale restarts at |value| there, so the hash's inner terms (x 43758) no longer loosen the budget. Locally: the four wins
+back, VHSPro refused, CRT-NewPixie 308 at error 6e-8 (the noise kept). cuts / generalize clear the list (other target).
 Integer / and % (owner's go): the U rewrite takes 14 of 37 proven lines in package set 2; the rest have a float division
 on the line (the count match fails) or macros. Matching operators by the division's column failed: a binary op's
 location is not its left operand's start (sum += i / 2: column 14). Done instead (2026-11-12, owner's go): lines with
