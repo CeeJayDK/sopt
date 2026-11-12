@@ -616,3 +616,10 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, Radeon RX 580 Series (driver 31.0.21924.61): `docs/stagebench/amd-radeon-rx-580-series-ps.csv` (StageBench 0.10.0)
 - upload 1: stagebench, Radeon RX 580 Series (driver 31.0.21924.61): `docs/stagebench/amd-radeon-rx-580-series-vs.csv` (StageBench 0.10.0)
 - upload 1: texbench, Radeon RX 580 Series (driver 31.0.21924.61): `docs/texbench/amd-radeon-rx-580-series.csv`, `docs/texbench/amd-radeon-rx-580-series-order.png`, `docs/texbench/amd-radeon-rx-580-series-order-zoom.png` (TexBench 0.10.0)
+
+## 2026-11-12 20:07 UTC
+- upload 1: opbench, AMD Radeon RX 9070 XT (driver 32.0.32015.12012): `docs/opbench/amd-radeon-rx-9070-xt-5.csv` (OpBench 0.10.0)
+- upload 1: shaderinfo, AMD Radeon RX 9070 XT (driver AMD proprietary driver 26.10.2 (LLPC) (2.0.416)): `docs/shaderinfo/amd-radeon-rx-9070-xt-5.txt`
+- upload 1: stagebench, AMD Radeon RX 9070 XT (driver 32.0.32015.12012): `docs/stagebench/amd-radeon-rx-9070-xt-ps.csv` (StageBench 0.10.0)
+- upload 1: stagebench, AMD Radeon RX 9070 XT (driver 32.0.32015.12012): `docs/stagebench/amd-radeon-rx-9070-xt-vs.csv` (StageBench 0.10.0)
+- upload 1: texbench, AMD Radeon RX 9070 XT (driver 32.0.32015.12012): `docs/texbench/amd-radeon-rx-9070-xt-5.csv`, `docs/texbench/amd-radeon-rx-9070-xt-5-order.png`, `docs/texbench/amd-radeon-rx-9070-xt-5-order-zoom.png` (TexBench 0.10.0)
