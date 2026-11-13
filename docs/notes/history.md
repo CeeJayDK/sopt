@@ -2979,6 +2979,10 @@ noise_parts_skip_integers; output budgets had no test before):
   uint, so both sides are uint: ui_min = -1; ui_max = 1 on a float uniform gave the range [1, 4.29e9] (CRT-Royale's
   phosphor_offset_x; the "derived" [0.5, 2.15e9] of center_offsets_x), a negative int constant 4.29e9. Every region
   reading such a uniform was verified on the wrong values. Fix: each side as double; test fx_ui_range_negative_int.
+Corpus with the six fixes (43358036217) vs before them (43326705987): written 2412 -> 2402, saved 46722 -> 45499, 678
+min. Written: 45 better (234) / 39 worse (1533), and the worse ones are what the fixes were for: variants written
+before under an output budget of 4096, e.g. FilmGrain2.fx:65 / 72 / 79 / 86 and PD80_06_Film_Grain.fx:230.. (Perlin
+noise: n001 = dot(grad001, pf - ...) -> 0.0, "proven"), VHS_RA.fx:104 (step(c, sin(..)) -> c).
 Read in that review, nothing found: ir/eval.cpp, verify/exact.cpp, verify/verify.cpp, verify/bound.cpp (the interval
 proof), the driver's stage 2 / V1 / V2 flow, the printer (expr.cpp), the variant writer (variants.cpp), hoist.cpp's
 degrees; a window does not inline a temporary across a store to what it reads (tested).
