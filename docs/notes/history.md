@@ -2958,6 +2958,10 @@ Corpus (43326705987 vs off 43264446572): written 2409 -> 2412, saved 46688 -> 46
 (181) / 39 worse (165); GloomAO.fx:479 (11 vs 17) is the same locally (CI timing). Open: phosphor-mask-calculations.fxh
 (package 17, ~10 regions, ~4-36 each) loses its exp-argument rewrites; the original is off by 1.55e35 at overflow-sized
 values, so a part looks like noise though it is rounding amplified by exp (not checked: source not local).
+Checked (CRT-Royale, package 17): the noisy part is frac(x_adj * 3.0 - 0.5) (triangle_wave), x_adj derived as
+[-2.15e9, 0.5] (texcoord * a frequency factor from rcp of uniforms). At such values float frac is garbage, so the guard
+is right for that range; the old wins (401 -> 365 etc.) passed only because frac carried x_adj * 3's huge error scale
+(the CRT-NewPixie flaw). A realistic x_adj (thousands) would not be noise: a range problem (divisions), not the guard's.
 Integer / and % (owner's go): the U rewrite takes 14 of 37 proven lines in package set 2; the rest have a float division
 on the line (the count match fails) or macros. Matching operators by the division's column failed: a binary op's
 location is not its left operand's start (sum += i / 2: column 14). Done instead (2026-11-12, owner's go): lines with
