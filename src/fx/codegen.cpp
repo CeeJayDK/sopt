@@ -327,6 +327,7 @@ reshadefx::codegen::id Codegen::set_block(id id) {
 }
 
 reshadefx::codegen::id Codegen::leave_block_and_kill() {
+  if (current_) current_->discards = true;
   if (!is_in_block()) return 0;
   return set_block(0);
 }

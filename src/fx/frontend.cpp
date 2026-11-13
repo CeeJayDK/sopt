@@ -2888,6 +2888,8 @@ Range Extractor::samplerRange(uint32_t valueId) {
           any = true;
         }
     texBusy_.erase(s.textureName);
+    // One or two channels (R16F, RG32F): a read gives 0 for the missing colors and 1 for alpha.
+    if (s.format != F::rgba16f && s.format != F::rgba32f) r = unite(r, Range::of(1, 1, "constant"));
     // A half float holds up to 65504 and rounds to 11 bits.
     if (ok && any && r.known && std::max(std::fabs(r.lo), std::fabs(r.hi)) < 60000.0) {
       const double e = std::max(std::fabs(r.lo), std::fabs(r.hi)) * std::ldexp(1.0, -11);
@@ -3821,15 +3823,19 @@ bool Extractor::outputBudget(const Function& f, const Statement& s, const Region
       const unsigned rw = width(d.inputs[o.ri].type);
       const int bits = o.bits;
       auto clampOut = [&](double y) { return bits <= 10 ? std::clamp(y, 0.0, 1.0) : y; };  // unorm targets clamp
-      // Every component moved by +e, -e, and alternately: the output stays within its share at the first n points.
+      // Every component moved by +e, -e, alternately, and by a random share of e per point (the same shares for every
+      // e): the output stays within its share at the first n points. The random shares catch math that repeats:
+      // abs(frac(v * 64.0) - 0.5) is the same at v + 1/64, + 1, + 64, which gave v a budget of 64 (2026-11-13).
       auto fits = [&](double e, size_t n) {
-        for (int pattern = 0; pattern < 3; ++pattern) {
+        for (int pattern = 0; pattern < 4; ++pattern) {
           PointSet q = ps0;
           if (n < q.size())
             for (auto& col : q.cols) col.resize(n);
+          Rng shares(0x5a17);
           for (unsigned c = 0; c < rw; ++c) {
             const double sgn = pattern == 0 ? 1.0 : pattern == 1 ? -1.0 : (c & 1 ? -1.0 : 1.0);
-            for (float& x : q.cols[slot + c]) x = static_cast<float>(x + sgn * e);
+            for (float& x : q.cols[slot + c])
+              x = static_cast<float>(x + (pattern == 3 ? double(shares.next() >> 11) * 0x1p-52 - 1.0 : sgn) * e);
           }
           const std::vector<float> out = evalAll(d.target, q, kProfileRef);
           const size_t m = q.size(), all = ps0.size();  // results are per component: [c * points + i]
@@ -3927,6 +3933,36 @@ std::string Extractor::outDownstream(const Function& f, const Statement& s, OutD
         bits = k;
       }
     if (!bits) return "no pass";
+    // A discard in the shader or anything it calls: the value may decide it, and the returned value does not show that
+    // (float m = v * 2.0 - 1.0; if (m < 0.0) discard; gave v a budget of 0.25, 2026-11-13).
+    {
+      std::set<std::string> done;
+      std::vector<const Function*> walk{&ps};
+      while (!walk.empty()) {
+        const Function* g = walk.back();
+        walk.pop_back();
+        if (!done.insert(g->uniqueName).second) continue;
+        if (g->discards) return "discard";
+        for (const auto& F : cg_.functions)
+          if (std::find(g->calls.begin(), g->calls.end(), F->uniqueName) != g->calls.end()) walk.push_back(F.get());
+      }
+    }
+    // The value's function reached by more than one call: each call has its own value and its own error, and the one
+    // perturbation moves them together (lum(a) - lum(b) never changed: lum's sum got a budget of 1024, 2026-11-13).
+    {
+      std::map<const Function*, int> memo;
+      std::function<int(const Function*, int)> paths = [&](const Function* g, int depth) -> int {
+        if (g == &f) return 1;
+        if (depth > 64) return 2;
+        if (const auto m = memo.find(g); m != memo.end()) return m->second;
+        int n = 0;
+        for (const std::string& c : g->calls)
+          for (const auto& F : cg_.functions)  // overloads share a unique name
+            if (n < 2 && F->uniqueName == c) n += paths(F.get(), depth + 1);
+        return memo[g] = std::min(n, 2);
+      };
+      if (paths(&ps, 0) > 1) return "called more than once";
+    }
     if (outTooBig_.count(&ps)) return "output: too large";
     if (!loopFree(ps, s.value, seen)) return "value used in a loop";
     // The output math: the pixel shader run symbolically (CallScope's entry mode), the value as the input "__r__"

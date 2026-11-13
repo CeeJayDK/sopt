@@ -295,6 +295,15 @@ TEST(noise_share_ignores_rare_jumps) {
   }
 }
 
+// Integer parts are no noise: the float32 evaluator keeps a uint as its bit pattern, the exact one as its value.
+TEST(noise_parts_skip_integers) {
+  Program p = parseProgram("input x : float in [0, 1]\ninput y : float in [0, 1]\n"
+                           "output r = y + float(uint(x * 255.0)) * 0.1\nbudget r : rel 1e-6\n");
+  Options opt;
+  opt.previousOnly = true;
+  CHECK(!optimize(p, opt).exactOff);
+}
+
 // A hash added to a much larger value (VHSPro.fx:1607): within 10% of the sum's range, but its own part is noise.
 TEST(noise_parts_find_small_hash) {
   Program p = parseProgram("input n : float in [0, 200]\ninput x : float in [0, 1e6]\n"

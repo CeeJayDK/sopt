@@ -1086,6 +1086,37 @@ TEST(fx_namespace) {
 }
 
 
+// Budgets from the output: a value half of which reaches an 8-bit output may be off by a quarter of the output's share
+// (1/8 code). Not through math that repeats (a triangle wave is the same at v + 1/64, + 1, + 64: the budget was 64 and
+// 0.0 passed, 2026-11-13), and not in a shader with a discard (what decides it is not in the returned value: 0.25).
+TEST(fx_output_budgets) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_outbudget.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* plain = regionOn(regions, 4);
+  const fx::Region* wave = regionOn(regions, 10);
+  const fx::Region* disc = regionOn(regions, 16);
+  CHECK(plain != nullptr && wave != nullptr && disc != nullptr);
+  if (!plain || !wave || !disc) return;
+  const double share = 0.125 / 255.0;
+  CHECK(plain->prog.budget.kind == Budget::Kind::Abs && plain->prog.budget.eps <= share / 0.5 &&
+        plain->prog.budget.eps > share / 2.0);
+  CHECK(wave->prog.budget.kind != Budget::Kind::Abs || wave->prog.budget.eps <= share / 128.0);
+  CHECK(disc->prog.budget.kind == Budget::Kind::Rel);
+  // A helper called twice, the results subtracted: one perturbation moved both calls together (the budget was 1024).
+  const fx::Region* helper = regionOn(regions, 23);
+  const fx::Region* diff = regionOn(regions, 30);
+  CHECK(helper != nullptr && diff != nullptr);
+  if (!helper || !diff) return;
+  CHECK(helper->prog.budget.kind == Budget::Kind::Rel);
+  CHECK(diff->prog.budget.kind == Budget::Kind::Abs && diff->prog.budget.eps <= share);
+}
+
 // step() gives 0 or 1 only: without that, whether a variant passes depended on the random test points.
 TEST(fx_step_is_two_valued) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_stepgrid.fx";

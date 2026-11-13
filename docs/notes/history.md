@@ -2962,6 +2962,24 @@ Checked (CRT-Royale, package 17): the noisy part is frac(x_adj * 3.0 - 0.5) (tri
 [-2.15e9, 0.5] (texcoord * a frequency factor from rcp of uniforms). At such values float frac is garbage, so the guard
 is right for that range; the old wins (401 -> 365 etc.) passed only because frac carried x_adj * 3's huge error scale
 (the CRT-NewPixie flaw). A realistic x_adj (thousands) would not be noise: a range problem (divisions), not the guard's.
+Review of the branch (2026-11-13), each confirmed with a small effect, fixed, tested (fx_output_budgets,
+noise_parts_skip_integers; output budgets had no test before):
+- Output budgets, math that repeats: abs(frac(v * 64.0) - 0.5) is the same at v + 1/64, + 1, + 64, and the search for
+  the bound moves v by powers of two: v got a budget of 64 and 0.0 was written as proven. Fix: a fourth pattern, a random
+  share of e per point (the same shares for every e). frac alone was saved by the jump points, a triangle wave is not.
+- Output budgets, discard: what decides a discard is not in the returned value (float m = v * 2.0 - 1.0; if (m < 0.0)
+  discard; gave v 0.25). Fix: none in a pixel shader that has a discard or calls a function with one (Function::discards).
+- Output budgets, a helper called more than once: the one perturbation moves every call's value together, so
+  lum(a) - lum(b) never changes (lum's sum got 1024). Fix: none when the value's function is reached by more than one
+  call path. Better later: one perturbation per call.
+- Noise parts: a uint node is its bit pattern in the float32 evaluator and its value in the exact one, so every region
+  with integer math counted as noisy (PD80 Posterize's float(asint(pixel_size - 1u))). Fix: uint nodes skipped.
+- Float render-target ranges: a one or two channel target reads 1 for alpha: the range now holds 1.
+Seen, not changed: followsExact evaluates each part separately (quadratic in nodes, on every optimize call; one pass
+over all nodes would do); a texture shared by name with another effect file can hold what that effect writes; an output
+budget treats an intermediate render target as the output (later passes may amplify), and its variants are no longer
+8-bit identical (1/8 code at the output); boundaryPoints takes the first 64 comparison components only; loopFree's
+call scan starts at the first statement's seq (a call inside the first statement is before it); obStat is still in.
 Integer / and % (owner's go): the U rewrite takes 14 of 37 proven lines in package set 2; the rest have a float division
 on the line (the count match fails) or macros. Matching operators by the division's column failed: a binary op's
 location is not its left operand's start (sum += i / 2: column 14). Done instead (2026-11-12, owner's go): lines with

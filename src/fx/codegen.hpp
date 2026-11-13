@@ -70,6 +70,7 @@ struct Function {
   std::vector<uint32_t> params;  // variable ids
   std::vector<Statement> stmts;
   std::vector<std::string> calls;  // unique names of called functions
+  bool discards = false;  // has a discard: what decides it is not in the returned value (no output budgets)
 };
 
 struct SamplerInfo {

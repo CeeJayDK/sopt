@@ -8,6 +8,7 @@ docs/notes/history.md.
 ## 0.10.13
 
 ### SweetOpt
+- **Fixed:** in three cases a faster version could change the picture: shaders that throw pixels away, repeating patterns such as stripes and grids, and helper functions used several times (as in edge detection).
 - **Fixed:** a faster version could leave out a small noise or film grain effect that is added on top of a bigger value. SweetOpt now spots noise inside a calculation, not only when the whole calculation is noise.
 - **Faster whole-number division:** where a shader divides whole numbers that can never be negative, SweetOpt now offers a cheaper version with exactly the same result.
 - **Looks harder at small pieces of math:** SweetOpt now also tries the parts of a calculation when it has time left, and finds cheaper versions it used to miss.

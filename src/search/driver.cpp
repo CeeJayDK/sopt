@@ -67,6 +67,8 @@ int followsExact(const Program& prog, uint64_t seed, bool noiseShare, bool noise
   for (uint32_t k = 0; k < prog.target.root; ++k) {
     const Op op = prog.target.nodes[k].op;
     if (op == Op::Const || op == Op::Input) continue;
+    // A uint is its bit pattern in the float32 evaluator and its value in the exact one: not comparable (2026-11-13).
+    if (prog.target.nodes[k].type == Type::Uint) continue;
     Expr part;  // nodes are topologically ordered: the prefix up to k holds k's whole subtree
     part.nodes.assign(prog.target.nodes.begin(), prog.target.nodes.begin() + k + 1);
     part.root = k;
