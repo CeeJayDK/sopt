@@ -2954,6 +2954,10 @@ CurvedMonitor) and rightly refused CRT-NewPixie.fx:246 (304: the hash's input re
 Now (owner's go, option C): a noisy part turns "closer to exact" off and lists its nodes (Budget::noiseNodes); the error
 scale restarts at |value| there, so the hash's inner terms (x 43758) no longer loosen the budget. Locally: the four wins
 back, VHSPro refused, CRT-NewPixie 308 at error 6e-8 (the noise kept). cuts / generalize clear the list (other target).
+Corpus (43326705987 vs off 43264446572): written 2409 -> 2412, saved 46688 -> 46722, 671 vs 712 min. Written: 20 better
+(181) / 39 worse (165); GloomAO.fx:479 (11 vs 17) is the same locally (CI timing). Open: phosphor-mask-calculations.fxh
+(package 17, ~10 regions, ~4-36 each) loses its exp-argument rewrites; the original is off by 1.55e35 at overflow-sized
+values, so a part looks like noise though it is rounding amplified by exp (not checked: source not local).
 Integer / and % (owner's go): the U rewrite takes 14 of 37 proven lines in package set 2; the rest have a float division
 on the line (the count match fails) or macros. Matching operators by the division's column failed: a binary op's
 location is not its left operand's start (sum += i / 2: column 14). Done instead (2026-11-12, owner's go): lines with
