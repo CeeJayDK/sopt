@@ -8,6 +8,7 @@ docs/notes/history.md.
 ## 0.10.13
 
 ### SweetOpt
+- **Fixed:** a setting whose lowest value is negative and written as a whole number (for example -1 to 1) was read with the wrong range, so changes that use it were checked on the wrong values.
 - **Fixed:** in three cases a faster version could change the picture: shaders that throw pixels away, repeating patterns such as stripes and grids, and helper functions used several times (as in edge detection).
 - **Fixed:** a faster version could leave out a small noise or film grain effect that is added on top of a bigger value. SweetOpt now spots noise inside a calculation, not only when the whole calculation is noise.
 - **Faster whole-number division:** where a shader divides whole numbers that can never be negative, SweetOpt now offers a cheaper version with exactly the same result.

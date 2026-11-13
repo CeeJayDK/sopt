@@ -2975,6 +2975,16 @@ noise_parts_skip_integers; output budgets had no test before):
 - Noise parts: a uint node is its bit pattern in the float32 evaluator and its value in the exact one, so every region
   with integer math counted as noisy (PD80 Posterize's float(asint(pixel_size - 1u))). Fix: uint nodes skipped.
 - Float render-target ranges: a one or two channel target reads 1 for alpha: the range now holds 1.
+- ui_min / ui_max and int constants (whole-code review, the same day): `signed ? as_int : as_uint` is one ?: of int and
+  uint, so both sides are uint: ui_min = -1; ui_max = 1 on a float uniform gave the range [1, 4.29e9] (CRT-Royale's
+  phosphor_offset_x; the "derived" [0.5, 2.15e9] of center_offsets_x), a negative int constant 4.29e9. Every region
+  reading such a uniform was verified on the wrong values. Fix: each side as double; test fx_ui_range_negative_int.
+Read in that review, nothing found: ir/eval.cpp, verify/exact.cpp, verify/verify.cpp, verify/bound.cpp (the interval
+proof), the driver's stage 2 / V1 / V2 flow, the printer (expr.cpp), the variant writer (variants.cpp), hoist.cpp's
+degrees; a window does not inline a temporary across a store to what it reads (tested).
+Open, the owner's call: a pixel shader input whose vertex shader value has no known range falls back to the TEXCOORD
+convention [0, 1] (frontend.cpp, entry()), also where the vertex shader plainly computes something else (CRT-Royale's
+viewport_frequency_factor : TEXCOORD1 = content size / triad width, listed as [0, 1]).
 Seen, not changed: followsExact evaluates each part separately (quadratic in nodes, on every optimize call; one pass
 over all nodes would do); a texture shared by name with another effect file can hold what that effect writes; an output
 budget treats an intermediate render target as the output (later passes may amplify), and its variants are no longer

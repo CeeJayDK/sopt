@@ -2991,9 +2991,10 @@ Range Extractor::range(uint32_t id) {
       // All components; for an array, of every element (an index may pick any).
       std::function<void(const reshadefx::constant&)> add = [&](const reshadefx::constant& c) {
         for (unsigned k = 0; k < v.type.components() && k < 16; ++k) {
-          const double x = v.type.base == reshadefx::type::t_float ? c.as_float[k]
-                           : v.type.base == reshadefx::type::t_int ? c.as_int[k]
-                                                                   : c.as_uint[k];
+          // Each side as double (see ui_min: a negative int was read as uint, and every int through float).
+          const double x = v.type.base == reshadefx::type::t_float ? double(c.as_float[k])
+                           : v.type.base == reshadefx::type::t_int ? double(c.as_int[k])
+                                                                   : double(c.as_uint[k]);
           lo = std::min(lo, x);
           hi = std::max(hi, x);
         }
@@ -3384,7 +3385,9 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
       for (const auto& a : v.annotations) {
         auto num = [&]() -> double {
           if (a.type.is_floating_point()) return a.value.as_float[0];
-          if (a.type.is_integral()) return a.type.is_signed() ? a.value.as_int[0] : a.value.as_uint[0];
+          // Each side as double: int and uint in one ?: are both taken as uint, and ui_min = -1 became 4294967295
+          // (the range [1, 4.29e9] for ui_min = -1; ui_max = 1 on a float uniform, 2026-11-13).
+          if (a.type.is_integral()) return a.type.is_signed() ? double(a.value.as_int[0]) : double(a.value.as_uint[0]);
           return NAN;
         };
         if (a.name == "ui_min") lo = num();

@@ -1086,6 +1086,24 @@ TEST(fx_namespace) {
 }
 
 
+// ui_min = -1 written as a whole number on a float uniform: read as uint it was 4294967295, the range [1, 4.29e9].
+TEST(fx_ui_range_negative_int) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_uirange.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* r = regionOn(regions, 6);
+  CHECK(r != nullptr);
+  if (!r) return;
+  const int a = inputNamed(*r, "OffA"), b = inputNamed(*r, "OffB");
+  CHECK(a >= 0 && r->prog.inputs[a].lo == -1.0 && r->prog.inputs[a].hi == 1.0);
+  CHECK(b >= 0 && r->prog.inputs[b].lo == -2.0 && r->prog.inputs[b].hi == 3.0);
+}
+
 // Budgets from the output: a value half of which reaches an 8-bit output may be off by a quarter of the output's share
 // (1/8 code). Not through math that repeats (a triangle wave is the same at v + 1/64, + 1, + 64: the budget was 64 and
 // 0.0 passed, 2026-11-13), and not in a shader with a discard (what decides it is not in the returned value: 0.25).
