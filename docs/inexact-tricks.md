@@ -53,7 +53,10 @@ Intel = Gen9 / 9.5 iGPUs, AMD = the rdna3 model from RGA).
   mirrored for x < 0; max error 6.8e-5 rad (as stated). **fxc already writes `acos` / `asin` exactly this way** (the
   same four coefficients, checked with Microsoft's fxc -O3, ps_5_0), in Horner form with two multiplies fewer than the
   library's x2 / x3 form: no gain on DX10-12. On Vulkan / OpenGL ReShade emits GLSL.std.450 Acos and the driver decides;
-  whether the polynomial is faster there needs a measurement.
+  whether the polynomial is faster there needs a measurement. **sopt builds acos / asin / atan / atan2 / float `%` as
+  fxc writes them**, so its variants of such statements hold where fxc compiled the shader only: ReShade FX variants
+  carry `__RENDERER__ < 0x10000` (and are no easy pick), plain HLSL is fxc's, GLSL regions with them are skipped
+  (2026-11-13).
 - `atanFast4 = x * (1.0301 - 0.1784|x| - 0.0663x^2)`: max error **1.5e-3 rad** on [-1, 1] (the library says 7e-5, 20x
   less), and **only valid for |x| <= 1** (atan4(2) = 0.82 vs 1.11, atan4(10) = -73.8). fxc's `atan` covers the whole
   range (range reduction with a divide, a 4-term polynomial, ~1e-5 rad) at ~13 instructions.

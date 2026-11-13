@@ -1383,6 +1383,12 @@ class Extractor {
   std::unordered_map<uint32_t, uint32_t> built_;
   std::unordered_set<uint32_t> collected_;  // collect(): values seen in this scope
   bool usesPow_ = false;
+  bool fxcMath_ = false;  // see fxcOnly
+  void fxcOnly(const std::string& name);
+  bool idOnlyVar(uint32_t var, std::unordered_set<uint32_t>& seen, const std::string& member = {});
+  bool idOnlyStore(const Statement& s, std::unordered_set<uint32_t>& seen, bool condsOnly = false);
+  bool idOnlyValue(uint32_t id, std::unordered_set<uint32_t>& seen);
+  Range inputConvention(const Function& ps, const std::string& semantic);
   // The region clamps or compares (saturate, clamp, step, a comparison): its code checks ranges itself, so a name's
   // guess is no likely range here (2026-10-31: inside_screen(tuv), all(saturate(uv - uv * uv)), was "simplified" on a
   // likely [0, 1] for tuv, the very range it tests).
@@ -2623,6 +2629,7 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
         case tokenid::percent: case tokenid::percent_equal: {  // float x % y: HLSL fmod, as fxc writes it
           uint32_t a[2] = {build(v.args[0], b), build(v.args[1], b)};
           scalarizeConstants(a, 2, b);
+          fxcOnly("fmod");
           r = buildSugarCall(b, "fmod", a, 2);
           built_[memo] = r;
           return r;
@@ -2740,6 +2747,7 @@ uint32_t Extractor::build(uint32_t id, ExprBuilder& b) {
       if (isSugarCall(v.name, v.args.size())) {
         uint32_t a[2] = {0, 0};
         for (size_t k = 0; k < v.args.size(); ++k) a[k] = build(v.args[k], b);
+        fxcOnly(v.name);
         r = buildSugarCall(b, v.name, a, v.args.size());
         break;
       }
@@ -3460,7 +3468,7 @@ Range Extractor::varRangeRaw(uint32_t var, uint32_t seq, uint32_t block) {
         // semantic's convention.
         if (f->type == reshadefx::shader_type::pixel) {
           const Range r = pixelInputRange(*f, sem);
-          return r.known ? r : semanticConvention(sem, opt_.maxWidth);
+          return r.known ? r : inputConvention(*f, sem);
         }
         // Helper function parameter: union over the call sites.
         if (!varBusy_.insert(var).second) return Range::unknown();
@@ -3677,6 +3685,15 @@ Range Extractor::pixelInputRange(const Function& ps, const std::string& semantic
   return any ? r : Range::unknown();
 }
 
+// acos / asin / atan / atan2 / float % are built as fxc writes them (buildSugarCall): what runs where fxc compiled the
+// shader (DirectX, plain HLSL). On Vulkan / OpenGL the driver's own function runs, up to 6.8e-5 from fxc's polynomial:
+// ReShade FX variants get a DirectX-only guard, GLSL has no such region (owner, 2026-11-13).
+void Extractor::fxcOnly(const std::string& name) {
+  if (name != "asin" && name != "acos" && name != "atan" && name != "atan2" && name != "fmod") return;
+  if (fx_.glsl) throw Unsupported("intrinsic " + name + " (the driver's own function in GLSL)");
+  fxcMath_ = true;
+}
+
 // Ranges that semantics imply for pixel shader inputs: SV_Position is in pixels;
 // TEXCOORD0..9 are texture coordinates by convention (programmers name them so), [0, 1].
 Range semanticConvention(const std::string& semantic, double maxWidth) {
@@ -3684,6 +3701,107 @@ Range semanticConvention(const std::string& semantic, double maxWidth) {
   if (key == "SV_POSITION0" || key == "VPOS0") return Range::of(0, maxWidth, "SV_Position (pixels, up to --max-width)");
   if (key.rfind("TEXCOORD", 0) == 0) return Range::of(0, 1, "TEXCOORD semantic (convention)");
   return Range::unknown();
+}
+
+// A pixel shader input no vertex shader gives a range: the semantic's convention. For TEXCOORD only where nothing says
+// otherwise: plain HLSL / GLSL (no passes), or what the vertex shaders drawing it write there depends on the vertex
+// number alone (one fixed shape: the full-screen triangle). A value computed from uniforms can be anything
+// (CRT-Royale: a frequency factor in TEXCOORD1; owner, 2026-11-13).
+Range Extractor::inputConvention(const Function& ps, const std::string& semantic) {
+  const Range c = semanticConvention(semantic, opt_.maxWidth);
+  const std::string key = semanticKey(semantic);
+  if (!c.known || fx_.hlsl || key.rfind("TEXCOORD", 0) != 0) return c;
+  for (const auto& t : cg_.mod().techniques)
+    for (const auto& pass : t.passes) {
+      if (pass.ps_entry_point != ps.uniqueName) continue;
+      const Function* vs = cg_.function(pass.vs_entry_point);
+      if (!vs) return Range::unknown();
+      std::unordered_set<uint32_t> seen;
+      // Its out parameters with the semantic (or structs: their member with it), and what it returns.
+      for (const uint32_t p : vs->params) {
+        const Variable& pv = cg_.variables.at(p);
+        if (pv.type.has(reshadefx::type::q_out) && (pv.type.is_struct() || semanticKey(pv.semantic) == key) &&
+            !idOnlyVar(p, seen, key))
+          return Range::unknown();
+      }
+      if (vs->returnType.is_struct() || (!vs->returnSemantic.empty() && semanticKey(vs->returnSemantic) == key))
+        for (const Statement& s : vs->stmts) {
+          if (s.kind != Statement::Kind::Return) continue;
+          const auto rv = cg_.values.find(s.value);
+          const bool whole = rv != cg_.values.end() && rv->second.kind == Value::Kind::Load && rv->second.chain.empty();
+          if (whole ? !idOnlyVar(rv->second.base, seen, key) || !idOnlyStore(s, seen, true) : !idOnlyStore(s, seen))
+            return Range::unknown();
+        }
+    }
+  return c;
+}
+
+// Whether a vertex shader's variable depends on the vertex number alone: every store to it, the conditions it is
+// stored under and the variables those read, through calls; no uniform, texture, definition or other input. Loops
+// and switches (conditions unknown): no. member: of a struct, only the stores to the member with this semantic.
+bool Extractor::idOnlyVar(uint32_t var, std::unordered_set<uint32_t>& seen, const std::string& member) {
+  if (!seen.insert(var).second) return true;
+  const auto vi = cg_.variables.find(var);  // not a variable: a sampler or storage
+  if (vi == cg_.variables.end() || vi->second.kind == Variable::Kind::Uniform || isSymbolic(var)) return false;
+  const Variable& v = vi->second;
+  if (v.kind == Variable::Kind::Global)
+    return v.type.has(reshadefx::type::q_const) && v.initializer && idOnlyValue(v.initializer, seen);
+  if (v.kind == Variable::Kind::Param && !outOnly(v)) {
+    // An entry point's input: the vertex number only. A helper's parameter: what its callers pass.
+    const auto pf = paramOf_.find(var);
+    if (pf == paramOf_.end()) return false;
+    const Function* f = pf->second;
+    if (f->type != reshadefx::shader_type::unknown) {
+      if (semanticKey(v.semantic) != "SV_VERTEXID0") return false;
+    } else {
+      const size_t index = std::find(f->params.begin(), f->params.end(), var) - f->params.begin();
+      for (const auto& [id, x] : cg_.values)
+        if (x.kind == Value::Kind::Call && cg_.function(x) == f && (index >= x.args.size() || !idOnlyValue(x.args[index], seen)))
+          return false;
+    }
+  }
+  // After a call that takes it as out / inout: what the callee stores to that parameter.
+  if (const auto oa = outArgOf_.find(var);
+      oa != outArgOf_.end() && !idOnlyVar(oa->second.callee->params[oa->second.index], seen))
+    return false;
+  using O = reshadefx::expression::operation;
+  if (const auto d = defs_.find(var); d != defs_.end())
+    for (const Statement* s : d->second) {
+      if (!member.empty() && !s->chain.empty() && s->chain[0].op == O::op_member &&
+          semanticKey(cg_.structMemberSemantic(s->chain[0].from.struct_definition, s->chain[0].index)) != member)
+        continue;
+      if (!idOnlyStore(*s, seen)) return false;
+    }
+  return true;
+}
+
+bool Extractor::idOnlyStore(const Statement& s, std::unordered_set<uint32_t>& seen, bool condsOnly) {
+  if (!condsOnly && !idOnlyValue(s.value, seen)) return false;
+  const auto c = cg_.blockConds.find(s.block);
+  if (c == cg_.blockConds.end()) return false;
+  for (const uint32_t cond : c->second)
+    if (!cond || !idOnlyValue(cond & ~kCondFalse, seen)) return false;
+  return true;
+}
+
+bool Extractor::idOnlyValue(uint32_t id, std::unordered_set<uint32_t>& seen) {
+  if (cg_.variables.count(id)) return idOnlyVar(id, seen);  // a call's argument: ReShade's copy of it
+  if (!seen.insert(id).second) return true;
+  const auto it = cg_.values.find(id);
+  if (it == cg_.values.end()) return false;
+  const Value& x = it->second;
+  if (x.kind == Value::Kind::Const) return true;
+  if (x.kind == Value::Kind::Chain) return idOnlyValue(x.base, seen);
+  if (x.kind == Value::Kind::Load) return idOnlyVar(x.base, seen);
+  if (x.kind == Value::Kind::Call) {  // its result: what it returns
+    const Function* g = cg_.function(x);
+    if (!g) return false;
+    for (const Statement& s : g->stmts)
+      if (s.kind == Statement::Kind::Return && !idOnlyStore(s, seen)) return false;
+  }
+  for (const uint32_t a : x.args)
+    if (!idOnlyValue(a, seen)) return false;
+  return true;
 }
 
 // How the value stored by a statement is used: in comparisons, as texture coordinates,
@@ -3954,12 +4072,12 @@ std::string Extractor::outDownstream(const Function& f, const Statement& s, OutD
     // A discard in the shader or anything it calls: the value may decide it, and the returned value does not show that
     // (float m = v * 2.0 - 1.0; if (m < 0.0) discard; gave v a budget of 0.25, 2026-11-13).
     {
-      std::set<std::string> done;
+      std::set<const Function*> done;  // by function: overloads share their unique name
       std::vector<const Function*> walk{&ps};
       while (!walk.empty()) {
         const Function* g = walk.back();
         walk.pop_back();
-        if (!done.insert(g->uniqueName).second) continue;
+        if (!done.insert(g).second) continue;
         if (g->discards) return "discard";
         for (const auto& F : cg_.functions)
           if (std::find(g->calls.begin(), g->calls.end(), F->uniqueName) != g->calls.end()) walk.push_back(F.get());
@@ -4563,6 +4681,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   built_.clear();
   collected_.clear();
   usesPow_ = false;
+  fxcMath_ = false;
   clamps_ = false;
   reg.prog.inputs.clear();
   reg.facts.clear();
@@ -4646,7 +4765,7 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
                    : kv == cg_.variables.end() ? 3
                    : kv->second.kind == Variable::Kind::Uniform ? 0
                    : kv->second.kind == Variable::Kind::Param ? 1 : 3;
-      if (!r.known && !l.semantic.empty()) r = semanticConvention(l.semantic, opt_.maxWidth);
+      if (!r.known && !l.semantic.empty()) r = inputConvention(*paramOf_.at(l.var), l.semantic);
       if (!r.known || r.assumed) {
         const auto u = opt_.userRanges ? opt_.userRanges->find(fact.key) : UserRanges::const_iterator();
         if (opt_.userRanges && u != opt_.userRanges->end()) {
@@ -4730,6 +4849,11 @@ bool Extractor::buildRegion(const Statement& s, Region& reg, std::string& why) {
   for (const auto& d : reg.prog.inputs) runtime = runtime || !d.compileTime;
   if (!runtime) { why = "compile-time constant expression"; return false; }
   reg.prog.half = tlSawHalf;
+  // ReShade FX: only where fxc compiled the effect (see fxcOnly); a guarded region is no easy pick either.
+  if (fxcMath_ && !fx_.hlsl) {
+    const std::string g = "__RENDERER__ < 0x10000";
+    reg.guard = reg.guard.empty() ? g : "(" + reg.guard + ") && (" + g + ")";
+  }
   return true;
 }
 

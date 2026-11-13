@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <set>
 
 #include "fx/codegen.hpp"
@@ -81,6 +82,13 @@ std::optional<SourceRewrite> zeroGuard(const Effect& fx, const Function& ps, con
   auto zeroSource = [&](const InputDecl& s) -> std::string {
     if (s.rate != InputDecl::Rate::Uniform || s.compileTime || !plainName(s.name)) return {};
     if (scalarUniform(s)) return s.name;
+    // Stored once: a later store (coef = coef + Offset) is not in its first statement's region.
+    size_t stores = 0;
+    for (const auto& t : ps.stmts) {
+      const auto tv = t.kind == Statement::Kind::Init || t.kind == Statement::Kind::Store ? cg.variables.find(t.var) : cg.variables.end();
+      stores += tv != cg.variables.end() && tv->second.name == s.name;
+    }
+    if (stores != 1) return {};
     for (const Region& d : regions) {
       const std::string lhs = trim(d.lhs);
       const std::string end = " " + s.name + " =";
@@ -199,6 +207,17 @@ std::vector<SourceRewrite> zeroGuardRewrites(const Effect& fx, const RegionOptio
     if (et != cg.entryPoints.end() && et->second == reshadefx::shader_type::pixel && !called.count(f->uniqueName))
       shaders.push_back(f.get());
   }
+  // Not a shader that can discard (itself or a helper): the skipped work may hold the discard.
+  std::set<const Function*> seen;
+  std::function<bool(const Function*)> discards = [&](const Function* f) {
+    if (!f || !seen.insert(f).second) return false;
+    if (f->discards) return true;
+    for (const auto& g : cg.functions)  // every overload of a called name (they share the unique name)
+      if (std::find(f->calls.begin(), f->calls.end(), g->uniqueName) != f->calls.end() && discards(g.get())) return true;
+    return false;
+  };
+  shaders.erase(std::remove_if(shaders.begin(), shaders.end(), [&](const Function* f) { seen.clear(); return discards(f); }),
+                shaders.end());
   if (shaders.empty()) return out;
   // The output statement's region, down to one operation (lerp(color, effect, Strength)).
   RegionOptions ro = opt;

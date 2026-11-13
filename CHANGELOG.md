@@ -10,6 +10,10 @@ docs/notes/history.md.
 ### SweetOpt
 - **Fixed:** a setting whose lowest value is negative and written as a whole number (for example -1 to 1) was read with the wrong range, so changes that use it were checked on the wrong values.
 - **Fixed:** in three cases a faster version could change the picture: shaders that throw pixels away, repeating patterns such as stripes and grids, and helper functions used several times (as in edge detection).
+- **Fixed:** a faster version of math with `acos`, `asin`, `atan`, `atan2` or `%` could be slightly off on Vulkan and OpenGL, where the graphics driver works these out in its own way. Such changes are now used on DirectX only and are left out of easy mode. In GLSL shaders this math is left alone.
+- **Fixed:** SweetOpt took every value a vertex shader hands to the pixel shader as a screen coordinate between 0 and 1. A value worked out from a setting can be anything, so changes that use one now wait for a known range.
+- **Fixed:** the change that skips an effect's work while its strength is 0 could also skip throwing pixels away, or miss that the strength is changed again further down.
+- **Fixed:** moving the final blend to the graphics card's blend stage was offered for passes that clear the screen first, which leaves nothing to blend with.
 - **Fixed:** a faster version could leave out a small noise or film grain effect that is added on top of a bigger value. SweetOpt now spots noise inside a calculation, not only when the whole calculation is noise.
 - **Faster whole-number division:** where a shader divides whole numbers that can never be negative, SweetOpt now offers a cheaper version with exactly the same result.
 - **Looks harder at small pieces of math:** SweetOpt now also tries the parts of a calculation when it has time left, and finds cheaper versions it used to miss.

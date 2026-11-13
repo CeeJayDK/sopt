@@ -280,10 +280,10 @@ TEST(fx_semantic_ranges) {
   auto [t, ft] = input(24, "i.tint.xyz");
   CHECK(ft.assumed && ft.suggestLo == 0.0 && ft.suggestHi == 1.0);
   CHECK(ft.suggestWhy.find("COLOR") != std::string::npos);
-  // The vertex shader adds a uniform without a range: its output is unknown, so the
-  // TEXCOORD convention applies; SV_Position is in pixels.
+  // The vertex shader adds a uniform without a range: its output is unknown, and no convention
+  // applies to a value computed from a uniform (2026-11-13); SV_Position is in pixels.
   auto [b, fb] = input(36, "uv");
-  CHECK(b.lo == 0.0 && b.hi == 1.0 && fb.source == "TEXCOORD semantic (convention)");
+  CHECK(fb.assumed && fb.source != "TEXCOORD semantic (convention)");
   auto [p, fp] = input(37, "vpos.x");
   CHECK(p.lo == 0.0 && p.hi == 7680.0 && !fp.assumed);
 }
@@ -1110,6 +1110,35 @@ TEST(fx_ui_range_negative_int) {
   CHECK(u >= 0 && c->prog.inputs[u].lo == 0.0 && c->prog.inputs[u].hi > 4e9);
 }
 
+// TEXCOORD is [0, 1] by convention only where what the vertex shader writes there depends on the vertex number alone
+// (also through a helper, and per member of a struct): a value computed from a uniform has no known range. And
+// acos / % are built as fxc writes them: those regions are for DirectX only (the driver's own function elsewhere).
+TEST(fx_texcoord_convention_and_fxc_math) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_texcoord.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  auto assumed = [](const fx::Region& r, const char* name) {
+    for (const auto& f : r.facts)
+      if (f.input == name) return f.assumed ? 1 : 0;
+    return -1;
+  };
+  const fx::Region *id = regionOn(regions, 30), *zoom = regionOn(regions, 35), *st = regionOn(regions, 40);
+  CHECK(id && zoom && st);
+  if (!id || !zoom || !st) return;
+  CHECK(assumed(*id, "bits") == 0 && assumed(*id, "uv.x") == 0);
+  CHECK(assumed(*zoom, "scaled") == 1 && assumed(*zoom, "uv.x") == 0);
+  CHECK(assumed(*st, "i.k") == 1 && assumed(*st, "i.uv.x") == 0);
+  const fx::Region *ac = regionOn(regions, 45), *mod = regionOn(regions, 46), *sn = regionOn(regions, 47);
+  CHECK(ac && mod && sn);
+  if (!ac || !mod || !sn) return;
+  CHECK(ac->guard == "__RENDERER__ < 0x10000" && mod->guard == ac->guard && sn->guard.empty());
+}
+
 // Budgets from the output: a value half of which reaches an 8-bit output may be off by a quarter of the output's share
 // (1/8 code). Not through math that repeats (a triangle wave is the same at v + 1/64, + 1, + 64: the budget was 64 and
 // 0.0 passed, 2026-11-13), and not in a shader with a discard (what decides it is not in the returned value: 0.25).
@@ -1434,7 +1463,8 @@ TEST(fx_hlsl_glsl_extras) {
     if (inv->prog.inputs[k].name == "base_dimension_i.x")
       CHECK(inv->facts[k].likely && inv->prog.inputs[k].lo > 0.0 && inv->prog.inputs[k].hi == 1.0);
   const auto g = regionsOf("sopt_extras.frag", true);
-  for (uint32_t line : {13u, 14u, 15u, 16u}) CHECK(regionOn(g, line) != nullptr);  // asinh, acosh, atanh, atan(x)
+  for (uint32_t line : {13u, 14u, 15u}) CHECK(regionOn(g, line) != nullptr);  // asinh, acosh, atanh
+  CHECK(regionOn(g, 16) == nullptr);  // atan(x): the driver's own function in GLSL, not fxc's polynomial
   // A Vulkan GLSL compute shader as FFmpeg writes them: sampler / image arrays, push constants, buffers, shared,
   // specialization constants, matrix products, vector ==, length(), imageStore, gl_GlobalInvocationID.
   CHECK(regionOn(regionsOf("sopt_compute.glsl", true), 40) != nullptr);
@@ -1597,7 +1627,8 @@ TEST(fx_setting_paths) {
 }
 TEST(fx_zero_guard) {
   // A uniform at 0 that leaves the output an earlier value: if (S == 0.0) return it, right after its last store (line
-  // 10); one that does not (Gain: black at 0) gets none (2026-10-28).
+  // 10); one that does not (Gain: black at 0) gets none (2026-10-28). Nor a local stored again after its first
+  // statement (k = Strength * 2.0; k = k + Gain), nor a shader whose helper discards (2026-11-13).
   std::string err;
   auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_zeroguard.fx", fx::LoadOptions(), err);
   CHECK(e != nullptr);

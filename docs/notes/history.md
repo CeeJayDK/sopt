@@ -3046,3 +3046,33 @@ Owner's go. Classic rewrite (intDivRewrites in fx/classic.cpp, switch U, D3D10+ 
 Corpus count (run 42533622065, generated copies, not source lines): 4270 integer divisions, of which 3393 are one CONST_LOG2 macro over BUFFER_WIDTH on 22 lines of one package (compile time). --skips now reports the dividend as compile-time, proven or unknown.
 --parts-always vs defaults at 5 s, 7 packages, one run each: written 6 wins (-58), 1 loss (+2); needs ranges 5 wins (-15), 2 losses (+13). At 1 s, full corpus: 0 wins, 4 losses of 1, time +0.6%. Default since 2026-11-09 (--no-parts-always).
 int to uint, first corpus run: dh_uber_rt.fx failed the variant check (uint2(scalar) does not parse in FX mode: X3014, the variant check drops such a rewrite, so it was missing from the report). Fixed: lines with a macro are skipped, operands keep their written size. The check run also counted int2(BUFFER_WIDTH, BUFFER_HEIGHT) as run-time; constructors of constants are compile-time now.
+
+## Whole-code review, part 2 (2026-11-13, owner's go on both decisions)
+
+Decisions (owner): (1) TEXCOORD is [0, 1] by convention only where what the vertex shader writes there depends on the
+vertex number alone; (2) acos / asin / atan / atan2 / float % variants for DirectX only, not in easy mode; plain HLSL
+keeps them (fxc compiles it).
+- (1) `inputConvention` / `idOnlyVar` / `idOnlyStore` / `idOnlyValue` in frontend.cpp: per output (out parameter, struct
+  member by its semantic, returned struct), through helper calls (out arguments, return values), conditions included;
+  a uniform, a definition (BUFFER_WIDTH), a texture, a loop or a switch: no convention, the input is unknown (assumed,
+  or likely by its name). Plain HLSL / GLSL have no passes: convention as before. Known limit: an output that depends
+  on the vertex number alone but is not a coordinate (uv * 2 - 1 from bit tricks, where the range analysis gives up)
+  still gets [0, 1].
+- (2) `fxcOnly`: the region's guard gets `__RENDERER__ < 0x10000` (easyPicks and the zero guard, blend and hoist
+  rewrites already leave guarded regions alone). GLSL mode built acos / atan(y, x) as fxc's polynomial too, where it is
+  always the driver's function: skipped now ("intrinsic acos (the driver's own function in GLSL)"). GLSL mod() is its
+  own definition (x - y * floor(x / y)), unchanged.
+Bugs found reading guard.cpp and blend.cpp, each reproduced with a small effect first:
+- Zero guard, helper with a discard: `float3 fx = Tone(color, uv); color = lerp(color, fx, Strength);` with a discard
+  inside Tone got `if (Strength == 0.0) return color;` before the call: at 0 the pixels were no longer thrown away. A
+  discard in the shader itself was safe only by accident (the if around it starts a new block). Now: no zero guard in a
+  shader that can discard (itself or a helper).
+- Zero guard, local stored twice: `float coef = Strength * 2.0; ... coef = coef + Offset; color = lerp(color, fx, coef);`
+  got `if (Strength == 0.0) return color;` (the local's first statement is 0 at Strength 0, the later store was not
+  looked at). Now the local must be stored once.
+- Blend rewrite with `ClearRenderTargets = true` on a back buffer pass: ReShade clears the back buffer too
+  (runtime.cpp: load_op clear for every target), so the blend unit would blend with the cleared target while the
+  shader read the copy. Refused now. Not reproduced in ReShade, read from its source.
+Read, nothing found: classic.cpp (table rewrite, select tree, int to uint text handling), CallScope (stores folded
+into selects, early returns), subtrees.cpp / cuts.cpp (their candidates go through the driver's checks as a whole;
+the cut's sampled range is only a search aid).

@@ -126,6 +126,10 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 - `precise` regions keep float semantics. Variants that rely on `precise` are never written (`needsPrecise`): drivers
   cancel `(x + c) - c` even then on some card and API pairs (2026-11-03, docs/inexact-tricks.md).
 - Variants of regions with assumed (unproven) ranges are not written; facts files / `--ask` supply ranges.
+- acos / asin / atan / atan2 / float % are built as fxc writes them: their ReShade FX variants are DirectX-only
+  (`fxcOnly`: guard `__RENDERER__ < 0x10000`, no easy pick), GLSL regions with them are skipped (owner, 2026-11-13).
+- TEXCOORD is [0, 1] by convention only where what the vertex shader writes depends on the vertex number alone
+  (`inputConvention`; plain HLSL / GLSL: always, there are no passes).
 
 ## Facts worth keeping in mind
 - Cost models (all from OpBench, docs/opbench): nvidia-ampere (default since 2026-10-10: largest Steam group), rdna3 (RX 7900 GRE), amd-rdna2, amd-rdna4, amd-gcn5, amd-gcn4,
