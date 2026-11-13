@@ -3139,6 +3139,20 @@ Range Extractor::range(uint32_t id) {
                               op.from.is_floating_point());
   if (r.known && truncates && (std::floor(r.lo) != r.lo || std::ceil(r.hi) != r.hi))
     r = derived(std::floor(r.lo), std::ceil(r.hi), {&r});
+  // Casts that do not keep the value: to bool (0 or 1), a negative number to uint (a float gives 0, an int wraps), a
+  // uint above the largest int to int (uint u = uint(Shift), Shift from -4 to 4, kept [-4, 4], 2026-11-13).
+  for (const auto& op : v.chain) {
+    if (op.op != reshadefx::expression::operation::op_cast || !r.known) continue;
+    const Range x = r;
+    if (op.to.is_boolean() && !op.from.is_boolean()) {
+      r = derived(0, 1, {&x});
+      r.grid = 1;
+    } else if (op.to.base == reshadefx::type::t_uint && x.lo < 0) {
+      r = op.from.is_floating_point() ? derived(0, std::max(x.hi, 0.0), {&x}) : derived(0, 4294967295.0, {&x});
+    } else if (op.to.base == reshadefx::type::t_int && op.from.base == reshadefx::type::t_uint && x.hi > 2147483647.0) {
+      r = derived(-2147483648.0, 2147483647.0, {&x});
+    }
+  }
   memo[id] = r;
   return r;
 }
@@ -3631,7 +3645,8 @@ Range Extractor::outParamRange(const Function& g, size_t index) {
     return Range::of(0, 1, "TEXCOORD from PostProcessVS");
   // All its definitions (the end of the function is after all of them).
   Range r = varRange(p, UINT32_MAX, UINT32_MAX);
-  if (r.known && r.why != "constant") r.why = "vertex shader " + g.name;
+  if (r.known && r.why != "constant")
+    r.why = (g.type == reshadefx::shader_type::vertex ? "vertex shader " : "out parameter of ") + g.name;
   return r;
 }
 

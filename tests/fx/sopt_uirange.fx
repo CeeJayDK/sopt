@@ -6,5 +6,12 @@ float4 UiPS(float4 vpos : SV_Position, float2 uv : TEXCOORD) : SV_Target
 	float y = uv.y * OffA + OffB * 0.25;
 	return float4(y, y, y, 1.0);
 }
+uniform int Shift < ui_type = "slider"; ui_min = -4; ui_max = 4; > = 0;
+float4 CastPS(float4 vpos : SV_Position, float2 uv : TEXCOORD) : SV_Target
+{
+	uint u = uint(Shift);
+	float a = float(u) * 0.001 + uv.x * 0.5;
+	return float4(a, a, a, 1.0);
+}
 
-technique UiRange { pass { VertexShader = UiVS; PixelShader = UiPS; } }
+technique UiRange { pass { VertexShader = UiVS; PixelShader = UiPS; } pass { VertexShader = UiVS; PixelShader = CastPS; } }

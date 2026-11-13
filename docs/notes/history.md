@@ -2979,6 +2979,15 @@ noise_parts_skip_integers; output budgets had no test before):
   uint, so both sides are uint: ui_min = -1; ui_max = 1 on a float uniform gave the range [1, 4.29e9] (CRT-Royale's
   phosphor_offset_x; the "derived" [0.5, 2.15e9] of center_offsets_x), a negative int constant 4.29e9. Every region
   reading such a uniform was verified on the wrong values. Fix: each side as double; test fx_ui_range_negative_int.
+- Casts in ranges: a chain's cast kept the source range. uint u = uint(Shift), Shift from -4 to 4, stayed [-4, 4] (a
+  negative int wraps to 4.29e9). Fix: to bool = 0 or 1, a negative float to uint = 0, a negative int to uint = the whole
+  uint range, a uint above INT_MAX to int = the whole int range. An out parameter of a helper was labelled "vertex shader".
+  Tested fine: ranges after inout / out calls, loop-carried variables (assumed), int counters.
+Open, the owner's call (2): acos / asin / atan / atan2 / float % are built as fxc writes them (polynomials, frac form).
+  A variant of such a region prints that expansion, with no API condition: on Vulkan / OpenGL the original is the
+  driver's own acos (GLSL.std.450), so the variant is fxc's polynomial there, up to 6.8e-5 rad from the original while
+  listed "within budget" (rel 1e-6). ac1.fx: acos(uv.x) * K + .. -> mad(K, mad(sqrt(1.0 - abs(uv.x)), mad(abs(uv.x), ..
+  Suggested: such regions' variants only while __RENDERER__ < 0x10000 (the region's guard), none in easy mode.
 Corpus with the six fixes (43358036217) vs before them (43326705987): written 2412 -> 2402, saved 46722 -> 45499, 678
 min. Written: 45 better (234) / 39 worse (1533), and the worse ones are what the fixes were for: variants written
 before under an output budget of 4096, e.g. FilmGrain2.fx:65 / 72 / 79 / 86 and PD80_06_Film_Grain.fx:230.. (Perlin

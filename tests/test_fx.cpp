@@ -1102,6 +1102,12 @@ TEST(fx_ui_range_negative_int) {
   const int a = inputNamed(*r, "OffA"), b = inputNamed(*r, "OffB");
   CHECK(a >= 0 && r->prog.inputs[a].lo == -1.0 && r->prog.inputs[a].hi == 1.0);
   CHECK(b >= 0 && r->prog.inputs[b].lo == -2.0 && r->prog.inputs[b].hi == 3.0);
+  // A negative int cast to uint wraps: uint(Shift), Shift from -4 to 4, kept [-4, 4].
+  const fx::Region* c = regionOn(regions, 13);
+  CHECK(c != nullptr);
+  if (!c) return;
+  const int u = inputNamed(*c, "float(u)");
+  CHECK(u >= 0 && c->prog.inputs[u].lo == 0.0 && c->prog.inputs[u].hi > 4e9);
 }
 
 // Budgets from the output: a value half of which reaches an 8-bit output may be off by a quarter of the output's share
