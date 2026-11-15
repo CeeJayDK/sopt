@@ -14,6 +14,7 @@ docs/notes/history.md.
 - **Fixed:** SweetOpt took every value a vertex shader hands to the pixel shader as a screen coordinate between 0 and 1. A value worked out from a setting can be anything, so changes that use one now wait for a known range.
 - **Fixed:** the change that skips an effect's work while its strength is 0 could also skip throwing pixels away, or miss that the strength is changed again further down.
 - **Fixed:** moving the final blend to the graphics card's blend stage was offered for passes that clear the screen first, which leaves nothing to blend with.
+- **Fixed:** for a helper function that gets values back from another helper, SweetOpt could write a change that does not compile. It noticed, reported an error and dropped the change; now it leaves that line alone from the start.
 - **Fixed:** a faster version could leave out a small noise or film grain effect that is added on top of a bigger value. SweetOpt now spots noise inside a calculation, not only when the whole calculation is noise.
 - **Faster whole-number division:** where a shader divides whole numbers that can never be negative, SweetOpt now offers a cheaper version with exactly the same result.
 - **Looks harder at small pieces of math:** SweetOpt now also tries the parts of a calculation when it has time left, and finds cheaper versions it used to miss.

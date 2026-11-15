@@ -1139,6 +1139,26 @@ TEST(fx_texcoord_convention_and_fxc_math) {
   CHECK(ac->guard == "__RENDERER__ < 0x10000" && mod->guard == ac->guard && sn->guard.empty());
 }
 
+// ReShade's nameless temporary for an out argument is no input: a helper seen through that calls another with out
+// arguments gave "float2(-.x, .y)" (SuperDepth3D, 2026-11-15). In the shader itself the variable has its name.
+TEST(fx_out_argument_temporaries) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_outarg.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  CHECK(!regions.empty());
+  for (const auto& r : regions)
+    for (const auto& d : r.prog.inputs) CHECK(!d.name.empty() && d.name[0] != '.' && d.name.rfind("__t", 0) != 0);
+  CHECK(regionOn(regions, 20) == nullptr);
+  const fx::Region* k = regionOn(regions, 29);
+  CHECK(k != nullptr);
+  if (k) CHECK(k->prog.inputs.size() == 2 && k->prog.inputs[0].name == "lr" && k->prog.inputs[1].name == "adj");
+}
+
 // Budgets from the output: a value half of which reaches an 8-bit output may be off by a quarter of the output's share
 // (1/8 code). Not through math that repeats (a triangle wave is the same at v + 1/64, + 1, + 64: the budget was 64 and
 // 0.0 passed, 2026-11-13), and not in a shader with a discard (what decides it is not in the returned value: 0.25).

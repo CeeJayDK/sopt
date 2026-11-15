@@ -1594,6 +1594,13 @@ Extractor::Leaf& Extractor::leafOf(const Value& v, size_t& vecStart) {
     t = op.to;
   }
   vecStart = i;
+  // ReShade's nameless temporary (an out argument of a call inside a helper seen through, 2026-11-15: SuperDepth3D's
+  // MW_Divergence gave "float2(-.x, .y)"): no text can name it. The output's math (never written) reads it under a
+  // name of its own: inputs are matched by name there (pointsFor), and two such temporaries are not the same value.
+  if (text.empty() || text[0] == '.' || text[0] == '[') {
+    if (!outValue_) throw Unsupported("ReShade's copy of a call argument");
+    text = "__t" + std::to_string(v.base) + text;
+  }
   // BUFFER_WIDTH / BUFFER_HEIGHT (int) converted to float: a float compile-time input.
   if (var->kind == Variable::Kind::Uniform && isSymbolic(v.base) && t.is_integral() && t.is_scalar() &&
       i < v.chain.size() && v.chain[i].op == reshadefx::expression::operation::op_cast &&

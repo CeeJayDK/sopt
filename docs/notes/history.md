@@ -3076,3 +3076,26 @@ Bugs found reading guard.cpp and blend.cpp, each reproduced with a small effect 
 Read, nothing found: classic.cpp (table rewrite, select tree, int to uint text handling), CallScope (stores folded
 into selects, early returns), subtrees.cpp / cuts.cpp (their candidates go through the driver's checks as a whole;
 the cut's sampled range is only a search aid).
+
+## Whole-code review, part 3 (2026-11-15)
+- Corpus 43498617378 (851829d, time 0.1) against 43358036217: written 2402 -> 2343, saved 45499 -> 44684. 44 of
+  the 59 are CRT-Royale (71 -> 27): its vertex shaders write TEXCOORDs from settings (bloom_sigma, geom_aspect,
+  viewport_frequency_factor; texcoord.x = use_deinterlacing_tex * 2, left_coord / right_coord), which had been
+  taken as [0, 1]. The owner's decision working as meant. Depth3D: the package itself changed (922 -> 876 regions).
+- The run failed on Depth3D: 90 of 105 variant checks did not parse. A helper seen through (MW_Divergence) calls
+  another with out arguments; the value it returns reads ReShade's nameless temporary for the out argument, which
+  became an input with an empty name ("float2(-.x, .y)"). The check dropped the two regions, so the written file
+  was fine, with exit 1. leafOf now refuses a nameless variable as an input ("ReShade's copy of a call argument");
+  the output's math (never written) names it "__t<id>", so two such temporaries stay two inputs there (pointsFor
+  matches inputs by name: both were "" before). tests/fx/sopt_outarg.fx. SuperDepth3D after: 874 regions, 0 of 105.
+- Read, nothing found: reshape.cpp (its forms are candidates the driver verifies). generalize.cpp, seen, not
+  changed: with five or more scalar constants that each have many matching expressions, the option product passes
+  20000 at the break and every combination is then filtered out (r.size() != options.size()), so the candidate is
+  dropped without trying its literals; padding the unfinished combinations with the literal would keep it. Not
+  seen in practice (matches within 2e-5 are rare for constants that do not come from the setting).
+- ReShade's source (owner's question): fxc at O0 to O3 gives identical DXBC on four shaders incl. a stress shader
+  (nested loops, break, branches, helpers), so the default level outside performance mode costs nothing. The back
+  buffer copy is made before a pass whether or not it samples the COLOR texture (tools/reshade/FEATURE-REQUESTS.md
+  item 4). Text scan of the 529 effects in ReShade's package list: about 5 never read the back buffer (solid
+  colour, checkerboard, letterbox, a test pattern), so it helps few effects as they are written; it matters for
+  what the blend-stage rewrite produces. One copy per effect remains the larger cost (two-texture ping-pong: notes).
