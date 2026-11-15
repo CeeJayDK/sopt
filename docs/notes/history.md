@@ -3099,3 +3099,16 @@ the cut's sampled range is only a search aid).
   item 4). Text scan of the 529 effects in ReShade's package list: about 5 never read the back buffer (solid
   colour, checkerboard, letterbox, a test pattern), so it helps few effects as they are written; it matters for
   what the blend-stage rewrite produces. One copy per effect remains the larger cost (two-texture ping-pong: notes).
+- Read (2026-11-15), small fixes: ir/parser.cpp parseProgram read past a short line's tokens ("input x": kw(3) on
+  three tokens; the usual error came out by luck in release builds), now bounds-checked, test parser_short_lines;
+  driverstats.cpp "# vendor:" with strtoul (stoul threw on a damaged line); isa.cpp quotes --asic in GLSL mode too.
+  Nothing found: library.cpp (its forms are candidates the driver verifies; conditions and pos() signs are sampled,
+  which is fine for that reason), backends.cpp, isa.cpp.
+- Found, not changed (a search change: owner's call): the library seed's cost (and a previous run's) becomes the
+  enumerator's starting bound once the form passes stage 2 (driver.cpp, cfg.seedBound) and is never withdrawn. When
+  that form then is not accepted (less accurate on V1, or fails another profile), the search still only looked below
+  it. Measured with a temporary counter over 4 packages (74 effects, 1720 regions searched, time 0.05, no parts): 827
+  runs started with such a bound; in 11 (1.3 %) no strictly accepted form was at or below it (8 ended above it, 249
+  cost units in total between bound and best; 3 ended with nothing). Fits open item 9 (another seed gives other
+  stage-2 points, so the seed may fail there and set no bound). Possible form, behind a flag: when nothing accepted
+  is at or below the starting bound, search once more without it.

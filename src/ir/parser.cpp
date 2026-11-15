@@ -462,7 +462,8 @@ Program parseProgram(std::string_view text) {
     auto err = [&](const std::string& msg) {
       throw ParseError("line " + std::to_string(line) + ": " + msg);
     };
-    auto kw = [&](size_t i, std::string_view s) { return t[i].kind != Tok::End && t[i].text == s; };
+    // A short line ("input x") has fewer tokens than the forms below look at.
+    auto kw = [&](size_t i, std::string_view s) { return i < t.size() && t[i].kind != Tok::End && t[i].text == s; };
     if (t[0].kind != Tok::Ident) err("expected statement");
 
     if (t[0].text == "input") {

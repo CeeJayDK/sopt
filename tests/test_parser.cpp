@@ -22,7 +22,27 @@ bool throws(const char* s) {
   return false;
 }
 
+bool programThrows(const char* s) {
+  try {
+    parseProgram(s);
+  } catch (const ParseError&) {
+    return true;
+  }
+  return false;
+}
+
 }  // namespace
+
+// Lines shorter than the statement forms are errors, not reads past the line's tokens.
+TEST(parser_short_lines) {
+  CHECK(programThrows("input\n"));
+  CHECK(programThrows("input x\n"));
+  CHECK(programThrows("input x :\n"));
+  CHECK(programThrows("input x : float in [0, 1]\noutput\n"));
+  CHECK(programThrows("input x : float in [0, 1]\noutput r = x\nbudget r :\n"));
+  CHECK(programThrows("input x : float in [0, 1]\noutput r = x\nbudget r : color8 maxdiff\n"));
+  CHECK(!programThrows("input x : float in [0, 1]\noutput r = x\nbudget r : color8\n"));
+}
 
 TEST(parser_roundtrip) {
   CHECK(roundtrip("1.0 - (1.0 - a) * (1.0 - b)") == "1.0 - (1.0 - a) * (1.0 - b)");
