@@ -93,6 +93,11 @@ struct RegionResult {
   double sec = 0.0;
 };
 
+// The same statement of a shared header as another effect reads it (`other`, with its scRGB inputs or none): its
+// variants serve both effects, so every input takes the widest range, and a range one of them does not know is not
+// known. False when the two read other math or another budget (the statement is then left alone).
+bool mergeShared(RegionResult& kept, const Region& other, const std::vector<InputDecl>& otherHdr);
+
 // Cost as the GPU compiler sees it: an add/sub over a single-use mul is contracted into
 // an fma anyway (free here instead of the model's fusedAdd), and swizzles and
 // constructors are free (register moves the compiler removes). Variants are kept only

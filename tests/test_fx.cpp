@@ -1397,6 +1397,64 @@ TEST(fx_include_from_subfolder) {
   }
 }
 
+TEST(fx_shared_header_ranges_of_every_effect) {
+  // A header's statement gets its ranges from the effect that calls it: a variant in the header serves every effect,
+  // so the ranges are merged (2026-11-16: the first effect's were used, Warp-FX's Blend(): 13 variants written or not
+  // by the order of the effects).
+  const fs::path root = fs::temp_directory_path() / "sopt-test-shared";
+  fs::create_directories(root);
+  std::ofstream(root / "shared.fxh") << "float3 Mix(float3 a, float3 b, float t)\n{\n"
+                                        "\treturn a * (1.0 - t) + b * t + a * t * 0.5;\n}\n";
+  auto effect = [&](const char* name, const char* t) {
+    std::ofstream(root / name) << "#include \"shared.fxh\"\n"
+                                  "uniform float Amount < ui_type = \"slider\"; ui_min = 0.0; ui_max = 1.0; > = 0.5;\n"
+                                  "texture T { Width = 256; Height = 256; Format = RGBA8; };\nsampler S { Texture = T; };\n"
+                                  "void VS(in uint id : SV_VertexID, out float4 pos : SV_Position, out float2 uv : TEXCOORD0)\n{\n"
+                                  "\tuv = float2(id == 2 ? 2.0 : 0.0, id == 1 ? 2.0 : 0.0);\n"
+                                  "\tpos = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);\n}\n"
+                                  "float4 PS(float4 vpos : SV_Position, float2 uv : TEXCOORD0) : SV_Target\n{\n"
+                                  "\tfloat3 c = tex2D(S, uv).rgb;\n\treturn float4(Mix(c, c.bgr, "
+                               << t << "), 1.0);\n}\ntechnique X { pass { VertexShader = VS; PixelShader = PS; } }\n";
+    std::string err;
+    auto e = fx::loadEffect(root / name, fx::LoadOptions(), err);
+    CHECK(e != nullptr);
+    fx::Region out;
+    if (!e) return out;
+    fx::SkipCount sk;
+    for (auto& r : fx::extractRegions(*e, nullptr, noLikely(), sk))
+      if (fs::path(r.file).filename() == "shared.fxh") out = std::move(r);
+    return out;
+  };
+  const fx::Region a = effect("a.fx", "Amount"), b = effect("b.fx", "Amount * 8.0 - 3.0");
+  auto tOf = [](const fx::Region& r) {
+    for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+      if (r.prog.inputs[k].name == "t") return k;
+    return size_t(0);
+  };
+  CHECK(!a.prog.inputs.empty() && a.prog.inputs.size() == b.prog.inputs.size());
+  if (a.prog.inputs.empty() || a.prog.inputs.size() != b.prog.inputs.size()) return;
+  const size_t t = tOf(a);
+  CHECK(a.prog.inputs[t].lo == 0.0 && a.prog.inputs[t].hi == 1.0);
+  CHECK(b.prog.inputs[t].lo == -3.0 && b.prog.inputs[t].hi == 5.0);
+  for (const auto& [first, second] : {std::make_pair(&a, &b), std::make_pair(&b, &a)}) {
+    fx::RegionResult rr;
+    rr.region = *first;
+    CHECK(fx::mergeShared(rr, *second, {}));
+    CHECK(rr.region.prog.inputs[t].lo == -3.0 && rr.region.prog.inputs[t].hi == 5.0 && !rr.region.facts[t].assumed);
+  }
+  // A range one effect does not know is not known; other math is no match.
+  fx::RegionResult rr;
+  rr.region = a;
+  fx::Region unknown = b;
+  unknown.facts[t].assumed = true;
+  CHECK(fx::mergeShared(rr, unknown, {}) && rr.region.facts[t].assumed);
+  fx::Region other = b;
+  other.prog.budget.kind = other.prog.budget.kind == Budget::Kind::Exact ? Budget::Kind::Rel : Budget::Kind::Exact;
+  CHECK(!fx::mergeShared(rr, other, {}));
+  std::error_code ec;
+  fs::remove_all(root, ec);
+}
+
 TEST(fx_pragma_once_one_spelling) {
   // a.fx includes h.fxh, and inc/b.fxh includes it through an include path: on Windows "Pack/h.fxh" and "Pack\h.fxh"
   // were two files to #pragma once, so h.fxh came twice ("redefinition", BFBFX's OpenRSF.fxh, 2026-10-25).

@@ -3113,7 +3113,7 @@ the cut's sampled range is only a search aid).
   stage-2 points, so the seed may fail there and set no bound). Possible form, behind a flag: when nothing accepted
   is at or below the starting bound, search once more without it.
 
-## --bound-recheck (2026-11-16, owner's go; off, corpus A/B pending)
+## --bound-recheck (2026-11-16, owner's go; off: corpus A/B inside the noise)
 - driver.cpp: at the end of the CEGIS loop, when the search started under a bound (cfg.seedBound) and no strictly
   accepted form is at or below it, the bound becomes the cheapest strictly accepted cost (none: no bound) and the
   loop runs once more (one extra iteration when it was the last); what was accepted stays a candidate. Counter
@@ -3127,6 +3127,34 @@ the cut's sampled range is only a search aid).
 - Related, found while reading enumerator.cpp, not changed: the enumerator's own hits lower its bound after
   plausible() (512 extra points, reference profile only). A hit that then fails under another profile
   (rejectedProfiles: no counterexample is added, so no restart) has pruned dearer answers in that run for good.
-  Checking the profiles in plausible() would close it at the source; not measured how often it happens.
+  Checking the profiles in plausible() would close it at the source. Measured with a temporary counter (4 packages,
+  74 effects, time 0.05, defaults; 8110 searches counting part searches and refine rounds): in 62 (0.8 %) a form
+  from the enumerator that passed stage 2 and was then rejected was cheaper than the cheapest strictly accepted form
+  (57 rejected by a profile, 5 by V1 / V2 in the last iteration; in 48 of the 62 nothing was accepted at all). An
+  upper bound: the enumerator keeps alternatives up to a slack above its bound, so not every one of them lost an
+  answer. Read, nothing found: hoist.cpp.
 - Read, nothing found: diskstore.cpp (a file that cannot be opened turns disk mode off), sass.cpp, the enumerator's
   setup (budgets, memory, packing), variants.cpp's writer and easy picks.
+- Corpus A/B (ecf9cf4, time 0.1; runs 43778080307 without, 43778091489 with): package 11 aside (see the next
+  section), written regions 2314 -> 2315, saved cost 44336 -> 44414 (+0.18 %), inside the run-to-run noise
+  (ReShade.fxh:105 is 13 in one run and 16 in the other, in both directions). With the flag: ArcaneBloom.fx:604,
+  AspectRatioSuite.fx:191, Transform.fxh:19 / 21 found (none without), Flashlight.fx:90 44 -> 41; lost: one
+  statement of CRT.fx:157 / GuestCRT.fx:572 (18 -> 10 without, none with), BETA_ZenRCAO.fx:877-889 24 -> 29. Stays off.
+
+## Shared headers: ranges of every effect (2026-11-16, review)
+- Found through the A/B above: package 11 (Warp-FX) wrote 43 regions in one run and 30 in the other, as in the 32
+  earlier runs kept. Cause: a statement of a header that several effects include was taken from the first effect that
+  reads it (fx_main.cpp, `seen`), with that effect's ranges. Blending.fxh's Blend(.., blending) is called with a
+  [0, 1] uniform by Drunk.fx and with a computed value of unknown range by BulgePinch.fx; the corpus job passed the
+  effects in directory order (os.walk, not sorted on Linux; sorted now), so whichever came first decided for all: 13 variants
+  were written into the header on a range that only some of its effects prove. Locally: 60 or 61 unknown inputs by
+  the first effect.
+- Fix: fx::mergeShared (variants.cpp): the same statement in a later effect widens every input to both ranges
+  (scRGB inputs too), a range one effect does not know is not known, a grid is kept only when both agree; other
+  math, types, compile-time values or another budget: the statement is left alone (skip reason "a header statement
+  that reads differently in another effect"; none in Warp-FX). Test fx_shared_header_ranges_of_every_effect.
+  Package 11 gives 61 unknown inputs in every order now.
+- Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
+  stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
+  divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run
+  can know.

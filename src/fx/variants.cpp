@@ -55,6 +55,38 @@ std::string budgetString(const Budget& b) {
   return budgetText(b, buf, sizeof(buf));
 }
 
+bool mergeShared(RegionResult& kept, const Region& other, const std::vector<InputDecl>& otherHdr) {
+  Region& r = kept.region;
+  std::vector<InputDecl>& a = r.prog.inputs;
+  const std::vector<InputDecl>& b = other.prog.inputs;
+  char ba[96], bb[96];
+  if (a.size() != b.size() || r.facts.size() != other.facts.size() || r.prog.half != other.prog.half ||
+      toString(r.prog.target, a) != toString(other.prog.target, b) ||
+      std::string(budgetText(r.prog.budget, ba, sizeof(ba))) != budgetText(other.prog.budget, bb, sizeof(bb)))
+    return false;
+  for (size_t k = 0; k < a.size(); ++k)
+    if (a[k].type != b[k].type || a[k].compileTime != b[k].compileTime || a[k].value != b[k].value) return false;
+  auto widen = [](std::vector<InputDecl>& x, const std::vector<InputDecl>& y) {
+    for (size_t k = 0; k < x.size(); ++k) {
+      if (x[k].lo != y[k].lo || x[k].hi != y[k].hi || x[k].grid != y[k].grid) x[k].grid = 0;
+      x[k].lo = std::min(x[k].lo, y[k].lo);
+      x[k].hi = std::max(x[k].hi, y[k].hi);
+    }
+  };
+  if (!kept.hdrInputs.empty() || !otherHdr.empty()) {
+    if (kept.hdrInputs.empty()) kept.hdrInputs = a;
+    widen(kept.hdrInputs, otherHdr.empty() ? b : otherHdr);
+  }
+  widen(a, b);
+  for (size_t k = 0; k < r.facts.size(); ++k) {
+    Fact& f = r.facts[k];
+    const Fact& g = other.facts[k];
+    if (g.assumed && !f.assumed) f = g;
+    else if (g.assumed && !g.likely) f.likely = false;
+  }
+  return true;
+}
+
 uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs, bool half) {
   const auto uses = (m.fusedAdd || hasFolds(m)) ? useCounts(e) : std::vector<uint32_t>();
   const auto ct = compileTimeNodes(e, inputs);

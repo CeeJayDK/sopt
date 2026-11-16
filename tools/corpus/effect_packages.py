@@ -65,6 +65,7 @@ def install(ini, dest, ids=""):
                             entry["effects"].append(os.path.relpath(t, dest))
         except Exception as e:  # one broken package must not stop the others
             entry["error"] = str(e)
+        entry["effects"].sort()  # os.walk's order is the file system's: the same order in every run
         print(f"[{p['id']}] {p['PackageName']}: {len(entry['effects'])} effects {entry['error']}", flush=True)
         out.append(entry)
     json.dump(out, open(os.path.join(dest, "packages.json"), "w"), indent=1)

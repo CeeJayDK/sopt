@@ -686,7 +686,8 @@ int main(int argc, char** argv) {
     rewriteEffects.clear();
     std::set<std::pair<std::string, std::string>> rewriteSeen;  // (file, switch tag + line)
     resourceKeys.clear();
-    std::set<std::tuple<std::string, uint32_t, size_t>> seen;
+    std::map<std::tuple<std::string, uint32_t, size_t>, size_t> seen;  // -> index in results
+    std::set<size_t> differ;  // statements of a shared header that two effects read differently
     for (const auto& p : inputs) {
       std::string err;
       const fx::LoadOptions load = loadFor(p);
@@ -770,7 +771,6 @@ int main(int argc, char** argv) {
       for (size_t i = 0; i < found.size(); ++i) {
         fx::Region& r = found[i];
         if (i < defaultRegions && classic && hoist && !fx->hlsl) effectRegions.push_back(r);
-        if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
         fx::RegionResult rr;
         rr.effect = p.string();
         if (formatChecks) {
@@ -792,6 +792,14 @@ int main(int argc, char** argv) {
                 rr.hdrInputs[k].lo = fx::kScRgbLo, rr.hdrInputs[k].hi = fx::kScRgbHi, rr.hdrInputs[k].grid = 0;
           }
         }
+        // A shared header: one result for every effect that reads the statement (until 2026-11-16 the first
+        // effect's ranges were used for all of them).
+        const auto [at, fresh] = seen.emplace(std::make_tuple(r.file, r.line, r.removed.size()), results.size());
+        if (!fresh) {
+          if (!fx::mergeShared(results[at->second], r, rr.hdrInputs) && differ.insert(at->second).second)
+            info.skipped.add("a header statement that reads differently in another effect", r.file, r.line);
+          continue;
+        }
         rr.targetCost = dagCost(r.prog.target, *opt.search.model, r.prog.inputs);
         rr.region = std::move(r);
         results.push_back(std::move(rr));
@@ -810,6 +818,7 @@ int main(int argc, char** argv) {
           rewrites.push_back(std::move(rw));
         }
     }
+    for (auto it = differ.rbegin(); it != differ.rend(); ++it) results.erase(results.begin() + *it);
     if (!regionFilter.empty())
       results.erase(std::remove_if(results.begin(), results.end(),
                                    [&](const fx::RegionResult& rr) {
