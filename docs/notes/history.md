@@ -3154,7 +3154,28 @@ the cut's sampled range is only a search aid).
   math, types, compile-time values or another budget: the statement is left alone (skip reason "a header statement
   that reads differently in another effect"; none in Warp-FX). Test fx_shared_header_ranges_of_every_effect.
   Package 11 gives 61 unknown inputs in every order now.
+- Corpus at 33e487c (defaults, time 0.1): run 43797772264.
 - Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
   stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
   divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run
   can know.
+
+## --keep-accepted, --bound-profiles, two enumerator fixes (2026-11-16, owner's go; both flags off, A/B pending)
+- --keep-accepted (driver.cpp): the restart after V1 / V2 (another candidate gave a counterexample) dropped the
+  forms that had passed; the next round had to find them again on other test points. With the flag they stay
+  candidates, as --keep-survivors does for the restart after stage 2. Suspected in the --bound-recheck run's lost
+  CRT.fx:157 statement (the recheck adds a round), not confirmed.
+- --bound-profiles (enumerator.cpp, plausible()): a hit lowers the bound, and stays a hit at pruneHits, only when
+  it holds on the 512 extra points under all six profiles (was: the reference profile). In the cache key (ka, bp).
+  Test keep_accepted_and_bound_profiles_hold: the same answer with both on (the code runs; gains are for the corpus).
+- Fixed without a flag (wrong, not a technique): commitHits lowered the bound by every fitted hit first and stored
+  them after, only while the hit list (10000) had room; the list is cleared out every 4096 candidates, a batch is
+  16384, so a new best fitted hit arriving on a full list set the bound and was dropped (in phase 1, slack -1,
+  that prunes every other hit too). A hit that lowers the bound is stored now. Not measured how often it happened.
+- Fixed: the top-down lookup index sorted (value at the lookup point, entry) pairs, NaN values included: no order
+  for std::sort / inplace_merge / lower_bound (undefined; no crash seen). Non-finite values are left out: the
+  lookup range is finite, they could not match.
+- Read, nothing found: the rest of enumerator.cpp (hashing, insert, folds, fits, flush, levels, disk tiles, shared
+  leaves, extract), console.cpp, options.cpp (its "unknown cost model" list is written by hand and misses
+  intel-gen6, nvidia-turing-rtx, rdna3-rga). variants.cpp's report: an input line or a class cell over 511
+  characters is cut without its line end (snprintf into buf[512]); not seen, not changed.

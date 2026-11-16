@@ -519,6 +519,9 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     if (!cex.empty() && !lastIter) {
       for (const auto& p : cex) tests.add(p);
       res.counterexamples += cex.size();
+      // --keep-accepted: or the next round has to find them again, on other test points
+      if (opt.keepAccepted)
+        for (const auto& a : res.accepted) keptCands.push_back({a.expr, a.cost});
       continue;
     }
     // --bound-recheck: the starting bound (a library form or an earlier find that passed stage 2) kept everything at

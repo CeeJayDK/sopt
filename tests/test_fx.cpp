@@ -2242,6 +2242,25 @@ TEST(previous_candidates_are_verified_again) {
 // wrong only for x within 0.0002 of 0.4337, which 64 quick points miss and full verification finds); when nothing that
 // holds is that cheap, the search runs once more without the bound. This checks that it does and that the result holds;
 // what it gains is the corpus' job (here the target's own parts reach the answer under the bound too).
+TEST(keep_accepted_and_bound_profiles_hold) {
+  // Both flags on: the same answer on a small search (the code runs and holds; gains are measured on the corpus).
+  const Program p = parseProgram("input x : float in [0, 1]\ninput y : float in [0, 1]\n"
+                                 "output r = x * y + x * y + x\n");
+  auto best = [&](bool on) {
+    Options opt;
+    opt.search.timeLimitSec = 1;
+    opt.keepAccepted = on;
+    opt.search.boundProfiles = on;
+    const RunResult res = optimize(p, opt);
+    uint32_t c = 0;
+    for (const auto& a : res.accepted)
+      if (a.klass != Klass::LessAccurate && (c == 0 || a.cost < c)) c = a.cost;
+    return c;
+  };
+  const uint32_t off = best(false), on = best(true);
+  CHECK(off != 0 && on == off);
+}
+
 TEST(bound_recheck_withdraws_a_failed_bound) {
   const Program p = parseProgram("input x : float in [0, 1]\ninput y : float in [0, 1]\n"
                                  "output r = max(abs(x * 3.0 - 1.3011), 0.0006) * (y + y) * 0.5\n");

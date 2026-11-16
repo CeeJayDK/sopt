@@ -871,17 +871,17 @@ void Enumerator::commitHits(uint32_t idx, bool direct, const std::vector<AffineH
     ++stats.hits;
     if (cfg_.bestBound && obj(idx) < bestHitObj_) boundBy(extract(entry(idx)), obj(idx));
   }
-  if (cfg_.bestBound)
-    for (const AffineHit& h : fitted) {
-      AffineHit k = h;
-      k.idx = idx;
+  for (const AffineHit& h : fitted) {
+    AffineHit k = h;
+    k.idx = idx;
+    const uint32_t before = bestHitObj_;
+    if (cfg_.bestBound) {
       const uint32_t c = h.cost ? h.cost : obj(idx) + 1;
       if (c < bestHitObj_) boundBy(extract(k), c);
     }
-  for (const AffineHit& h : fitted) {
-    if (numHits() >= cfg_.maxHits) break;
-    AffineHit k = h;
-    k.idx = idx;
+    // A full list drops the hit, but never one that lowered the bound: what it pruned would be lost with it
+    // (2026-11-16: the bound was lowered first, the hit dropped after).
+    if (numHits() >= cfg_.maxHits && bestHitObj_ == before) continue;
     affineHits_.push_back(k);
     ++stats.hits;
     ++(k.inner == Op::Count ? stats.affineHits : stats.innerHits);
@@ -1241,7 +1241,14 @@ bool Enumerator::plausible(const Expr& e, bool loose) {
     boundTarget_ = evalAll(prog_.target, boundPts_, kProfileRef);
   }
   const Metrics m = compare(prog_, e, boundPts_, kProfileRef, 1, &boundTarget_);
-  return loose ? m.loosePass : m.pass;
+  if (!(loose ? m.loosePass : m.pass)) return false;
+  if (cfg_.boundProfiles)
+    for (size_t p = 1; p < kAllProfiles.size(); ++p) {
+      if (boundProfileTargets_.size() < p) boundProfileTargets_.push_back(evalAll(prog_.target, boundPts_, kAllProfiles[p]));
+      const Metrics mp = compare(prog_, e, boundPts_, kAllProfiles[p], 1, &boundProfileTargets_[p - 1]);
+      if (!(loose ? mp.loosePass : mp.pass)) return false;
+    }
+  return true;
 }
 
 void Enumerator::checkLimits(SearchStats& stats) {
@@ -1817,7 +1824,8 @@ void Enumerator::topDownPass(uint32_t cost, SearchStats& stats) {
     for (size_t k = 0; k < pairs && k * step + 1 < pts.size(); ++k) {
       TdPair pr{pts[k * step], pts[k * step + 1], {}};
       for (uint32_t c = 0; c < cost; ++c)  // earlier levels (the pass starts at level 1)
-        for (uint32_t x : byCost_[c][static_cast<size_t>(T)]) pr.index.push_back({fpOf(x)[pr.p0], x});
+        for (uint32_t x : byCost_[c][static_cast<size_t>(T)])
+          if (std::isfinite(fpOf(x)[pr.p0])) pr.index.push_back({fpOf(x)[pr.p0], x});  // a NaN key is no order for sort
       std::sort(pr.index.begin(), pr.index.end());
       td_.push_back(std::move(pr));
     }
@@ -1826,7 +1834,8 @@ void Enumerator::topDownPass(uint32_t cost, SearchStats& stats) {
   if (fresh.empty()) return;
   for (TdPair& pr : td_) {
     const size_t mid = pr.index.size();
-    for (uint32_t x : fresh) pr.index.push_back({fpOf(x)[pr.p0], x});
+    for (uint32_t x : fresh)
+      if (std::isfinite(fpOf(x)[pr.p0])) pr.index.push_back({fpOf(x)[pr.p0], x});
     std::sort(pr.index.begin() + static_cast<std::ptrdiff_t>(mid), pr.index.end());
     std::inplace_merge(pr.index.begin(), pr.index.begin() + static_cast<std::ptrdiff_t>(mid), pr.index.end());
     topDownLookup(pr, fresh, stats);

@@ -101,6 +101,9 @@ struct Options {
   // --bound-recheck: when nothing that passed full verification is at or below the bound the search started with
   //   (a library form or an earlier find that passed stage 2 only), search once more without that bound.
   bool boundRecheck = false;
+  // --keep-accepted: a restart after full verification (another candidate gave a counterexample) keeps the forms
+  //   that passed it as candidates, as --keep-survivors does for the restart after stage 2.
+  bool keepAccepted = false;
   uint32_t seeds = 1;
   // --refine N: up to N rounds with the same seed, each starting from the earlier rounds' finds (their parts become
   // shared leaves); stops after a round that finds nothing cheaper (2026-11-08, cause of --seeds' wins).

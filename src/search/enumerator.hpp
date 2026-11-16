@@ -43,6 +43,10 @@ struct SearchConfig {
   uint32_t tdEnd = 0;
   bool tdSpread = false;
   uint32_t tdPairs = 1;
+  // --bound-profiles: a hit lowers the bound (and stays a hit) only when it holds under every verification profile on
+  // the extra points, not the reference profile alone: the driver rejects a hit that fails another profile without a
+  // counterexample, so what the bound pruned under it stayed lost (2026-11-16: up to 62 of 8110 searches).
+  bool boundProfiles = false;
   // Best-so-far bound (owner, 2026-09-28; design 4.3): hits, and entries that could only
   // be part of hits, must cost at most the cheapest hit found so far + slack (the
   // original's cost is only the starting bound). The slack drops to 0 when the bank is
@@ -477,6 +481,7 @@ class Enumerator {
   // rejects it).
   PointSet boundPts_;
   std::vector<float> boundTarget_;
+  std::vector<std::vector<float>> boundProfileTargets_;  // --bound-profiles: per profile after the reference
   bool plausible(const Expr& e, bool loose = false);
   size_t checkedHits_[3] = {0, 0, 0};  // hits_, altHits_, affineHits_: prefix already checked
   void boundBy(const Expr& e, uint32_t objCost);
