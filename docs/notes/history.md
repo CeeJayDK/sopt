@@ -3154,7 +3154,15 @@ the cut's sampled range is only a search aid).
   math, types, compile-time values or another budget: the statement is left alone (skip reason "a header statement
   that reads differently in another effect"; none in Warp-FX). Test fx_shared_header_ranges_of_every_effect.
   Package 11 gives 61 unknown inputs in every order now.
-- Corpus at 33e487c (defaults, time 0.1): run 43797772264.
+- Corpus at 33e487c (defaults, time 0.1; run 43797772264) against the run before the fix (43778091489): regions
+  20805 -> 20699, written 2345 -> 2300, saved 44785 -> 44036. 106 statements read differently in another effect
+  (23 of 44 packages; prod80 18, Depth3D 11, BFBFX 10). Why, on those three packages (52 merges, a temporary
+  print): 33 another budget, 14 other math, 5 other inputs. Other math / inputs: one file compiled with other
+  definitions per effect (SuperDepth3D.fx, PD80_LUT_v2.fxh:120): the first effect's variant was wrong for the
+  others. Another budget: always the general budget (rel 1e-06) in one effect against an output budget in the
+  other (abs 2^-17 ... 2^-5: the value reaches that effect's output through math alone). Neither is the tighter one
+  everywhere (rel 1e-06 is looser than abs 7.6e-06 where |value| > 7.6), so they are not merged: open, the owner's
+  call (leave alone as now; or a budget that holds both).
 - Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
   stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
   divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run
@@ -3179,3 +3187,11 @@ the cut's sampled range is only a search aid).
   leaves, extract), console.cpp, options.cpp (its "unknown cost model" list is written by hand and misses
   intel-gen6, nvidia-turing-rtx, rdna3-rga). variants.cpp's report: an input line or a class cell over 511
   characters is cut without its line end (snprintf into buf[512]); not seen, not changed.
+- Corpus A/B (f1ba972, time 0.1; written regions / saved cost): before the two enumerator fixes (43797772264)
+  2300 / 44036; baseline with them (43805632166) 2301 / 43938; --keep-accepted (43805642992) 2297 / 43851;
+  --bound-profiles (43805653778) 2299 / 43945. All inside the run-to-run noise (about +-100 saved: the same regions
+  flip between runs, ReShade.fxh:105 13 / 16, BETA_ZenRCAO.fx:877-889 24 / 29, package 06 15 / 17 written). Both
+  flags stay off; nothing measured for or against the two fixes.
+- Read, nothing found: codegen.cpp, fx_main.cpp's search and results part, main.cpp's first half, frontend.cpp's
+  end (the window loop of Extractor::run, parseRange, readUserRanges, extractRegions' second parse, settingValues,
+  settingRegions), nameInScope, constGuard, the start of spanGuard.
