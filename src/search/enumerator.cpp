@@ -129,6 +129,7 @@ Enumerator::Enumerator(const Program& prog, const PointSet& tests, const SearchC
   // Accuracy rule: hits may also be as close to the exact value as the target is, and
   // constants are fitted to the exact values.
   rule_ = accuracyRule(prog.budget);
+  also_ = alsoBudgets(prog.budget);
   fit_.assign(target_.begin(), target_.end());
   const bool rel = prog.budget.scaledRel();
   scale_.assign(tn_, 0.0);  // the target's error scales (Rel budgets, see relBase)

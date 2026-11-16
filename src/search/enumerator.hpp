@@ -398,9 +398,15 @@ class Enumerator {
   // accurate candidates are classified by the driver).
   bool accepts(size_t i, float v) const {
     const double* x = rule_ ? &exact_[i] : nullptr;
-    return pointAcceptable(prog_.budget, target_[i], x, v, scale_[i]) ||
-           pointLoose(prog_.budget, target_[i], x, v, scale_[i]);
+    if (!pointAcceptable(prog_.budget, target_[i], x, v, scale_[i]) && !pointLoose(prog_.budget, target_[i], x, v, scale_[i]))
+      return false;
+    for (const Budget& a : also_) {  // Budget::also: every budget must hold
+      const double* xa = accuracyRule(a) ? x : nullptr;
+      if (!pointAcceptable(a, target_[i], xa, v, scale_[i]) && !pointLoose(a, target_[i], xa, v, scale_[i])) return false;
+    }
+    return true;
   }
+  std::vector<Budget> also_;
   std::vector<Op> ops_;
   std::vector<Type> types_;  // float types ops are enumerated for: float1, then the target's
 

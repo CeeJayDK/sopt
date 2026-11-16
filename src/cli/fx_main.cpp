@@ -988,7 +988,13 @@ int main(int argc, char** argv) {
     const Budget& b = p.budget;
     std::snprintf(buf, sizeof(buf), "|%d %.9g %d %.9g %.9g %d %.9g|", static_cast<int>(b.kind), b.eps,
                   b.maxCodeDiff, b.px, b.width, b.vsExact ? 1 : 0, b.loose);
-    return key + buf + toString(p.target, anon);
+    key += buf;
+    for (const Budget& a : b.also) {
+      std::snprintf(buf, sizeof(buf), "&%d %.9g %d %.9g %.9g %d|", static_cast<int>(a.kind), a.eps, a.maxCodeDiff, a.px,
+                    a.width, a.vsExact ? 1 : 0);
+      key += buf;
+    }
+    return key + toString(p.target, anon);
   };
   std::vector<size_t> firstOf(results.size());
   std::vector<size_t> unique;
@@ -1601,14 +1607,24 @@ int main(int argc, char** argv) {
       bool bb8 = false;
       for (size_t k = 0; k < r.facts.size() && k < p10.inputs.size(); ++k)
         if (r.facts[k].source.rfind("BackBuffer (8-bit", 0) == 0) p10.inputs[k].grid = 1023, bb8 = true;
-      if (toBackBuffer && p10.budget.kind == Budget::Kind::Color8) p10.budget.kind = Budget::Kind::Color10, bb8 = true;
+      // Every budget of the region (Budget::also: a shared header's statement, one per effect).
+      auto eachBudget = [](Program& p, const std::function<void(Budget&)>& fn) {
+        fn(p.budget);
+        for (Budget& a : p.budget.also) fn(a);
+      };
+      if (toBackBuffer)
+        eachBudget(p10, [&](Budget& b) {
+          if (b.kind == Budget::Kind::Color8) b.kind = Budget::Kind::Color10, bb8 = true;
+        });
       Program ph = r.prog;
       const bool hdrCheck = !rr.hdrInputs.empty() || toBackBuffer;
       if (!rr.hdrInputs.empty()) ph.inputs = rr.hdrInputs;
-      if (toBackBuffer && (ph.budget.kind == Budget::Kind::Color8 || ph.budget.kind == Budget::Kind::Color10)) {
-        ph.budget.kind = Budget::Kind::Rel;
-        ph.budget.eps = 1.0 / 2048.0;
-      }
+      if (toBackBuffer)
+        eachBudget(ph, [](Budget& b) {
+          if (b.kind != Budget::Kind::Color8 && b.kind != Budget::Kind::Color10) return;
+          b.kind = Budget::Kind::Rel;
+          b.eps = 1.0 / 2048.0;
+        });
       auto passes = [&](Program p, const fx::Variant& v) {
         p.budget.vsExact = p.budget.vsExact && opt.exactRule;
         p.budget.loose = v.klass == Klass::LessAccurate ? opt.loose : 0.0;

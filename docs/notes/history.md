@@ -3161,8 +3161,18 @@ the cut's sampled range is only a search aid).
   definitions per effect (SuperDepth3D.fx, PD80_LUT_v2.fxh:120): the first effect's variant was wrong for the
   others. Another budget: always the general budget (rel 1e-06) in one effect against an output budget in the
   other (abs 2^-17 ... 2^-5: the value reaches that effect's output through math alone). Neither is the tighter one
-  everywhere (rel 1e-06 is looser than abs 7.6e-06 where |value| > 7.6), so they are not merged: open, the owner's
-  call (leave alone as now; or a budget that holds both).
+  everywhere (rel 1e-06 is looser than abs 7.6e-06 where |value| > 7.6), so they were not merged at first.
+- Owner, 2026-11-16: a budget that holds both. Budget::also (expr.hpp): further budgets that must all hold, checked
+  with the main budget's loose factor, and with the accuracy rule / error scale only where the main one has them
+  (alsoBudgets, verify.hpp; so the driver's switches on the main budget cover them). Enforced in compareRange
+  (stage 2, V1, V2, the enumerator's plausible(), generalize, the format checks), in the enumerator's accepts()
+  (or a form outside the second budget would be found again after every counterexample) and in proveBound (each
+  budget proven on its own). acceptHull stays the main budget's (a superset). mergeShared puts every effect's budget
+  in: the main one by the budgets alone (an exact one alone; else relative first, stricter switches, smaller limit),
+  so the effect order does not matter; in the search key. sopt-fx's back buffer format checks change every budget
+  of the region (a merged reason keeps "back buffer" when one effect's had it). No .sopt syntax for it. Tests
+  budget_also_every_budget_holds, fx_shared_header_ranges_of_every_effect. prod80: 18 -> 4 statements left alone,
+  BFBFX 10 -> 0 (locally).
 - Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
   stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
   divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run

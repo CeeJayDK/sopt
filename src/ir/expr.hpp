@@ -77,6 +77,10 @@ struct Budget {
   // Target nodes that do not follow exact math (hash noise, set by the driver): their error scale restarts at |value|, so
   // the hash's huge inner terms (x 43758) do not loosen the budget (Clarity2.fx:303 / CRT-NewPixie.fx:246, 2026-11-12).
   std::vector<uint32_t> noiseNodes;
+  // Budgets that must hold as well (owner, 2026-11-16): a statement of a header that several effects include, with
+  // each effect's own budget (general use in one, an output budget in another; neither is the tighter everywhere).
+  // Checked with this budget's loose factor and switches (alsoBudgets in verify.hpp); their own `also` is unused.
+  std::vector<Budget> also;
   bool scaledRel() const { return kind == Kind::Rel && errorScale; }
   int codeBits() const { return kind == Kind::Color10 ? 10 : 8; }
 };

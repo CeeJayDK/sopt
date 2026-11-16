@@ -6,6 +6,7 @@
 #include "ir/parser.hpp"
 #include "search/driver.hpp"
 #include "test.hpp"
+#include "verify/bound.hpp"
 #include "verify/exact.hpp"
 #include "verify/points.hpp"
 #include "verify/problems.hpp"
@@ -302,6 +303,43 @@ TEST(noise_parts_skip_integers) {
   Options opt;
   opt.previousOnly = true;
   CHECK(!optimize(p, opt).exactOff);
+}
+
+// Budget::also (owner, 2026-11-16: a shared header's statement with each effect's budget): every budget must hold, in
+// the point comparison, the proof and the search.
+TEST(budget_also_every_budget_holds) {
+  const Program rel = parseProgram("input x : float in [0, 10]\noutput r = x * 2.0\nbudget r : rel 2e-3\n");
+  Budget abs;
+  abs.kind = Budget::Kind::Abs;
+  abs.eps = 0.01;
+  Program onlyAbs = rel, both = rel;
+  onlyAbs.budget = abs;
+  both.budget.also.push_back(abs);
+  // 0.1% off: fine relatively, 0.02 off at x = 10. 0.005 off: fine absolutely, far off relatively near 0.
+  CHECK(check(rel, "x * 2.002").pass && !check(onlyAbs, "x * 2.002").pass && !check(both, "x * 2.002").pass);
+  CHECK(!check(rel, "x * 2.0 + 0.005").pass && check(onlyAbs, "x * 2.0 + 0.005").pass && !check(both, "x * 2.0 + 0.005").pass);
+  CHECK(check(both, "x * 2.0002").pass);
+  // The proof needs both too (away from 0: a relative budget is not provable there).
+  Program far = parseProgram("input x : float in [1, 10]\noutput r = x * 2.0\nbudget r : rel 2e-3\n");
+  BoundOptions bo;
+  bo.seconds = 1.0;
+  CHECK(proveBound(far, parseExpr("x * 2.002", far.inputs), bo).proven);
+  far.budget.also.push_back(abs);
+  CHECK(!proveBound(far, parseExpr("x * 2.002", far.inputs), bo).proven);
+  CHECK(proveBound(far, parseExpr("x * 2.0002", far.inputs), bo).proven);
+  // The search: under the relative budget alone forms 0.1 off are found; with the absolute one none over 0.01.
+  Program p = parseProgram("input x : float in [0, 100]\ninput y : float in [0, 1]\n"
+                           "output r = x * 1.001 + y * 0.0001\nbudget r : rel 2e-3\n");
+  auto worst = [](const Program& q) {
+    Options opt;
+    opt.search.timeLimitSec = 1;
+    double w = -1;
+    for (const auto& a : optimize(q, opt).accepted) w = std::max(w, a.worst.maxAbs);
+    return w;
+  };
+  CHECK(worst(p) > 0.05);
+  p.budget.also.push_back(abs);
+  CHECK(worst(p) <= 0.01);
 }
 
 // A hash added to a much larger value (VHSPro.fx:1607): within 10% of the sum's range, but its own part is noise.

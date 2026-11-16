@@ -1449,8 +1449,24 @@ TEST(fx_shared_header_ranges_of_every_effect) {
   unknown.facts[t].assumed = true;
   CHECK(fx::mergeShared(rr, unknown, {}) && rr.region.facts[t].assumed);
   fx::Region other = b;
-  other.prog.budget.kind = other.prog.budget.kind == Budget::Kind::Exact ? Budget::Kind::Rel : Budget::Kind::Exact;
+  other.prog.half = !other.prog.half;
   CHECK(!fx::mergeShared(rr, other, {}));
+  // Another budget: both must hold, the main one the same whichever effect came first.
+  fx::Region general = a, output = b;
+  general.prog.budget = Budget{};
+  general.prog.budget.kind = Budget::Kind::Rel;
+  general.prog.budget.eps = 1e-6;
+  output.prog.budget = Budget{};
+  output.prog.budget.kind = Budget::Kind::Abs;
+  output.prog.budget.eps = 1.0 / 32768.0;
+  for (const auto& [first, second] : {std::make_pair(&general, &output), std::make_pair(&output, &general)}) {
+    fx::RegionResult both;
+    both.region = *first;
+    CHECK(fx::mergeShared(both, *second, {}) && fx::mergeShared(both, *first, {}));
+    const Budget& m = both.region.prog.budget;
+    CHECK(m.kind == Budget::Kind::Rel && m.also.size() == 1 && m.also[0].kind == Budget::Kind::Abs);
+    CHECK(fx::budgetString(m) == "rel 1e-06 and abs 3.05176e-05");
+  }
   std::error_code ec;
   fs::remove_all(root, ec);
 }

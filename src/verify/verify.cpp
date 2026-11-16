@@ -138,6 +138,7 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
   ExactEvaluator ex;
   const bool rule = accuracyRule(prog.budget);
   const bool rel = prog.budget.scaledRel();
+  const std::vector<Budget> also = alsoBudgets(prog.budget);
   ex.withScale = rel && !scaleVals;
   ex.noiseNodes = &prog.budget.noiseNodes;
   Metrics m;
@@ -191,6 +192,16 @@ Metrics compareRange(const Program& prog, const Expr& cand, const PointSet& ps, 
             pointOk = false;
             looseOk = looseOk && pointLoose(prog.budget, t, rule ? &xv[comp][i] : nullptr, c, s);
           }
+        }
+        for (const Budget& ab : also) {  // every budget must hold
+          const bool ar = rule && accuracyRule(ab);
+          if (pointWithinBudget(ab, t, c, s)) continue;
+          if (ar && pointAccurate(ab, t, xv[comp][i], c, 1.0, s)) {
+            ++m.viaExact;
+            continue;
+          }
+          pointOk = false;
+          looseOk = looseOk && pointLoose(ab, t, ar ? &xv[comp][i] : nullptr, c, s);
         }
         if (rule && std::isfinite(xv[comp][i])) {
           const double x = xv[comp][i];

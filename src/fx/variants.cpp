@@ -52,17 +52,24 @@ std::string escapeCell(std::string s) {
 
 std::string budgetString(const Budget& b) {
   char buf[96];
-  return budgetText(b, buf, sizeof(buf));
+  std::string s = budgetText(b, buf, sizeof(buf));
+  for (const Budget& a : b.also) s += std::string(" and ") + budgetText(a, buf, sizeof(buf));
+  return s;
 }
+
+namespace {
+bool sameBudget(const Budget& a, const Budget& b) {
+  return a.kind == b.kind && a.eps == b.eps && a.maxCodeDiff == b.maxCodeDiff && a.px == b.px && a.width == b.width &&
+         a.vsExact == b.vsExact && a.errorScale == b.errorScale;
+}
+}  // namespace
 
 bool mergeShared(RegionResult& kept, const Region& other, const std::vector<InputDecl>& otherHdr) {
   Region& r = kept.region;
   std::vector<InputDecl>& a = r.prog.inputs;
   const std::vector<InputDecl>& b = other.prog.inputs;
-  char ba[96], bb[96];
   if (a.size() != b.size() || r.facts.size() != other.facts.size() || r.prog.half != other.prog.half ||
-      toString(r.prog.target, a) != toString(other.prog.target, b) ||
-      std::string(budgetText(r.prog.budget, ba, sizeof(ba))) != budgetText(other.prog.budget, bb, sizeof(bb)))
+      toString(r.prog.target, a) != toString(other.prog.target, b))
     return false;
   for (size_t k = 0; k < a.size(); ++k)
     if (a[k].type != b[k].type || a[k].compileTime != b[k].compileTime || a[k].value != b[k].value) return false;
@@ -83,6 +90,28 @@ bool mergeShared(RegionResult& kept, const Region& other, const std::vector<Inpu
     const Fact& g = other.facts[k];
     if (g.assumed && !f.assumed) f = g;
     else if (g.assumed && !g.likely) f.likely = false;
+  }
+  // Every effect's budget must hold (Budget::also). The main one is picked by the budgets alone, not by which effect
+  // came first: an exact one alone (it holds for all), else relative ones first, the stricter switches and the
+  // smaller limit first.
+  std::vector<Budget> all = {r.prog.budget};
+  for (const Budget& x : r.prog.budget.also) all.push_back(x);
+  all[0].also.clear();
+  bool known = false;
+  for (const Budget& x : all) known = known || sameBudget(x, other.prog.budget);
+  if (!known) {
+    all.push_back(other.prog.budget);
+    auto rank = [](const Budget& x) {
+      return std::make_tuple(x.kind != Budget::Kind::Exact, x.kind != Budget::Kind::Rel, x.vsExact, x.errorScale,
+                             static_cast<int>(x.kind), x.eps, x.maxCodeDiff);
+    };
+    std::stable_sort(all.begin(), all.end(), [&](const Budget& x, const Budget& y) { return rank(x) < rank(y); });
+    if (all[0].kind == Budget::Kind::Exact) all.resize(1);
+    r.prog.budget = all[0];
+    r.prog.budget.also.assign(all.begin() + 1, all.end());
+    // "back buffer" stays in the reason: sopt-fx checks such regions for the other back buffer formats.
+    const bool backBuffer = (r.budgetReason + other.budgetReason).find("back buffer") != std::string::npos;
+    r.budgetReason = std::string("the budget of every effect that reads it") + (backBuffer ? " (in one, a back buffer output)" : "");
   }
   return true;
 }
@@ -666,7 +695,7 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
                     r.facts[k].source.c_str(), r.facts[k].assumed ? " (*assumed*)" : "");
       s += buf;
     }
-    s += std::string("\nBudget: ") + budgetText(r.prog.budget, buf, sizeof(buf)) + " (" +
+    s += std::string("\nBudget: ") + budgetString(r.prog.budget) + " (" +
          r.budgetReason + "). Original cost " + std::to_string(rr.targetCost);
     if (info.amd) {
       s += ", amd " + std::to_string(rr.targetAmd);

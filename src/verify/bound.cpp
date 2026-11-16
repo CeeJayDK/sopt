@@ -522,7 +522,24 @@ double allowed(const Budget& b, I t, double et, bool vsExact) {
 
 }  // namespace
 
+static BoundResult proveOne(const Program& prog, const Expr& cand, const BoundOptions& opt);
+
 BoundResult proveBound(const Program& prog, const Expr& cand, const BoundOptions& opt) {
+  BoundResult res = proveOne(prog, cand, opt);
+  for (const Budget& ab : alsoBudgets(prog.budget)) {  // every budget must be proven
+    Program p = prog;
+    p.budget = ab;
+    const BoundResult r = proveOne(p, cand, opt);
+    res.proven = res.proven && r.proven;
+    res.fraction = std::min(res.fraction, r.fraction);
+    res.maxBound = std::max(res.maxBound, r.maxBound);
+    res.boxes += r.boxes;
+    res.seconds += r.seconds;
+  }
+  return res;
+}
+
+static BoundResult proveOne(const Program& prog, const Expr& cand, const BoundOptions& opt) {
   using Clock = std::chrono::steady_clock;
   const auto t0 = Clock::now();
   BoundResult res;
