@@ -98,6 +98,9 @@ struct Options {
   bool fpMore = false;
   bool keepSurvivors = true;   // default (owner, 2026-11-08, corpus); --no-keep-survivors
   bool fullRestarts = true;    // default (owner, 2026-11-08, corpus); --no-full-restarts
+  // --bound-recheck: when nothing that passed full verification is at or below the bound the search started with
+  //   (a library form or an earlier find that passed stage 2 only), search once more without that bound.
+  bool boundRecheck = false;
   uint32_t seeds = 1;
   // --refine N: up to N rounds with the same seed, each starting from the earlier rounds' finds (their parts become
   // shared leaves); stops after a round that finds nothing cheaper (2026-11-08, cause of --seeds' wins).
@@ -171,6 +174,7 @@ struct RunResult {
   uint64_t rejectedStage2 = 0;
   uint64_t rejectedV1 = 0;
   uint64_t rejectedProfiles = 0;
+  uint32_t boundRechecks = 0;  // --bound-recheck: searches run again without the starting bound
   uint64_t rejectedV2 = 0;
   uint64_t v2Checks = 0;  // candidates checked on every point (V2)
   uint32_t subtreeSearches = 0;  // Options::subtrees: subexpressions searched (not cached)

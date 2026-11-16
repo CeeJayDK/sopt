@@ -2180,6 +2180,38 @@ TEST(previous_candidates_are_verified_again) {
   CHECK(right);
 }
 
+// --bound-recheck: an earlier find that passes the quick check sets the bound the search starts under (here one that is
+// wrong only for x within 0.0002 of 0.4337, which 64 quick points miss and full verification finds); when nothing that
+// holds is that cheap, the search runs once more without the bound. This checks that it does and that the result holds;
+// what it gains is the corpus' job (here the target's own parts reach the answer under the bound too).
+TEST(bound_recheck_withdraws_a_failed_bound) {
+  const Program p = parseProgram("input x : float in [0, 1]\ninput y : float in [0, 1]\n"
+                                 "output r = max(abs(x * 3.0 - 1.3011), 0.0006) * (y + y) * 0.5\n");
+  auto best = [&](bool recheck, uint32_t* rechecks) {
+    Options opt;
+    opt.search.timeLimitSec = 2;
+    opt.library = opt.subtrees = opt.cuts = false;
+    opt.seeds = opt.refine = 1;
+    opt.boundRecheck = recheck;
+    opt.stage2Points = 64;
+    opt.cancelPoints = false;  // or x = 0.4337 is a verification point of the quick check
+    opt.previous = {parseExpr("abs(x * 3.0 - 1.3011) * y", p.inputs)};
+    const RunResult res = optimize(p, opt);
+    CHECK(res.previousBest != 0);  // the wrong form did set the bound
+    uint32_t c = 0;
+    for (const auto& a : res.accepted) {
+      CHECK(a.text.find("max") != std::string::npos);
+      if (c == 0 || a.cost < c) c = a.cost;
+    }
+    *rechecks = res.boundRechecks;
+    return c;
+  };
+  uint32_t off = 0, on = 0;
+  const uint32_t without = best(false, &off), with = best(true, &on);
+  CHECK(off == 0 && on == 1);
+  CHECK(with != 0 && (without == 0 || with <= without));
+}
+
 TEST(culprit_switch_of_a_parse_error) {
   std::string err;
   const auto dir = sopt::makeWorkDir("", "sopt-test-culprit-", err);

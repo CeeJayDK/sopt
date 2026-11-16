@@ -347,9 +347,11 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   std::vector<Candidate> cutCands;  // Options::cuts, computed once
   bool cutDone = false;
   std::vector<Candidate> keptCands;  // --keep-survivors
-  for (uint32_t iter = 0; iter < opt.maxIterations; ++iter) {
+  uint32_t maxIter = opt.maxIterations;
+  bool boundWithdrawn = false;  // --bound-recheck
+  for (uint32_t iter = 0; iter < maxIter; ++iter) {
     res.iterations = iter + 1;
-    const bool lastIter = iter + 1 == opt.maxIterations || opt.previousOnly;
+    const bool lastIter = iter + 1 == maxIter || opt.previousOnly;
 
     double ts = nowSeconds();
     // The time limit covers all CEGIS iterations (the overflow search runs to it); a
@@ -518,6 +520,22 @@ RunResult optimize(const Program& progIn, const Options& opt) {
       for (const auto& p : cex) tests.add(p);
       res.counterexamples += cex.size();
       continue;
+    }
+    // --bound-recheck: the starting bound (a library form or an earlier find that passed stage 2) kept everything at
+    // or above it out of the search, yet nothing that holds is that cheap: search once more under the cheapest that
+    // does hold (2026-11-16: 11 of 827 searches that started with a bound).
+    if (opt.boundRecheck && cfg.seedBound && !boundWithdrawn && !opt.previousOnly) {
+      uint32_t best = 0;
+      for (const auto& a : res.accepted)
+        if (a.klass != Klass::LessAccurate && (best == 0 || a.cost < best)) best = a.cost;
+      if (best == 0 || best > cfg.seedBound) {
+        boundWithdrawn = true;
+        ++res.boundRechecks;
+        cfg.seedBound = best;
+        for (const auto& a : res.accepted) keptCands.push_back({a.expr, a.cost});
+        if (lastIter) ++maxIter;
+        continue;
+      }
     }
     break;
   }

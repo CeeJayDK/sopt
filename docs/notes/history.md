@@ -3112,3 +3112,21 @@ the cut's sampled range is only a search aid).
   cost units in total between bound and best; 3 ended with nothing). Fits open item 9 (another seed gives other
   stage-2 points, so the seed may fail there and set no bound). Possible form, behind a flag: when nothing accepted
   is at or below the starting bound, search once more without it.
+
+## --bound-recheck (2026-11-16, owner's go; off, corpus A/B pending)
+- driver.cpp: at the end of the CEGIS loop, when the search started under a bound (cfg.seedBound) and no strictly
+  accepted form is at or below it, the bound becomes the cheapest strictly accepted cost (none: no bound) and the
+  loop runs once more (one extra iteration when it was the last); what was accepted stays a candidate. Counter
+  RunResult::boundRechecks; in the cache key (br). Test bound_recheck_withdraws_a_failed_bound (a previous find wrong
+  on a band of 0.0004 around x = 0.4337, stage 2 with 64 points): it checks that the recheck runs and the result
+  holds, not a gain.
+- Why no gain in the test, and why the measured share is small: shared leaves count 0 in the objective, so an answer
+  built from the target's own parts is found under the bound anyway (y * max(|3x - 1.3011|, 6e-4) under a bound of
+  10: one multiply over a shared part). The bound hides only answers that are not made of the target's or the seed's
+  parts. Without shared leaves the bank alone did not reach the test's answer in 2 s either way.
+- Related, found while reading enumerator.cpp, not changed: the enumerator's own hits lower its bound after
+  plausible() (512 extra points, reference profile only). A hit that then fails under another profile
+  (rejectedProfiles: no counterexample is added, so no restart) has pruned dearer answers in that run for good.
+  Checking the profiles in plausible() would close it at the source; not measured how often it happens.
+- Read, nothing found: diskstore.cpp (a file that cannot be opened turns disk mode off), sass.cpp, the enumerator's
+  setup (budgets, memory, packing), variants.cpp's writer and easy picks.
