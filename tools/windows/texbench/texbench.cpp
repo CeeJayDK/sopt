@@ -1491,6 +1491,8 @@ std::vector<Test> makeTests() {
   std::set<std::string> names;
   for (const Test& t : v)
     if (!names.insert(t.name).second) fail("two tests named " + t.name);
+  for (const Test& t : v)  // main looks bases up by name: a missing one would be a null test
+    if (!t.base.empty() && !names.count(t.base)) fail(t.name + ": no base test named " + t.base);
   return v;
 }
 

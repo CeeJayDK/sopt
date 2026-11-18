@@ -3209,6 +3209,14 @@ the cut's sampled range is only a search aid).
   write one shaderinfo file; TexBench's blend pass can read slightly negative when the restore draws alone measure
   slower than with the pass. Not read: TexBench's test definitions (makeTests, about 500 lines of tables), its
   order and precision passes beyond the PNG writer, sopt-host's D3D9 / D3D10 / OpenGL / Vulkan setup.
+- Then those too (owner: "check the rest"). A scratch harness (#includes texbench.cpp) compiled every test's shaders
+  offline: 1575, all compile; every base exists, has the same stage and starts with the same coordinate code (the
+  atomics' base shares their argument by design); no compute blur test needs the noise texture or table that only
+  the pixel shader gets. makeTests now fails on a base name that does not exist (main looked bases up by name and
+  would have used a null test; `--check` in CI catches it). Order and precision passes, blur / scatter / pass
+  loops, sopt-host D3D9 / D3D10 / OpenGL / Vulkan read: nothing found. Noted, not changed: sopt-host stops with
+  exit code 0 when Direct3D 9 loses its device or a Vulkan swap chain goes out of date (window resized or
+  minimized), so a --bench run cut short that way looks like a finished one.
 - Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
   stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
   divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run
