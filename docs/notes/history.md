@@ -3199,8 +3199,16 @@ the cut's sampled range is only a search aid).
   Noted, not changed: OpBench / TexBench / ShaderInfo find Reports\ through GetModuleFileNameA (a folder name with
   characters outside the ANSI code page would fail; consistent within the programs otherwise); a test whose every
   timing came back disjoint would read 0 (or a NaN against a 0 reference, which the intake then rejects); the timer's
-  header promises the disjoint check for D3D10 too, only D3D11 has it. Not read: texbench.cpp, shaderinfo.cpp,
-  sopt_host.cpp beyond their file writes.
+  header promises the disjoint check for D3D10 too, only D3D11 has it.
+- Then the rest (owner: "check those too"). sopt-host --image widened the ANSI file name byte by byte for WIC, so a
+  name such as Søren.png was not found (the scripts never pass --image); MultiByteToWideChar now (ran 5 frames on
+  dx11 with such a file). Read, nothing found: ShaderInfo (driver version decoding, --batch reflection and
+  pipelines, the fp16 rate test, the report), sopt-host (options, adapter choice, the D3D11 and D3D12 frame loops),
+  TexBench's timing, calibration, write / blend passes, CSV and PNG writers. Noted, not changed: ShaderInfo's fp16
+  rate test does not check the return values of its buffer / memory / pool creation; two cards with the same name
+  write one shaderinfo file; TexBench's blend pass can read slightly negative when the restore draws alone measure
+  slower than with the pass. Not read: TexBench's test definitions (makeTests, about 500 lines of tables), its
+  order and precision passes beyond the PNG writer, sopt-host's D3D9 / D3D10 / OpenGL / Vulkan setup.
 - Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
   stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
   divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run

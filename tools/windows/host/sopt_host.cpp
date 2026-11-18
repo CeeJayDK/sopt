@@ -168,7 +168,9 @@ std::vector<uint8_t> loadImage(const std::string& file, uint32_t w, uint32_t h) 
   IWICImagingFactory* wic = nullptr;
   if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))))
     fail("WIC is not available");
-  std::wstring wf(file.begin(), file.end());
+  // argv is in the ANSI code page: widened byte by byte, a name such as "Søren.png" was not found.
+  std::wstring wf(MultiByteToWideChar(CP_ACP, 0, file.c_str(), -1, nullptr, 0), L'\0');
+  MultiByteToWideChar(CP_ACP, 0, file.c_str(), -1, wf.data(), int(wf.size()));
   IWICBitmapDecoder* dec = nullptr;
   IWICBitmapFrameDecode* frame = nullptr;
   IWICBitmapSource* rgba = nullptr;
