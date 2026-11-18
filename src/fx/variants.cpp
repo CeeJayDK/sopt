@@ -50,6 +50,13 @@ std::string escapeCell(std::string s) {
 
 }  // namespace
 
+// A number as %g prints it (text around it is joined as strings: names and expressions have no length limit).
+static std::string fmtG(double v) {
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%g", v);
+  return buf;
+}
+
 std::string budgetString(const Budget& b) {
   char buf[96];
   std::string s = budgetText(b, buf, sizeof(buf));
@@ -513,10 +520,8 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         std::string back;
         for (const Fact& f : rr->region.facts)
           if (f.likely) {
-            char buf[160];
-            std::snprintf(buf, sizeof(buf), "; likely range: %s in [%g, %g] (%s)", f.input.c_str(), f.suggestLo, f.suggestHi,
-                          f.suggestWhy.c_str());
-            back += buf;
+            back += "; likely range: " + f.input + " in [" + fmtG(f.suggestLo) + ", " + fmtG(f.suggestHi) + "] (" +
+                    f.suggestWhy + ")";
           }
         // Register counts only where they change (register pressure).
         if (v.amdVgprs >= 0 && rr->targetAmdVgprs >= 0 && v.amdVgprs != rr->targetAmdVgprs)
@@ -690,10 +695,9 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     s += "Inputs:\n";
     for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
       const auto& d = r.prog.inputs[k];
-      std::snprintf(buf, sizeof(buf), "- `%s` in [%g, %g]%s — %s%s\n", d.name.c_str(), d.lo, d.hi,
-                    d.grid ? (" grid " + std::to_string(d.grid)).c_str() : "",
-                    r.facts[k].source.c_str(), r.facts[k].assumed ? " (*assumed*)" : "");
-      s += buf;
+      s += "- `" + d.name + "` in [" + fmtG(d.lo) + ", " + fmtG(d.hi) + "]" +
+           (d.grid ? " grid " + std::to_string(d.grid) : std::string()) + " — " + r.facts[k].source +
+           (r.facts[k].assumed ? " (*assumed*)" : "") + "\n";
     }
     s += std::string("\nBudget: ") + budgetString(r.prog.budget) + " (" +
          r.budgetReason + "). Original cost " + std::to_string(rr.targetCost);
@@ -841,10 +845,10 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
                                   : "";
     if (rr.onlyContraction) why += ", only explicit fma/modifiers";
     if (rr.measuredNoGain) why += ", no measured gain";
-    std::snprintf(buf, sizeof(buf), "- %s:%u (cost %u%s): `%s`\n", pathFrom(r.file).filename().string().c_str(),
-                  r.line, rr.targetCost, why.c_str(),
-                  escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)).c_str());
-    s += buf;
+    // As strings: a long expression was cut at 511 characters, without its line end (2 lines in the 2026-11-17 corpus).
+    s += "- " + pathFrom(r.file).filename().string() + ":" + std::to_string(r.line) + " (cost " +
+         std::to_string(rr.targetCost) + why + "): `" +
+         escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)) + "`\n";
   }
   s += "\n## Skipped statements\n\n| reason | count |\n|---|---|\n";
   std::vector<std::pair<uint32_t, std::string>> sk;

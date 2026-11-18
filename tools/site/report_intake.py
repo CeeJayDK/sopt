@@ -230,7 +230,12 @@ def save_report(k, name, kind, text, pngs):
         for suffix in ("-order.png", "-order-zoom.png"):
             pngs.pop(stem + suffix, None)
         return None
-    stem = slug(gpu, vid, dev) + ("-" + h["stage"] if kind == "stagebench" or "stage" in h else "")
+    # The stage goes into the file name: ps or vs only (classify's check may have matched another "# stage:" line, and
+    # the header's own value is the uploader's text: no names or paths in file names).
+    stage = h.get("stage", "")
+    if kind == "stagebench" and stage not in ("ps", "vs"):
+        raise ValueError("stage")
+    stem = slug(gpu, vid, dev) + ("-" + stage if stage in ("ps", "vs") else "")
     if kind == "stopped":  # docs/stopped/<tool>-<gpu>[-stage], the reason in the log
         stem = text[2:].split()[0].lower() + "-" + stem
         version += ", " + re.search(r"^# (stopped: .*)$", text, re.M).group(1)

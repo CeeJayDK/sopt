@@ -3177,6 +3177,20 @@ the cut's sampled range is only a search aid).
   regions 20699 -> 20737, written 2301 -> 2305, saved 43938 -> 44027. Clear gains where the budgets differed:
   BFBFX (38) 22 -> 29 written, 582 -> 621 saved; package 37 15 -> 17 written; the rest within the noise. The 68 left
   differ in math or inputs (one file compiled with other definitions per effect).
+
+## Review, last part (2026-11-18)
+- Report intake (report_intake.py): the "# stage:" header value went into the saved file name unchecked (StageBench:
+  classify's ps / vs check could match another "# stage:" line than the header's; OpBench / TexBench: any value was
+  appended). A name or note there would have been published in a file name (GDPR); a path was stopped only by the
+  OS (no such folder). Now ps / vs only: other StageBench values are junk, other tools leave it out. Test in
+  test_report_intake.py (fails without the fix).
+- sopt-report.md: two lines of the 2026-11-17 corpus were cut at 511 characters and ran into the next one (a long
+  expression under "Regions without cheaper variants"; snprintf into buf[512]). That line, the input lines and the
+  variant files' "likely range" note are joined as strings now.
+- Read, nothing found: shapeOf, the rest of spanGuard, the report writer's tail (foundRewrites, the run cache,
+  culpritSwitch), main.cpp's second half, gen_expected.py (test names filtered, device ids from the repo), the site's
+  pages (uploaded text only through textContent; FINDINGS.md is the repo's), the workflows (inputs only through env;
+  the intake adds docs/ only).
 - Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
   stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
   divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run

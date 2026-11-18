@@ -143,6 +143,12 @@ def test_fetch():
     saved, remove = run_fetch({"/z.zip": zipped(**{"a.csv": broken, "b.txt": SHADERINFO})})
     assert saved == ["intel-uhd-630.txt"] and remove == ["/z.zip"]
     assert run_fetch({}) == ([], [])
+    # The stage in the file name is ps or vs only: another header value (a name, a path) is junk for StageBench and
+    # left out for the other tools.
+    odd = STAGE.replace(b"# stage: ps", b"# stage: John Smith") + b"# stage: ps\n"
+    assert ri.classify("x.csv", odd)[0] == "stagebench"
+    assert run_fetch({"/a.csv": odd}) == ([], ["/a.csv"])
+    assert run_fetch({"/a.csv": OPBENCH.replace(b"# gpu", b"# stage: ../../x\n# gpu")})[0] == ["nvidia-gtx-1660.csv"]
 
 
 def test_known():
