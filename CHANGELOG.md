@@ -42,6 +42,9 @@ docs/notes/history.md.
 - **Driver check:** OpBench and StageBench now also report whether your driver keeps a shader's `precise` math as written, on each version of Direct3D.
 - **Small lookup tables:** TexBench now measures whether small dither tables and color tables are faster as a texture or written out in the shader, on your card.
 
+### Test Host
+- **Fixed:** the timing results could not be saved when the Test Host was unpacked into a folder whose name has letters such as ø or é.
+
 ## 0.10.0
 
 ### SweetOpt
