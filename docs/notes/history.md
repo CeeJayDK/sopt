@@ -3191,6 +3191,16 @@ the cut's sampled range is only a search aid).
   culpritSwitch), main.cpp's second half, gen_expected.py (test names filtered, device ids from the repo), the site's
   pages (uploaded text only through textContent; FINDINGS.md is the repo's), the workflows (inputs only through env;
   the intake adds docs/ only).
+- Windows tools: sopt-timer wrote sopt-timer.csv with std::fopen on ReShade's base path, which is UTF-8, while fopen
+  reads a narrow path in the ANSI code page: a Test Host unpacked under a folder such as C:\Users\Søren\ could not
+  write it (run-bench.ps1: "no sopt-timer.csv"). _wfopen on the fs::path now; builds, not run under ReShade here.
+  Read, nothing found: the timer's bench / shot logic, the PowerShell runners (common, run-test, run-bench,
+  zip-reports), OpBench's calibration, measurement and base ordering (a base is always measured before its tests).
+  Noted, not changed: OpBench / TexBench / ShaderInfo find Reports\ through GetModuleFileNameA (a folder name with
+  characters outside the ANSI code page would fail; consistent within the programs otherwise); a test whose every
+  timing came back disjoint would read 0 (or a NaN against a 0 reference, which the intake then rejects); the timer's
+  header promises the disjoint check for D3D10 too, only D3D11 has it. Not read: texbench.cpp, shaderinfo.cpp,
+  sopt_host.cpp beyond their file writes.
 - Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
   stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
   divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run

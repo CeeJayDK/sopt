@@ -342,8 +342,11 @@ void writeCsv() {
   char descr[256] = "";
   dev->get_property(device_properties::description, descr);
   g.runtime->get_screenshot_width_and_height(&w, &h);
-  g.csvPath = utf8(fs::u8path(basePath()) / "sopt-timer.csv");
-  FILE* f = std::fopen(g.csvPath.c_str(), "w");
+  const fs::path csv = fs::u8path(basePath()) / "sopt-timer.csv";
+  g.csvPath = utf8(csv);
+  // The wide path: fopen reads a narrow one in the ANSI code page, and ReShade's base path is UTF-8 (a folder such as
+  // C:\Users\Søren\... could not be written).
+  FILE* f = _wfopen(csv.c_str(), L"w");
   if (!f) {
     g.status = "cannot write " + g.csvPath;
     return;
