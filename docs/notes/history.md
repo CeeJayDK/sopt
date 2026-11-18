@@ -3173,6 +3173,10 @@ the cut's sampled range is only a search aid).
   of the region (a merged reason keeps "back buffer" when one effect's had it). No .sopt syntax for it. Tests
   budget_also_every_budget_holds, fx_shared_header_ranges_of_every_effect. prod80: 18 -> 4 statements left alone,
   BFBFX 10 -> 0 (locally).
+- Corpus (e577a05, time 0.1; run 43978297615) against the baseline 43805632166: statements left alone 106 -> 68,
+  regions 20699 -> 20737, written 2301 -> 2305, saved 43938 -> 44027. Clear gains where the budgets differed:
+  BFBFX (38) 22 -> 29 written, 1680 -> 2310 saved; package 37 15 -> 17; the rest within the noise. The 68 left
+  differ in math or inputs (one file compiled with other definitions per effect).
 - Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
   stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
   divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run
