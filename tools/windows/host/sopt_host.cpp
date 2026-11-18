@@ -412,7 +412,7 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
       ctx->PSSetShader(nullptr, nullptr, 0);
       for (UINT row = 0; row < kGridRows; ++row) ctx->Draw(kGridCols * 6, row * kGridCols * 6);
     }
-    sc->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0);
+    if (FAILED(sc->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0))) fail("Present failed (device lost)");
     showFps(hwnd, "dx11", frame);
   }
   ctx->ClearState();
@@ -530,7 +530,7 @@ int runD3d9(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
       dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
     }
     bb->Release();
-    if (dev->Present(nullptr, nullptr, nullptr, nullptr) == D3DERR_DEVICELOST) break;
+    if (dev->Present(nullptr, nullptr, nullptr, nullptr) == D3DERR_DEVICELOST) fail("Present failed (device lost)");
     showFps(hwnd, "dx9", frame);
   }
   for (IUnknown* u : std::initializer_list<IUnknown*>{vb, decl, ps, vs, ds, img})
@@ -628,7 +628,7 @@ int runD3d10(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
       dev->PSSetShader(nullptr);
       for (UINT row = 0; row < kGridRows; ++row) dev->Draw(kGridCols * 6, row * kGridCols * 6);
     }
-    sc->Present(0, 0);
+    if (FAILED(sc->Present(0, 0))) fail("Present failed (device lost)");
     showFps(hwnd, "dx10", frame);
   }
   dev->ClearState();
@@ -851,7 +851,7 @@ int runD3d12(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
     }
     list->Close();
     queue->ExecuteCommandLists(1, lists);
-    if (FAILED(sc->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0))) break;
+    if (FAILED(sc->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0))) fail("Present failed (device lost)");
     queue->Signal(fence, ++fenceValue);
     slotValue[i] = fenceValue;
     showFps(hwnd, "dx12", frame);
@@ -1313,7 +1313,7 @@ int runVulkan(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
     vkWaitForFences(dev, 1, &fences[f], VK_TRUE, UINT64_MAX);
     uint32_t idx = 0;
     const VkResult ar = vkAcquireNextImageKHR(dev, sc, UINT64_MAX, acquired[f], VK_NULL_HANDLE, &idx);
-    if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR) break;   // window minimized or resized: stop
+    if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR) vkCheck(ar, "vkAcquireNextImageKHR (window resized or minimized?)");
     vkResetFences(dev, 1, &fences[f]);
     VkCommandBuffer cb = cbs[f];
     vkResetCommandBuffer(cb, 0);
@@ -1363,7 +1363,7 @@ int runVulkan(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
     pi.pSwapchains = &sc;
     pi.pImageIndices = &idx;
     const VkResult pr = vkQueuePresentKHR(queue, &pi);
-    if (pr != VK_SUCCESS && pr != VK_SUBOPTIMAL_KHR) break;
+    if (pr != VK_SUCCESS && pr != VK_SUBOPTIMAL_KHR) vkCheck(pr, "vkQueuePresentKHR (window resized or minimized?)");
     showFps(hwnd, "vulkan", frame);
   }
   vkDeviceWaitIdle(dev);

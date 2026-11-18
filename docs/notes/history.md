@@ -3216,7 +3216,10 @@ the cut's sampled range is only a search aid).
   would have used a null test; `--check` in CI catches it). Order and precision passes, blur / scatter / pass
   loops, sopt-host D3D9 / D3D10 / OpenGL / Vulkan read: nothing found. Noted, not changed: sopt-host stops with
   exit code 0 when Direct3D 9 loses its device or a Vulkan swap chain goes out of date (window resized or
-  minimized), so a --bench run cut short that way looks like a finished one.
+  minimized), so a --bench run cut short that way looks like a finished one; fixed (owner): a
+  failed Present (D3D9 device lost, DXGI Present failing on dx10 / dx11 / dx12, which dx10 / dx11 ignored) or Vulkan
+  acquire / present now fails with a message and exit code 1; a closed window still ends with 0 (WM_QUIT is seen
+  before the next Present). Ran 60 frames on all six APIs: exit 0.
 - Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
   stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
   divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run

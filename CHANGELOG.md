@@ -44,6 +44,7 @@ docs/notes/history.md.
 
 ### Test Host
 - **Fixed:** the timing results could not be saved when the Test Host was unpacked into a folder whose name has letters such as ø or é.
+- **Fixed:** when the graphics card stopped responding or the window was minimized mid-run, a benchmark stopped early but looked finished. It now says what went wrong.
 
 ## 0.10.0
 
