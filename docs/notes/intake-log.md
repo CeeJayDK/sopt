@@ -623,3 +623,10 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, AMD Radeon RX 9070 XT (driver 32.0.32015.12012): `docs/stagebench/amd-radeon-rx-9070-xt-ps.csv` (StageBench 0.10.0)
 - upload 1: stagebench, AMD Radeon RX 9070 XT (driver 32.0.32015.12012): `docs/stagebench/amd-radeon-rx-9070-xt-vs.csv` (StageBench 0.10.0)
 - upload 1: texbench, AMD Radeon RX 9070 XT (driver 32.0.32015.12012): `docs/texbench/amd-radeon-rx-9070-xt-5.csv`, `docs/texbench/amd-radeon-rx-9070-xt-5-order.png`, `docs/texbench/amd-radeon-rx-9070-xt-5-order-zoom.png` (TexBench 0.10.0)
+
+## 2026-11-19 20:47 UTC
+- upload 1: opbench, NVIDIA GeForce RTX 5080 (driver 32.0.16.2114): `docs/opbench/nvidia-rtx-5080-2.csv` (OpBench 0.10.0)
+- upload 1: shaderinfo, NVIDIA GeForce RTX 5080 (driver NVIDIA 621.14 (621.14)): `docs/shaderinfo/nvidia-rtx-5080-2.txt`
+- upload 1: stagebench, NVIDIA GeForce RTX 5080 (driver 32.0.16.2114): `docs/stagebench/nvidia-rtx-5080-ps.csv` (StageBench 0.10.0)
+- upload 1: stagebench, NVIDIA GeForce RTX 5080 (driver 32.0.16.2114): `docs/stagebench/nvidia-rtx-5080-vs.csv` (StageBench 0.10.0)
+- upload 1: texbench, NVIDIA GeForce RTX 5080 (driver 32.0.16.2114): `docs/texbench/nvidia-rtx-5080-2.csv`, `docs/texbench/nvidia-rtx-5080-2-order.png`, `docs/texbench/nvidia-rtx-5080-2-order-zoom.png` (TexBench 0.10.0)
