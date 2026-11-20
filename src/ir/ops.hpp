@@ -2,6 +2,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace sopt {
@@ -189,6 +190,8 @@ const CostModel& costAmdTerascale2();
 // Default is rdna3 (searched in search order); --isa / --sass rank by real machine code.
 const CostModel& defaultCostModel();
 const CostModel* costModelByName(std::string_view name);
+// The names costModelByName knows, comma separated (for error messages).
+std::string costModelNames();
 // --no-amd-folds: rdna3 without CostModel::amdFolds (other models unchanged).
 const CostModel* withoutAmdFolds(const CostModel* m);
 

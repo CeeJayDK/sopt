@@ -2004,7 +2004,7 @@ double writePass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader
   std::vector<double> runs;
   for (int n = 0; n < reps * 3 && int(runs.size()) < reps; ++n)
     if (const double m = timeDraws(draws); m > 0.0) runs.push_back(m / draws);
-  return median(runs);
+  return runs.empty() ? std::nan("") : median(runs);  // NaN: no timing worked
 }
 
 // Blending: the median time of one pass (in ms). A unit restores both targets' content (noise, a plain
@@ -2050,7 +2050,8 @@ double blendPass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader
   g.ctx->OMSetRenderTargets(1, &nullRtv, nullptr);
   g.ctx->OMSetBlendState(nullptr, factor, 0xffffffffu);
   g.ctx->PSSetShaderResources(0, 1, &nullSrv);
-  return median(runs);
+  // NaN: no timing worked. Not below 0: a pass costs something, a negative median is the restores' noise.
+  return runs.empty() ? std::nan("") : std::max(0.0, median(runs));
 }
 
 // ---------------------------------------------------------------------------
@@ -3129,7 +3130,7 @@ int main(int argc, char** argv) {
       std::vector<double> runs;
       for (int k = 0; k < reps * 3 && int(runs.size()) < reps; ++k)
         if (const double m = timed(n); m > 0.0) runs.push_back(m / n);
-      rd.push_back(median(runs));
+      if (!runs.empty()) rd.push_back(median(runs));  // else every timing failed: no reading
       progress.step();
     }
     passMs[t->name] = consensus(rd, 0.0);
@@ -3578,7 +3579,7 @@ int main(int argc, char** argv) {
       UINT draws = 0;
       std::vector<double>& rd = blendReadings[t->name];
       for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
-        rd.push_back(blendPass(g, rtv, restore, ps, srv, bs, reps, draws));
+        if (const double ms = blendPass(g, rtv, restore, ps, srv, bs, reps, draws); !std::isnan(ms)) rd.push_back(ms);
         progress.step();
       }
       blendMs[t->name] = consensus(rd, 0.0);
@@ -3618,11 +3619,11 @@ int main(int argc, char** argv) {
       std::vector<double>& rd = writeReadings[t->name];
       for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
         const double ms = writePass(g, rtv, ps, reps, draws, w, h);
-        rd.push_back(double(w) * h * t->format->bytes / (ms * 1e6));  // GB/s
+        if (ms > 0.0) rd.push_back(double(w) * h * t->format->bytes / (ms * 1e6));  // GB/s
         progress.step();
       }
       writeUnits[t->name] = consensus(rd, 0.0);
-      writeMs[t->name] = double(kRtW) * kRtH * t->format->bytes / (writeUnits[t->name].value * 1e6);
+      writeMs[t->name] = writeUnits[t->name].value > 0.0 ? double(kRtW) * kRtH * t->format->bytes / (writeUnits[t->name].value * 1e6) : 0.0;
       ID3D11RenderTargetView* nullRtv = nullptr;
       g.ctx->OMSetRenderTargets(1, &nullRtv, nullptr);
       release(ps);
@@ -3654,16 +3655,17 @@ int main(int argc, char** argv) {
         const Result m = measureAt(g, ref, rk, c, iters[c.name][ref.name], reps);
         bind(g, *t, b, k);
         const Result r = t == &ref ? m : measureAt(g, *t, k, c, iters[c.name][t->name], reps);
+        progress.step();
+        if (!(m.ms > 0.0 && r.ms > 0.0)) continue;  // every timing failed: no reading (more passes may follow)
         if (std::strcmp(c.name, "tput") == 0) refs.push_back(m.nsPerStep);
         x.readings.push_back(4.0 * r.nsPerStep / m.nsPerStep);
         sum.iters = r.iters;
         sum.ms += r.ms;
         sum.nsPerStep += r.nsPerStep;
-        progress.step();
       }
       x.r = sum;
-      x.r.ms /= double(x.readings.size());
-      x.r.nsPerStep /= double(x.readings.size());
+      x.r.ms /= std::max<double>(1.0, double(x.readings.size()));
+      x.r.nsPerStep /= std::max<double>(1.0, double(x.readings.size()));
       x.units = consensus(x.readings);
     }
     ID3D11ShaderResourceView* nullViews[4] = {nullptr, nullptr, nullptr, nullptr};

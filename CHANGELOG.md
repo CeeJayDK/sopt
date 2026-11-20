@@ -41,10 +41,14 @@ docs/notes/history.md.
 - **Sending reports:** a report is no longer lost when the connection to Dropbox fails while it is being collected, and a report sent with ShaderInfo alone now arrives.
 - **Driver check:** OpBench and StageBench now also report whether your driver keeps a shader's `precise` math as written, on each version of Direct3D.
 - **Small lookup tables:** TexBench now measures whether small dither tables and color tables are faster as a texture or written out in the shader, on your card.
+- **Fixed:** two identical graphics cards in one PC now each get their own ShaderInfo report; before, the second replaced the first.
+- **Fixed:** a test whose timings all failed now shows as unreliable in OpBench and TexBench, instead of as free.
 
 ### Test Host
 - **Fixed:** the timing results could not be saved when the Test Host was unpacked into a folder whose name has letters such as ø or é.
 - **Fixed:** when the graphics card stopped responding or the window was minimized mid-run, a benchmark stopped early but looked finished. It now says what went wrong.
+- **Direct3D 10:** benchmarks now skip frames whose timing the driver marks as unreliable, as they already did on Direct3D 11.
+- **Unattended runs:** when the benchmark or the test scripts run the Test Host and something fails, it no longer waits for someone to click OK.
 
 ## 0.10.0
 

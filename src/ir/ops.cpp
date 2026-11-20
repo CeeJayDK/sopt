@@ -591,33 +591,24 @@ const CostModel& defaultOrderFor(const CostModel& objective) {
 
 const CostModel* withoutAmdFolds(const CostModel* m) { return m == &kRdna3 ? &kRdna3NoFolds : m; }
 
+// Every model a name selects (the order costModelNames lists them in).
+const CostModel* const kNamedModels[] = {&kRdna3, &kAmdRdna2, &kAmdRdna4, &kAmdGcn5, &kAmdGcn4, &kAmdTerascale2, &kNvidia,
+                                         &kNvidiaMaxwell2, &kNvidiaMaxwell1, &kNvidiaFermi, &kNvidiaPascal, &kNvidiaTuring,
+                                         &kNvidiaTuringRtx, &kNvidiaAmpere, &kNvidiaAda, &kNvidiaBlackwell, &kIntelXe2,
+                                         &kIntelGen12, &kIntelGen9, &kIntelGen75, &kIntelGen6, &kRdna3Rga, &kGeneric, &kSearch};
+
 const CostModel* costModelByName(std::string_view name) {
-  if (name == kGeneric.name) return &kGeneric;
-  if (name == kRdna3.name) return &kRdna3;
-  if (name == kRdna3Rga.name) return &kRdna3Rga;
-  if (name == kSearch.name || name == "rdna3-search") return &kSearch;
-  if (name == kNvidia.name) return &kNvidia;
-  if (name == kNvidiaMaxwell2.name) return &kNvidiaMaxwell2;
+  if (name == "rdna3-search") return &kSearch;
   if (name == "nvidia-maxwell") return &kNvidiaMaxwell2;  // the name until 0.7.4 (one model for both Maxwells)
-  if (name == kNvidiaMaxwell1.name) return &kNvidiaMaxwell1;
-  if (name == kNvidiaFermi.name) return &kNvidiaFermi;
-  if (name == kNvidiaPascal.name) return &kNvidiaPascal;
-  if (name == kNvidiaTuring.name) return &kNvidiaTuring;
-  if (name == kNvidiaTuringRtx.name) return &kNvidiaTuringRtx;
-  if (name == kNvidiaAmpere.name) return &kNvidiaAmpere;
-  if (name == kNvidiaAda.name) return &kNvidiaAda;
-  if (name == kNvidiaBlackwell.name) return &kNvidiaBlackwell;
-  if (name == kIntelGen9.name) return &kIntelGen9;
-  if (name == kIntelGen75.name) return &kIntelGen75;
-  if (name == kIntelGen6.name) return &kIntelGen6;
-  if (name == kIntelGen12.name) return &kIntelGen12;
-  if (name == kIntelXe2.name) return &kIntelXe2;
-  if (name == kAmdRdna2.name) return &kAmdRdna2;
-  if (name == kAmdRdna4.name) return &kAmdRdna4;
-  if (name == kAmdGcn4.name) return &kAmdGcn4;
-  if (name == kAmdGcn5.name) return &kAmdGcn5;
-  if (name == kAmdTerascale2.name) return &kAmdTerascale2;
+  for (const CostModel* m : kNamedModels)
+    if (name == m->name) return m;
   return nullptr;
+}
+
+std::string costModelNames() {
+  std::string s;
+  for (const CostModel* m : kNamedModels) s += (s.empty() ? "" : ", ") + std::string(m->name);
+  return s;
 }
 
 }  // namespace sopt

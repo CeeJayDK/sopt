@@ -3220,6 +3220,29 @@ the cut's sampled range is only a search aid).
   failed Present (D3D9 device lost, DXGI Present failing on dx10 / dx11 / dx12, which dx10 / dx11 ignored) or Vulkan
   acquire / present now fails with a message and exit code 1; a closed window still ends with 0 (WM_QUIT is seen
   before the next Present). Ran 60 frames on all six APIs: exit 0.
+- Then the noted-not-changed items (owner, 2026-11-21: "fix 1 to 8"):
+  1. The cost model names: one table (kNamedModels, ops.cpp) feeds costModelByName and the "unknown cost model"
+     list (costModelNames), which missed intel-gen6, nvidia-turing-rtx, rdna3-rga.
+  2. Reports\ in a folder outside the ANSI code page: already works. app.manifest sets activeCodePage UTF-8
+     (Windows 10 1903+), so GetModuleFileNameA, fopen and argv are UTF-8; ShaderInfo run from a folder named
+     with CJK letters and ø wrote both reports. Only older Windows (7, 8, 10 before 1903) keeps the ANSI limit;
+     a fix there means every file open in the three programs going through wide paths. Not done.
+  3. OpBench / TexBench: a reading whose timings all failed (disjoint, not ready) is left out instead of read as
+     0 (ms 0 gave a 0 reading, or NaN against a 0 reference); the passes go on, and with no reading at all the
+     test shows "no consensus" with 0. Averages divide by at least 1. writePass / blendPass return NaN for no
+     timing, TexBench's pass / blur units push nothing.
+  4. sopt-timer: D3D10 gets the timestamp-disjoint query too (ID3D10Query, begun / ended / read on the query);
+     builds, not run under ReShade on D3D10 here.
+  5. ShaderInfo's fp16 rate test checks every create / allocate (and a memory type that fits); a failure ends
+     the test with its VkResult in the report instead of timing with null handles.
+  6. ShaderInfo: two cards of one name in one run write -2, -3 ... (report and batch CSV); a new run still
+     replaces the old files. Not run with two identical cards.
+  7. TexBench's blend pass reads at least 0 (a negative median is the restores' noise).
+  8. sopt-host: no message box under --bench or SOPT_TIMER_SHOT (run-bench / run-test); stderr and exit code 1
+     as before. The interactive run of run-test.ps1 (no SOPT_TIMER_SHOT) keeps the box.
+  Checked: built (MSVC), sopt's model list and lookups (intel-gen6, nvidia-maxwell alias), sopt-host --bench with
+  a bad --api (no box, exit 1), ShaderInfo on the GTX 1660 + UHD 630 (fp16 rates as before), TexBench "RGBA8 add"
+  and "RGBA8 write" on the GTX 1660 (sane readings, consensus).
 - Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
   stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
   divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run

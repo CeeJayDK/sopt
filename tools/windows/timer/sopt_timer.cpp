@@ -22,6 +22,7 @@
 #include <imgui.h>
 #include <reshade.hpp>
 
+#include <d3d10_1.h>  // includes d3d10.h (the SDK wants d3d10_1.h first)
 #include <d3d11.h>
 
 #include <algorithm>
@@ -58,7 +59,8 @@ struct FrameRec {
   std::vector<std::pair<std::string, uint32_t>> passive;   // first entry: begin
   std::vector<Run> runs;
   std::vector<uint64_t> chain;   // techniques ReShade rendered this frame (so they are created)
-  ID3D11Query* disjoint = nullptr;
+  ID3D11Query* disjoint = nullptr;    // D3D11
+  ID3D10Query* disjoint10 = nullptr;  // D3D10 (no context: the query is begun, ended and read itself)
   bool disjointBegun = false;
 };
 
@@ -241,11 +243,14 @@ void collect(FrameRec& r, command_list* cmd) {
     return;
   }
   uint64_t freq = g.freq;
-  if (r.disjoint) {
-    auto* ctx = reinterpret_cast<ID3D11DeviceContext*>(cmd->get_native());
-    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj = {};
-    if (!r.disjointBegun || ctx->GetData(r.disjoint, &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
-        dj.Disjoint) {
+  if (r.disjoint || r.disjoint10) {
+    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj = {};  // the same layout as D3D10's
+    const HRESULT hr = !r.disjointBegun ? E_FAIL
+                       : r.disjoint
+                           ? reinterpret_cast<ID3D11DeviceContext*>(cmd->get_native())
+                                 ->GetData(r.disjoint, &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH)
+                           : r.disjoint10->GetData(&dj, sizeof(dj), D3D10_ASYNC_GETDATA_DONOTFLUSH);
+    if (hr != S_OK || dj.Disjoint) {
       ++g.dropped;
       return;
     }
@@ -490,6 +495,10 @@ void onInit(effect_runtime* rt) {
     auto* d3d = reinterpret_cast<ID3D11Device*>(dev->get_native());
     D3D11_QUERY_DESC qd = {D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
     for (FrameRec& r : g.recs) d3d->CreateQuery(&qd, &r.disjoint);
+  } else if (dev->get_api() == device_api::d3d10) {
+    auto* d3d = reinterpret_cast<ID3D10Device*>(dev->get_native());
+    D3D10_QUERY_DESC qd = {D3D10_QUERY_TIMESTAMP_DISJOINT, 0};
+    for (FrameRec& r : g.recs) d3d->CreateQuery(&qd, &r.disjoint10);
   }
   if (g.cfg.autoRun) g.phase = Phase::Idle, g.status = "auto run pending";
   logf("sopt-timer: timestamp frequency %llu Hz, auto run %d", static_cast<unsigned long long>(g.freq),
@@ -502,6 +511,7 @@ void onDestroy(effect_runtime* rt) {
   if (g.heap.handle) dev->destroy_query_heap(g.heap);
   for (FrameRec& r : g.recs) {
     if (r.disjoint) r.disjoint->Release();
+    if (r.disjoint10) r.disjoint10->Release();
     r = FrameRec();
   }
   destroyCopies(dev);
@@ -515,13 +525,18 @@ void onBeginEffects(effect_runtime* rt, command_list* cmd, resource_view rtv, re
   FrameRec& r = g.recs[g.frame % kRing];
   collect(r, cmd);
   ID3D11Query* dj = r.disjoint;
+  ID3D10Query* dj10 = r.disjoint10;
   r = FrameRec();
   r.disjoint = dj;
+  r.disjoint10 = dj10;
   r.used = true;
   r.gen = g.gen;
   g.cur = &r;
   if (r.disjoint) {
     reinterpret_cast<ID3D11DeviceContext*>(cmd->get_native())->Begin(r.disjoint);
+    r.disjointBegun = true;
+  } else if (r.disjoint10) {
+    r.disjoint10->Begin();
     r.disjointBegun = true;
   }
   g.haveInput = false;
@@ -580,6 +595,8 @@ void onFinishEffects(effect_runtime* rt, command_list* cmd, resource_view rtv, r
   g.lastChain = g.cur->chain;
   if (g.cur->disjoint && g.cur->disjointBegun)
     reinterpret_cast<ID3D11DeviceContext*>(cmd->get_native())->End(g.cur->disjoint);
+  else if (g.cur->disjoint10 && g.cur->disjointBegun)
+    g.cur->disjoint10->End();
   g.cur = nullptr;
 }
 

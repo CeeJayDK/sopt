@@ -359,9 +359,14 @@ std::string rateTest(VkPhysicalDevice pd, const VkPhysicalDeviceProperties& prop
   VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   bci.size = kThreads * 4;
   bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-  VkBuffer buf;
-  vkCreateBuffer(dev, &bci, nullptr, &buf);
-  VkMemoryRequirements mr;
+  // A step that fails (a driver refusing even these small objects) ends the test with its VkResult.
+  VkResult bad = VK_SUCCESS;
+  auto check = [&](VkResult r) {
+    if (bad == VK_SUCCESS) bad = r;
+  };
+  VkBuffer buf = VK_NULL_HANDLE;
+  check(vkCreateBuffer(dev, &bci, nullptr, &buf));
+  VkMemoryRequirements mr = {};
   vkGetBufferMemoryRequirements(dev, buf, &mr);
   VkPhysicalDeviceMemoryProperties mp;
   vkGetPhysicalDeviceMemoryProperties(pd, &mp);
@@ -370,59 +375,77 @@ std::string rateTest(VkPhysicalDevice pd, const VkPhysicalDeviceProperties& prop
   VkMemoryAllocateInfo mai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
   mai.allocationSize = mr.size;
   mai.memoryTypeIndex = type;
-  VkDeviceMemory mem;
-  vkAllocateMemory(dev, &mai, nullptr, &mem);
-  vkBindBufferMemory(dev, buf, mem, 0);
+  VkDeviceMemory mem = VK_NULL_HANDLE;
+  if (type == mp.memoryTypeCount) check(VK_ERROR_FEATURE_NOT_PRESENT);
+  if (bad == VK_SUCCESS) check(vkAllocateMemory(dev, &mai, nullptr, &mem));
+  if (bad == VK_SUCCESS) check(vkBindBufferMemory(dev, buf, mem, 0));
   VkDescriptorSetLayoutBinding binding = {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
   VkDescriptorSetLayoutCreateInfo dl = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
   dl.bindingCount = 1;
   dl.pBindings = &binding;
-  VkDescriptorSetLayout setLayout;
-  vkCreateDescriptorSetLayout(dev, &dl, nullptr, &setLayout);
+  VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+  check(vkCreateDescriptorSetLayout(dev, &dl, nullptr, &setLayout));
   VkPushConstantRange pc = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 16};
   VkPipelineLayoutCreateInfo pl = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
   pl.setLayoutCount = 1;
   pl.pSetLayouts = &setLayout;
   pl.pushConstantRangeCount = 1;
   pl.pPushConstantRanges = &pc;
-  VkPipelineLayout layout;
-  vkCreatePipelineLayout(dev, &pl, nullptr, &layout);
+  VkPipelineLayout layout = VK_NULL_HANDLE;
+  check(vkCreatePipelineLayout(dev, &pl, nullptr, &layout));
   VkDescriptorPoolSize ps = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1};
   VkDescriptorPoolCreateInfo dpi = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   dpi.maxSets = 1;
   dpi.poolSizeCount = 1;
   dpi.pPoolSizes = &ps;
-  VkDescriptorPool pool;
-  vkCreateDescriptorPool(dev, &dpi, nullptr, &pool);
+  VkDescriptorPool pool = VK_NULL_HANDLE;
+  check(vkCreateDescriptorPool(dev, &dpi, nullptr, &pool));
   VkDescriptorSetAllocateInfo dsa = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
   dsa.descriptorPool = pool;
   dsa.descriptorSetCount = 1;
   dsa.pSetLayouts = &setLayout;
-  VkDescriptorSet set;
-  vkAllocateDescriptorSets(dev, &dsa, &set);
-  VkDescriptorBufferInfo dbi = {buf, 0, VK_WHOLE_SIZE};
-  VkWriteDescriptorSet w = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  w.dstSet = set;
-  w.descriptorCount = 1;
-  w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  w.pBufferInfo = &dbi;
-  vkUpdateDescriptorSets(dev, 1, &w, 0, nullptr);
+  VkDescriptorSet set = VK_NULL_HANDLE;
+  if (bad == VK_SUCCESS) check(vkAllocateDescriptorSets(dev, &dsa, &set));
+  if (bad == VK_SUCCESS) {
+    VkDescriptorBufferInfo dbi = {buf, 0, VK_WHOLE_SIZE};
+    VkWriteDescriptorSet w = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    w.dstSet = set;
+    w.descriptorCount = 1;
+    w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w.pBufferInfo = &dbi;
+    vkUpdateDescriptorSets(dev, 1, &w, 0, nullptr);
+  }
   VkCommandPoolCreateInfo cpci = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
   cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   cpci.queueFamilyIndex = family;
-  VkCommandPool cmdPool;
-  vkCreateCommandPool(dev, &cpci, nullptr, &cmdPool);
+  VkCommandPool cmdPool = VK_NULL_HANDLE;
+  check(vkCreateCommandPool(dev, &cpci, nullptr, &cmdPool));
   VkCommandBufferAllocateInfo cbai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
   cbai.commandPool = cmdPool;
   cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   cbai.commandBufferCount = 1;
-  VkCommandBuffer cb;
-  vkAllocateCommandBuffers(dev, &cbai, &cb);
+  VkCommandBuffer cb = VK_NULL_HANDLE;
+  if (bad == VK_SUCCESS) check(vkAllocateCommandBuffers(dev, &cbai, &cb));
   VkQueryPoolCreateInfo qpi = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
   qpi.queryType = VK_QUERY_TYPE_TIMESTAMP;
   qpi.queryCount = 2;
-  VkQueryPool qp;
-  vkCreateQueryPool(dev, &qpi, nullptr, &qp);
+  VkQueryPool qp = VK_NULL_HANDLE;
+  check(vkCreateQueryPool(dev, &qpi, nullptr, &qp));
+  auto destroyAll = [&] {
+    vkDestroyQueryPool(dev, qp, nullptr);
+    vkDestroyCommandPool(dev, cmdPool, nullptr);
+    vkDestroyDescriptorPool(dev, pool, nullptr);
+    vkDestroyPipelineLayout(dev, layout, nullptr);
+    vkDestroyDescriptorSetLayout(dev, setLayout, nullptr);
+    vkDestroyBuffer(dev, buf, nullptr);
+    vkFreeMemory(dev, mem, nullptr);
+    vkDestroyDevice(dev, nullptr);
+  };
+  if (bad != VK_SUCCESS) {
+    destroyAll();
+    std::printf("  fp16 rate: could not create its buffers (VkResult %d)\n", int(bad));
+    return "\nfp16 rate: could not create its buffers (VkResult " + std::to_string(int(bad)) + ")\n";
+  }
   LARGE_INTEGER freq;
   QueryPerformanceFrequency(&freq);
   const uint64_t mask = validBits >= 64 ? ~0ull : (1ull << validBits) - 1;
@@ -515,14 +538,7 @@ std::string rateTest(VkPhysicalDevice pd, const VkPhysicalDeviceProperties& prop
   if (half) std::printf("fp16 %.3f TFLOPS (%.2fx)\n", r16, r32 > 0.0 && r16 > 0.0 ? r16 / r32 : 0.0);
   else std::printf("fp16 not supported\n");
 
-  vkDestroyQueryPool(dev, qp, nullptr);
-  vkDestroyCommandPool(dev, cmdPool, nullptr);
-  vkDestroyDescriptorPool(dev, pool, nullptr);
-  vkDestroyPipelineLayout(dev, layout, nullptr);
-  vkDestroyDescriptorSetLayout(dev, setLayout, nullptr);
-  vkDestroyBuffer(dev, buf, nullptr);
-  vkFreeMemory(dev, mem, nullptr);
-  vkDestroyDevice(dev, nullptr);
+  destroyAll();
   return text;
 }
 
@@ -583,6 +599,13 @@ int main(int argc, char** argv) {
   vkEnumeratePhysicalDevices(inst, &n, pds.data());
   if (pds.empty()) fail("no Vulkan GPU found");
   std::vector<std::string> files;
+  // A file name not written yet in this run (two cards of one name: -2, -3 ...; a new run still replaces the old files).
+  auto unwritten = [&](const std::filesystem::path& dir, const std::string& stem, const char* ext) {
+    std::filesystem::path p = dir / (stem + ext);
+    for (int k = 2; std::find(files.begin(), files.end(), p.string()) != files.end(); ++k)
+      p = dir / (stem + "-" + std::to_string(k) + ext);
+    return p;
+  };
   for (VkPhysicalDevice pd : pds) {
     const ULONGLONG gpuStart = GetTickCount64();  // the run time per GPU (owner, 2026-10-18: how long each tool takes)
     VkPhysicalDeviceProperties props;
@@ -710,7 +733,7 @@ int main(int argc, char** argv) {
       vkCreatePipelineLayout(dev, &pl, nullptr, &layout);
 
       if (!batch.empty()) {
-        const std::filesystem::path csvPath = batch / ("shaderinfo-batch-" + safe + ".csv");
+        const std::filesystem::path csvPath = unwritten(batch, "shaderinfo-batch-" + safe, ".csv");
         if (FILE* csv = std::fopen(csvPath.string().c_str(), "wb")) {
           std::fprintf(csv, "# ShaderInfo %s\n# gpu: %s\n# vendor: 0x%04X\n# device: 0x%04X\n# driver: %s\nshader,executable,statistic,value\n",
                        SOPT_VERSION, name.c_str(), props.vendorID, props.deviceID, driverInfo.c_str());
@@ -811,7 +834,7 @@ int main(int argc, char** argv) {
       vkDestroyDescriptorSetLayout(dev, setLayout, nullptr);
       vkDestroyDevice(dev, nullptr);
     }
-    const std::filesystem::path file = here / ("shaderinfo-" + safe + ".txt");
+    const std::filesystem::path file = unwritten(here, "shaderinfo-" + safe, ".txt");
     out("run time: " + std::to_string((GetTickCount64() - gpuStart + 500) / 1000) + " s\n");
     if (FILE* f = std::fopen(file.string().c_str(), "wb")) {
       std::fwrite(report.data(), 1, report.size(), f);

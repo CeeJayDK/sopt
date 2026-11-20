@@ -1323,18 +1323,19 @@ int main(int argc, char** argv) {
           // A fresh reference right before the test: a clock change moves both.
           const Result m = measureAt(g, shaders[c.name]["mad"], *madTest, c, it["mad"], reps);
           const Result r = t == madTest ? m : measureAt(g, shaders[c.name][t->name], *t, c, it[t->name], reps);
+          progress.step();
+          if (!(m.ms > 0.0 && r.ms > 0.0)) continue;  // every timing failed: no reading (more passes may follow)
           mads[c.name].push_back(m.nsPerStep);
           results[c.name][t->name].readings.push_back(4.0 * r.nsPerStep / m.nsPerStep);
           Result& acc = sums[c.name][t->name];
           acc.iters = r.iters;
           acc.ms += r.ms;
           acc.nsPerStep += r.nsPerStep;
-          progress.step();
         }
       }
       for (const Test* t : gr.run) {
         Measured& x = results[c.name][t->name];
-        const double n = double(x.readings.size());
+        const double n = std::max(1.0, double(x.readings.size()));
         x.r = sums[c.name][t->name];
         x.r.ms /= n;
         x.r.nsPerStep /= n;

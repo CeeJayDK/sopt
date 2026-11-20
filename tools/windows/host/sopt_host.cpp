@@ -72,9 +72,12 @@ struct Options {
   std::string gpu;       // part of the card's name; empty = the default card
 };
 
+// --bench, or the test runs' screenshot mode (SOPT_TIMER_SHOT): no message box (a scripted run would wait for a click).
+bool gUnattended = std::getenv("SOPT_TIMER_SHOT") != nullptr;
+
 void fail(const char* what) {
   std::fprintf(stderr, "sopt-host: %s\n", what);
-  MessageBoxA(nullptr, what, "sopt-host", MB_ICONERROR);
+  if (!gUnattended) MessageBoxA(nullptr, what, "sopt-host", MB_ICONERROR);
   std::exit(1);
 }
 
@@ -1385,7 +1388,7 @@ int main(int argc, char** argv) {
     else if (a == "--height") o.height = uint32_t(std::strtoul(next(), nullptr, 10));
     else if (a == "--image") o.image = next();
     else if (a == "--frames") o.frames = std::strtoull(next(), nullptr, 10);
-    else if (a == "--bench") o.bench = true;
+    else if (a == "--bench") o.bench = gUnattended = true;
     else if (a == "--no-depth") o.depth = false;
     else if (a == "--msaa") o.msaa = uint32_t(std::strtoul(next(), nullptr, 10));
     else if (a == "--gpu") o.gpu = next();
