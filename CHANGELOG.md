@@ -8,6 +8,7 @@ docs/notes/history.md.
 ## 0.10.13
 
 ### SweetOpt
+- **Easier to read list of findings:** every faster form sopt finds now goes into sopt-found.md, a Markdown file. It shows the inputs as your shader reads them, and a table lists each input with its type and range.
 - **Fixed:** a file shared by several effects was judged by the first effect alone, so a faster version could be written that is only safe for some of the effects that use the file. Every effect that uses the file now counts.
 - **Fixed:** a setting whose lowest value is negative and written as a whole number (for example -1 to 1) was read with the wrong range, so changes that use it were checked on the wrong values.
 - **Fixed:** in three cases a faster version could change the picture: shaders that throw pixels away, repeating patterns such as stripes and grids, and helper functions used several times (as in edge detection).

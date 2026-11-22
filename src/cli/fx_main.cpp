@@ -1712,7 +1712,7 @@ int main(int argc, char** argv) {
     f << fx::markdownReport(results, info);
   }
   {
-    std::ofstream f(outDir / "sopt-found.txt", std::ios::binary);
+    std::ofstream f(outDir / "sopt-found.md", std::ios::binary);
     f << fx::foundRewrites(results);
   }
   if (!errors.empty()) std::fprintf(stderr, "%s", errors.c_str());
@@ -1724,7 +1724,7 @@ int main(int argc, char** argv) {
   }
   size_t improved = 0;
   for (const auto& r : results) improved += !r.variants.empty();
-  std::printf("%s%zu of %zu regions have cheaper variants%s; wrote %zu files, sopt-report.md and sopt-found.txt to %s\n",
+  std::printf("%s%zu of %zu regions have cheaper variants%s; wrote %zu files, sopt-report.md and sopt-found.md to %s\n",
               con.c(improved ? "\x1b[1;92m" : "\x1b[1;97m"), improved, results.size(), con.reset(), files.size(),
               outDir.string().c_str());
   // Variants held back because an input's range was only assumed (owner, 2026-10-08: "0 of 13" was

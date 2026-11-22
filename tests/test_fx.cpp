@@ -936,6 +936,31 @@ TEST(fx_hlsl_compute) {
   if (o && mo && c) checkVariantFile({o, mo, c}, file, lo, "Motion[id.xy] = off * 2.0 + off * d; // sopt");
 }
 
+TEST(fx_found_markdown) {
+  // sopt-found.md: the inputs as the shader reads them (no in1, in2 aliases), one table row each.
+  const Loaded l = load();
+  const fx::Region* r = at(l, 23);
+  CHECK(r != nullptr && !r->prog.inputs.empty());
+  if (!r || r->prog.inputs.empty()) return;
+  fx::RegionResult rr;
+  rr.region = *r;
+  rr.region.prog.inputs[0].name = "tex2D(s, uv).r";
+  rr.region.prog.inputs[0].lo = -1.0f;
+  rr.region.prog.inputs[0].hi = 1.0f;
+  rr.targetCost = 20;
+  fx::Variant v;
+  v.expr = r->prog.target;
+  v.cost = 10;
+  v.klass = Klass::Within;
+  rr.variants.push_back(v);
+  const std::string md = fx::foundRewrites({rr});
+  CHECK(md.find("| input | type | range |") != std::string::npos);
+  CHECK(md.find("| `tex2D(s, uv).r` | ") != std::string::npos);
+  CHECK(md.find(" | [-1, 1] |") != std::string::npos);
+  CHECK(md.find("in1") == std::string::npos);
+  CHECK(md.find("```hlsl\n") != std::string::npos && md.find(": cost 20 → 10, ") != std::string::npos);
+}
+
 TEST(fx_register_counts) {
   // Register counts go into the report (columns with the change) and, where they change,
   // the variant comment.

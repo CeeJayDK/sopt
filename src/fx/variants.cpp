@@ -859,70 +859,60 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
 }
 
 std::string foundRewrites(const std::vector<RegionResult>& results) {
+  // Markdown, for people (owner, 2026-11-22, from a shader author's feedback: real input names instead of in1, in2, inputs on
+  // lines of their own, markdown like the rest). Library rules are generalized from these by hand.
   std::string s =
-      "# sopt: faster variants found (sopt-fx), in the rewrite library's format\n"
-      "# (library/rewrites.txt). Names are the region's inputs; ranges are what sopt-fx knew\n"
-      "# (facts, or assumed where marked). Generalize a rule before adding it to the library\n"
-      "# and check it there with sopt --check-library. Each rule is the original, \"->\", the faster\n"
-      "# form and the ranges, on lines of their own.\n";
+      "# sopt: faster forms found\n\n"
+      "Every faster form sopt-fx found, next to the original. Inputs are as the shader reads them; their ranges are\n"
+      "what sopt-fx knew. Before a form goes into SweetOpt's rewrite library (library/rewrites.txt), generalize it\n"
+      "and check it there with `sopt --check-library`.\n";
   std::set<std::string> seen;
   char buf[256];
-  auto ident = [](const std::string& n) {
-    if (n.empty() || !(std::isalpha(static_cast<unsigned char>(n[0])) || n[0] == '_')) return false;
-    for (char c : n)
-      if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') return false;
-    return true;
+  auto typeName = [](Type t) {
+    return t == Type::Bool ? std::string("bool") : t == Type::Uint ? std::string("uint")
+           : width(t) == 1 ? std::string("float") : "float" + std::to_string(width(t));
   };
   for (const auto& rr : results) {
     const Region& r = rr.region;
-    // Inputs that are not plain names (texture fetches, member chains) become in1, in2, ...
-    std::vector<InputDecl> named = r.prog.inputs;
-    std::string legend;
-    int k = 0;
-    for (auto& d : named)
-      if (!ident(d.name)) {
-        const std::string alias = "in" + std::to_string(++k);
-        legend += "#   " + alias + " = " + d.name + "\n";
-        d.name = alias;
+    auto print = [&](const Expr& e) { return (r.glsl ? toGlsl : toString)(e, r.prog.inputs); };
+    const std::string fence = std::string("```") + (r.glsl ? "glsl" : "hlsl") + "\n";
+    const std::string original = print(r.prog.target);
+    std::string inputs;
+    if (!r.prog.inputs.empty()) {
+      inputs = "| input | type | range |\n|---|---|---|\n";
+      for (const auto& d : r.prog.inputs) {
+        std::snprintf(buf, sizeof(buf), "[%.9g, %.9g]", d.lo, d.hi);
+        inputs += "| `" + escapeCell(d.name) + "` | " + typeName(d.type) + " | " + buf + " |\n";
       }
-    std::string where;
-    for (size_t i = 0; i < named.size(); ++i) {
-      const auto& d = named[i];
-      std::snprintf(buf, sizeof(buf), "%s%s in [%.9g, %.9g]", where.empty() ? "" : ", ", d.name.c_str(), d.lo, d.hi);
-      where += buf;
-      if (d.type != Type::Float) where += ", " + d.name + " : float" + std::to_string(width(d.type));
     }
-    const std::string lhs = toString(r.prog.target, named);
-    // Not from assumed ranges (2026-10-31: verified on made-up ranges a wrong rule passed, both sides clamped to 0),
-    // nor ones fxc compiles to the same code.
-    auto emit = [&](const Variant& v) {
-      if (v.notFaster || v.dxbcSame) return;
-      // Pattern, arrow and replacement on lines of their own (owner, 2026-10-08: easier to read); the
-      // library parser joins them.
-      std::string rule = lhs + "\n  ->\n" + toString(v.expr, named);
-      if (!where.empty()) rule += "\n  where " + where;
-      if (!seen.insert(rule).second) return;
-      s += "\n# " + pathFrom(r.file).filename().string() + ":" +
-           (r.removed.empty() ? "" : std::to_string(r.removed.front().first) + "-") + std::to_string(r.line) +
-           " (" + r.function + ")  cost " + std::to_string(rr.targetCost) + " -> " + std::to_string(v.cost);
-      if (rr.targetAmd >= 0 && v.amd >= 0) s += ", amd " + std::to_string(rr.targetAmd) + " -> " + std::to_string(v.amd);
-      if (rr.targetNv >= 0 && v.nv >= 0) s += ", nv " + std::to_string(rr.targetNv) + " -> " + std::to_string(v.nv);
+    // Not ones that are not faster, nor ones fxc compiles to the same code.
+    for (const auto& v : rr.variants) {
+      if (v.notFaster || v.dxbcSame) continue;
+      const std::string faster = print(v.expr);
+      if (!seen.insert(original + "\n" + faster + "\n" + inputs).second) continue;
+      s += "\n## " + pathFrom(r.file).filename().string() + ":" +
+           (r.removed.empty() ? "" : std::to_string(r.removed.front().first) + "-") + std::to_string(r.line) + " (" +
+           r.function + "): cost " + std::to_string(rr.targetCost) + " → " + std::to_string(v.cost) + ", " +
+           variantClass(v, r.prog.budget.codeBits()) + "\n\n";
+      s += fence + original + "\n```\n\n→\n\n" + fence + faster + "\n```\n\n" + inputs;
+      std::vector<std::string> more;
+      if (rr.targetAmd >= 0 && v.amd >= 0) more.push_back("AMD " + std::to_string(rr.targetAmd) + " → " + std::to_string(v.amd));
+      if (rr.targetNv >= 0 && v.nv >= 0) more.push_back("NVIDIA " + std::to_string(rr.targetNv) + " → " + std::to_string(v.nv));
       if (rr.targetIntel >= 0 && v.intel >= 0)
-        s += ", intel " + std::to_string(rr.targetIntel) + " -> " + std::to_string(v.intel);
-      if (rr.targetDxbc >= 0 && v.dxbc >= 0)
-        s += ", dxbc " + std::to_string(rr.targetDxbc) + " -> " + (v.dxbcSame ? std::string("same") : std::to_string(v.dxbc));
-      s += ", " + variantClass(v, r.prog.budget.codeBits());
-      std::snprintf(buf, sizeof(buf), ", max abs err %.3g", v.worst.maxAbs);
-      s += buf;
+        more.push_back("Intel " + std::to_string(rr.targetIntel) + " → " + std::to_string(v.intel));
+      if (rr.targetDxbc >= 0 && v.dxbc >= 0) more.push_back("DXBC " + std::to_string(rr.targetDxbc) + " → " + std::to_string(v.dxbc));
+      std::snprintf(buf, sizeof(buf), "max abs error %.3g", v.worst.maxAbs);
+      more.push_back(buf);
       if (rr.targetExactAbs >= 0) {
-        std::snprintf(buf, sizeof(buf), ", vs exact %.3g (original %.3g)", v.worst.exactAbs, rr.targetExactAbs);
-        s += buf;
+        std::snprintf(buf, sizeof(buf), "vs exact %.3g (original %.3g)", v.worst.exactAbs, rr.targetExactAbs);
+        more.push_back(buf);
       }
-      if (v.proven) s += ", proven (V3)";
-      if (!v.problems.empty()) s += ", " + v.problems;
-      s += "\n" + legend + rule + "\n";
-    };
-    for (const auto& v : rr.variants) emit(v);
+      if (v.proven) more.push_back("proven (V3)");
+      if (!v.problems.empty()) more.push_back(v.problems);
+      std::string line;
+      for (const auto& m : more) line += (line.empty() ? "" : " · ") + m;
+      s += (inputs.empty() ? "" : "\n") + line + "\n";
+    }
   }
   return s;
 }

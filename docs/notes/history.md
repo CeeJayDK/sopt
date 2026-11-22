@@ -3240,9 +3240,21 @@ the cut's sampled range is only a search aid).
   7. TexBench's blend pass reads at least 0 (a negative median is the restores' noise).
   8. sopt-host: no message box under --bench or SOPT_TIMER_SHOT (run-bench / run-test); stderr and exit code 1
      as before. The interactive run of run-test.ps1 (no SOPT_TIMER_SHOT) keeps the box.
-  Checked: built (MSVC), sopt's model list and lookups (intel-gen6, nvidia-maxwell alias), sopt-host --bench with
+  Checked (above): built (MSVC), sopt's model list and lookups (intel-gen6, nvidia-maxwell alias), sopt-host --bench with
   a bad --api (no box, exit 1), ShaderInfo on the GTX 1660 + UHD 630 (fp16 rates as before), TexBench "RGBA8 add"
   and "RGBA8 write" on the GTX 1660 (sane readings, consensus).
+
+## sopt-found.md (2026-11-22)
+
+- From a ReShade shader author's feedback (via the owner): sopt-found.txt named inputs that are not plain names
+  (texture reads, member chains) in1, in2 ... with a key above the rule, put every input's range on one "where" line,
+  and was plain text while the rest is markdown. Owner: make sopt-found.md with tables and real names; the form can
+  change again ("finding the perfect form is a process"). Now: one section per faster form (file:line, function,
+  cost, class), original and faster form in hlsl / glsl code blocks with the inputs as the shader reads them, a
+  table of input / type / range, then the other numbers (AMD, NVIDIA, Intel, DXBC, max abs error, vs exact,
+  proven, problems) on one line. The aliases existed only for the library's syntax; nothing reads the file, rules
+  are generalized by hand before they go into library/rewrites.txt (the library format and parser are unchanged).
+  library/found/corpus-2026-10-08.txt keeps the old format. Test: fx_found_markdown.
 - Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
   stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
   divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run

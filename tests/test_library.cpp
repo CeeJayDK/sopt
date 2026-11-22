@@ -38,7 +38,7 @@ TEST(library_parse) {
   CHECK(lib.rules[1].conds.size() == 1 && lib.rules[1].vars[0].lo == 0.0 && lib.rules[1].vars[0].hi == 1.0);
   CHECK(lib.rules[2].conds.size() == 2 && lib.rules[2].conds[0].kind == RuleCond::Kind::Const);
   CHECK(lib.rules[3].vars[0].type == Type::Float3);
-  // A rule over several lines, as sopt-fx writes sopt-found.txt.
+  // A rule over several lines (pattern, "->" and replacement on lines of their own).
   const Library multi = parseLibrary(
       "# region\n"
       "saturate(x)\n"

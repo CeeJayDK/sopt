@@ -295,7 +295,7 @@ std::string executableDir() { return exeDir(); }
 Library parseLibrary(std::string_view text, const std::string& name) {
   Library lib;
   lib.path = name;
-  // A rule may span lines (owner, 2026-10-08: sopt-found.txt writes pattern, "->" and replacement on
+  // A rule may span lines (owner, 2026-10-08: sopt-found.txt (now sopt-found.md) wrote pattern, "->" and replacement on
   // lines of their own): a line starting with "->" or the word "where", or following one that ends in
   // "->", continues the rule before it.
   std::vector<std::pair<int, std::string>> rules;

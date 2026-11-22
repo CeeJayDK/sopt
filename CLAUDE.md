@@ -90,7 +90,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
   `library.cpp` (rewrite rules from library/rewrites.txt), `subtrees.cpp`, `cuts.cpp`, `generalize.cpp`, `reshape.cpp`.
 - `src/measure`: `isa` (fxstat + RGA, or RGA GLSL mode), `sass` (ptxas + nvdisasm), `backends` (SPIR-V alu, fxc DXBC).
 - `src/fx`: `frontend` (loadEffect, extractRegions, ranges, facts, budgets; HLSL / GLSL modes), `variants` (compiledCost,
-  variant files, report, easyPicks, sopt-found.txt), `platforms` (12 GPU families, Steam shares), `classic.cpp` /
+  variant files, report, easyPicks, sopt-found.md), `platforms` (12 GPU families, Steam shares), `classic.cpp` /
   `hoist.cpp` / `blend.cpp` (classical rewrites: tables, vertex shader moves, blend stage).
 - `src/cli`: `main.cpp` (sopt), `fx_main.cpp` (sopt-fx), `console` (titles, progress bars, window title progress).
 - `third_party/reshadefx`: ReShade 6.8.0 FX lexer / preprocessor / parser with small hooks (symbolic macros, HLSL / GLSL
