@@ -1,0 +1,77 @@
+name: fxc-levels
+# fxc /O1 (ReShade's normal mode) vs /O3 and performance mode on every package in ReShade's effect list
+# (owner, 2026-11-24): how much the mode most people run differs from what sopt has judged code by.
+# Counts and hashes only (tools/corpus/fxc_levels.py); the shaders stay their authors'.
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: package ids, comma separated (empty = all)
+        default: ""
+  push:
+    paths: [tools/corpus/fxc_levels.py, .github/workflows/fxc-levels.yml]
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      ids: ${{ steps.ids.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: ids
+        env:
+          PACKAGES: ${{ inputs.packages || (github.event_name == 'push' && '01' || '') }}
+        run: |
+          curl -sfL -o EffectPackages.ini https://raw.githubusercontent.com/crosire/reshade-shaders/list/EffectPackages.ini
+          echo "ids=$(python3 -I tools/corpus/effect_packages.py ids EffectPackages.ini "$PACKAGES")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-list
+          path: EffectPackages.ini
+
+  package:
+    needs: prepare
+    runs-on: windows-latest  # fxstat with Microsoft's d3dcompiler_47, what ReShade uses
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        id: ${{ fromJson(needs.prepare.outputs.ids) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: package-list
+      - name: fxstat
+        shell: pwsh
+        run: |
+          curl.exe -sfL -o rti.zip https://github.com/CeeJayDK/ReShade-Testing-Initiative/releases/download/v6.8.0.7/reshade-testing-initiative-windows-x64.zip
+          Expand-Archive rti.zip -DestinationPath rti
+      - name: Install and compile
+        shell: pwsh
+        env:
+          ID: ${{ matrix.id }}
+        run: |
+          python -I tools/corpus/effect_packages.py install EffectPackages.ini "$env:RUNNER_TEMP/corpus" "$env:ID"
+          New-Item -ItemType Directory -Force out | Out-Null
+          python -I tools/corpus/fxc_levels.py run "$env:RUNNER_TEMP/corpus" rti/fxstat.exe "out/$env:ID.jsonl"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: levels-${{ matrix.id }}
+          path: out
+
+  summary:
+    needs: package
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: levels-*
+          merge-multiple: true
+          path: out
+      - name: Summary
+        run: python3 -I tools/corpus/fxc_levels.py summary out/*.jsonl | tee -a "$GITHUB_STEP_SUMMARY"
