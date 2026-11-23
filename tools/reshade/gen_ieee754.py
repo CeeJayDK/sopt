@@ -134,6 +134,14 @@ GROUPS = [
         ("isfinite: NaN bits not", "!isfinite(NB)", "ieee", "isf sm4"),
         ("isfinite: +inf bits not", "!isfinite(PB)", "ieee", "isf sm4"),
     ]),
+    # Direct3D 9 multiplies with 0 * inf = 0 (NVIDIA's FMZ rule), so N = 0 / 0 is 0 there, not NaN; inf - inf has no
+    # multiply. The checks go through functions, as an effect would write them.
+    ("NaN as inf - inf", [
+        ("isnan(x)", "isnan(PINF - PINF2)", "ieee", ""),
+        ("x != x", "neqSelf(PINF - PINF2)", "ieee", ""),
+        ("!(x == x)", "notEqSelf(PINF - PINF2)", "ieee", ""),
+        ("x != x, x precise", "neqPrecise(PINF - PINF2)", "ieee", ""),
+    ]),
 ]
 
 SUBST = {
@@ -271,6 +279,10 @@ def main():
     w("// isfinite written three ways (ReShade FX has none).")
     w("bool finCmp(float x) { return abs(x) <= 3.402823466e38; }")
     w("bool finIs(float x) { return !(isinf(x) || isnan(x)); }")
+    w("bool neqSelf(float x) { return x != x; }")
+    w("bool notEqSelf(float x) { return !(x == x); }")
+    w("// fxc folds isnan(v) even on a precise v for shader model 3, but keeps v != v (as v - v and a cmp).")
+    w("bool neqPrecise(float x) { precise float v = x; return v != v; }")
     w("#if SOPT_SM4")
     w("bool finBits(float x) { return (asuint(x) & 0x7F800000u) != 0x7F800000u; }")
     w("#endif")
@@ -464,7 +476,7 @@ BODY_SM3 = r"""
 // = needs shader model 4).
 float3 IEEE754PS(float4 vpos : SV_Position) : SV_Target
 {
-	float2 c = floor(vpos.xy / float2(48.0, 12.0));
+	float2 c = floor(vpos.xy / float2(48.0, 11.0));
 	int id = int(c.y) - 1;
 	if (id < 0 || id >= kTests || c.x != 1.0) return float3(0.08, 0.09, 0.11);
 	float r = float(result(id));

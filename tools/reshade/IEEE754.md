@@ -130,5 +130,10 @@ run-time integer (like a value read from a texture: the compiler cannot see how 
 - Direct3D 9: shader model 3 has no IEEE NaN; `isinf` there also counts FLT_MAX as infinite. `abs(x) <= FLT_MAX` gets
   FLT_MAX and +-inf right. ReShade's `isfinite` (HLSL `isfinite`, compiled by fxc for shader model 3) is true for
   +-inf there as well as for NaN: `abs(x) <= FLT_MAX` would be the better Direct3D 9 form.
+- NaN on Direct3D 9 (owner, 2026-11-24: does `x != x` or `!(x == x)` work there?): no. fxc (ps_3_0, -O3) compiles
+  `x != x`, `!(x == x)`, `isnan(x)`, `!(x < 0 || x >= 0)` and `isnan` of a precise value to the constant false; only
+  `v != v` on a `precise float v` survives (`add r, -v, v` + `cmp`), and the GTX 1660 still gives false for v = inf - inf
+  (group "NaN as inf - inf"). The NaN rows of the Direct3D 9 column may also never have had a NaN: 0 / 0 is a multiply
+  by rcp(0), and Direct3D 9 multiplies with 0 * inf = 0.
 - ReShade's `isfinite` elsewhere: HLSL `isfinite` on Direct3D 10-12 is right even in the Folded and Literal columns;
   OpenGL and Vulkan (`!(isinf || isnan)`) are right at run time.
