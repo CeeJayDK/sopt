@@ -135,5 +135,9 @@ run-time integer (like a value read from a texture: the compiler cannot see how 
   `v != v` on a `precise float v` survives (`add r, -v, v` + `cmp`), and the GTX 1660 still gives false for v = inf - inf
   (group "NaN as inf - inf"). The NaN rows of the Direct3D 9 column may also never have had a NaN: 0 / 0 is a multiply
   by rcp(0), and Direct3D 9 multiplies with 0 * inf = 0.
+- `isinf` on Direct3D 9: fxc's ps_3_0 code is `rcp r0, x` + `cmp -|r0|` (1 / x == 0), and its `isfinite` is the
+  constant true. Measured (group "isinf forms"): `isinf` is right for +-inf and 8e37 but true for 1e38 and FLT_MAX
+  (1 / x below FLT_MIN is flushed to 0, so every |x| > ~8.5e37 counts as infinite); `abs(x) > FLT_MAX` is right for all
+  five. Direct3D 11: both forms right in every column.
 - ReShade's `isfinite` elsewhere: HLSL `isfinite` on Direct3D 10-12 is right even in the Folded and Literal columns;
   OpenGL and Vulkan (`!(isinf || isnan)`) are right at run time.

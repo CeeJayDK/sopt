@@ -142,6 +142,19 @@ GROUPS = [
         ("!(x == x)", "notEqSelf(PINF - PINF2)", "ieee", ""),
         ("x != x, x precise", "neqPrecise(PINF - PINF2)", "ieee", ""),
     ]),
+    # fxc's shader model 3 isinf is rcp(x) == 0: true for |x| > 1 / FLT_MIN (~8.5e37) once rcp flushes the denormal.
+    ("isinf forms", [
+        ("isinf: +inf", "isinf(PINF)", "ieee", ""),
+        ("isinf: -inf", "isinf(NINF)", "ieee", ""),
+        ("isinf: MAX not", "!isinf(MAXF)", "ieee", ""),
+        ("isinf: 1e38 not", "!isinf(1e38 * ONE)", "ieee", ""),
+        ("isinf: 8e37 not", "!isinf(8e37 * ONE)", "ieee", ""),
+        ("abs>MAX: +inf", "infCmp(PINF)", "ieee", ""),
+        ("abs>MAX: -inf", "infCmp(NINF)", "ieee", ""),
+        ("abs>MAX: MAX not", "!infCmp(MAXF)", "ieee", ""),
+        ("abs>MAX: 1e38 not", "!infCmp(1e38 * ONE)", "ieee", ""),
+        ("abs>MAX: 8e37 not", "!infCmp(8e37 * ONE)", "ieee", ""),
+    ]),
 ]
 
 SUBST = {
@@ -279,6 +292,7 @@ def main():
     w("// isfinite written three ways (ReShade FX has none).")
     w("bool finCmp(float x) { return abs(x) <= 3.402823466e38; }")
     w("bool finIs(float x) { return !(isinf(x) || isnan(x)); }")
+    w("bool infCmp(float x) { return abs(x) > 3.402823466e38; }")
     w("bool neqSelf(float x) { return x != x; }")
     w("bool notEqSelf(float x) { return !(x == x); }")
     w("// fxc folds isnan(v) even on a precise v for shader model 3, but keeps v != v (as v - v and a cmp).")
@@ -476,7 +490,7 @@ BODY_SM3 = r"""
 // = needs shader model 4).
 float3 IEEE754PS(float4 vpos : SV_Position) : SV_Target
 {
-	float2 c = floor(vpos.xy / float2(48.0, 11.0));
+	float2 c = floor(vpos.xy / float2(48.0, 10.0));
 	int id = int(c.y) - 1;
 	if (id < 0 || id >= kTests || c.x != 1.0) return float3(0.08, 0.09, 0.11);
 	float r = float(result(id));
