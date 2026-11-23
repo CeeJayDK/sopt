@@ -91,35 +91,44 @@
 //   77 [ieee] bits: -inf not               !finBits(NINF)
 //   78 [ieee] bits: NaN bits not           !finBits(NB)
 //   79 [ieee] bits: +inf bits not          !finBits(PB)
+//   80 [ieee] isfinite: MAX finite         isfinite(MAXF)
+//   81 [ieee] isfinite: NaN not            !isfinite(N)
+//   82 [ieee] isfinite: +inf not           !isfinite(PINF)
+//   83 [ieee] isfinite: -inf not           !isfinite(NINF)
+//   84 [ieee] isfinite: NaN bits not       !isfinite(NB)
+//   85 [ieee] isfinite: +inf bits not      !isfinite(PB)
 
 uniform float sopt_timer < source = "timer"; >;
 
 #define SOPT_SM4 (__RENDERER__ >= 0xa000)
+#ifndef SOPT_HAS_ISFINITE
+	#define SOPT_HAS_ISFINITE 0 // 1 on a ReShade with the isfinite intrinsic (after 6.8.0)
+#endif
 
-static const int kTests = 80;
+static const int kTests = 86;
 static const int kRows = 49;
 static const int kGlyphW = 7;
 static const int kGlyphH = 13;
-static const int2 kT_title = int2(1467, 21);
-static const int2 kT_cols = int2(1488, 24);
-static const int2 kT_legend1 = int2(1512, 82);
-static const int2 kT_legend2 = int2(1594, 96);
-static const int2 kT_wrong = int2(1690, 23);
-static const int2 kT_d3d = int2(1713, 15);
-static const int2 kT_api_d3d9 = int2(1728, 10);
-static const int2 kT_api_d3d10 = int2(1738, 11);
-static const int2 kT_api_d3d11 = int2(1749, 11);
-static const int2 kT_api_d3d12 = int2(1760, 11);
-static const int2 kT_api_gl = int2(1771, 6);
-static const int2 kT_api_vk = int2(1777, 6);
-static const int2 kT_api_other = int2(1783, 5);
-static const int2 kT_reshade = int2(1788, 7);
-static const int2 kT_ok = int2(1795, 4);
-static const int2 kT_fail = int2(1799, 5);
-static const int2 kT_d3dw = int2(1804, 5);
-static const int2 kT_yes = int2(1809, 4);
-static const int2 kT_no = int2(1813, 4);
-static const int2 kT_na = int2(1817, 3);
+static const int2 kT_title = int2(1585, 21);
+static const int2 kT_cols = int2(1606, 24);
+static const int2 kT_legend1 = int2(1630, 82);
+static const int2 kT_legend2 = int2(1712, 96);
+static const int2 kT_wrong = int2(1808, 23);
+static const int2 kT_d3d = int2(1831, 15);
+static const int2 kT_api_d3d9 = int2(1846, 10);
+static const int2 kT_api_d3d10 = int2(1856, 11);
+static const int2 kT_api_d3d11 = int2(1867, 11);
+static const int2 kT_api_d3d12 = int2(1878, 11);
+static const int2 kT_api_gl = int2(1889, 6);
+static const int2 kT_api_vk = int2(1895, 6);
+static const int2 kT_api_other = int2(1901, 5);
+static const int2 kT_reshade = int2(1906, 7);
+static const int2 kT_ok = int2(1913, 4);
+static const int2 kT_fail = int2(1917, 5);
+static const int2 kT_d3dw = int2(1922, 5);
+static const int2 kT_yes = int2(1927, 4);
+static const int2 kT_no = int2(1931, 4);
+static const int2 kT_na = int2(1935, 3);
 
 // Workarounds where the compiler assumes no NaN (fxc without D3DCOMPILE_IEEE_STRICTNESS removes isnan(x) and
 // x != x): a precise value, or the bit test.
@@ -860,13 +869,91 @@ uint runTest(int id, float4 zz, float one)
 		r = 8u;
 #endif
 		break;
+	case 80: // isfinite: MAX finite
+#if SOPT_HAS_ISFINITE
+#if SOPT_SM4
+		r = ((isfinite(3.402823466e38)) ? 1u : 0u)
+		  + ((isfinite((3.402823466e38 * one))) ? 2u : 0u)
+		  + ((isfinite((3.402823466e38 + zz.x))) ? 4u : 0u);
+#else
+		r = ((isfinite((3.402823466e38 + zz.x))) ? 4u : 0u);
+#endif
+#else
+		r = 8u;
+#endif
+		break;
+	case 81: // isfinite: NaN not
+#if SOPT_HAS_ISFINITE
+#if SOPT_SM4
+		r = ((!isfinite((0.0 / 0.0))) ? 1u : 0u)
+		  + ((!isfinite(((0.0 / 0.0) * one))) ? 2u : 0u)
+		  + ((!isfinite((zz.x / zz.y))) ? 4u : 0u);
+#else
+		r = ((!isfinite((zz.x / zz.y))) ? 4u : 0u);
+#endif
+#else
+		r = 8u;
+#endif
+		break;
+	case 82: // isfinite: +inf not
+#if SOPT_HAS_ISFINITE
+#if SOPT_SM4
+		r = ((!isfinite((1.0 / 0.0))) ? 1u : 0u)
+		  + ((!isfinite(((1.0 / 0.0) * one))) ? 2u : 0u)
+		  + ((!isfinite((one / zz.x))) ? 4u : 0u);
+#else
+		r = ((!isfinite((one / zz.x))) ? 4u : 0u);
+#endif
+#else
+		r = 8u;
+#endif
+		break;
+	case 83: // isfinite: -inf not
+#if SOPT_HAS_ISFINITE
+#if SOPT_SM4
+		r = ((!isfinite((-1.0 / 0.0))) ? 1u : 0u)
+		  + ((!isfinite(((-1.0 / 0.0) * one))) ? 2u : 0u)
+		  + ((!isfinite((-one / zz.z))) ? 4u : 0u);
+#else
+		r = ((!isfinite((-one / zz.z))) ? 4u : 0u);
+#endif
+#else
+		r = 8u;
+#endif
+		break;
+	case 84: // isfinite: NaN bits not
+#if SOPT_HAS_ISFINITE
+#if SOPT_SM4
+		r = ((!isfinite(asfloat(0x7FC00000u))) ? 1u : 0u)
+		  + ((!isfinite((asfloat(0x7FC00000u) * one))) ? 2u : 0u)
+		  + ((!isfinite(asfloat(0x7FC00000u + uint(zz.x)))) ? 4u : 0u);
+#else
+		r = 8u;
+#endif
+#else
+		r = 8u;
+#endif
+		break;
+	case 85: // isfinite: +inf bits not
+#if SOPT_HAS_ISFINITE
+#if SOPT_SM4
+		r = ((!isfinite(asfloat(0x7F800000u))) ? 1u : 0u)
+		  + ((!isfinite((asfloat(0x7F800000u) * one))) ? 2u : 0u)
+		  + ((!isfinite(asfloat(0x7F800000u + uint(zz.y)))) ? 4u : 0u);
+#else
+		r = 8u;
+#endif
+#else
+		r = 8u;
+#endif
+		break;
 	}
 	return r;
 }
 
 // Pass 1 runs every test once, one pixel each, into this texture; the screen and the totals read it, so both show
 // the same results (fxc compiles a test inside the totals loop differently than in a cell: different folds).
-texture2D sopt_IEEE754Results { Width = 80; Height = 1; Format = RGBA8; };
+texture2D sopt_IEEE754Results { Width = 86; Height = 1; Format = RGBA8; };
 sampler2D sopt_IEEE754ResultsS { Texture = sopt_IEEE754Results; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 
 float4 IEEE754RunPS(float4 vpos : SV_Position) : SV_Target
@@ -930,7 +1017,7 @@ static const uint kFont[380] = {
 	0x01020408u, 0x01020408u, 0x01020408u, 0x00000000u, 0x0102040Eu, 0x01061818u, 0x00038408u, 0x00000000u,
 	0x00000000u, 0x000E2700u, 0x00000000u, 0x00000000u,
 };
-static const uint kText[455] = {
+static const uint kText[485] = {
 	0x204E614Eu, 0x706D6F63u, 0x73697261u, 0x20736E6Fu, 0x45454928u, 0x35372045u, 0x73692934u, 0x286E616Eu,
 	0x294E614Eu, 0x616E7369u, 0x614E286Eu, 0x202C294Eu, 0x204E614Eu, 0x63657270u, 0x4E657369u, 0x62204E61u,
 	0x74207469u, 0x78747365u, 0x203D2120u, 0x78282078u, 0x4E203D20u, 0x4E294E61u, 0x21204E61u, 0x6E61203Du,
@@ -976,18 +1063,22 @@ static const uint kText[455] = {
 	0x6F6E2073u, 0x69736974u, 0x6E7C666Eu, 0x203A6E61u, 0x666E692Bu, 0x74696220u, 0x6F6E2073u, 0x74696274u,
 	0x4D203A73u, 0x66205841u, 0x74696E69u, 0x74696265u, 0x4E203A73u, 0x6E204E61u, 0x6962746Fu, 0x203A7374u,
 	0x666E692Bu, 0x746F6E20u, 0x73746962u, 0x692D203Au, 0x6E20666Eu, 0x6962746Fu, 0x203A7374u, 0x204E614Eu,
-	0x73746962u, 0x746F6E20u, 0x73746962u, 0x692B203Au, 0x6220666Eu, 0x20737469u, 0x52746F6Eu, 0x61685365u,
-	0x49206564u, 0x20454545u, 0x20343537u, 0x74736574u, 0x6C6F4620u, 0x20646564u, 0x6574694Cu, 0x206C6172u,
-	0x206E7552u, 0x656D6974u, 0x3D206B6Fu, 0x67697220u, 0x20207468u, 0x41462020u, 0x3D204C49u, 0x6F727720u,
-	0x2820676Eu, 0x45454549u, 0x34353720u, 0x48202F20u, 0x294C534Cu, 0x20202020u, 0x20443344u, 0x6964203Du,
-	0x72656666u, 0x72662073u, 0x44206D6Fu, 0x63657269u, 0x27443374u, 0x75722073u, 0x6F46656Cu, 0x6465646Cu,
-	0x696C203Au, 0x61726574u, 0x6F20736Cu, 0x20796C6Eu, 0x694C2020u, 0x61726574u, 0x4E203A6Cu, 0x2F204E61u,
-	0x666E6920u, 0x2D202F20u, 0x72772030u, 0x65747469u, 0x7361206Eu, 0x6C206120u, 0x72657469u, 0x20206C61u,
-	0x6E755220u, 0x6D697420u, 0x6D203A65u, 0x20656461u, 0x74206E6Fu, 0x47206568u, 0x72775550u, 0x20676E6Fu,
-	0x45454928u, 0x35372045u, 0x202F2034u, 0x4C534C48u, 0x746F6E29u, 0x20736120u, 0x65726944u, 0x44337463u,
-	0x65726944u, 0x44337463u, 0x69443920u, 0x74636572u, 0x31204433u, 0x72694430u, 0x33746365u, 0x31312044u,
-	0x65726944u, 0x44337463u, 0x4F323120u, 0x476E6570u, 0x6C75564Cu, 0x416E616Bu, 0x3F204950u, 0x68536552u,
-	0x20656461u, 0x206B6F20u, 0x4C494146u, 0x33442020u, 0x65792044u, 0x6E202073u, 0x2D20206Fu,
+	0x73746962u, 0x746F6E20u, 0x73746962u, 0x692B203Au, 0x6220666Eu, 0x20737469u, 0x69746F6Eu, 0x6E696673u,
+	0x3A657469u, 0x58414D20u, 0x6E696620u, 0x69657469u, 0x6E696673u, 0x3A657469u, 0x4E614E20u, 0x746F6E20u,
+	0x69667369u, 0x6574696Eu, 0x692B203Au, 0x6E20666Eu, 0x7369746Fu, 0x696E6966u, 0x203A6574u, 0x666E692Du,
+	0x746F6E20u, 0x69667369u, 0x6574696Eu, 0x614E203Au, 0x6962204Eu, 0x6E207374u, 0x7369746Fu, 0x696E6966u,
+	0x203A6574u, 0x666E692Bu, 0x74696220u, 0x6F6E2073u, 0x53655274u, 0x65646168u, 0x45454920u, 0x35372045u,
+	0x65742034u, 0x46207473u, 0x65646C6Fu, 0x694C2064u, 0x61726574u, 0x7552206Cu, 0x6974206Eu, 0x6B6F656Du,
+	0x72203D20u, 0x74686769u, 0x20202020u, 0x4C494146u, 0x77203D20u, 0x676E6F72u, 0x45492820u, 0x37204545u,
+	0x2F203435u, 0x534C4820u, 0x2020294Cu, 0x33442020u, 0x203D2044u, 0x66666964u, 0x20737265u, 0x6D6F7266u,
+	0x72694420u, 0x33746365u, 0x20732744u, 0x656C7572u, 0x646C6F46u, 0x203A6465u, 0x6574696Cu, 0x736C6172u,
+	0x6C6E6F20u, 0x20202079u, 0x6574694Cu, 0x3A6C6172u, 0x4E614E20u, 0x69202F20u, 0x2F20666Eu, 0x20302D20u,
+	0x74697277u, 0x206E6574u, 0x61207361u, 0x74696C20u, 0x6C617265u, 0x52202020u, 0x74206E75u, 0x3A656D69u,
+	0x64616D20u, 0x6E6F2065u, 0x65687420u, 0x55504720u, 0x6E6F7277u, 0x49282067u, 0x20454545u, 0x20343537u,
+	0x4C48202Fu, 0x6E294C53u, 0x6120746Fu, 0x69442073u, 0x74636572u, 0x69444433u, 0x74636572u, 0x39204433u,
+	0x65726944u, 0x44337463u, 0x44303120u, 0x63657269u, 0x20443374u, 0x69443131u, 0x74636572u, 0x31204433u,
+	0x65704F32u, 0x564C476Eu, 0x616B6C75u, 0x4950416Eu, 0x65523F20u, 0x64616853u, 0x6F202065u, 0x4146206Bu,
+	0x20204C49u, 0x20443344u, 0x20736579u, 0x206F6E20u, 0x20202D20u,
 };
 static const uint kLines[98] = {
 	0x001A0001u, 0x000A006Au, 0x01170092u, 0x020C00EEu, 0x0310011Eu, 0x0412015Eu, 0x050801A6u, 0x061301C6u,
@@ -1001,11 +1092,11 @@ static const uint kLines[98] = {
 	0x390F0FCAu, 0x3A0F1006u, 0x3B161042u, 0x001D1099u, 0x3C10110Eu, 0x3D0A114Eu, 0x000E1175u, 0x3E1411AEu,
 	0x3F1111FEu, 0x40121242u, 0x4112128Au, 0x421612D2u, 0x4317132Au, 0x44151386u, 0x451213DAu, 0x46131422u,
 	0x4713146Eu, 0x481714BAu, 0x49181516u, 0x4A101576u, 0x4B0D15B6u, 0x4C0E15EAu, 0x4D0E1622u, 0x4E12165Au,
-	0x4F1316A2u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u,
+	0x4F1316A2u, 0x501416EEu, 0x5111173Eu, 0x52121782u, 0x531217CAu, 0x54161812u, 0x5517186Au, 0x00000000u,
 	0x00000000u, 0x00000000u,
 };
-static const uint kKinds[5] = {
-	0x00000000u, 0x00001554u, 0x00000000u, 0x0A500440u, 0x00000000u,
+static const uint kKinds[6] = {
+	0x00000000u, 0x00001554u, 0x00000000u, 0x0A500440u, 0x00000000u, 0x00000000u,
 };
 
 int kindOf(int id) { return int((kKinds[id / 16] >> uint((id % 16) * 2)) & 3u); }

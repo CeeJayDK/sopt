@@ -126,6 +126,13 @@ GROUPS = [
         ("bits: -inf not", "!finBits(NINF)", "ieee", "sm4"),
         ("bits: NaN bits not", "!finBits(NB)", "ieee", "sm4"),
         ("bits: +inf bits not", "!finBits(PB)", "ieee", "sm4"),
+        # ReShade's own isfinite (added after 6.8.0): set SOPT_HAS_ISFINITE to 1 in the overlay on such a build.
+        ("isfinite: MAX finite", "isfinite(MAXF)", "ieee", "isf"),
+        ("isfinite: NaN not", "!isfinite(N)", "ieee", "isf"),
+        ("isfinite: +inf not", "!isfinite(PINF)", "ieee", "isf"),
+        ("isfinite: -inf not", "!isfinite(NINF)", "ieee", "isf"),
+        ("isfinite: NaN bits not", "!isfinite(NB)", "ieee", "isf sm4"),
+        ("isfinite: +inf bits not", "!isfinite(PB)", "ieee", "isf sm4"),
     ]),
 ]
 
@@ -244,6 +251,9 @@ def main():
     w('uniform float sopt_timer < source = "timer"; >;')
     w("")
     w("#define SOPT_SM4 (__RENDERER__ >= 0xa000)")
+    w("#ifndef SOPT_HAS_ISFINITE")
+    w("\t#define SOPT_HAS_ISFINITE 0 // 1 on a ReShade with the isfinite intrinsic (after 6.8.0)")
+    w("#endif")
     w("")
     w(f"static const int kTests = {len(tests)};")
     w(f"static const int kRows = {rows};")
@@ -273,14 +283,20 @@ def main():
     w("\t{")
     for i, (label, expr, kind, req) in enumerate(tests):
         w(f"\tcase {i}: // {label}")
+        if "isf" in req:
+            w("#if SOPT_HAS_ISFINITE")
         w("#if SOPT_SM4")
         w(f"\t\tr = (({subst(expr, 'A')}) ? 1u : 0u)")
         w(f"\t\t  + (({subst(expr, 'B')}) ? 2u : 0u)")
         w(f"\t\t  + (({subst(expr, 'C')}) ? 4u : 0u);")
         w("#else")
         # Shader model 3 allows no NaN / inf literals: run time only.
-        w("\t\tr = 8u;" if req == "sm4" else f"\t\tr = (({subst(expr, 'C')}) ? 4u : 0u);")
+        w("\t\tr = 8u;" if "sm4" in req else f"\t\tr = (({subst(expr, 'C')}) ? 4u : 0u);")
         w("#endif")
+        if "isf" in req:
+            w("#else")
+            w("\t\tr = 8u;")
+            w("#endif")
         w("\t\tbreak;")
     w("\t}")
     w("\treturn r;")
