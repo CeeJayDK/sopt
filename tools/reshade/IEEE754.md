@@ -102,3 +102,28 @@ Direct3D 10, 11 and 12 give identical screens (only the API name differs).
   differently once the test moved into the first pass: the same code gives different results depending on what is
   compiled around it.
 - Screens (cropped): `results/nvidia-gtx-1660-dx11.png` (= Direct3D 10 / 12), `-vulkan.png`, `-gl.png`.
+
+## isfinite forms (2026-11-23)
+
+Three ways to write `isfinite` where the backend has none, for ReShade's `isfinite` intrinsic: `abs(x) <= FLT_MAX`
+(one ordered compare), `!(isinf(x) || isnan(x))`, and the exponent bit test `(asuint(x) & 0x7F800000) != 0x7F800000`.
+Each is checked on FLT_MAX (finite), NaN, +inf and -inf made by arithmetic, and on NaN / +inf made with `asfloat` from a
+run-time integer (like a value read from a texture: the compiler cannot see how it was made). Run-time column, GTX 1660
+(driver 617.14, ReShade 6.8.0):
+
+| Form                     | Direct3D 9           | Direct3D 10 / 11 / 12 | OpenGL     | Vulkan                     |
+|--------------------------|----------------------|-----------------------|------------|----------------------------|
+| `abs(x) <= FLT_MAX`      | NaN wrong            | NaN wrong (fxc)       | NaN wrong  | ok                         |
+| `!(isinf(x) \|\| isnan(x))` | NaN and FLT_MAX wrong | ok                 | ok         | ok                         |
+| bit test                 | (needs shader model 4) | ok                  | ok         | every non-finite value wrong |
+
+- `!(isinf(x) || isnan(x))` is the only form right on Direct3D 10-12, OpenGL and Vulkan. On Vulkan the driver folds the
+  bit test (the SPIR-V is right: OpBitcast, OpBitwiseAnd, OpINotEqual), presumably assuming no NaN / inf without
+  `SignedZeroInfNanPreserve`; on OpenGL `abs(x) <= FLT_MAX` is true for NaN, even for a NaN made from bits.
+- The UHD 630 on Direct3D 11 gives the same screen as the GTX 1660 (fxc's code). Not run on it: Direct3D 9 (only the
+  card with the monitor is listed), Vulkan (ReShade 6.8.0 needs VK_KHR_maintenance5, which its driver lacks), OpenGL
+  (Windows picks the card).
+- Folded / Literal columns: `isnan` on a NaN literal folds to false on Direct3D 10-12 and OpenGL (fxc X3577, as above);
+  on Vulkan every literal NaN / inf test fails (ReShade's literals). Only real run-time values matter for `isfinite`.
+- Direct3D 9: shader model 3 has no IEEE NaN; `isinf` there also counts FLT_MAX as infinite. `abs(x) <= FLT_MAX` gets
+  FLT_MAX and +-inf right, so it stays the Direct3D 9 form.
