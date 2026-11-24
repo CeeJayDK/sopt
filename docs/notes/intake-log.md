@@ -630,3 +630,10 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, NVIDIA GeForce RTX 5080 (driver 32.0.16.2114): `docs/stagebench/nvidia-rtx-5080-ps.csv` (StageBench 0.10.0)
 - upload 1: stagebench, NVIDIA GeForce RTX 5080 (driver 32.0.16.2114): `docs/stagebench/nvidia-rtx-5080-vs.csv` (StageBench 0.10.0)
 - upload 1: texbench, NVIDIA GeForce RTX 5080 (driver 32.0.16.2114): `docs/texbench/nvidia-rtx-5080-2.csv`, `docs/texbench/nvidia-rtx-5080-2-order.png`, `docs/texbench/nvidia-rtx-5080-2-order-zoom.png` (TexBench 0.10.0)
+
+## 2026-11-24 22:36 UTC
+- upload 1: opbench, AMD Radeon RX 7800 XT (driver 32.0.32015.16001): `docs/opbench/amd-radeon-rx-7800-xt.csv` (OpBench 0.10.0)
+- upload 1: shaderinfo, AMD Radeon RX 7800 XT (driver AMD proprietary driver 26.11.1 (LLPC) (2.0.416)): `docs/shaderinfo/amd-radeon-rx-7800-xt.txt`
+- upload 1: stagebench, AMD Radeon RX 7800 XT (driver 32.0.32015.16001): `docs/stagebench/amd-radeon-rx-7800-xt-ps.csv` (StageBench 0.10.0)
+- upload 1: stagebench, AMD Radeon RX 7800 XT (driver 32.0.32015.16001): `docs/stagebench/amd-radeon-rx-7800-xt-vs.csv` (StageBench 0.10.0)
+- upload 1: texbench, AMD Radeon RX 7800 XT (driver 32.0.32015.16001): `docs/texbench/amd-radeon-rx-7800-xt.csv`, `docs/texbench/amd-radeon-rx-7800-xt-order.png`, `docs/texbench/amd-radeon-rx-7800-xt-order-zoom.png` (TexBench 0.10.0)
