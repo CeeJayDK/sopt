@@ -3287,3 +3287,16 @@ the cut's sampled range is only a search aid).
 - Read, nothing found: codegen.cpp, fx_main.cpp's search and results part, main.cpp's first half, frontend.cpp's
   end (the window loop of Extractor::run, parseRange, readUserRanges, extractRegions' second parse, settingValues,
   settingRegions), nameInScope, constGuard, the start of spanGuard.
+
+## fxc /O1 vs /O3 (2026-11-24)
+
+- ReShade compiles Direct3D shaders with fxc /O1 in normal mode and /O3 in performance mode (+ /Ges on SM4+; no /Gis,
+  source/effect_codegen_dxbc.cpp). Owner: most players run normal mode. sopt, fxstat and sopt-fxc judge DXBC at /O3.
+- fxc-levels Action (tools/corpus/fxc_levels.py, run 45293326721: 46 packages, 514 effects, fxstat 6.8.0.7 with
+  d3dcompiler_47 on Windows):
+  - sm50: /O1 and /O3 give identical code for all 2533 entry points. sopt's /O3 checks hold for normal mode on D3D10-12.
+  - sm30: 1442 of 1944 identical, 347 other code with the same count, 83 longer and 72 shorter at /O1; total 181636 vs
+    181605. Small, both ways.
+  - Normal vs performance mode (uniforms constant, default values): +63% instructions in normal mode (sm50 262009 vs
+    160781, sm30 179112 vs 109447); 1171 of 2515 sm50 entry points longer. The mode matters, the /O level does not.
+  - Not compiled: 42 effects on sm30 (D3D9-only failures), 2 sm50 performance-mode compiles.
