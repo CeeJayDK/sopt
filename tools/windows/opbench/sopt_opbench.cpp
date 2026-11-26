@@ -794,6 +794,16 @@ struct Measured {
   double vsBasePass[2] = {0, 0}; // the same from the forward and the backward pass alone
 };
 
+// A faster form and the op it stands in for (owner, 2026-11-26): its comment says how fast it is against that op
+// instead of against an fma; fp16 ops against their fp32 op.
+const std::pair<const char*, const char*> kStandsIn[] = {
+    {"roundadd", "round"}, {"flooradd", "floor"}, {"fracadd", "frac"}, {"signsel2", "sign"}, {"signbits", "sign"},
+    {"signsat", "sign"}, {"signmad", "sign"}, {"signclamp", "sign"}, {"signsel", "sign"}, {"rsqrtnr0", "rsqrt"},
+    {"rsqrtnr1", "rsqrt"}, {"rcpnr0", "rcp"}, {"rcpnr1", "rcp"}, {"sqrtnr0", "sqrt"}, {"pow2floor", "exp2floor"},
+    {"pow2ceil", "exp2ceil"}, {"acos4", "acos"}, {"acos1", "acos"}, {"atan4", "atan"}, {"atan5a", "atan"},
+    {"atan2q", "atan2"}, {"mad16", "mad"}, {"add16", "add"}, {"mul16", "mul"}, {"max16", "max"}, {"rcp16", "rcp"},
+    {"sqrt16", "sqrt"}, {"exp2_16", "exp2"}, {"log2_16", "log2"}, {"mad16v3", "mad3v"}};
+
 // The summary's fixed order: sections ("#" entries), within each cheapest to most expensive as
 // most GPUs measure it, the same on every GPU so results can be compared line by line.
 const char* const kDisplayOrder[] = {
@@ -1089,6 +1099,8 @@ int main(int argc, char** argv) {
     if (!t || std::find(assigned.begin(), assigned.end(), t) != assigned.end()) return;
     assigned.push_back(t);
     self(gr, find(t->base), self);
+    for (const auto& [form, op] : kStandsIn)  // the op a faster form is compared with, measured by then
+      if (!std::strcmp(form, t->name)) self(gr, find(op), self);
     if (t->pairStep) self(gr, find(t->solo), self);
     gr.run.push_back(t);
   };
@@ -1181,6 +1193,26 @@ int main(int argc, char** argv) {
                       pct < 85.0 ? "in parallel" : "one after the other");
         comment = pairComment;
         shade = pct < 85.0 ? kGreen : kWhite;
+      }
+      const char* orig = nullptr;
+      for (const auto& [form, op] : kStandsIn)
+        if (!std::strcmp(form, name)) orig = op;
+      char vsComment[64];
+      if (!pair && orig && results["tput"].count(orig)) {
+        // Both costs over their bases (the same wrapper step), or whole steps where the base is the op itself
+        // (mad16 over mad: its cost over the base is already the difference).
+        const Measured& o = results["tput"][orig];
+        const bool whole = self->base && !std::strcmp(self->base, orig);
+        const double a = whole ? x.units.value : v, b = whole ? o.units.value : o.vsBase;
+        const double r = b / std::max(a, 0.75);
+        if (a < 0.75 && b < 0.75) std::snprintf(vsComment, sizeof(vsComment), "free, like %s", orig);
+        else if (a < 0.75) std::snprintf(vsComment, sizeof(vsComment), "free (%s: %.1f)", orig, b);
+        else if (b < 0.75) std::snprintf(vsComment, sizeof(vsComment), "slower: %s is free", orig);
+        else if (r >= 1.15) std::snprintf(vsComment, sizeof(vsComment), "%.1fx faster than %s", r, orig);
+        else if (r > 1.0 / 1.15) std::snprintf(vsComment, sizeof(vsComment), "same as %s", orig);
+        else std::snprintf(vsComment, sizeof(vsComment), "%.1fx slower than %s", 1.0 / r, orig);
+        comment = vsComment;
+        shade = a < 0.75 || r >= 1.5 ? kGreen : r >= 1.15 ? kCyan : r > 1.0 / 1.15 ? kWhite : r > 1.0 / 1.5 ? kYellow : kRed;
       }
       const std::string color = st.vt ? "\x1b[" + std::to_string(shade.bright) + "m" : "";
       const std::string b = bar(std::min(v, kGraphMax), kGraphMax, kBarWidth, st, shade);

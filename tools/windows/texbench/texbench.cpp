@@ -2949,24 +2949,26 @@ int main(int argc, char** argv) {
   };
   auto printPass = [&](const std::string& sec) {
     double maxP = 0.0;
-    int barW = kBarWidth;
+    int barW = kBarWidth, w = 26;  // w: the section's longest name ("lut dither 16^2 const r of rgb x8")
     for (const Test* t : tests)
       if (t->section == sec) {
         maxP = std::max(maxP, passMs[t->name].value);
+        w = std::max(w, int(t->name.size()));
         if (t->per) barW = std::max(8, kBarWidth - 22);  // room for "  12.3 fma per exchange"
       }
-    print("\n  %s%s%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"), (sec + sectionWhy(st, sec)).c_str(),
-                st.reset(), st.c("\x1b[97m"), "Test", "ms/pass", kBarWidth, "", st.reset());
+    barW = std::max(8, barW - (w - 26));  // a longer name column takes its room from the graph
+    print("\n  %s%s%s\n  %s%-*s %8s  %-*s%s\n", st.c("\x1b[1;96m"), (sec + sectionWhy(st, sec)).c_str(),
+                st.reset(), st.c("\x1b[97m"), w, "Test", "ms/pass", barW, "", st.reset());
     for (const Test* t : tests)
       if (t->section == sec) {
         const double each = perEach(t);
         char extra[48] = "";
         if (each > -1e9) std::snprintf(extra, sizeof(extra), "  %5.1f fma per %s", each, t->per);
         if (const double pc = vsPs(t); pc > -1e9) std::snprintf(extra, sizeof(extra), "  %+4.0f%%", pc);
-        print("  %-26s %8.3f  %s%s\n", t->name.c_str(), passMs[t->name].value,
+        print("  %-*s %8.3f  %s%s\n", w, t->name.c_str(), passMs[t->name].value,
                     bar(passMs[t->name].value, maxP, barW, st, kCyan).c_str(), extra);
       }
-    print("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
+    print("%*s%s(shorter is better)%s\n", 2 + w + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
     const Test* best = nullptr;  // compute layouts: the fastest, against the pixel shader
     for (const Test* t : tests)
       if (t->section == sec && vsPs(t) > -1e9 && (!best || passMs[t->name].value < passMs[best->name].value)) best = t;

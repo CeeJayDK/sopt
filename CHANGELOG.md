@@ -21,6 +21,8 @@ docs/notes/history.md.
 - **Fixed:** the skip-at-strength-0 change, the blend-stage change on passes that clear the screen first, changes that did not compile, and a search that could run far past its time limit.
 
 ### GPU Blueprint
+- **Clearer comments:** in OpBench, a faster form of a function now says how much faster or slower it is than the function it replaces, and 16-bit math is compared with 32-bit math.
+- **Fixed:** long test names in TexBench (the new dither tests) pushed the graphs and numbers out of line.
 - **Sending reports:** a report is no longer lost when the connection to Dropbox fails while it is being collected, and a report sent with ShaderInfo alone now arrives.
 - **Driver check:** OpBench and StageBench now also report whether your driver keeps a shader's `precise` math as written, on each version of Direct3D.
 - **Small lookup tables:** TexBench now measures whether small dither tables and color tables are faster as a texture or written out in the shader, on your card.
