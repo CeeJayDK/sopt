@@ -156,3 +156,18 @@ TEST(vector_emitters) {
   CHECK(has(ptx, "rsqrt.approx.ftz.f32"));
   CHECK(has(ptx, "[%a1+24]"));  // s is slot 6
 }
+
+// --fp-coincidence / --fp-more add their points before the random ones without changing them: the random points
+// stay last (the top-down lookup points). Replacing them left the lookups on flat zero points (2026-11-05).
+TEST(test_points_extras_keep_random_points) {
+  const auto in = vin();
+  Program prog;
+  prog.inputs = in;
+  prog.target = parseExpr("v * c.x + s", in);
+  const PointSet plain = makeTestPoints(prog, 32, 5);
+  for (int f = 1; f < 4; ++f) {
+    const PointSet more = makeTestPoints(prog, 32, 5, f & 1, f & 2);
+    CHECK(more.size() > plain.size());
+    for (size_t k = 1; k <= 8; ++k) CHECK(more.point(more.size() - k) == plain.point(plain.size() - k));
+  }
+}

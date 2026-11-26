@@ -280,10 +280,10 @@ TEST(fx_semantic_ranges) {
   auto [t, ft] = input(24, "i.tint.xyz");
   CHECK(ft.assumed && ft.suggestLo == 0.0 && ft.suggestHi == 1.0);
   CHECK(ft.suggestWhy.find("COLOR") != std::string::npos);
-  // The vertex shader adds a uniform without a range: its output is unknown, so the
-  // TEXCOORD convention applies; SV_Position is in pixels.
+  // The vertex shader adds a uniform without a range: its output is unknown, and no convention
+  // applies to a value computed from a uniform (2026-11-13); SV_Position is in pixels.
   auto [b, fb] = input(36, "uv");
-  CHECK(b.lo == 0.0 && b.hi == 1.0 && fb.source == "TEXCOORD semantic (convention)");
+  CHECK(fb.assumed && fb.source != "TEXCOORD semantic (convention)");
   auto [p, fp] = input(37, "vpos.x");
   CHECK(p.lo == 0.0 && p.hi == 7680.0 && !fp.assumed);
 }
@@ -936,6 +936,31 @@ TEST(fx_hlsl_compute) {
   if (o && mo && c) checkVariantFile({o, mo, c}, file, lo, "Motion[id.xy] = off * 2.0 + off * d; // sopt");
 }
 
+TEST(fx_found_markdown) {
+  // sopt-found.md: the inputs as the shader reads them (no in1, in2 aliases), one table row each.
+  const Loaded l = load();
+  const fx::Region* r = at(l, 23);
+  CHECK(r != nullptr && !r->prog.inputs.empty());
+  if (!r || r->prog.inputs.empty()) return;
+  fx::RegionResult rr;
+  rr.region = *r;
+  rr.region.prog.inputs[0].name = "tex2D(s, uv).r";
+  rr.region.prog.inputs[0].lo = -1.0f;
+  rr.region.prog.inputs[0].hi = 1.0f;
+  rr.targetCost = 20;
+  fx::Variant v;
+  v.expr = r->prog.target;
+  v.cost = 10;
+  v.klass = Klass::Within;
+  rr.variants.push_back(v);
+  const std::string md = fx::foundRewrites({rr});
+  CHECK(md.find("| input | type | range |") != std::string::npos);
+  CHECK(md.find("| `tex2D(s, uv).r` | ") != std::string::npos);
+  CHECK(md.find(" | [-1, 1] |") != std::string::npos);
+  CHECK(md.find("in1") == std::string::npos);
+  CHECK(md.find("```hlsl\n") != std::string::npos && md.find(": cost 20 → 10, ") != std::string::npos);
+}
+
 TEST(fx_register_counts) {
   // Register counts go into the report (columns with the change) and, where they change,
   // the variant comment.
@@ -1086,6 +1111,185 @@ TEST(fx_namespace) {
 }
 
 
+// ui_min = -1 written as a whole number on a float uniform: read as uint it was 4294967295, the range [1, 4.29e9].
+TEST(fx_ui_range_negative_int) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_uirange.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* r = regionOn(regions, 6);
+  CHECK(r != nullptr);
+  if (!r) return;
+  const int a = inputNamed(*r, "OffA"), b = inputNamed(*r, "OffB");
+  CHECK(a >= 0 && r->prog.inputs[a].lo == -1.0 && r->prog.inputs[a].hi == 1.0);
+  CHECK(b >= 0 && r->prog.inputs[b].lo == -2.0 && r->prog.inputs[b].hi == 3.0);
+  // A negative int cast to uint wraps: uint(Shift), Shift from -4 to 4, kept [-4, 4].
+  const fx::Region* c = regionOn(regions, 13);
+  CHECK(c != nullptr);
+  if (!c) return;
+  const int u = inputNamed(*c, "float(u)");
+  CHECK(u >= 0 && c->prog.inputs[u].lo == 0.0 && c->prog.inputs[u].hi > 4e9);
+}
+
+// TEXCOORD is [0, 1] by convention only where what the vertex shader writes there depends on the vertex number alone
+// (also through a helper, and per member of a struct): a value computed from a uniform has no known range. And
+// acos / % are built as fxc writes them: those regions are for DirectX only (the driver's own function elsewhere).
+TEST(fx_texcoord_convention_and_fxc_math) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_texcoord.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  auto assumed = [](const fx::Region& r, const char* name) {
+    for (const auto& f : r.facts)
+      if (f.input == name) return f.assumed ? 1 : 0;
+    return -1;
+  };
+  const fx::Region *id = regionOn(regions, 30), *zoom = regionOn(regions, 35), *st = regionOn(regions, 40);
+  CHECK(id && zoom && st);
+  if (!id || !zoom || !st) return;
+  CHECK(assumed(*id, "bits") == 0 && assumed(*id, "uv.x") == 0);
+  CHECK(assumed(*zoom, "scaled") == 1 && assumed(*zoom, "uv.x") == 0);
+  CHECK(assumed(*st, "i.k") == 1 && assumed(*st, "i.uv.x") == 0);
+  const fx::Region *ac = regionOn(regions, 45), *mod = regionOn(regions, 46), *sn = regionOn(regions, 47);
+  CHECK(ac && mod && sn);
+  if (!ac || !mod || !sn) return;
+  CHECK(ac->guard == "__RENDERER__ < 0x10000" && mod->guard == ac->guard && sn->guard.empty());
+}
+
+// ReShade's nameless temporary for an out argument is no input: a helper seen through that calls another with out
+// arguments gave "float2(-.x, .y)" (SuperDepth3D, 2026-11-15). In the shader itself the variable has its name.
+TEST(fx_out_argument_temporaries) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_outarg.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  CHECK(!regions.empty());
+  for (const auto& r : regions)
+    for (const auto& d : r.prog.inputs) CHECK(!d.name.empty() && d.name[0] != '.' && d.name.rfind("__t", 0) != 0);
+  CHECK(regionOn(regions, 20) == nullptr);
+  const fx::Region* k = regionOn(regions, 29);
+  CHECK(k != nullptr);
+  if (k) CHECK(k->prog.inputs.size() == 2 && k->prog.inputs[0].name == "lr" && k->prog.inputs[1].name == "adj");
+}
+
+// Budgets from the output: a value half of which reaches an 8-bit output may be off by a quarter of the output's share
+// (1/8 code). Not through math that repeats (a triangle wave is the same at v + 1/64, + 1, + 64: the budget was 64 and
+// 0.0 passed, 2026-11-13), and not in a shader with a discard (what decides it is not in the returned value: 0.25).
+TEST(fx_output_budgets) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_outbudget.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* plain = regionOn(regions, 4);
+  const fx::Region* wave = regionOn(regions, 10);
+  const fx::Region* disc = regionOn(regions, 16);
+  CHECK(plain != nullptr && wave != nullptr && disc != nullptr);
+  if (!plain || !wave || !disc) return;
+  const double share = 0.125 / 255.0;
+  CHECK(plain->prog.budget.kind == Budget::Kind::Abs && plain->prog.budget.eps <= share / 0.5 &&
+        plain->prog.budget.eps > share / 2.0);
+  CHECK(wave->prog.budget.kind != Budget::Kind::Abs || wave->prog.budget.eps <= share / 128.0);
+  CHECK(disc->prog.budget.kind == Budget::Kind::Rel);
+  // A helper called twice, the results subtracted: one perturbation moved both calls together (the budget was 1024).
+  const fx::Region* helper = regionOn(regions, 23);
+  const fx::Region* diff = regionOn(regions, 30);
+  CHECK(helper != nullptr && diff != nullptr);
+  if (!helper || !diff) return;
+  CHECK(helper->prog.budget.kind == Budget::Kind::Rel);
+  CHECK(diff->prog.budget.kind == Budget::Kind::Abs && diff->prog.budget.eps <= share);
+}
+
+// step() gives 0 or 1 only: without that, whether a variant passes depended on the random test points.
+TEST(fx_step_is_two_valued) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_stepgrid.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* a = regionOn(regions, 6);
+  const fx::Region* b = regionOn(regions, 7);
+  CHECK(a != nullptr && b != nullptr);
+  if (!a || !b) return;
+  const int s = inputNamed(*a, "s"), m = inputNamed(*b, "m");
+  CHECK(s >= 0 && a->prog.inputs[s].grid == 1);
+  CHECK(m >= 0 && b->prog.inputs[m].grid == 0);
+}
+
+TEST(fx_range_of_repeated_variable) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_rangesplit.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  fx::SkipCount sk;
+  const auto regions = fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk);
+  const fx::Region* a = regionOn(regions, 14);
+  const fx::Region* b = regionOn(regions, 15);
+  CHECK(a != nullptr && b != nullptr);
+  if (!a || !b) return;
+  const int q = inputNamed(*a, "q"), l = inputNamed(*a, "l"), d = inputNamed(*b, "d"), c = inputNamed(*b, "e");
+  CHECK(q >= 0 && l >= 0 && d >= 0 && c >= 0);
+  if (q < 0 || l < 0 || d < 0 || c < 0) return;
+  CHECK(a->prog.inputs[q].lo >= 0.0 && a->prog.inputs[q].hi < 0.27);  // x * (1 - x): the uses of x are the same value
+  CHECK(a->prog.inputs[l].lo == 0.0 && a->prog.inputs[l].hi == 1.0);  // lerp stays between its ends
+  // Different values must stay independent: another definition between the loads, another component.
+  CHECK(b->prog.inputs[d].lo == -1.0 && b->prog.inputs[d].hi == 1.0);
+  CHECK(b->prog.inputs[c].lo == -1.0 && b->prog.inputs[c].hi == 1.0);
+  // x - y * floor(x / y): [0, y] plus a few ulps of x (frame count up to 2^31: about 512), not [-2^31, 2^31].
+  const fx::Region* m = regionOn(regions, 17);
+  const int f = m ? inputNamed(*m, "f") : -1;
+  CHECK(f >= 0 && m->prog.inputs[f].lo > -600 && m->prog.inputs[f].hi < 600);
+}
+
+TEST(fx_int_to_uint_rewrite) {
+  const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_intdiv.fx";
+  fx::LoadOptions lo;
+  std::string err;
+  auto e = fx::loadEffect(file, lo, err);
+  CHECK(e != nullptr);
+  if (!e) return;
+  std::map<uint32_t, std::string> at;
+  for (const auto& r : fx::intDivRewrites(*e, fx::RegionOptions())) {
+    CHECK(r.tag == "U" && r.edits.size() == 1 && r.edits[0].extra.find("__RENDERER__ >= 0xa000") != std::string::npos);
+    at[r.line] = r.edits[0].lines[0];
+  }
+  CHECK(at.count(9) && at[9].find("sum += int(uint(i) / 2u);") != std::string::npos);
+  CHECK(at.count(10) && at[10].find("sum += int(uint(i) % 3u);") != std::string::npos);
+  CHECK(at.count(11) && at[11].find("sum += int(uint((i + 1)) / uint((i + 1)));") != std::string::npos);
+  CHECK(!at.count(12));  // the dividend can be negative
+  CHECK(!at.count(13));  // a * b / c: the left operand is not a plain one
+  CHECK(!at.count(14));  // compile-time: nothing to gain
+  CHECK(!at.count(15));  // a macro on the line: its text is not the operand
+  CHECK(at.count(18) && at[18].find("(int2(uint2(a) / uint(s))).x") != std::string::npos);  // uint2(scalar) does not parse
+  CHECK(at.count(20) && at[20].find("int(uint(m) / 2u)") != std::string::npos);  // ranges through %
+  CHECK(at.count(22) && at[22].find("int(uint(sh) % 3u)") != std::string::npos);  // through >>
+  CHECK(at.count(24) && at[24].find("int(uint(i) / uint(d))") != std::string::npos);  // through <<, divisor >= 1
+  CHECK(!at.count(26));  // (i - 4) % 3 can be negative
+  CHECK(at.count(27) && at[27].find("int(uint(fc) % 8u)") != std::string::npos);  // source = framecount
+  CHECK(at.count(28) && at[28].find("uint(rnd)") != std::string::npos);  // source = random, min >= 1
+  CHECK(!at.count(29));  // min = -1
+}
+
 TEST(fx_table_rewrite) {
   const fs::path file = fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_table.fx";
   fx::LoadOptions lo;
@@ -1218,6 +1422,80 @@ TEST(fx_include_from_subfolder) {
   }
 }
 
+TEST(fx_shared_header_ranges_of_every_effect) {
+  // A header's statement gets its ranges from the effect that calls it: a variant in the header serves every effect,
+  // so the ranges are merged (2026-11-16: the first effect's were used, Warp-FX's Blend(): 13 variants written or not
+  // by the order of the effects).
+  const fs::path root = fs::temp_directory_path() / "sopt-test-shared";
+  fs::create_directories(root);
+  std::ofstream(root / "shared.fxh") << "float3 Mix(float3 a, float3 b, float t)\n{\n"
+                                        "\treturn a * (1.0 - t) + b * t + a * t * 0.5;\n}\n";
+  auto effect = [&](const char* name, const char* t) {
+    std::ofstream(root / name) << "#include \"shared.fxh\"\n"
+                                  "uniform float Amount < ui_type = \"slider\"; ui_min = 0.0; ui_max = 1.0; > = 0.5;\n"
+                                  "texture T { Width = 256; Height = 256; Format = RGBA8; };\nsampler S { Texture = T; };\n"
+                                  "void VS(in uint id : SV_VertexID, out float4 pos : SV_Position, out float2 uv : TEXCOORD0)\n{\n"
+                                  "\tuv = float2(id == 2 ? 2.0 : 0.0, id == 1 ? 2.0 : 0.0);\n"
+                                  "\tpos = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);\n}\n"
+                                  "float4 PS(float4 vpos : SV_Position, float2 uv : TEXCOORD0) : SV_Target\n{\n"
+                                  "\tfloat3 c = tex2D(S, uv).rgb;\n\treturn float4(Mix(c, c.bgr, "
+                               << t << "), 1.0);\n}\ntechnique X { pass { VertexShader = VS; PixelShader = PS; } }\n";
+    std::string err;
+    auto e = fx::loadEffect(root / name, fx::LoadOptions(), err);
+    CHECK(e != nullptr);
+    fx::Region out;
+    if (!e) return out;
+    fx::SkipCount sk;
+    for (auto& r : fx::extractRegions(*e, nullptr, noLikely(), sk))
+      if (fs::path(r.file).filename() == "shared.fxh") out = std::move(r);
+    return out;
+  };
+  const fx::Region a = effect("a.fx", "Amount"), b = effect("b.fx", "Amount * 8.0 - 3.0");
+  auto tOf = [](const fx::Region& r) {
+    for (size_t k = 0; k < r.prog.inputs.size(); ++k)
+      if (r.prog.inputs[k].name == "t") return k;
+    return size_t(0);
+  };
+  CHECK(!a.prog.inputs.empty() && a.prog.inputs.size() == b.prog.inputs.size());
+  if (a.prog.inputs.empty() || a.prog.inputs.size() != b.prog.inputs.size()) return;
+  const size_t t = tOf(a);
+  CHECK(a.prog.inputs[t].lo == 0.0 && a.prog.inputs[t].hi == 1.0);
+  CHECK(b.prog.inputs[t].lo == -3.0 && b.prog.inputs[t].hi == 5.0);
+  for (const auto& [first, second] : {std::make_pair(&a, &b), std::make_pair(&b, &a)}) {
+    fx::RegionResult rr;
+    rr.region = *first;
+    CHECK(fx::mergeShared(rr, *second, {}));
+    CHECK(rr.region.prog.inputs[t].lo == -3.0 && rr.region.prog.inputs[t].hi == 5.0 && !rr.region.facts[t].assumed);
+  }
+  // A range one effect does not know is not known; other math is no match.
+  fx::RegionResult rr;
+  rr.region = a;
+  fx::Region unknown = b;
+  unknown.facts[t].assumed = true;
+  CHECK(fx::mergeShared(rr, unknown, {}) && rr.region.facts[t].assumed);
+  fx::Region other = b;
+  other.prog.half = !other.prog.half;
+  CHECK(!fx::mergeShared(rr, other, {}));
+  // Another budget: both must hold, the main one the same whichever effect came first.
+  fx::Region general = a, output = b;
+  general.prog.budget = Budget{};
+  general.prog.budget.kind = Budget::Kind::Rel;
+  general.prog.budget.eps = 1e-6;
+  output.prog.budget = Budget{};
+  output.prog.budget.kind = Budget::Kind::Abs;
+  output.prog.budget.eps = 1.0 / 32768.0;
+  for (const auto& [first, second] : {std::make_pair(&general, &output), std::make_pair(&output, &general)}) {
+    fx::RegionResult both;
+    both.region = *first;
+    CHECK(fx::mergeShared(both, *second, {}) && fx::mergeShared(both, *first, {}));
+    const Budget& m = both.region.prog.budget;
+    CHECK(m.kind == Budget::Kind::Rel && m.also.size() == 1 && m.also[0].kind == Budget::Kind::Abs);
+    CHECK(fx::budgetString(m) == "rel 1e-06 and abs 3.05176e-05");
+  }
+  std::error_code ec;
+  fs::remove_all(root, ec);
+}
+
 TEST(fx_pragma_once_one_spelling) {
   // a.fx includes h.fxh, and inc/b.fxh includes it through an include path: on Windows "Pack/h.fxh" and "Pack\h.fxh"
   // were two files to #pragma once, so h.fxh came twice ("redefinition", BFBFX's OpenRSF.fxh, 2026-10-25).
@@ -1304,7 +1582,8 @@ TEST(fx_hlsl_glsl_extras) {
     if (inv->prog.inputs[k].name == "base_dimension_i.x")
       CHECK(inv->facts[k].likely && inv->prog.inputs[k].lo > 0.0 && inv->prog.inputs[k].hi == 1.0);
   const auto g = regionsOf("sopt_extras.frag", true);
-  for (uint32_t line : {13u, 14u, 15u, 16u}) CHECK(regionOn(g, line) != nullptr);  // asinh, acosh, atanh, atan(x)
+  for (uint32_t line : {13u, 14u, 15u}) CHECK(regionOn(g, line) != nullptr);  // asinh, acosh, atanh
+  CHECK(regionOn(g, 16) == nullptr);  // atan(x): the driver's own function in GLSL, not fxc's polynomial
   // A Vulkan GLSL compute shader as FFmpeg writes them: sampler / image arrays, push constants, buffers, shared,
   // specialization constants, matrix products, vector ==, length(), imageStore, gl_GlobalInvocationID.
   CHECK(regionOn(regionsOf("sopt_compute.glsl", true), 40) != nullptr);
@@ -1467,7 +1746,8 @@ TEST(fx_setting_paths) {
 }
 TEST(fx_zero_guard) {
   // A uniform at 0 that leaves the output an earlier value: if (S == 0.0) return it, right after its last store (line
-  // 10); one that does not (Gain: black at 0) gets none (2026-10-28).
+  // 10); one that does not (Gain: black at 0) gets none (2026-10-28). Nor a local stored again after its first
+  // statement (k = Strength * 2.0; k = k + Gain), nor a shader whose helper discards (2026-11-13).
   std::string err;
   auto e = fx::loadEffect(fs::path(SOPT_TESTS_DIR) / "fx" / "sopt_zeroguard.fx", fx::LoadOptions(), err);
   CHECK(e != nullptr);
@@ -1488,7 +1768,7 @@ TEST(fx_matrix_variables) {
   CHECK(e != nullptr);
   if (!e) return;
   fx::SkipCount sk;
-  bool lms = false, local = false, helper = false, rows = false, cols = false;
+  bool lms = false, local = false, helper = false, rows = false, cols = false, tr = false;
   for (const auto& r : fx::extractRegions(*e, nullptr, fx::RegionOptions(), sk)) {
     if (!r.removed.empty()) continue;
     const std::string t = toString(r.prog.target, r.prog.inputs);
@@ -1498,8 +1778,10 @@ TEST(fx_matrix_variables) {
     // A uniform matrix (2026-10-31): its rows are inputs; mul(v, M) reads a column across them.
     rows = rows || (r.line == 17 && t.find("dot(c, Mix[1])") != std::string::npos);
     cols = cols || (r.line == 18 && t.find("dot(c, float3(Mix[0].y, Mix[1].y, Mix[2].y))") != std::string::npos);
+    // transpose(M) of constants (2026-11-11): mul(transpose(M), c) = mul(c, M), a dot per column.
+    tr = tr || (r.line == 19 && t.find("dot(c, float3(0.5, 0.1, 0.2))") != std::string::npos);
   }
-  CHECK(lms && local && helper && rows && cols);
+  CHECK(lms && local && helper && rows && cols && tr);
 }
 
 TEST(fx_soft_slider) {
@@ -1995,6 +2277,57 @@ TEST(previous_candidates_are_verified_again) {
     CHECK(a.text.find("y") == std::string::npos);
   }
   CHECK(right);
+}
+
+// --bound-recheck: an earlier find that passes the quick check sets the bound the search starts under (here one that is
+// wrong only for x within 0.0002 of 0.4337, which 64 quick points miss and full verification finds); when nothing that
+// holds is that cheap, the search runs once more without the bound. This checks that it does and that the result holds;
+// what it gains is the corpus' job (here the target's own parts reach the answer under the bound too).
+TEST(keep_accepted_and_bound_profiles_hold) {
+  // Both flags on: the same answer on a small search (the code runs and holds; gains are measured on the corpus).
+  const Program p = parseProgram("input x : float in [0, 1]\ninput y : float in [0, 1]\n"
+                                 "output r = x * y + x * y + x\n");
+  auto best = [&](bool on) {
+    Options opt;
+    opt.search.timeLimitSec = 1;
+    opt.keepAccepted = on;
+    opt.search.boundProfiles = on;
+    const RunResult res = optimize(p, opt);
+    uint32_t c = 0;
+    for (const auto& a : res.accepted)
+      if (a.klass != Klass::LessAccurate && (c == 0 || a.cost < c)) c = a.cost;
+    return c;
+  };
+  const uint32_t off = best(false), on = best(true);
+  CHECK(off != 0 && on == off);
+}
+
+TEST(bound_recheck_withdraws_a_failed_bound) {
+  const Program p = parseProgram("input x : float in [0, 1]\ninput y : float in [0, 1]\n"
+                                 "output r = max(abs(x * 3.0 - 1.3011), 0.0006) * (y + y) * 0.5\n");
+  auto best = [&](bool recheck, uint32_t* rechecks) {
+    Options opt;
+    opt.search.timeLimitSec = 2;
+    opt.library = opt.subtrees = opt.cuts = false;
+    opt.seeds = opt.refine = 1;
+    opt.boundRecheck = recheck;
+    opt.stage2Points = 64;
+    opt.cancelPoints = false;  // or x = 0.4337 is a verification point of the quick check
+    opt.previous = {parseExpr("abs(x * 3.0 - 1.3011) * y", p.inputs)};
+    const RunResult res = optimize(p, opt);
+    CHECK(res.previousBest != 0);  // the wrong form did set the bound
+    uint32_t c = 0;
+    for (const auto& a : res.accepted) {
+      CHECK(a.text.find("max") != std::string::npos);
+      if (c == 0 || a.cost < c) c = a.cost;
+    }
+    *rechecks = res.boundRechecks;
+    return c;
+  };
+  uint32_t off = 0, on = 0;
+  const uint32_t without = best(false, &off), with = best(true, &on);
+  CHECK(off == 0 && on == 1);
+  CHECK(with != 0 && (without == 0 || with <= without));
 }
 
 TEST(culprit_switch_of_a_parse_error) {

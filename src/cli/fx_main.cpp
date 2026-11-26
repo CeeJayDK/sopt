@@ -86,7 +86,7 @@ void usage() {
       "  --max-statements N  statements per window: a statement with the single-use\n"
       "                    temporaries it reads or the statements before it that compute\n"
       "                    its variable (default 4; 1 = single statements only)\n"
-      "  --cost-model M    rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-terascale2 | nvidia | nvidia-maxwell2 | nvidia-maxwell1 | nvidia-fermi | nvidia-pascal | nvidia-turing | nvidia-turing-rtx | nvidia-ampere | nvidia-ada | nvidia-blackwell | intel-xe2 | intel-gen12 | intel-gen9 | intel-gen7.5 | intel-gen6 | generic (default nvidia-ampere)\n"
+      "  --cost-model M    rdna3 | amd-rdna2 | amd-rdna4 | amd-gcn5 | amd-gcn4 | amd-terascale2 | nvidia | nvidia-maxwell2 | nvidia-maxwell1 | nvidia-fermi | nvidia-pascal | nvidia-turing | nvidia-turing-rtx | nvidia-ampere | nvidia-ada | nvidia-blackwell | intel-xe2 | intel-gen12 | intel-gen9 | intel-gen7.5 | intel-gen6 | generic (default nvidia-ampere)\n"
       "  --isa             measure original and variants with fxstat + RGA (AMD); variants\n"
       "                    must be cheaper for some measured vendor ($SOPT_FXSTAT, $SOPT_RGA)\n"
       "  --sass            same with ptxas + nvdisasm (NVIDIA; $SOPT_PTXAS, $SOPT_NVDISASM)\n"
@@ -100,6 +100,8 @@ void usage() {
       "                    (fxstat, $SOPT_FXSTAT) to DIR, for ShaderInfo --batch DIR on a PC\n"
       "  --driver-stats F  the driver statistics ShaderInfo --batch wrote (F, with the export's\n"
       "                    manifest.txt next to it): Intel instruction counts as a measured vendor\n"
+      "  --no-output-budgets  budgets from each value's own use only, not from the pixel shader's\n"
+      "                    output (a value that ends in an 8-bit color may err as far as the color allows)\n"
       "  --no-likely       no likely ranges: inputs without facts get the default range, not the\n"
       "                    suggestion (a texture read 0..1, a color-like name ...); variants on likely\n"
       "                    ranges are written behind their switches, marked, never in easy mode\n"
@@ -148,7 +150,8 @@ void usage() {
       "                    indexed at run time become static const tables, switch SOPT_<file>_T<line>;\n"
       "                    pixel shader math of uniforms only, or affine in the texture coordinates,\n"
       "                    moves to the vertex shader, switch SOPT_<file>_V<line>; kept where --isa\n"
-      "                    measures a gain)\n"
+      "                    measures a gain; signed integer / and % with both sides proven not\n"
+      "                    negative become unsigned, D3D10 and later, switch SOPT_<file>_U<line>)\n"
       "  --no-hoist        no moving to the vertex shader (the table rewrites stay)\n"
       "  --no-setting-paths  only the code the effect's current settings compile (default: also each\n"
       "                    value its #if lines test a setting for, variants under that #if)\n"
@@ -332,7 +335,8 @@ void measureRewrites(std::vector<fx::SourceRewrite>& rewrites, const std::vector
       continue;
     }
     const bool worse = rw.amdAfter > rw.amdBefore || perfWorse;
-    const bool table = rw.tag == "T";  // per vendor: NVIDIA's select tree gains even where AMD's table does not
+    // Per vendor: NVIDIA's select tree gains even where AMD's table does not. int to uint: exact, and measured with OpBench.
+    const bool table = rw.tag == "T" || rw.tag == "U";
     // A zero guard gains only while its uniform is 0 (not measurable statically): kept when it costs a few
     // instructions at most otherwise (the compare and the branch).
     if (rw.tag == "Z") {
@@ -571,6 +575,7 @@ int main(int argc, char** argv) {
     } else if (a == "--isa") isa = true;
     else if (a == "--assumed") allowAssumed = true;
     else if (a == "--no-likely") ropt.likelyRanges = false;
+    else if (a == "--no-output-budgets") ropt.outputBudgets = false;
     else if (a == "--loose") opt.loose = std::strtod(next(), nullptr);
     else if (a == "--facts") factsFile = next();
     else if (a == "--ask") ask = true;
@@ -681,7 +686,8 @@ int main(int argc, char** argv) {
     rewriteEffects.clear();
     std::set<std::pair<std::string, std::string>> rewriteSeen;  // (file, switch tag + line)
     resourceKeys.clear();
-    std::set<std::tuple<std::string, uint32_t, size_t>> seen;
+    std::map<std::tuple<std::string, uint32_t, size_t>, size_t> seen;  // -> index in results
+    std::set<size_t> differ;  // statements of a shared header that two effects read differently
     for (const auto& p : inputs) {
       std::string err;
       const fx::LoadOptions load = loadFor(p);
@@ -741,6 +747,7 @@ int main(int argc, char** argv) {
       }
       std::vector<fx::Region> effectRegions;  // for the vertex shader rewrites
       std::vector<fx::Region> found = fx::extractRegions(*fx, fx2.get(), ropt, info.skipped);
+      for (auto& h : fx::derivativeHints(*fx)) info.hints.push_back(std::move(h));
       // Code other values of the settings compile (owner, 2026-10-26): one parse per value an #if tests, regions on
       // lines the default parse leaves out, each under its #if (not moved to the vertex shader: hoist sees only
       // the default parse).
@@ -764,7 +771,6 @@ int main(int argc, char** argv) {
       for (size_t i = 0; i < found.size(); ++i) {
         fx::Region& r = found[i];
         if (i < defaultRegions && classic && hoist && !fx->hlsl) effectRegions.push_back(r);
-        if (!seen.insert({r.file, r.line, r.removed.size()}).second) continue;  // shared header
         fx::RegionResult rr;
         rr.effect = p.string();
         if (formatChecks) {
@@ -786,6 +792,14 @@ int main(int argc, char** argv) {
                 rr.hdrInputs[k].lo = fx::kScRgbLo, rr.hdrInputs[k].hi = fx::kScRgbHi, rr.hdrInputs[k].grid = 0;
           }
         }
+        // A shared header: one result for every effect that reads the statement (until 2026-11-16 the first
+        // effect's ranges were used for all of them).
+        const auto [at, fresh] = seen.emplace(std::make_tuple(r.file, r.line, r.removed.size()), results.size());
+        if (!fresh) {
+          if (!fx::mergeShared(results[at->second], r, rr.hdrInputs) && differ.insert(at->second).second)
+            info.skipped.add("a header statement that reads differently in another effect", r.file, r.line);
+          continue;
+        }
         rr.targetCost = dagCost(r.prog.target, *opt.search.model, r.prog.inputs);
         rr.region = std::move(r);
         results.push_back(std::move(rr));
@@ -796,12 +810,15 @@ int main(int argc, char** argv) {
         for (auto& rw : fx::blendRewrites(*fx, ropt, opt.seed)) more.push_back(std::move(rw));
       if (zeroGuard)
         for (auto& rw : fx::zeroGuardRewrites(*fx, ropt, opt.seed)) more.push_back(std::move(rw));
+      if (classic && !fx->hlsl && !fx->glsl)
+        for (auto& rw : fx::intDivRewrites(*fx, ropt)) more.push_back(std::move(rw));
       for (auto& rw : more)
         if (rewriteSeen.insert({rw.file, rw.tag + std::to_string(rw.line)}).second) {
           rewriteEffects.push_back(p);
           rewrites.push_back(std::move(rw));
         }
     }
+    for (auto it = differ.rbegin(); it != differ.rend(); ++it) results.erase(results.begin() + *it);
     if (!regionFilter.empty())
       results.erase(std::remove_if(results.begin(), results.end(),
                                    [&](const fx::RegionResult& rr) {
@@ -971,7 +988,13 @@ int main(int argc, char** argv) {
     const Budget& b = p.budget;
     std::snprintf(buf, sizeof(buf), "|%d %.9g %d %.9g %.9g %d %.9g|", static_cast<int>(b.kind), b.eps,
                   b.maxCodeDiff, b.px, b.width, b.vsExact ? 1 : 0, b.loose);
-    return key + buf + toString(p.target, anon);
+    key += buf;
+    for (const Budget& a : b.also) {
+      std::snprintf(buf, sizeof(buf), "&%d %.9g %d %.9g %.9g %d|", static_cast<int>(a.kind), a.eps, a.maxCodeDiff, a.px,
+                    a.width, a.vsExact ? 1 : 0);
+      key += buf;
+    }
+    return key + toString(p.target, anon);
   };
   std::vector<size_t> firstOf(results.size());
   std::vector<size_t> unique;
@@ -1003,7 +1026,7 @@ int main(int argc, char** argv) {
     char buf[512];
     std::snprintf(buf, sizeof(buf),
                   "%s %s t%g b%d l%g x%d a%d L%d s%d c%d td%d tp%d bb%d sl%d sc%d pf%d n%u seed%u ap%d "
-                  "lf%zx mb%llu of%d q%u ct%g st%g sm%u sh%d rg%d fc%d",
+                  "lf%zx mb%llu of%d q%u ct%g st%g sm%u sh%d rg%d fc%d fm%d ks%d fr%d se%u te%d ts%d tp%u rf%u ns%d pa%d eu%d jp%d cp%d np%d br%d ka%d bp%d",
                   SOPT_VERSION, opt.search.model ? std::string(opt.search.model->name).c_str() : "?",
                   opt.search.timeLimitSec, opt.search.bits ? 1 : 0, opt.loose, opt.exactRule ? 1 : 0,
                   opt.accuracyVariants ? 1 : 0, opt.library ? 1 : 0, opt.subtrees ? 1 : 0, opt.cuts ? 1 : 0,
@@ -1012,7 +1035,11 @@ int main(int argc, char** argv) {
                   allPlatforms ? 1 : 0, args.libraryHash, static_cast<unsigned long long>(opt.search.maxBank),
                   opt.search.overflow ? 1 : 0, static_cast<unsigned>(opt.search.quantBits), opt.cutTime, opt.subtreeTime,
                   static_cast<unsigned>(opt.subtreeMaxCost), opt.search.sharedLeaves ? 1 : 0, opt.libraryRegroup ? 1 : 0,
-                  opt.fpCoincidence ? 1 : 0);
+                  opt.fpCoincidence ? 1 : 0, opt.fpMore ? 1 : 0, opt.keepSurvivors ? 1 : 0, opt.fullRestarts ? 1 : 0,
+                  static_cast<unsigned>(opt.seeds), opt.search.tdEnd ? 1 : 0, opt.search.tdSpread ? 1 : 0,
+                  static_cast<unsigned>(opt.search.tdPairs), static_cast<unsigned>(opt.refine), opt.noiseShare ? 1 : 0, opt.partsAlways ? 1 : 0, opt.exactUndefined ? 1 : 0,
+                  opt.jumpPoints ? 1 : 0, opt.cancelPoints ? 1 : 0, opt.noiseParts ? 1 : 0,
+                  opt.boundRecheck ? 1 : 0, opt.keepAccepted ? 1 : 0, opt.search.boundProfiles ? 1 : 0);
     optionsKey = buf;
   }
   using fx::CacheEntry;
@@ -1580,17 +1607,30 @@ int main(int argc, char** argv) {
       bool bb8 = false;
       for (size_t k = 0; k < r.facts.size() && k < p10.inputs.size(); ++k)
         if (r.facts[k].source.rfind("BackBuffer (8-bit", 0) == 0) p10.inputs[k].grid = 1023, bb8 = true;
-      if (toBackBuffer && p10.budget.kind == Budget::Kind::Color8) p10.budget.kind = Budget::Kind::Color10, bb8 = true;
+      // Every budget of the region (Budget::also: a shared header's statement, one per effect).
+      auto eachBudget = [](Program& p, const std::function<void(Budget&)>& fn) {
+        fn(p.budget);
+        for (Budget& a : p.budget.also) fn(a);
+      };
+      if (toBackBuffer)
+        eachBudget(p10, [&](Budget& b) {
+          if (b.kind == Budget::Kind::Color8) b.kind = Budget::Kind::Color10, bb8 = true;
+        });
       Program ph = r.prog;
       const bool hdrCheck = !rr.hdrInputs.empty() || toBackBuffer;
       if (!rr.hdrInputs.empty()) ph.inputs = rr.hdrInputs;
-      if (toBackBuffer && (ph.budget.kind == Budget::Kind::Color8 || ph.budget.kind == Budget::Kind::Color10)) {
-        ph.budget.kind = Budget::Kind::Rel;
-        ph.budget.eps = 1.0 / 2048.0;
-      }
+      if (toBackBuffer)
+        eachBudget(ph, [](Budget& b) {
+          if (b.kind != Budget::Kind::Color8 && b.kind != Budget::Kind::Color10) return;
+          b.kind = Budget::Kind::Rel;
+          b.eps = 1.0 / 2048.0;
+        });
       auto passes = [&](Program p, const fx::Variant& v) {
         p.budget.vsExact = p.budget.vsExact && opt.exactRule;
         p.budget.loose = v.klass == Klass::LessAccurate ? opt.loose : 0.0;
+        p.budget.exactUndefined = opt.exactUndefined;
+        p.budget.jumpPoints = opt.jumpPoints;
+        p.budget.cancelPoints = opt.cancelPoints;
         const uint64_t dom = domainSize(p, uint64_t{1} << 22);
         const PointSet ps = dom ? PointSet() : makeRandomPoints(p, size_t{1} << 18, opt.seed + 5, true);
         for (const auto& prof : kAllProfiles) {
@@ -1672,7 +1712,7 @@ int main(int argc, char** argv) {
     f << fx::markdownReport(results, info);
   }
   {
-    std::ofstream f(outDir / "sopt-found.txt", std::ios::binary);
+    std::ofstream f(outDir / "sopt-found.md", std::ios::binary);
     f << fx::foundRewrites(results);
   }
   if (!errors.empty()) std::fprintf(stderr, "%s", errors.c_str());
@@ -1684,7 +1724,7 @@ int main(int argc, char** argv) {
   }
   size_t improved = 0;
   for (const auto& r : results) improved += !r.variants.empty();
-  std::printf("%s%zu of %zu regions have cheaper variants%s; wrote %zu files, sopt-report.md and sopt-found.txt to %s\n",
+  std::printf("%s%zu of %zu regions have cheaper variants%s; wrote %zu files, sopt-report.md and sopt-found.md to %s\n",
               con.c(improved ? "\x1b[1;92m" : "\x1b[1;97m"), improved, results.size(), con.reset(), files.size(),
               outDir.string().c_str());
   // Variants held back because an input's range was only assumed (owner, 2026-10-08: "0 of 13" was

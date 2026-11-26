@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <string>
 
@@ -5,6 +6,7 @@
 #include "ir/parser.hpp"
 #include "search/driver.hpp"
 #include "test.hpp"
+#include "verify/bound.hpp"
 #include "verify/exact.hpp"
 #include "verify/points.hpp"
 #include "verify/problems.hpp"
@@ -29,6 +31,22 @@ TEST(accuracy_exact_values) {
     const double a = ps.cols[0][i];
     CHECK(std::fabs(x[i] - (a / 3.0 + a * a)) <= 1e-15 * x[i]);
   }
+}
+
+TEST(accuracy_exact_undefined) {
+  // rgb2hsv's lerp(c, y, step(c, y)) / (.. + 1e-10) at y = -1e-10 (Glitch.fx, 2026-11-10): float rounding makes
+  // the original finite (c + (y - c) = 0), exact math divides by zero. lerp must be exact at t = 1 for that.
+  Program p = parseProgram("input c : float in [-1000, 1000]\ninput y : float in [-1000, 1000]\n"
+                           "output r = 1.0 / (lerp(c, y, step(c, y)) + 1e-10)\nbudget r : rel 1e-6\n");
+  PointSet ps;
+  ps.cols.resize(2);
+  ps.add({-606.31f, -1e-10f});
+  CHECK(std::isinf(evalExactAll(p.target, ps)[0]));
+  const Expr cand = parseExpr("1.0 / (max(c, y) + 1e-10)", p.inputs);
+  p.budget.exactUndefined = false;  // --no-exact-undefined
+  CHECK(!compare(p, cand, ps, kProfileRef, 1).pass);
+  p.budget.exactUndefined = true;  // default: such points are don't-care
+  CHECK(compare(p, cand, ps, kProfileRef, 1).pass);
 }
 
 TEST(accuracy_rule_depth) {
@@ -239,3 +257,111 @@ TEST(uint_input_points) {
   CHECK(whole && neg && top);
 }
 
+
+// A small marker (Smart_Sharp.fx:690-692): random points never land in its window, so 0.0 passed as bit-exact
+// (2026-11-08). The comparison boundary points land inside it, so 0.0 fails.
+TEST(boundary_points_small_window) {
+  Program p = parseProgram("input u : float2 in [0, 1]\ninput q : float2 in [0.2, 0.8]\n"
+                           "output r = (abs(u.x - q.x) < 0.003 && abs(u.y - q.y) < 0.005) ? 1.0 : 0.0\nbudget r : exact\n");
+  const PointSet ps = makeRandomPoints(p, 4096, 5, true);
+  const std::vector<float> t = evalAll(p.target, ps, kProfileRef);
+  CHECK(std::count(t.begin(), t.end(), 1.0f) > 0);
+  CHECK(!compare(p, parseExpr("0.0", p.inputs), ps, kProfileRef, 1).pass);
+}
+
+// A character drawn in a box (DLAA_Plus.fx:363): the box is a comparison window, the lit pixel inside it only floor
+// steps. Out without the character passed as "more accurate" (2026-11-08); spread points inside the box reach the pixel.
+TEST(boundary_points_inside_window) {
+  Program p = parseProgram("input o : float in [0, 7]\ninput t : float2 in [0, 1]\ninput q : float2 in [0.02, 0.95]\n"
+                           "input s : float2 in [0.012, 0.017]\n"
+                           "output r = o + (step(0.0, min(((t - q) / s).x, ((t - q) / s).y)) - "
+                           "step(1.0, max(((t - q) / s).x, ((t - q) / s).y))) * "
+                           "(floor(((t - q) / s).x * 4.0) == 1.0 ? (floor(((t - q) / s).y * 5.0) == 0.0 ? 1.0 : 0.0) : 0.0)\n"
+                           "budget r : rel 1e-6\n");
+  const PointSet ps = makeRandomPoints(p, 4096, 5, true);
+  CHECK(!compare(p, parseExpr("o", p.inputs), ps, kProfileRef, 1).pass);
+}
+
+// Timer % 1000 is off by a whole period at a few points only: not noise, whatever the seed. A hash is off nearly everywhere.
+TEST(noise_share_ignores_rare_jumps) {
+  Program fmod = parseProgram("input t : float in [0, 1e7]\noutput r = 1000.0 * frac(t * rcp(1000.0))\nbudget r : rel 1e-6\n");
+  Program hash = parseProgram("input x : float in [0, 1e6]\noutput r = frac(sin(x * 12.9898) * 43758.5453)\nbudget r : rel 1e-6\n");
+  Options opt;
+  opt.previousOnly = true;
+  opt.noiseShare = true;
+  for (uint64_t seed : {1ull, 6ull, 7ull, 8ull}) {
+    opt.seed = seed;
+    CHECK(!optimize(fmod, opt).exactOff);
+    CHECK(optimize(hash, opt).exactOff);
+  }
+}
+
+// Integer parts are no noise: the float32 evaluator keeps a uint as its bit pattern, the exact one as its value.
+TEST(noise_parts_skip_integers) {
+  Program p = parseProgram("input x : float in [0, 1]\ninput y : float in [0, 1]\n"
+                           "output r = y + float(uint(x * 255.0)) * 0.1\nbudget r : rel 1e-6\n");
+  Options opt;
+  opt.previousOnly = true;
+  CHECK(!optimize(p, opt).exactOff);
+}
+
+// Budget::also (owner, 2026-11-16: a shared header's statement with each effect's budget): every budget must hold, in
+// the point comparison, the proof and the search.
+TEST(budget_also_every_budget_holds) {
+  const Program rel = parseProgram("input x : float in [0, 10]\noutput r = x * 2.0\nbudget r : rel 2e-3\n");
+  Budget abs;
+  abs.kind = Budget::Kind::Abs;
+  abs.eps = 0.01;
+  Program onlyAbs = rel, both = rel;
+  onlyAbs.budget = abs;
+  both.budget.also.push_back(abs);
+  // 0.1% off: fine relatively, 0.02 off at x = 10. 0.005 off: fine absolutely, far off relatively near 0.
+  CHECK(check(rel, "x * 2.002").pass && !check(onlyAbs, "x * 2.002").pass && !check(both, "x * 2.002").pass);
+  CHECK(!check(rel, "x * 2.0 + 0.005").pass && check(onlyAbs, "x * 2.0 + 0.005").pass && !check(both, "x * 2.0 + 0.005").pass);
+  CHECK(check(both, "x * 2.0002").pass);
+  // The proof needs both too (away from 0: a relative budget is not provable there).
+  Program far = parseProgram("input x : float in [1, 10]\noutput r = x * 2.0\nbudget r : rel 2e-3\n");
+  BoundOptions bo;
+  bo.seconds = 1.0;
+  CHECK(proveBound(far, parseExpr("x * 2.002", far.inputs), bo).proven);
+  far.budget.also.push_back(abs);
+  CHECK(!proveBound(far, parseExpr("x * 2.002", far.inputs), bo).proven);
+  CHECK(proveBound(far, parseExpr("x * 2.0002", far.inputs), bo).proven);
+  // The search: under the relative budget alone forms 0.1 off are found; with the absolute one none over 0.01.
+  Program p = parseProgram("input x : float in [0, 100]\ninput y : float in [0, 1]\n"
+                           "output r = x * 1.001 + y * 0.0001\nbudget r : rel 2e-3\n");
+  auto worst = [](const Program& q) {
+    Options opt;
+    opt.search.timeLimitSec = 1;
+    double w = -1;
+    for (const auto& a : optimize(q, opt).accepted) w = std::max(w, a.worst.maxAbs);
+    return w;
+  };
+  CHECK(worst(p) > 0.05);
+  p.budget.also.push_back(abs);
+  CHECK(worst(p) <= 0.01);
+}
+
+// A hash added to a much larger value (VHSPro.fx:1607): within 10% of the sum's range, but its own part is noise.
+TEST(noise_parts_find_small_hash) {
+  Program p = parseProgram("input n : float in [0, 200]\ninput x : float in [0, 1e6]\n"
+                           "output r = n + frac(sin(x * 12.9898) * 43758.5453) * 0.1\nbudget r : rel 1e-6\n");
+  Options opt;
+  opt.previousOnly = true;
+  CHECK(optimize(p, opt).exactOff);
+  opt.noiseParts = false;
+  CHECK(!optimize(p, opt).exactOff);
+  // The hash's inner terms (x 43758) no longer set the sum's error scale once it is a noise node.
+  uint32_t hash = 0;
+  for (uint32_t k = 0; k < p.target.nodes.size(); ++k)
+    if (p.target.nodes[k].op == Op::Frac) hash = k;
+  const PointSet ps = makeRandomPoints(p, 256, 3, false);
+  std::vector<double> loose, tight;
+  const std::vector<uint32_t> nodes{hash};
+  evalExactAll(p.target, ps, &loose);
+  evalExactAll(p.target, ps, &tight, &nodes);
+  double maxLoose = 0.0, maxTight = 0.0;
+  for (size_t i = 0; i < loose.size(); ++i) maxLoose = std::max(maxLoose, loose[i]), maxTight = std::max(maxTight, tight[i]);
+  CHECK(maxLoose > 1e4);
+  CHECK(maxTight < 1e3);
+}

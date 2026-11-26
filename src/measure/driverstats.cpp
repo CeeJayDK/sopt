@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 
@@ -74,7 +75,7 @@ bool loadDriverStats(const fs::path& csv, DriverStats& out, std::string& error) 
   }
   std::string line;
   while (std::getline(in, line)) {
-    if (line.rfind("# vendor: ", 0) == 0) out.vendor = unsigned(std::stoul(line.substr(10), nullptr, 16));
+    if (line.rfind("# vendor: ", 0) == 0) out.vendor = unsigned(std::strtoul(line.c_str() + 10, nullptr, 16));  // no throw on a damaged line
     else if (line.rfind("# gpu: ", 0) == 0) out.gpu = line.substr(7);
     if (line.empty() || line[0] == '#' || line.rfind("shader,", 0) == 0) continue;
     const auto f = csvFields(line);

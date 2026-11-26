@@ -342,6 +342,35 @@ const Test kTests[] = {
      "signed divide", "uint"},
     {"imod", "(asuint(asint(x) % (asint(asuint(c.z) >> 24) | 1)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int",
      "signed modulo", "uint"},
+    // Constant divisors (fxc warns X3556 about int): a power of 2 needs no division for uint, signed keeps fxc's sign handling.
+    {"umodc16", "((x % 16u) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "fxc: and", "uint"},
+    {"imodc16", "(asuint(asint(x) % 16) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "fxc: and, imax, and, ineg, movc", "uint"},
+    {"udivc16", "((x / 16u) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "fxc: ushr", "uint"},
+    {"idivc16", "(asuint(asint(x) / 16) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "fxc: xor, and, imax, ushr, ineg, movc", "uint"},
+    {"umodc7", "((x % 7u) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "fxc: udiv", "uint"},
+    {"imodc7", "(asuint(asint(x) % 7) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "fxc: udiv + sign handling", "uint"},
+    {"udivc7", "((x / 7u) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "fxc: udiv", "uint"},
+    {"idivc7", "(asuint(asint(x) / 7) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "fxc: udiv + sign handling", "uint"},
+    // Candidate rewrites for division. Signed by a power of 2, exact for every int:
+    {"idivs16", "(asuint((asint(x) + asint(uint(asint(x) >> 31) >> 28)) >> 4) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int",
+     "x / 16 for any int: add, ishr, ushr, ishr", "uint"},
+    {"imods16", "(asuint(asint(x) - ((asint(x) + asint(uint(asint(x) >> 31) >> 28)) & -16)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int",
+     "x % 16 for any int: add, ishr, ushr, and, sub", "uint"},
+    // Dividends with a known small range (base uhi: x below 65536), against a real division of the same values:
+    {"uhi", "((x >> 16) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "base: x below 65536", "uint"},
+    {"udivs", "(((x >> 16) / ((asuint(c.z) >> 24) | 1u)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "uhi", "udiv of a small value", "uint"},
+    {"umods", "(((x >> 16) % ((asuint(c.z) >> 24) | 1u)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "uhi", "umod of a small value", "uint"},
+    {"udivs7", "(((x >> 16) / 7u) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "uhi", "udiv by a constant, small value", "uint"},
+    {"umods7", "(((x >> 16) % 7u) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "uhi", "umod by a constant, small value", "uint"},
+    {"udivm7", "((((x >> 16) * 9363u) >> 16) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "uhi", "x / 7 as multiply and shift", "uint"},
+    {"umodm7", "(((x >> 16) - 7u * (((x >> 16) * 9363u) >> 16)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "uhi", "x % 7 as multiply and shift", "uint"},
+    {"udivf7", "(uint(mad(float(x >> 16), 0.14285715, 0.07142857)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "uhi", "x / 7 through float", "uint"},
+    {"umodf7", "(uint(float(x >> 16) - 7.0 * floor(mad(float(x >> 16), 0.14285715, 0.07142857))) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "uhi", "x % 7 through float", "uint"},
+    {"udivvf", "(uint((float(x >> 16) + 0.5) * rcp(float((asuint(c.z) >> 24) | 1u))) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "uhi",
+     "x / d through float, d not constant", "uint"},
+    {"umodvf",
+     "(uint(float(x >> 16) - float((asuint(c.z) >> 24) | 1u) * floor((float(x >> 16) + 0.5) * rcp(float((asuint(c.z) >> 24) | 1u)))) ^ asuint(c.y)) + asuint(c.x)",
+     0, 0, 0, 0, "uhi", "x % d through float, d not constant", "uint"},
     {"itof", "(asuint(float(asint(x))) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "int -> float conversion", "uint"},
     {"utof", "(asuint(float(x)) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int", "uint -> float conversion", "uint"},
     {"unitf", "(asuint(asfloat((x >> 9) | 0x3f800000u) * 1.5) ^ asuint(c.y)) + asuint(c.x)", 0, 0, 0, 0, "int",
@@ -765,6 +794,16 @@ struct Measured {
   double vsBasePass[2] = {0, 0}; // the same from the forward and the backward pass alone
 };
 
+// A faster form and the op it stands in for (owner, 2026-11-26): its comment says how fast it is against that op
+// instead of against an fma; fp16 ops against their fp32 op.
+const std::pair<const char*, const char*> kStandsIn[] = {
+    {"roundadd", "round"}, {"flooradd", "floor"}, {"fracadd", "frac"}, {"signsel2", "sign"}, {"signbits", "sign"},
+    {"signsat", "sign"}, {"signmad", "sign"}, {"signclamp", "sign"}, {"signsel", "sign"}, {"rsqrtnr0", "rsqrt"},
+    {"rsqrtnr1", "rsqrt"}, {"rcpnr0", "rcp"}, {"rcpnr1", "rcp"}, {"sqrtnr0", "sqrt"}, {"pow2floor", "exp2floor"},
+    {"pow2ceil", "exp2ceil"}, {"acos4", "acos"}, {"acos1", "acos"}, {"atan4", "atan"}, {"atan5a", "atan"},
+    {"atan2q", "atan2"}, {"mad16", "mad"}, {"add16", "add"}, {"mul16", "mul"}, {"max16", "max"}, {"rcp16", "rcp"},
+    {"sqrt16", "sqrt"}, {"exp2_16", "exp2"}, {"log2_16", "log2"}, {"mad16v3", "mad3v"}};
+
 // The summary's fixed order: sections ("#" entries), within each cheapest to most expensive as
 // most GPUs measure it, the same on every GPU so results can be compared line by line.
 const char* const kDisplayOrder[] = {
@@ -788,6 +827,8 @@ const char* const kDisplayOrder[] = {
     "#Integer and conversions", "bitor", "ixmul", "iadd", "iand", "imin", "ishr", "irot", "imul", "popc", "fbh",
     "bitrev", "fbl", "ishl", "ineg", "iabs", "bfe", "xor3", "or3", "andor", "bitsel", "maj3", "iadd3",
     "lshladd", "addlshl", "imad", "icmpsel", "unitf", "utof", "itof", "ftou", "ftoitof", "udiv", "umod", "idiv", "imod",
+    "umodc16", "imodc16", "udivc16", "idivc16", "umodc7", "imodc7", "udivc7", "idivc7", "idivs16", "imods16",
+    "uhi", "udivs", "umods", "udivs7", "umods7", "udivm7", "umodm7", "udivf7", "umodf7", "udivvf", "umodvf",
     "#Half precision (min16float)", "mad16", "add16", "mul16", "max16", "rcp16", "sqrt16", "exp2_16", "log2_16",
     "mad16v3", "mix16",
     "#Compute: groupshared memory and barriers", "gsread", "gsread4", "gswrite", "gswriteread", "gsread32", "gswrite32", "barrier",
@@ -1058,6 +1099,8 @@ int main(int argc, char** argv) {
     if (!t || std::find(assigned.begin(), assigned.end(), t) != assigned.end()) return;
     assigned.push_back(t);
     self(gr, find(t->base), self);
+    for (const auto& [form, op] : kStandsIn)  // the op a faster form is compared with, measured by then
+      if (!std::strcmp(form, t->name)) self(gr, find(op), self);
     if (t->pairStep) self(gr, find(t->solo), self);
     gr.run.push_back(t);
   };
@@ -1150,6 +1193,26 @@ int main(int argc, char** argv) {
                       pct < 85.0 ? "in parallel" : "one after the other");
         comment = pairComment;
         shade = pct < 85.0 ? kGreen : kWhite;
+      }
+      const char* orig = nullptr;
+      for (const auto& [form, op] : kStandsIn)
+        if (!std::strcmp(form, name)) orig = op;
+      char vsComment[64];
+      if (!pair && orig && results["tput"].count(orig)) {
+        // Both costs over their bases (the same wrapper step), or whole steps where the base is the op itself
+        // (mad16 over mad: its cost over the base is already the difference).
+        const Measured& o = results["tput"][orig];
+        const bool whole = self->base && !std::strcmp(self->base, orig);
+        const double a = whole ? x.units.value : v, b = whole ? o.units.value : o.vsBase;
+        const double r = b / std::max(a, 0.75);
+        if (a < 0.75 && b < 0.75) std::snprintf(vsComment, sizeof(vsComment), "free, like %s", orig);
+        else if (a < 0.75) std::snprintf(vsComment, sizeof(vsComment), "free (%s: %.1f)", orig, b);
+        else if (b < 0.75) std::snprintf(vsComment, sizeof(vsComment), "slower: %s is free", orig);
+        else if (r >= 1.15) std::snprintf(vsComment, sizeof(vsComment), "%.1fx faster than %s", r, orig);
+        else if (r > 1.0 / 1.15) std::snprintf(vsComment, sizeof(vsComment), "same as %s", orig);
+        else std::snprintf(vsComment, sizeof(vsComment), "%.1fx slower than %s", 1.0 / r, orig);
+        comment = vsComment;
+        shade = a < 0.75 || r >= 1.5 ? kGreen : r >= 1.15 ? kCyan : r > 1.0 / 1.15 ? kWhite : r > 1.0 / 1.5 ? kYellow : kRed;
       }
       const std::string color = st.vt ? "\x1b[" + std::to_string(shade.bright) + "m" : "";
       const std::string b = bar(std::min(v, kGraphMax), kGraphMax, kBarWidth, st, shade);
@@ -1292,18 +1355,19 @@ int main(int argc, char** argv) {
           // A fresh reference right before the test: a clock change moves both.
           const Result m = measureAt(g, shaders[c.name]["mad"], *madTest, c, it["mad"], reps);
           const Result r = t == madTest ? m : measureAt(g, shaders[c.name][t->name], *t, c, it[t->name], reps);
+          progress.step();
+          if (!(m.ms > 0.0 && r.ms > 0.0)) continue;  // every timing failed: no reading (more passes may follow)
           mads[c.name].push_back(m.nsPerStep);
           results[c.name][t->name].readings.push_back(4.0 * r.nsPerStep / m.nsPerStep);
           Result& acc = sums[c.name][t->name];
           acc.iters = r.iters;
           acc.ms += r.ms;
           acc.nsPerStep += r.nsPerStep;
-          progress.step();
         }
       }
       for (const Test* t : gr.run) {
         Measured& x = results[c.name][t->name];
-        const double n = double(x.readings.size());
+        const double n = std::max(1.0, double(x.readings.size()));
         x.r = sums[c.name][t->name];
         x.r.ms /= n;
         x.r.nsPerStep /= n;

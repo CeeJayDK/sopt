@@ -1,5 +1,6 @@
 #include "search/options.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -13,9 +14,7 @@ namespace {
 const CostModel* modelArg(const char* name) {
   const CostModel* m = costModelByName(name);
   if (!m)
-    std::fprintf(stderr, "unknown cost model (rdna3, amd-rdna2, amd-rdna4, amd-gcn5, amd-terascale2, nvidia, nvidia-maxwell2, nvidia-maxwell1, nvidia-fermi, "
-                         "nvidia-pascal, nvidia-turing, nvidia-ampere, nvidia-ada, nvidia-blackwell, intel-xe2, intel-gen12, intel-gen9, "
-                         "intel-gen7.5, generic, search)\n");
+    std::fprintf(stderr, "unknown cost model (%s)\n", costModelNames().c_str());
   return m;
 }
 }  // namespace
@@ -81,6 +80,29 @@ int parseSearchOption(const std::string& a, const std::function<const char*()>& 
   else if (a == "--no-accuracy-variants") opt.accuracyVariants = false;
   else if (a == "--library-regroup") opt.libraryRegroup = true;
   else if (a == "--fp-coincidence") opt.fpCoincidence = true;
+  else if (a == "--exact-undefined") opt.exactUndefined = true;
+  else if (a == "--no-exact-undefined") opt.exactUndefined = false;
+  else if (a == "--no-jump-points") opt.jumpPoints = false;
+  else if (a == "--no-cancel-points") opt.cancelPoints = false;
+  else if (a == "--seed") opt.seed = std::strtoull(next(), nullptr, 10);
+  else if (a == "--fp-more") opt.fpMore = true;
+  else if (a == "--keep-survivors") opt.keepSurvivors = true;
+  else if (a == "--no-keep-survivors") opt.keepSurvivors = false;
+  else if (a == "--full-restarts") opt.fullRestarts = true;
+  else if (a == "--no-full-restarts") opt.fullRestarts = false;
+  else if (a == "--bound-recheck") opt.boundRecheck = true;
+  else if (a == "--keep-accepted") opt.keepAccepted = true;
+  else if (a == "--bound-profiles") opt.search.boundProfiles = true;
+  else if (a == "--seeds") opt.seeds = std::max(1u, static_cast<uint32_t>(std::strtoul(next(), nullptr, 10)));
+  else if (a == "--refine") opt.refine = std::max(1u, static_cast<uint32_t>(std::strtoul(next(), nullptr, 10)));
+  else if (a == "--td-random-points") opt.search.tdEnd = 1;  // the driver sets the real count
+  else if (a == "--td-spread") opt.search.tdSpread = true;
+  else if (a == "--noise-share") opt.noiseShare = true;
+  else if (a == "--no-noise-share") opt.noiseShare = false;
+  else if (a == "--no-noise-parts") opt.noiseParts = false;
+  else if (a == "--parts-always") opt.partsAlways = true;
+  else if (a == "--no-parts-always") opt.partsAlways = false;
+  else if (a == "--td-pairs") opt.search.tdPairs = std::max(1u, static_cast<uint32_t>(std::strtoul(next(), nullptr, 10)));
   else return 0;
   return 1;
 }

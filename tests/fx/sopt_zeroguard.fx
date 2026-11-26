@@ -17,4 +17,23 @@ float4 ZPS2(float4 p : SV_Position) : SV_Target
 	float3 x = c.rgb * c.rgb * 3.0 + c.gbr;
 	return float4(x * Gain, c.a);
 }
-technique Z { pass { VertexShader = ZVS; PixelShader = ZPS; } pass { VertexShader = ZVS; PixelShader = ZPS2; } }
+float4 ZPS3(float4 p : SV_Position) : SV_Target
+{
+	float4 c = tex2D(ZSamp, p.xy);
+	float k = Strength * 2.0;
+	float3 x = c.rgb * c.rgb * 3.0 + c.gbr;
+	k = k + Gain;
+	return lerp(c, float4(x, 1.0), k);
+}
+float3 ZTone(float4 c)
+{
+	if (c.r < 0.3) discard;
+	return c.rgb * c.rgb * 3.0 + c.gbr;
+}
+float4 ZPS4(float4 p : SV_Position) : SV_Target
+{
+	float4 c = tex2D(ZSamp, p.xy);
+	float3 x = ZTone(c);
+	return lerp(c, float4(x, 1.0), Strength);
+}
+technique Z { pass { VertexShader = ZVS; PixelShader = ZPS; } pass { VertexShader = ZVS; PixelShader = ZPS2; } pass { VertexShader = ZVS; PixelShader = ZPS3; } pass { VertexShader = ZVS; PixelShader = ZPS4; } }

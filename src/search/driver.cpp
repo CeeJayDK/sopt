@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <bit>
+#include <iterator>
 #include <unordered_map>
 
 namespace sopt {
@@ -30,18 +31,50 @@ bool containsPoint(const PointSet& ps, const std::vector<float>& p) {
 // frac(sin(dot(uv, k)) * 43758.5) does not (float32 sin of large arguments is chaotic):
 // there the original's error vs exact is as large as its range, so "at least as close to
 // exact" or "within F times the original's error" would accept any value, even 0.
-bool followsExact(const Program& prog, uint64_t seed) {
+// noiseShare (--noise-share): over 1% of the points must be that far off. The largest error alone made one point in 4096
+// decide it: Timer % 1000 is off by a whole period only just below each multiple, so the rule's state depended on the seed
+// (2026-11-08, most of what --seeds still won).
+// noiseParts (--no-noise-parts): every part of the expression too. A hash added to a much larger value (ns += grain * 0.1,
+// VHSPro.fx:1607) stays within 10% of the sum's range, and dropping it passed as "closer to exact" (2026-11-12). A part
+// must also be off by 0.1% of its size: 1.0 + x * 1e-7 is off by rounding only, nearly its whole (tiny) range.
+// Returns 0: follows, 1: parts do not (listed in noisy: "closer to exact" goes off, their error scale restarts), 2: the
+// whole does not.
+int followsExact(const Program& prog, uint64_t seed, bool noiseShare, bool noiseParts, std::vector<uint32_t>& noisy) {
   const PointSet ps = makeRandomPoints(prog, 4096, seed + 7, false);
-  const std::vector<float> t = evalAll(prog.target, ps, kProfileRef);
-  const std::vector<double> x = evalExactAll(prog.target, ps);
-  double lo = INFINITY, hi = -INFINITY, err = 0.0;
-  for (size_t i = 0; i < t.size() && i < x.size(); ++i) {
-    if (!std::isfinite(t[i]) || !std::isfinite(x[i])) continue;
-    lo = std::min(lo, double(t[i]));
-    hi = std::max(hi, double(t[i]));
-    err = std::max(err, std::fabs(double(t[i]) - x[i]));
+  auto follows = [&](const Expr& e, bool part) {
+    const std::vector<float> t = evalAll(e, ps, kProfileRef);
+    const std::vector<double> x = evalExactAll(e, ps);
+    double lo = INFINITY, hi = -INFINITY, err = 0.0;
+    for (size_t i = 0; i < t.size() && i < x.size(); ++i) {
+      if (!std::isfinite(t[i]) || !std::isfinite(x[i])) continue;
+      lo = std::min(lo, double(t[i]));
+      hi = std::max(hi, double(t[i]));
+      err = std::max(err, std::fabs(double(t[i]) - x[i]));
+    }
+    if (!(hi > lo)) return true;
+    const double off = std::max(0.1 * (hi - lo), part ? 1e-3 * std::max(std::fabs(lo), std::fabs(hi)) : 0.0);
+    if (!noiseShare) return err <= off;
+    size_t n = 0, bad = 0;
+    for (size_t i = 0; i < t.size() && i < x.size(); ++i) {
+      if (!std::isfinite(t[i]) || !std::isfinite(x[i])) continue;
+      ++n;
+      bad += std::fabs(double(t[i]) - x[i]) > off;
+    }
+    return bad * 100 <= n;
+  };
+  if (!follows(prog.target, false)) return 2;
+  if (!noiseParts) return 0;
+  for (uint32_t k = 0; k < prog.target.root; ++k) {
+    const Op op = prog.target.nodes[k].op;
+    if (op == Op::Const || op == Op::Input) continue;
+    // A uint is its bit pattern in the float32 evaluator and its value in the exact one: not comparable (2026-11-13).
+    if (prog.target.nodes[k].type == Type::Uint) continue;
+    Expr part;  // nodes are topologically ordered: the prefix up to k holds k's whole subtree
+    part.nodes.assign(prog.target.nodes.begin(), prog.target.nodes.begin() + k + 1);
+    part.root = k;
+    if (!follows(part, true)) noisy.push_back(k);
   }
-  return !(hi > lo) || err <= 0.1 * (hi - lo);
+  return noisy.empty() ? 0 : 1;
 }
 
 // Scheduling measures of e (Accepted / RunResult fields); prog's inputs may have their uniforms
@@ -125,16 +158,70 @@ void finish(const Program& prog, const Options& opt, RunResult& res) {
 }  // namespace
 
 RunResult optimize(const Program& progIn, const Options& opt) {
-  if ((!opt.exactRule && progIn.budget.vsExact) || progIn.budget.loose != opt.loose) {
+  if ((opt.seeds > 1 || opt.refine > 1) && !opt.previousOnly) {
+    // --seeds: each later seed starts from the earlier seeds' finds (like a later run from sopt-cache.txt).
+    // --refine: the same with one seed, until a round finds nothing cheaper.
+    auto best = [](const RunResult& r) {
+      uint32_t c = r.targetCost;
+      for (const auto& a : r.accepted) c = std::min(c, a.cost);
+      return c;
+    };
+    Options o = opt;
+    o.seeds = 1;
+    o.refine = 1;
+    RunResult res;
+    const auto addCounts = [](RunResult& to, const RunResult& from) {  // the report's times and counts cover every round
+      to.iterations += from.iterations;
+      to.counterexamples += from.counterexamples;
+      to.rejectedStage2 += from.rejectedStage2;
+      to.rejectedV1 += from.rejectedV1;
+      to.rejectedProfiles += from.rejectedProfiles;
+      to.rejectedV2 += from.rejectedV2;
+      to.v2Checks += from.v2Checks;
+      to.subtreeSearches += from.subtreeSearches;
+      to.subtreeSec += from.subtreeSec;
+      to.v3Sec += from.v3Sec;
+      to.libraryForms += from.libraryForms;
+      to.cutSearches += from.cutSearches;
+      to.cutSec += from.cutSec;
+      to.searchSec += from.searchSec;
+      to.verifySec += from.verifySec;
+      to.totalSec += from.totalSec;
+    };
+    for (uint32_t k = 0; k < std::max(opt.seeds, opt.refine); ++k) {
+      if (opt.seeds > 1) o.seed = opt.seed + 1000003ull * k;
+      RunResult r = optimize(progIn, o);
+      for (const auto& a : r.accepted) o.previous.push_back(a.expr);
+      const bool cheaper = k == 0 || best(r) < best(res);
+      if (k == 0 || best(r) <= best(res)) {  // a later run at the same cost re-verified the earlier finds
+        addCounts(r, res);
+        res = std::move(r);
+      } else {
+        addCounts(res, r);
+      }
+      if (opt.seeds <= 1 && !cheaper) break;
+    }
+    return res;
+  }
+  if ((!opt.exactRule && progIn.budget.vsExact) || progIn.budget.loose != opt.loose ||
+      progIn.budget.exactUndefined != opt.exactUndefined || progIn.budget.jumpPoints != opt.jumpPoints ||
+      progIn.budget.cancelPoints != opt.cancelPoints) {
     Program p = progIn;
     p.budget.vsExact = p.budget.vsExact && opt.exactRule;
     p.budget.loose = opt.loose;
+    p.budget.exactUndefined = opt.exactUndefined;
+    p.budget.jumpPoints = opt.jumpPoints;
+    p.budget.cancelPoints = opt.cancelPoints;
     return optimize(p, opt);
   }
-  if ((accuracyRule(progIn.budget) || progIn.budget.scaledRel()) && !followsExact(progIn, opt.seed)) {
+  std::vector<uint32_t> noisy;
+  const int noise = accuracyRule(progIn.budget) || progIn.budget.scaledRel()
+                        ? followsExact(progIn, opt.seed, opt.noiseShare, opt.noiseParts, noisy) : 0;
+  if (noise == 2 || (noise == 1 && (accuracyRule(progIn.budget) || progIn.budget.noiseNodes.empty()))) {
     Program p = progIn;
     p.budget.vsExact = false;      // the float32 original is the only meaningful reference
-    p.budget.errorScale = false;
+    if (noise == 2) p.budget.errorScale = false;
+    else p.budget.noiseNodes = std::move(noisy);  // noisy parts: the error scale stays, restarted at them
     RunResult r = optimize(p, opt);
     r.exactOff = true;
     return r;
@@ -164,7 +251,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   res.targetText = toString(prog.target, prog.inputs);
   if (res.targetCost == 0) return res;
 
-  PointSet tests = makeTestPoints(prog, opt.numTests, opt.seed, opt.fpCoincidence);
+  PointSet tests = makeTestPoints(prog, opt.numTests, opt.seed, opt.fpCoincidence, opt.fpMore);
   const PointSet stage2 = makeRandomPoints(prog, opt.stage2Points, opt.seed + 1, true);
   const PointSet v1 = makeRandomPoints(prog, opt.v1Points, opt.seed + 2, true);
   const std::vector<float> stage2Target = evalAll(prog.target, stage2, kProfileRef);
@@ -175,10 +262,10 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   const bool rel = prog.budget.scaledRel();
   std::vector<double> stage2Scale, v1Scale;
   const std::vector<double> stage2Exact =
-      rule || rel ? evalExactAll(prog.target, stage2, rel ? &stage2Scale : nullptr) : std::vector<double>();
+      rule || rel ? evalExactAll(prog.target, stage2, rel ? &stage2Scale : nullptr, &prog.budget.noiseNodes) : std::vector<double>();
   const bool v1Scaled = rel || prog.half;
   const std::vector<double> v1Exact =
-      rule || v1Scaled ? evalExactAll(prog.target, v1, v1Scaled ? &v1Scale : nullptr) : std::vector<double>();
+      rule || v1Scaled ? evalExactAll(prog.target, v1, v1Scaled ? &v1Scale : nullptr, &prog.budget.noiseNodes) : std::vector<double>();
   // min16float: also at half precision, with its budget and error scale (halfBudget).
   Program halfProg;
   std::vector<double> halfScale;
@@ -201,6 +288,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
 
   SearchConfig cfg = opt.search;
   cfg.rational = cfg.rational && opt.accuracyVariants;
+  if (cfg.tdEnd) cfg.tdEnd = static_cast<uint32_t>(tests.size());  // --td-random-points: before any counterexample
   res.v2Points = opt.v2Max ? domainSize(prog, opt.v2Max) : 0;
 
   // Library (Options::library): rewritten forms of the target are candidates; the
@@ -258,14 +346,18 @@ RunResult optimize(const Program& progIn, const Options& opt) {
   bool subDone = false;
   std::vector<Candidate> cutCands;  // Options::cuts, computed once
   bool cutDone = false;
-  for (uint32_t iter = 0; iter < opt.maxIterations; ++iter) {
+  std::vector<Candidate> keptCands;  // --keep-survivors
+  uint32_t maxIter = opt.maxIterations;
+  bool boundWithdrawn = false;  // --bound-recheck
+  for (uint32_t iter = 0; iter < maxIter; ++iter) {
     res.iterations = iter + 1;
-    const bool lastIter = iter + 1 == opt.maxIterations || opt.previousOnly;
+    const bool lastIter = iter + 1 == maxIter || opt.previousOnly;
 
     double ts = nowSeconds();
     // The time limit covers all CEGIS iterations (the overflow search runs to it); a
-    // restart after counterexamples gets what is left, at least a tenth.
-    cfg.timeLimitSec = std::max(opt.search.timeLimitSec * 0.1, opt.search.timeLimitSec - res.searchSec);
+    // restart after counterexamples gets what is left, at least a tenth (--full-restarts: all of it).
+    cfg.timeLimitSec = opt.fullRestarts ? opt.search.timeLimitSec
+                                        : std::max(opt.search.timeLimitSec * 0.1, opt.search.timeLimitSec - res.searchSec);
     std::vector<Candidate> cands;
     if (!opt.previousOnly) {
       // The bank is freed before the subtree / cut searches, which build their own.
@@ -276,7 +368,7 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     // A library seed's bound can end the search early without a limit: "complete" then only
     // means nothing below the seed in the bank's space (no vector constructors, no
     // helpers), so the part searches run as well.
-    const bool partSearch = !opt.previousOnly && (res.search.limitHit || haveSeed);
+    const bool partSearch = !opt.previousOnly && (res.search.limitHit || haveSeed || opt.partsAlways);
     if (opt.subtrees && !subDone && partSearch) {
       subDone = true;
       const double tsub = nowSeconds();
@@ -302,6 +394,8 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     cands.insert(cands.end(), libCands.begin(), libCands.end());
     cands.insert(cands.end(), shapeCands.begin(), shapeCands.end());
     cands.insert(cands.end(), prevCands.begin(), prevCands.end());
+    cands.insert(cands.end(), std::make_move_iterator(keptCands.begin()), std::make_move_iterator(keptCands.end()));
+    keptCands.clear();
     for (auto& c : cands) {
       c.expr = simplifyIdentities(c.expr);
       c.cost = dagCost(c.expr, *opt.search.model, prog.inputs);
@@ -338,6 +432,8 @@ RunResult optimize(const Program& progIn, const Options& opt) {
       for (const auto& p : cex) tests.add(p);
       res.counterexamples += cex.size();
       res.verifySec += nowSeconds() - ts;
+      if (opt.keepSurvivors)
+        for (auto& s : survivors) keptCands.push_back(std::move(s.cand));
       continue;
     }
 
@@ -423,7 +519,26 @@ RunResult optimize(const Program& progIn, const Options& opt) {
     if (!cex.empty() && !lastIter) {
       for (const auto& p : cex) tests.add(p);
       res.counterexamples += cex.size();
+      // --keep-accepted: or the next round has to find them again, on other test points
+      if (opt.keepAccepted)
+        for (const auto& a : res.accepted) keptCands.push_back({a.expr, a.cost});
       continue;
+    }
+    // --bound-recheck: the starting bound (a library form or an earlier find that passed stage 2) kept everything at
+    // or above it out of the search, yet nothing that holds is that cheap: search once more under the cheapest that
+    // does hold (2026-11-16: 11 of 827 searches that started with a bound).
+    if (opt.boundRecheck && cfg.seedBound && !boundWithdrawn && !opt.previousOnly) {
+      uint32_t best = 0;
+      for (const auto& a : res.accepted)
+        if (a.klass != Klass::LessAccurate && (best == 0 || a.cost < best)) best = a.cost;
+      if (best == 0 || best > cfg.seedBound) {
+        boundWithdrawn = true;
+        ++res.boundRechecks;
+        cfg.seedBound = best;
+        for (const auto& a : res.accepted) keptCands.push_back({a.expr, a.cost});
+        if (lastIter) ++maxIter;
+        continue;
+      }
     }
     break;
   }

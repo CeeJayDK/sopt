@@ -72,9 +72,12 @@ struct Options {
   std::string gpu;       // part of the card's name; empty = the default card
 };
 
+// --bench, or the test runs' screenshot mode (SOPT_TIMER_SHOT): no message box (a scripted run would wait for a click).
+bool gUnattended = std::getenv("SOPT_TIMER_SHOT") != nullptr;
+
 void fail(const char* what) {
   std::fprintf(stderr, "sopt-host: %s\n", what);
-  MessageBoxA(nullptr, what, "sopt-host", MB_ICONERROR);
+  if (!gUnattended) MessageBoxA(nullptr, what, "sopt-host", MB_ICONERROR);
   std::exit(1);
 }
 
@@ -168,7 +171,9 @@ std::vector<uint8_t> loadImage(const std::string& file, uint32_t w, uint32_t h) 
   IWICImagingFactory* wic = nullptr;
   if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))))
     fail("WIC is not available");
-  std::wstring wf(file.begin(), file.end());
+  // argv is in the ANSI code page: widened byte by byte, a name such as "Søren.png" was not found.
+  std::wstring wf(MultiByteToWideChar(CP_ACP, 0, file.c_str(), -1, nullptr, 0), L'\0');
+  MultiByteToWideChar(CP_ACP, 0, file.c_str(), -1, wf.data(), int(wf.size()));
   IWICBitmapDecoder* dec = nullptr;
   IWICBitmapFrameDecode* frame = nullptr;
   IWICBitmapSource* rgba = nullptr;
@@ -410,7 +415,7 @@ int runDx11(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
       ctx->PSSetShader(nullptr, nullptr, 0);
       for (UINT row = 0; row < kGridRows; ++row) ctx->Draw(kGridCols * 6, row * kGridCols * 6);
     }
-    sc->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0);
+    if (FAILED(sc->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0))) fail("Present failed (device lost)");
     showFps(hwnd, "dx11", frame);
   }
   ctx->ClearState();
@@ -528,7 +533,7 @@ int runD3d9(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
       dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
     }
     bb->Release();
-    if (dev->Present(nullptr, nullptr, nullptr, nullptr) == D3DERR_DEVICELOST) break;
+    if (dev->Present(nullptr, nullptr, nullptr, nullptr) == D3DERR_DEVICELOST) fail("Present failed (device lost)");
     showFps(hwnd, "dx9", frame);
   }
   for (IUnknown* u : std::initializer_list<IUnknown*>{vb, decl, ps, vs, ds, img})
@@ -626,7 +631,7 @@ int runD3d10(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
       dev->PSSetShader(nullptr);
       for (UINT row = 0; row < kGridRows; ++row) dev->Draw(kGridCols * 6, row * kGridCols * 6);
     }
-    sc->Present(0, 0);
+    if (FAILED(sc->Present(0, 0))) fail("Present failed (device lost)");
     showFps(hwnd, "dx10", frame);
   }
   dev->ClearState();
@@ -849,7 +854,7 @@ int runD3d12(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
     }
     list->Close();
     queue->ExecuteCommandLists(1, lists);
-    if (FAILED(sc->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0))) break;
+    if (FAILED(sc->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0))) fail("Present failed (device lost)");
     queue->Signal(fence, ++fenceValue);
     slotValue[i] = fenceValue;
     showFps(hwnd, "dx12", frame);
@@ -1311,7 +1316,7 @@ int runVulkan(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
     vkWaitForFences(dev, 1, &fences[f], VK_TRUE, UINT64_MAX);
     uint32_t idx = 0;
     const VkResult ar = vkAcquireNextImageKHR(dev, sc, UINT64_MAX, acquired[f], VK_NULL_HANDLE, &idx);
-    if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR) break;   // window minimized or resized: stop
+    if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR) vkCheck(ar, "vkAcquireNextImageKHR (window resized or minimized?)");
     vkResetFences(dev, 1, &fences[f]);
     VkCommandBuffer cb = cbs[f];
     vkResetCommandBuffer(cb, 0);
@@ -1361,7 +1366,7 @@ int runVulkan(const Options& o, HWND hwnd, const std::vector<uint8_t>& px) {
     pi.pSwapchains = &sc;
     pi.pImageIndices = &idx;
     const VkResult pr = vkQueuePresentKHR(queue, &pi);
-    if (pr != VK_SUCCESS && pr != VK_SUBOPTIMAL_KHR) break;
+    if (pr != VK_SUCCESS && pr != VK_SUBOPTIMAL_KHR) vkCheck(pr, "vkQueuePresentKHR (window resized or minimized?)");
     showFps(hwnd, "vulkan", frame);
   }
   vkDeviceWaitIdle(dev);
@@ -1383,7 +1388,7 @@ int main(int argc, char** argv) {
     else if (a == "--height") o.height = uint32_t(std::strtoul(next(), nullptr, 10));
     else if (a == "--image") o.image = next();
     else if (a == "--frames") o.frames = std::strtoull(next(), nullptr, 10);
-    else if (a == "--bench") o.bench = true;
+    else if (a == "--bench") o.bench = gUnattended = true;
     else if (a == "--no-depth") o.depth = false;
     else if (a == "--msaa") o.msaa = uint32_t(std::strtoul(next(), nullptr, 10));
     else if (a == "--gpu") o.gpu = next();

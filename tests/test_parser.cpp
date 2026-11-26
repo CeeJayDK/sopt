@@ -22,7 +22,27 @@ bool throws(const char* s) {
   return false;
 }
 
+bool programThrows(const char* s) {
+  try {
+    parseProgram(s);
+  } catch (const ParseError&) {
+    return true;
+  }
+  return false;
+}
+
 }  // namespace
+
+// Lines shorter than the statement forms are errors, not reads past the line's tokens.
+TEST(parser_short_lines) {
+  CHECK(programThrows("input\n"));
+  CHECK(programThrows("input x\n"));
+  CHECK(programThrows("input x :\n"));
+  CHECK(programThrows("input x : float in [0, 1]\noutput\n"));
+  CHECK(programThrows("input x : float in [0, 1]\noutput r = x\nbudget r :\n"));
+  CHECK(programThrows("input x : float in [0, 1]\noutput r = x\nbudget r : color8 maxdiff\n"));
+  CHECK(!programThrows("input x : float in [0, 1]\noutput r = x\nbudget r : color8\n"));
+}
 
 TEST(parser_roundtrip) {
   CHECK(roundtrip("1.0 - (1.0 - a) * (1.0 - b)") == "1.0 - (1.0 - a) * (1.0 - b)");
@@ -167,6 +187,19 @@ TEST(cost_shared_reciprocal) {
   CHECK(m.binaryCost(Op::Div, 3, 3) == m.opCost(Op::Div, 3));
 }
 
+// GCN 4 = GCN 5 with slower sin / cos, no packed fp16 and no GFX9 fused integer instructions (RX 590, RX 580).
+TEST(cost_gcn4) {
+  const CostModel &g4 = costAmdGcn4(), &g5 = costAmdGcn5();
+  CHECK(costModelByName("amd-gcn4") == &g4);
+  CHECK(g4[Op::Sin] == 32 && g4[Op::Cos] == 32);
+  for (size_t i = 0; i < static_cast<size_t>(Op::Count); ++i)
+    if (i != static_cast<size_t>(Op::Sin) && i != static_cast<size_t>(Op::Cos)) CHECK(g4.cost[i] == g5.cost[i]);
+  CHECK(halfOpCost(g4, Op::Add, 3) == g4.opCost(Op::Add, 3));
+  CHECK(halfOpCost(g5, Op::Add, 3) < g5.opCost(Op::Add, 3));
+  CHECK((fuseBits(g4) & kFuseAdd3) == 0 && (fuseBits(g5) & kFuseAdd3) != 0);
+  CHECK((fuseBits(g4) & kFuseBfi) != 0);
+}
+
 // min16float costs per family (HalfCosts, from OpBench): a win only where the hardware runs fp16 faster.
 TEST(cost_half_precision) {
   const CostModel &gcn = costAmdGcn5(), &rdna3 = costRdna3(), &gen9 = costIntelGen9(), &turing = costNvidiaTuring(),
@@ -201,7 +234,7 @@ TEST(cost_contraction) {
   CHECK(dagCost(parseExpr("a * b + c", abcx()), costGeneric()) ==
         costGeneric()[Op::Mul] + costGeneric()[Op::Add]);
   // Every non-leaf op costs >= 1 in every model.
-  for (const CostModel* cm : {&costGeneric(), &costRdna3(), &costRdna3Rga(), &costNvidia(), &costNvidiaMaxwell2(), &costNvidiaMaxwell1(), &costNvidiaFermi(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaTuringRtx(), &costNvidiaAmpere(), &costNvidiaAda(), &costNvidiaBlackwell(), &costIntelGen9(), &costIntelGen75(), &costIntelGen6(), &costIntelGen12(), &costIntelXe2(), &costAmdRdna2(), &costAmdRdna4(), &costAmdGcn5(), &costAmdTerascale2()})
+  for (const CostModel* cm : {&costGeneric(), &costAmdGcn4(), &costRdna3(), &costRdna3Rga(), &costNvidia(), &costNvidiaMaxwell2(), &costNvidiaMaxwell1(), &costNvidiaFermi(), &costNvidiaPascal(), &costNvidiaTuring(), &costNvidiaTuringRtx(), &costNvidiaAmpere(), &costNvidiaAda(), &costNvidiaBlackwell(), &costIntelGen9(), &costIntelGen75(), &costIntelGen6(), &costIntelGen12(), &costIntelXe2(), &costAmdRdna2(), &costAmdRdna4(), &costAmdGcn5(), &costAmdTerascale2()})
     for (size_t i = 2; i < static_cast<size_t>(Op::Count); ++i) CHECK(cm->cost[i] >= 1);
 }
 

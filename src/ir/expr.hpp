@@ -62,6 +62,11 @@ struct Budget {
   // it is at least as close to the exact (real-number) value, or within the budget of
   // it (see pointAccurate). Never for Exact budgets.
   bool vsExact = true;
+  // With vsExact: points where the exact value is not finite are don't-care (Options::exactUndefined).
+  bool exactUndefined = true;
+  // Extra verification points (Options::jumpPoints / cancelPoints, makeRandomPoints).
+  bool jumpPoints = true;
+  bool cancelPoints = true;
   // Less accurate variants (owner: listed with their accuracy, the user decides): a
   // factor > 1 also accepts candidates within `loose` times the budget (color budgets:
   // one more code) and `loose` times the original's own error. 0 = off.
@@ -69,6 +74,13 @@ struct Budget {
   // Rel: relative to max(|t|, S), S = the original's own rounding-error scale (see
   // relBase). Off where the float32 original does not follow exact math (driver).
   bool errorScale = true;
+  // Target nodes that do not follow exact math (hash noise, set by the driver): their error scale restarts at |value|, so
+  // the hash's huge inner terms (x 43758) do not loosen the budget (Clarity2.fx:303 / CRT-NewPixie.fx:246, 2026-11-12).
+  std::vector<uint32_t> noiseNodes;
+  // Budgets that must hold as well (owner, 2026-11-16): a statement of a header that several effects include, with
+  // each effect's own budget (general use in one, an output budget in another; neither is the tighter everywhere).
+  // Checked with this budget's loose factor and switches (alsoBudgets in verify.hpp); their own `also` is unused.
+  std::vector<Budget> also;
   bool scaledRel() const { return kind == Kind::Rel && errorScale; }
   int codeBits() const { return kind == Kind::Color10 ? 10 : 8; }
 };

@@ -219,7 +219,7 @@ std::vector<IsaCost> measureIsa(const std::vector<const Expr*>& exprsIn,
           return;
         }
       }
-      const std::string cmd = quote(cfg.rga) + " -s vk-offline -c " + (cfg.asic.empty() ? "gfx1100" : cfg.asic) +
+      const std::string cmd = quote(cfg.rga) + " -s vk-offline -c " + quote(cfg.asic.empty() ? "gfx1100" : cfg.asic) +
                               " --frag " + quote(file.string()) + " --isa " + quote((sub / "out.isa").string()) +
                               " -a " + quote((sub / "out.csv").string()) + " 2>&1";
       int status = 0;

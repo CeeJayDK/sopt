@@ -82,6 +82,7 @@ MODEL_RULES = [
     (r"RX 7\d\d\d", "rdna3"),
     (r"RX 6\d\d\d|Radeon 6[68]0M|Raphael|Granite Ridge", "amd-rdna2"),
     (r"Vega", "amd-gcn5"),
+    (r"RX (4[6-9]\d|5[5-9]\d|640)\b", "amd-gcn4"),  # Polaris
     (r"HD [67]\d\d\dM?\b", "amd-terascale2"),
     (r"Arc\S* B\d\d\d|Arc\S* 1[34]0V", "intel-xe2"),
     (r"Iris\S* Xe|UHD Graphics (7\d\d|\(Tiger Lake\))", "intel-gen12"),

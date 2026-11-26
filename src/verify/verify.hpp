@@ -121,6 +121,21 @@ inline bool pointLoose(const Budget& b, float target, const double* exact, float
 inline bool pointAcceptable(const Budget& b, float target, const double* exact, float cand, double s = 0.0) {
   return pointWithinBudget(b, target, cand, s) || (exact && pointAccurate(b, target, *exact, cand, 1.0, s));
 }
+// Budget::also as checked: each with the main budget's loose factor, and the accuracy rule / error scale only where
+// the main budget has them too (the driver turns them off on the main one).
+inline std::vector<Budget> alsoBudgets(const Budget& b) {
+  std::vector<Budget> out;
+  for (const Budget& a : b.also) {
+    Budget x = a;
+    x.also.clear();
+    x.loose = b.loose;
+    x.vsExact = a.vsExact && b.vsExact;
+    x.errorScale = a.errorScale && b.errorScale;
+    x.exactUndefined = b.exactUndefined;
+    out.push_back(std::move(x));
+  }
+  return out;
+}
 
 Klass classify(const Program& prog, const Expr& cand, const Metrics& worst);
 

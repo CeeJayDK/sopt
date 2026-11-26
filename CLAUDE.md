@@ -25,7 +25,7 @@ go there or in the topic's own doc; CLAUDE.md keeps only rules, commands, layout
 - Fewer instructions at equal measured speed are still better (less power; faster once the bottleneck moves).
 - When asking the owner to test or download something, repeat the links in that message (CI run / artifact links).
 - Versions: raise the last digit of `project(sopt VERSION ...)` in CMakeLists.txt for every build sent to the owner or
-  testers (now 0.10.0, released); the next test build is 0.10.1.
+  testers (now 0.11.0, release in preparation); the next test build is 0.11.1.
 - CHANGELOG.md: one `## <version>` section per release, add to the top section as things land (release.yml copies it).
   Changelog, release notes and README.md are for laymen (owner, 2026-10-10): plain English, short, what changes for the
   user, no option names or internals (those go in docs/notes/history.md, docs/technical.md).
@@ -90,7 +90,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
   `library.cpp` (rewrite rules from library/rewrites.txt), `subtrees.cpp`, `cuts.cpp`, `generalize.cpp`, `reshape.cpp`.
 - `src/measure`: `isa` (fxstat + RGA, or RGA GLSL mode), `sass` (ptxas + nvdisasm), `backends` (SPIR-V alu, fxc DXBC).
 - `src/fx`: `frontend` (loadEffect, extractRegions, ranges, facts, budgets; HLSL / GLSL modes), `variants` (compiledCost,
-  variant files, report, easyPicks, sopt-found.txt), `platforms` (12 GPU families, Steam shares), `classic.cpp` /
+  variant files, report, easyPicks, sopt-found.md), `platforms` (12 GPU families, Steam shares), `classic.cpp` /
   `hoist.cpp` / `blend.cpp` (classical rewrites: tables, vertex shader moves, blend stage).
 - `src/cli`: `main.cpp` (sopt), `fx_main.cpp` (sopt-fx), `console` (titles, progress bars, window title progress).
 - `third_party/reshadefx`: ReShade 6.8.0 FX lexer / preprocessor / parser with small hooks (symbolic macros, HLSL / GLSL
@@ -126,13 +126,17 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
 - `precise` regions keep float semantics. Variants that rely on `precise` are never written (`needsPrecise`): drivers
   cancel `(x + c) - c` even then on some card and API pairs (2026-11-03, docs/inexact-tricks.md).
 - Variants of regions with assumed (unproven) ranges are not written; facts files / `--ask` supply ranges.
+- acos / asin / atan / atan2 / float % are built as fxc writes them: their ReShade FX variants are DirectX-only
+  (`fxcOnly`: guard `__RENDERER__ < 0x10000`, no easy pick), GLSL regions with them are skipped (owner, 2026-11-13).
+- TEXCOORD is [0, 1] by convention only where what the vertex shader writes depends on the vertex number alone
+  (`inputConvention`; plain HLSL / GLSL: always, there are no passes).
 
 ## Facts worth keeping in mind
-- Cost models (all from OpBench, docs/opbench): nvidia-ampere (default since 2026-10-10: largest Steam group), rdna3 (RX 7900 GRE), amd-rdna2, amd-rdna4, amd-gcn5,
+- Cost models (all from OpBench, docs/opbench): nvidia-ampere (default since 2026-10-10: largest Steam group), rdna3 (RX 7900 GRE), amd-rdna2, amd-rdna4, amd-gcn5, amd-gcn4,
   amd-terascale2, nvidia-fermi (GT / GTX 400 / 500, from StageBench ps, 2026-10-31), nvidia-maxwell1 (GM107/108) / maxwell2 (GM20x; "nvidia-maxwell" still accepted) / pascal / turing (GTX 16) / turing-rtx (RTX 20, same fp32 table; split 2026-10-21 for fp16 in
   pixel shaders) / ampere (RTX 30, also the RTX 2050) / ada (RTX 40) / blackwell, intel-gen6 (Sandy Bridge, 2026-10-24) / gen7.5 / gen9 / gen12 / xe2 (Arc B),
   plus rdna3-rga (old instruction counts), nvidia (ptxas), generic, search (enumeration order). New cards that differ
-  get their own model, identical ones share. GCN 4 (RX 590) would be its own model (owner's go needed).
+  get their own model, identical ones share. amd-gcn4 (Polaris) added 2026-11-08: GCN 5 with sin / cos 32, no fp16 gain, no GFX9 fused integer ops.
 - min16float: ReShade writes it as min16float only on D3D10-12 (D3D9 float, OpenGL mediump = ignored, Vulkan
   RelaxedPrecision = ignored by AMD's compiler). fp16 is faster only on AMD GCN 5 / RDNA 2 (packed) and Intel Gen9 / Gen12,
   NVIDIA Turing for vec3 mad only (in pixel / vertex shaders only on RTX 20); not on Xe2, Ampere+, RDNA 3 / 4 (HalfCosts in ops.cpp; per-family table in history,
@@ -154,7 +158,7 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
    intrinsics report (tools/reshade/INTRINSICS.md: missing intrinsics, round / clamp / smoothstep / saturate across APIs).
 6. Planned / parked: `--poly` approximation mode; test package from the full corpus run; M5 rest (probe effect, facts
    database, `__DEVICE__` paths); M4 harness results merged into reports; Layer.fx 2.0 (questions asked); noise mode;
-   GCN 4 model; driver-statistics (ShaderInfo) as a measured source (wait for reports); pruning sopt options (later).
+   driver-statistics (ShaderInfo) as a measured source (wait for reports); pruning sopt options (later).
 10. Stage-aware costs (owner, 2026-10-16): pixel shader costs for pixel shaders, compute for compute (StageBench,
    docs/stagebench); investigate every cs / ps / vs difference (fxc or driver?) before modelling it (history: mulpre).
    Owner's go, waiting on data: once an AMD report has the shladd5 pair, cost (x << k) + x as fxc's imul in HLSL mode.
@@ -162,8 +166,11 @@ The scheduled check is disabled (trigger trig_01RggLdp3vQTNdxhpVXZhXFa, owner 20
    rule's original (library/found/, 1165 from the 0.6.4 corpus run; library/rewrites.txt's "found by sopt" rules) and
    compare with the found replacement; owner, sopt and Claude then try to beat them by hand too. An Action, not tokens. Not yet
    (owner, 2026-10-27): each improvement of sopt may find more, so it runs once sopt stops improving much.
-9. Flags --library-regroup / --fp-coincidence (2026-10-11): off. bench/logic (any / all / chains, 2026-11-05): identical
-   bests at 30 s on rdna3 and nvidia-ampere. Owner to decide whether they go.
+9. Search misses (owner, 2026-11-05 / 08; corpus A/B in history). Goal: fewer regions where the search misses, by
+   fixing causes, not by relying on seed luck. Default since 2026-11-08: keep stage-2 survivors across a CEGIS restart,
+   full time per restart (--no-keep-survivors / --no-full-restarts). Off: --fp-coincidence (fixed, small plus),
+   --td-spread (small plus), --fp-more (mixed), --td-pairs, --td-random-points (worse), --library-regroup (rarely finds
+   anything). --seeds 3 still wins ~68 written regions on top of the defaults: next, find the cause behind those.
 7. sign() fast forms (owner, 2026-10-10): one (mad(saturate(mad(x, 1e38, 0.5)), 2.0, -1.0), 2.25 on every model so far)
    beats the others everywhere; once OpBench reports cover the families, drop the slower ones from library/rewrites.txt.
    Not before.

@@ -102,3 +102,42 @@ Direct3D 10, 11 and 12 give identical screens (only the API name differs).
   differently once the test moved into the first pass: the same code gives different results depending on what is
   compiled around it.
 - Screens (cropped): `results/nvidia-gtx-1660-dx11.png` (= Direct3D 10 / 12), `-vulkan.png`, `-gl.png`.
+
+## isfinite forms (2026-11-23)
+
+Three ways to write `isfinite` where the backend has none, for ReShade's `isfinite` intrinsic: `abs(x) <= FLT_MAX`
+(one ordered compare), `!(isinf(x) || isnan(x))`, and the exponent bit test `(asuint(x) & 0x7F800000) != 0x7F800000`.
+Each is checked on FLT_MAX (finite), NaN, +inf and -inf made by arithmetic, and on NaN / +inf made with `asfloat` from a
+run-time integer (like a value read from a texture: the compiler cannot see how it was made). Run-time column, GTX 1660
+(driver 621.14, ReShade 6.8.0; the `isfinite` row with ReShade's own intrinsic, a 6.8.0.2 development build from
+2026-11-23, effect switch `SOPT_HAS_ISFINITE` = 1):
+
+| Form                     | Direct3D 9           | Direct3D 10 / 11 / 12 | OpenGL     | Vulkan                     |
+|--------------------------|----------------------|-----------------------|------------|----------------------------|
+| `abs(x) <= FLT_MAX`      | NaN wrong            | NaN wrong (fxc)       | NaN wrong  | ok                         |
+| `!(isinf(x) \|\| isnan(x))` | NaN and FLT_MAX wrong | ok                 | ok         | ok                         |
+| bit test                 | (needs shader model 4) | ok                  | ok         | every non-finite value wrong |
+| ReShade's `isfinite`     | NaN and +-inf wrong  | ok (every column)     | ok         | ok                         |
+
+- `!(isinf(x) || isnan(x))` is the only form right on Direct3D 10-12, OpenGL and Vulkan. On Vulkan the driver folds the
+  bit test (the SPIR-V is right: OpBitcast, OpBitwiseAnd, OpINotEqual), presumably assuming no NaN / inf without
+  `SignedZeroInfNanPreserve`; on OpenGL `abs(x) <= FLT_MAX` is true for NaN, even for a NaN made from bits.
+- The UHD 630 on Direct3D 11 gives the same screen as the GTX 1660 (fxc's code). Not run on it: Direct3D 9 (only the
+  card with the monitor is listed), Vulkan (ReShade 6.8.0 needs VK_KHR_maintenance5, which its driver lacks), OpenGL
+  (Windows picks the card).
+- Folded / Literal columns: `isnan` on a NaN literal folds to false on Direct3D 10-12 and OpenGL (fxc X3577, as above);
+  on Vulkan every literal NaN / inf test fails (ReShade's literals). Only real run-time values matter for `isfinite`.
+- Direct3D 9: shader model 3 has no IEEE NaN; `isinf` there also counts FLT_MAX as infinite. `abs(x) <= FLT_MAX` gets
+  FLT_MAX and +-inf right. ReShade's `isfinite` (HLSL `isfinite`, compiled by fxc for shader model 3) is true for
+  +-inf there as well as for NaN: `abs(x) <= FLT_MAX` would be the better Direct3D 9 form.
+- NaN on Direct3D 9 (owner, 2026-11-24: does `x != x` or `!(x == x)` work there?): no. fxc (ps_3_0, -O3) compiles
+  `x != x`, `!(x == x)`, `isnan(x)`, `!(x < 0 || x >= 0)` and `isnan` of a precise value to the constant false; only
+  `v != v` on a `precise float v` survives (`add r, -v, v` + `cmp`), and the GTX 1660 still gives false for v = inf - inf
+  (group "NaN as inf - inf"). The NaN rows of the Direct3D 9 column may also never have had a NaN: 0 / 0 is a multiply
+  by rcp(0), and Direct3D 9 multiplies with 0 * inf = 0.
+- `isinf` on Direct3D 9: fxc's ps_3_0 code is `rcp r0, x` + `cmp -|r0|` (1 / x == 0), and its `isfinite` is the
+  constant true. Measured (group "isinf forms"): `isinf` is right for +-inf and 8e37 but true for 1e38 and FLT_MAX
+  (1 / x below FLT_MIN is flushed to 0, so every |x| > ~8.5e37 counts as infinite); `abs(x) > FLT_MAX` is right for all
+  five. Direct3D 11: both forms right in every column.
+- ReShade's `isfinite` elsewhere: HLSL `isfinite` on Direct3D 10-12 is right even in the Folded and Literal columns;
+  OpenGL and Vulkan (`!(isinf || isnan)`) are right at run time.

@@ -42,3 +42,33 @@ by `_` (Layer2.fx -> `Layer2`), usable with `##` (`texture Layer_Tex_##__FILE_ST
 
 **Possible form:** add identifiers evaluated in `#if` expressions to the used list too (with their default 0), or
 an annotation-like pragma to declare user settings: `#pragma reshade definition LAYER_SIZE_X 1280`.
+
+## 4. Copy the back buffer only when a pass reads it
+
+**Today:** before a pass, the runtime copies the back buffer into the texture effects read through the `COLOR`
+semantic (`ReShade::BackBuffer`): at the start of every technique and after every pass that drew to the back buffer
+(`runtime::render_technique`, `needs_implicit_back_buffer_copy`). It does not look at whether the coming passes sample
+that texture, so an effect that never reads the back buffer (an overlay drawn with blending, a debug view, compute
+passes followed by a blended draw) still pays a full-screen copy per technique.
+
+**Possible form:** make the copy when a pass that samples a `COLOR` texture is about to run, not before. Each pass
+already has its sampler list (`pass_info.samplers`, used for its texture table), so a flag per pass ("samples the back
+buffer") can be set when the effect is loaded:
+
+```cpp
+if (needs_implicit_back_buffer_copy && pass_data.samples_back_buffer)
+{
+	// barrier, copy_texture_region, barrier as today
+	needs_implicit_back_buffer_copy = false;
+}
+```
+
+with `needs_implicit_back_buffer_copy = true` after a pass that drew to the back buffer (as today) and left alone
+after the others. What effects see does not change: a pass that samples the texture still gets the current image.
+
+**How many effects:** few as they are written today. In a text scan of the 529 effects in the package list about 5
+never read the back buffer (a solid colour, a checkerboard, a letterbox, a test pattern). It matters more for effects
+whose final blend with the back buffer is moved to the blend stage, which then no longer sample it.
+
+**Not measured:** what the copy costs. Add-ons that read the effect colour texture between passes
+(`reshade_render_technique` events) would see an older image; they may need the copy kept.

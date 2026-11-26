@@ -24,6 +24,7 @@ struct ExactEvaluator {
   std::vector<double> scratch, sscratch;
   std::vector<Cols> ptr, sptr;
   bool withScale = false;
+  const std::vector<uint32_t>* noiseNodes = nullptr;  // their scale restarts at |value| (Budget::noiseNodes)
   // Root component columns over points [begin, begin + count); valid until the next call.
   const Cols& eval(const Expr& e, const PointSet& ps, size_t begin, size_t count);
   // The root's error scale columns of the last eval (withScale).
@@ -32,6 +33,7 @@ struct ExactEvaluator {
 
 // All exact values of e over ps, component-major: [c * ps.size() + point]; with scales,
 // also the error scales (see ExactEvaluator), same layout.
-std::vector<double> evalExactAll(const Expr& e, const PointSet& ps, std::vector<double>* scales = nullptr);
+std::vector<double> evalExactAll(const Expr& e, const PointSet& ps, std::vector<double>* scales = nullptr,
+                                 const std::vector<uint32_t>* noiseNodes = nullptr);
 
 }  // namespace sopt

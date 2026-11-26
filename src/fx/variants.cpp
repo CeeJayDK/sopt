@@ -50,9 +50,77 @@ std::string escapeCell(std::string s) {
 
 }  // namespace
 
+// A number as %g prints it (text around it is joined as strings: names and expressions have no length limit).
+static std::string fmtG(double v) {
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%g", v);
+  return buf;
+}
+
 std::string budgetString(const Budget& b) {
   char buf[96];
-  return budgetText(b, buf, sizeof(buf));
+  std::string s = budgetText(b, buf, sizeof(buf));
+  for (const Budget& a : b.also) s += std::string(" and ") + budgetText(a, buf, sizeof(buf));
+  return s;
+}
+
+namespace {
+bool sameBudget(const Budget& a, const Budget& b) {
+  return a.kind == b.kind && a.eps == b.eps && a.maxCodeDiff == b.maxCodeDiff && a.px == b.px && a.width == b.width &&
+         a.vsExact == b.vsExact && a.errorScale == b.errorScale;
+}
+}  // namespace
+
+bool mergeShared(RegionResult& kept, const Region& other, const std::vector<InputDecl>& otherHdr) {
+  Region& r = kept.region;
+  std::vector<InputDecl>& a = r.prog.inputs;
+  const std::vector<InputDecl>& b = other.prog.inputs;
+  if (a.size() != b.size() || r.facts.size() != other.facts.size() || r.prog.half != other.prog.half ||
+      toString(r.prog.target, a) != toString(other.prog.target, b))
+    return false;
+  for (size_t k = 0; k < a.size(); ++k)
+    if (a[k].type != b[k].type || a[k].compileTime != b[k].compileTime || a[k].value != b[k].value) return false;
+  auto widen = [](std::vector<InputDecl>& x, const std::vector<InputDecl>& y) {
+    for (size_t k = 0; k < x.size(); ++k) {
+      if (x[k].lo != y[k].lo || x[k].hi != y[k].hi || x[k].grid != y[k].grid) x[k].grid = 0;
+      x[k].lo = std::min(x[k].lo, y[k].lo);
+      x[k].hi = std::max(x[k].hi, y[k].hi);
+    }
+  };
+  if (!kept.hdrInputs.empty() || !otherHdr.empty()) {
+    if (kept.hdrInputs.empty()) kept.hdrInputs = a;
+    widen(kept.hdrInputs, otherHdr.empty() ? b : otherHdr);
+  }
+  widen(a, b);
+  for (size_t k = 0; k < r.facts.size(); ++k) {
+    Fact& f = r.facts[k];
+    const Fact& g = other.facts[k];
+    if (g.assumed && !f.assumed) f = g;
+    else if (g.assumed && !g.likely) f.likely = false;
+  }
+  // Every effect's budget must hold (Budget::also). The main one is picked by the budgets alone, not by which effect
+  // came first: an exact one alone (it holds for all), else relative ones first, the stricter switches and the
+  // smaller limit first.
+  std::vector<Budget> all = {r.prog.budget};
+  for (const Budget& x : r.prog.budget.also) all.push_back(x);
+  all[0].also.clear();
+  bool known = false;
+  for (const Budget& x : all) known = known || sameBudget(x, other.prog.budget);
+  if (!known) {
+    all.push_back(other.prog.budget);
+    auto rank = [](const Budget& x) {
+      return std::make_tuple(x.kind != Budget::Kind::Exact, x.kind != Budget::Kind::Rel, x.vsExact, x.errorScale,
+                             static_cast<int>(x.kind), x.eps, x.maxCodeDiff);
+    };
+    std::stable_sort(all.begin(), all.end(), [&](const Budget& x, const Budget& y) { return rank(x) < rank(y); });
+    if (all[0].kind == Budget::Kind::Exact) all.resize(1);
+    r.prog.budget = all[0];
+    r.prog.budget.also.assign(all.begin() + 1, all.end());
+    // "back buffer" stays in the reason: sopt-fx checks such regions for the other back buffer formats.
+    const bool backBuffer = (r.budgetReason + other.budgetReason).find("back buffer") != std::string::npos;
+    r.budgetReason = std::string("the budget of every effect that reads it") + (backBuffer ? " (in one, a back buffer output)" : "");
+  }
+  return true;
 }
 
 uint32_t compiledCost(const Expr& e, const CostModel& m, const std::vector<InputDecl>& inputs, bool half) {
@@ -452,10 +520,8 @@ std::vector<fs::path> writeVariants(const std::vector<RegionResult>& results,
         std::string back;
         for (const Fact& f : rr->region.facts)
           if (f.likely) {
-            char buf[160];
-            std::snprintf(buf, sizeof(buf), "; likely range: %s in [%g, %g] (%s)", f.input.c_str(), f.suggestLo, f.suggestHi,
-                          f.suggestWhy.c_str());
-            back += buf;
+            back += "; likely range: " + f.input + " in [" + fmtG(f.suggestLo) + ", " + fmtG(f.suggestHi) + "] (" +
+                    f.suggestWhy + ")";
           }
         // Register counts only where they change (register pressure).
         if (v.amdVgprs >= 0 && rr->targetAmdVgprs >= 0 && v.amdVgprs != rr->targetAmdVgprs)
@@ -605,6 +671,13 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     }
     s += "\n";
   }
+  if (!info.hints.empty()) {
+    s += "## Hints\n\nCode SweetOpt does not change itself, with what the alternative costs on the cards measured "
+         "(GPU Blueprint).\n\n";
+    for (const auto& h : info.hints)
+      s += "- " + pathFrom(h.file).filename().string() + ":" + std::to_string(h.line) + " " + h.text + "\n";
+    s += "\n";
+  }
   if (!info.failed.empty()) {
     s += "## Effects that failed to parse\n\n";
     for (const auto& [f, e] : info.failed) s += "- `" + f + "`: " + escapeCell(e.substr(0, 300)) + "\n";
@@ -622,12 +695,11 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
     s += "Inputs:\n";
     for (size_t k = 0; k < r.prog.inputs.size(); ++k) {
       const auto& d = r.prog.inputs[k];
-      std::snprintf(buf, sizeof(buf), "- `%s` in [%g, %g]%s — %s%s\n", d.name.c_str(), d.lo, d.hi,
-                    d.grid ? (" grid " + std::to_string(d.grid)).c_str() : "",
-                    r.facts[k].source.c_str(), r.facts[k].assumed ? " (*assumed*)" : "");
-      s += buf;
+      s += "- `" + d.name + "` in [" + fmtG(d.lo) + ", " + fmtG(d.hi) + "]" +
+           (d.grid ? " grid " + std::to_string(d.grid) : std::string()) + " — " + r.facts[k].source +
+           (r.facts[k].assumed ? " (*assumed*)" : "") + "\n";
     }
-    s += std::string("\nBudget: ") + budgetText(r.prog.budget, buf, sizeof(buf)) + " (" +
+    s += std::string("\nBudget: ") + budgetString(r.prog.budget) + " (" +
          r.budgetReason + "). Original cost " + std::to_string(rr.targetCost);
     if (info.amd) {
       s += ", amd " + std::to_string(rr.targetAmd);
@@ -773,10 +845,10 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
                                   : "";
     if (rr.onlyContraction) why += ", only explicit fma/modifiers";
     if (rr.measuredNoGain) why += ", no measured gain";
-    std::snprintf(buf, sizeof(buf), "- %s:%u (cost %u%s): `%s`\n", pathFrom(r.file).filename().string().c_str(),
-                  r.line, rr.targetCost, why.c_str(),
-                  escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)).c_str());
-    s += buf;
+    // As strings: a long expression was cut at 511 characters, without its line end (2 lines in the 2026-11-17 corpus).
+    s += "- " + pathFrom(r.file).filename().string() + ":" + std::to_string(r.line) + " (cost " +
+         std::to_string(rr.targetCost) + why + "): `" +
+         escapeCell((r.glsl ? toGlsl : toString)(r.prog.target, r.prog.inputs)) + "`\n";
   }
   s += "\n## Skipped statements\n\n| reason | count |\n|---|---|\n";
   std::vector<std::pair<uint32_t, std::string>> sk;
@@ -787,70 +859,60 @@ std::string markdownReport(const std::vector<RegionResult>& results, const Repor
 }
 
 std::string foundRewrites(const std::vector<RegionResult>& results) {
+  // Markdown, for people (owner, 2026-11-22, from a shader author's feedback: real input names instead of in1, in2, inputs on
+  // lines of their own, markdown like the rest). Library rules are generalized from these by hand.
   std::string s =
-      "# sopt: faster variants found (sopt-fx), in the rewrite library's format\n"
-      "# (library/rewrites.txt). Names are the region's inputs; ranges are what sopt-fx knew\n"
-      "# (facts, or assumed where marked). Generalize a rule before adding it to the library\n"
-      "# and check it there with sopt --check-library. Each rule is the original, \"->\", the faster\n"
-      "# form and the ranges, on lines of their own.\n";
+      "# sopt: faster forms found\n\n"
+      "Every faster form sopt-fx found, next to the original. Inputs are as the shader reads them; their ranges are\n"
+      "what sopt-fx knew. Before a form goes into SweetOpt's rewrite library (library/rewrites.txt), generalize it\n"
+      "and check it there with `sopt --check-library`.\n";
   std::set<std::string> seen;
   char buf[256];
-  auto ident = [](const std::string& n) {
-    if (n.empty() || !(std::isalpha(static_cast<unsigned char>(n[0])) || n[0] == '_')) return false;
-    for (char c : n)
-      if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') return false;
-    return true;
+  auto typeName = [](Type t) {
+    return t == Type::Bool ? std::string("bool") : t == Type::Uint ? std::string("uint")
+           : width(t) == 1 ? std::string("float") : "float" + std::to_string(width(t));
   };
   for (const auto& rr : results) {
     const Region& r = rr.region;
-    // Inputs that are not plain names (texture fetches, member chains) become in1, in2, ...
-    std::vector<InputDecl> named = r.prog.inputs;
-    std::string legend;
-    int k = 0;
-    for (auto& d : named)
-      if (!ident(d.name)) {
-        const std::string alias = "in" + std::to_string(++k);
-        legend += "#   " + alias + " = " + d.name + "\n";
-        d.name = alias;
+    auto print = [&](const Expr& e) { return (r.glsl ? toGlsl : toString)(e, r.prog.inputs); };
+    const std::string fence = std::string("```") + (r.glsl ? "glsl" : "hlsl") + "\n";
+    const std::string original = print(r.prog.target);
+    std::string inputs;
+    if (!r.prog.inputs.empty()) {
+      inputs = "| input | type | range |\n|---|---|---|\n";
+      for (const auto& d : r.prog.inputs) {
+        std::snprintf(buf, sizeof(buf), "[%.9g, %.9g]", d.lo, d.hi);
+        inputs += "| `" + escapeCell(d.name) + "` | " + typeName(d.type) + " | " + buf + " |\n";
       }
-    std::string where;
-    for (size_t i = 0; i < named.size(); ++i) {
-      const auto& d = named[i];
-      std::snprintf(buf, sizeof(buf), "%s%s in [%.9g, %.9g]", where.empty() ? "" : ", ", d.name.c_str(), d.lo, d.hi);
-      where += buf;
-      if (d.type != Type::Float) where += ", " + d.name + " : float" + std::to_string(width(d.type));
     }
-    const std::string lhs = toString(r.prog.target, named);
-    // Not from assumed ranges (2026-10-31: verified on made-up ranges a wrong rule passed, both sides clamped to 0),
-    // nor ones fxc compiles to the same code.
-    auto emit = [&](const Variant& v) {
-      if (v.notFaster || v.dxbcSame) return;
-      // Pattern, arrow and replacement on lines of their own (owner, 2026-10-08: easier to read); the
-      // library parser joins them.
-      std::string rule = lhs + "\n  ->\n" + toString(v.expr, named);
-      if (!where.empty()) rule += "\n  where " + where;
-      if (!seen.insert(rule).second) return;
-      s += "\n# " + pathFrom(r.file).filename().string() + ":" +
-           (r.removed.empty() ? "" : std::to_string(r.removed.front().first) + "-") + std::to_string(r.line) +
-           " (" + r.function + ")  cost " + std::to_string(rr.targetCost) + " -> " + std::to_string(v.cost);
-      if (rr.targetAmd >= 0 && v.amd >= 0) s += ", amd " + std::to_string(rr.targetAmd) + " -> " + std::to_string(v.amd);
-      if (rr.targetNv >= 0 && v.nv >= 0) s += ", nv " + std::to_string(rr.targetNv) + " -> " + std::to_string(v.nv);
+    // Not ones that are not faster, nor ones fxc compiles to the same code.
+    for (const auto& v : rr.variants) {
+      if (v.notFaster || v.dxbcSame) continue;
+      const std::string faster = print(v.expr);
+      if (!seen.insert(original + "\n" + faster + "\n" + inputs).second) continue;
+      s += "\n## " + pathFrom(r.file).filename().string() + ":" +
+           (r.removed.empty() ? "" : std::to_string(r.removed.front().first) + "-") + std::to_string(r.line) + " (" +
+           r.function + "): cost " + std::to_string(rr.targetCost) + " → " + std::to_string(v.cost) + ", " +
+           variantClass(v, r.prog.budget.codeBits()) + "\n\n";
+      s += fence + original + "\n```\n\n→\n\n" + fence + faster + "\n```\n\n" + inputs;
+      std::vector<std::string> more;
+      if (rr.targetAmd >= 0 && v.amd >= 0) more.push_back("AMD " + std::to_string(rr.targetAmd) + " → " + std::to_string(v.amd));
+      if (rr.targetNv >= 0 && v.nv >= 0) more.push_back("NVIDIA " + std::to_string(rr.targetNv) + " → " + std::to_string(v.nv));
       if (rr.targetIntel >= 0 && v.intel >= 0)
-        s += ", intel " + std::to_string(rr.targetIntel) + " -> " + std::to_string(v.intel);
-      if (rr.targetDxbc >= 0 && v.dxbc >= 0)
-        s += ", dxbc " + std::to_string(rr.targetDxbc) + " -> " + (v.dxbcSame ? std::string("same") : std::to_string(v.dxbc));
-      s += ", " + variantClass(v, r.prog.budget.codeBits());
-      std::snprintf(buf, sizeof(buf), ", max abs err %.3g", v.worst.maxAbs);
-      s += buf;
+        more.push_back("Intel " + std::to_string(rr.targetIntel) + " → " + std::to_string(v.intel));
+      if (rr.targetDxbc >= 0 && v.dxbc >= 0) more.push_back("DXBC " + std::to_string(rr.targetDxbc) + " → " + std::to_string(v.dxbc));
+      std::snprintf(buf, sizeof(buf), "max abs error %.3g", v.worst.maxAbs);
+      more.push_back(buf);
       if (rr.targetExactAbs >= 0) {
-        std::snprintf(buf, sizeof(buf), ", vs exact %.3g (original %.3g)", v.worst.exactAbs, rr.targetExactAbs);
-        s += buf;
+        std::snprintf(buf, sizeof(buf), "vs exact %.3g (original %.3g)", v.worst.exactAbs, rr.targetExactAbs);
+        more.push_back(buf);
       }
-      if (v.proven) s += ", proven (V3)";
-      if (!v.problems.empty()) s += ", " + v.problems;
-      s += "\n" + legend + rule + "\n";
-    };
-    for (const auto& v : rr.variants) emit(v);
+      if (v.proven) more.push_back("proven (V3)");
+      if (!v.problems.empty()) more.push_back(v.problems);
+      std::string line;
+      for (const auto& m : more) line += (line.empty() ? "" : " · ") + m;
+      s += (inputs.empty() ? "" : "\n") + line + "\n";
+    }
   }
   return s;
 }

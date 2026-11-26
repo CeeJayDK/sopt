@@ -70,6 +70,7 @@ struct Function {
   std::vector<uint32_t> params;  // variable ids
   std::vector<Statement> stmts;
   std::vector<std::string> calls;  // unique names of called functions
+  bool discards = false;  // has a discard: what decides it is not in the returned value (no output budgets)
 };
 
 struct SamplerInfo {
@@ -150,8 +151,10 @@ class Codegen final : public reshadefx::codegen {
     loops.emplace_back(it == blockSeq_.end() ? 0 : it->second, seq_);
     blockConds[_current_block] = blockConds[prev_block];  // after the loop
   }
-  void emit_switch(const reshadefx::location&, id, id, id, id, const std::vector<id>&,
-                   const std::vector<id>&, unsigned int) override {}
+  void emit_switch(const reshadefx::location&, id, id selector_block, id, id, const std::vector<id>&,
+                   const std::vector<id>&, unsigned int) override {
+    blockConds[_current_block] = blockConds[selector_block];  // the merge block: no longer in a case (2026-11-11)
+  }
   void emit_pragma(const std::string&) override {}
   id set_block(id id) override;
   void enter_block(id id) override {

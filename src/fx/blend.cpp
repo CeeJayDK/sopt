@@ -340,8 +340,9 @@ std::optional<SourceRewrite> blendShader(const Effect& fx, const Function& ps, c
     for (const auto& pa : t.passes) {
       if (pa.ps_entry_point != ps.uniqueName) continue;
       const Function* vs = cg.function(pa.vs_entry_point);
+      // ClearRenderTargets clears the back buffer too (ReShade's runtime.cpp): nothing left to blend with.
       if (!pa.render_target_names[0].empty() || pa.blend_enable[0] || pa.srgb_write_enable != srgb ||
-          pa.render_target_write_mask[0] != 0xF || !vs || vs->name != "PostProcessVS")
+          pa.render_target_write_mask[0] != 0xF || pa.clear_render_targets || !vs || vs->name != "PostProcessVS")
         return std::nullopt;
       ++passes;
     }

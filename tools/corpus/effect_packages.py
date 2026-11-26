@@ -65,6 +65,7 @@ def install(ini, dest, ids=""):
                             entry["effects"].append(os.path.relpath(t, dest))
         except Exception as e:  # one broken package must not stop the others
             entry["error"] = str(e)
+        entry["effects"].sort()  # os.walk's order is the file system's: the same order in every run
         print(f"[{p['id']}] {p['PackageName']}: {len(entry['effects'])} effects {entry['error']}", flush=True)
         out.append(entry)
     json.dump(out, open(os.path.join(dest, "packages.json"), "w"), indent=1)
@@ -185,7 +186,7 @@ def run(dest, sopt, out, secs, timeout, args=""):
         json.dump(macro_names(skips_log), open(os.path.join(o, "macros.json"), "w"), indent=1)
         open(os.path.join(o, "log.txt"), "w", encoding="utf-8").write(log)
         open(os.path.join(o, "log-easy.txt"), "w", encoding="utf-8").write(easy_log)
-        for f in ("sopt-report.md", "sopt-found.txt", "sopt-facts.txt"):  # reports only: the shaders stay their authors'
+        for f in ("sopt-report.md", "sopt-found.md", "sopt-facts.txt"):  # reports only: the shaders stay their authors'
             if os.path.exists(os.path.join(o, "sopt-out", f)):
                 shutil.copyfile(os.path.join(o, "sopt-out", f), os.path.join(o, f))
         shutil.rmtree(os.path.join(o, "sopt-out"), ignore_errors=True)

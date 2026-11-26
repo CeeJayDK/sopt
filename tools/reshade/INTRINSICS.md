@@ -16,7 +16,7 @@ From HLSL (code ported from HLSL fails to compile without them):
 | Intrinsic | D3D9 (SM3) | D3D10-12 (SM4 / 5) | OpenGL (GLSL) | Vulkan (SPIR-V) |
 |---|---|---|---|---|
 | `fmod(x, y)` | `fmod` (fxc writes it out) | `fmod` | the existing `fmodHLSL` helper | `OpFRem` (sign of x, as HLSL) |
-| `isfinite(x)` | `abs(x) <= 3.402823466e38` | `isfinite` | `!(isinf(x) \|\| isnan(x))` | `OpLogicalNot(OpLogicalOr(OpIsInf, OpIsNan))` (`OpIsFinite` needs the Kernel capability) |
+| `isfinite(x)` | `abs(x) <= 3.402823466e38` | `isfinite` | `!(isinf(x) \|\| isnan(x))` | `OpLogicalNot(OpLogicalOr(OpIsInf, OpIsNan))` (`OpIsFinite` needs the Kernel capability; measured against `abs(x) <= FLT_MAX` and the bit test: IEEE754.md, "isfinite forms") |
 | `clip(x)` (pixel shaders only) | `clip` | `clip` | `if (any(lessThan(x, vec(0.0)))) discard;` | the same condition and the path `discard` already uses |
 
 From GLSL (neither ReShade nor HLSL has them; GLSL shaders ported to ReShade need them):

@@ -1,4 +1,6 @@
 #pragma once
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -127,6 +129,12 @@ bool parseRange(const std::string& text, double& lo, double& hi);
 //   Store:  x.rgb = <rhs>;   (also x *= <rhs>, then the region is x * (<rhs>))
 //   Return: return <rhs>;
 //   Write:  tex2Dstore(s, coord, <rhs>);   (a compute shader's store into a resource)
+// Budgets from the output (design plan, step 4): the share of an output's tolerance one region may use, so several
+// variants on at once stay below half a step: an eighth of a code (8 / 10 bits), 2^-13 relative for 16F.
+inline double outputTolerance(int bits, double y) {
+  return bits == 8 ? 0.125 / 255.0 : bits == 10 ? 0.125 / 1023.0 : std::ldexp(std::max(std::fabs(y), 6.1e-5), -13);
+}
+
 // The program's inputs are the variables it reads (named by their FX text, e.g.
 // "color.rgb"), so a candidate printed with toString() is valid FX in place.
 struct Region {
@@ -162,6 +170,9 @@ struct RegionOptions {
   uint32_t maxStatements = 4; // statements per window (1 = single statements only)
   uint32_t maxInputs = 8;     // skip statements reading more distinct variables (corpus 2026-10-25: 4 / 8 -> 8 / 16
   uint32_t maxSlots = 16;     // ... or more input components                 +3.4% saved, +20% time)
+  // Budgets from the output (owner, 2026-10-27): a value that reaches its pixel shader's 8-bit / 10-bit / 16F output
+  // through math alone gets the largest error that keeps the output within a quarter of the format's step.
+  bool outputBudgets = true;
   double defaultLo = -1000.0, defaultHi = 1000.0;  // range when nothing is known
   bool likelyRanges = true;   // use a reasoned suggestion as the range (Fact::likely); --no-likely: off
   double relEps = 1e-6;       // budget for values with a general use
@@ -198,6 +209,15 @@ std::string groupsharedFactKey(const Effect& fx, const std::string& name);
 // The float groupshared variables of an effect (by source name).
 std::vector<std::string> groupsharedVariables(const Effect& fx);
 
+// Hints for the report (owner, 2026-11-11): code sopt cannot change itself, with measured advice for its author.
+struct Hint {
+  std::string file;
+  uint32_t line = 0;
+  std::string text;
+};
+// ddx / ddy / ddx_coarse / ddy_coarse: what their _fine forms cost (StageBench, pixel shaders).
+std::vector<Hint> derivativeHints(const Effect& fx);
+
 std::vector<Region> extractRegions(const Effect& fx, const Effect* alt, const RegionOptions& opt,
                                    SkipCount& skipped);
 
@@ -209,6 +229,21 @@ bool underCondition(const Effect& fx, const std::string& file, uint32_t first, u
 // Regions of `cfg` (a parse with one setting changed) on lines `def` (the default parse) leaves out, each guarded by
 // the #if conditions it is under in cfg (variants apply only with that setting).
 std::vector<Region> settingRegions(const Effect& def, const Effect& cfg, const Effect* alt, const RegionOptions& opt);
+
+// One integer / or % of an effect (the --skips count, the int-to-uint rewrite in classic.hpp).
+struct IntDivision {
+  std::string file;
+  uint32_t line = 0;
+  uint32_t seq = 0;             // emission order
+  bool isFloat = false;         // a float division: only its place among the line's divisions (intDivRewrites)
+  bool mod = false, isSigned = false;
+  unsigned rows = 1;            // vector size; 0 = a matrix
+  unsigned leftRows = 1, rightRows = 1;  // operands as written (a scalar the parser promoted to the vector's size stays 1)
+  const char* divisor = "";     // "variable", "constant power of 2", "constant"
+  bool compileTime = false;     // nothing at run time (the compiler folds it)
+  bool proven = false;          // dividend >= 0 and divisor >= 1, both from known ranges (none assumed)
+};
+std::vector<IntDivision> intDivisions(const Effect& fx, const RegionOptions& opt);
 
 // UTF-8 path strings, as the preprocessor writes them into #line directives.
 std::string pathString(const std::filesystem::path& p);

@@ -113,6 +113,7 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
   // The program with the compile-time inputs replaced by their current values.
   Program spec;
   spec.budget = prog.budget;
+  spec.budget.noiseNodes.clear();  // indices of the old target (the driver finds them again)
   spec.outputName = prog.outputName;
   std::vector<uint32_t> oldIndex;
   spec.target = specializeCompileTime(prog.target, prog.inputs, spec.inputs, &oldIndex);
@@ -169,8 +170,8 @@ RunResult optimizeSpecialized(const Program& prog, const Options& opt) {
   const bool rel = prog.budget.scaledRel();
   std::vector<double> quickScale, v1Scale;
   const std::vector<double> quickExact =
-      rule || rel ? evalExactAll(prog.target, quick, rel ? &quickScale : nullptr) : std::vector<double>();
-  const std::vector<double> v1Exact = rule || rel ? evalExactAll(prog.target, v1, rel ? &v1Scale : nullptr) : std::vector<double>();
+      rule || rel ? evalExactAll(prog.target, quick, rel ? &quickScale : nullptr, &prog.budget.noiseNodes) : std::vector<double>();
+  const std::vector<double> v1Exact = rule || rel ? evalExactAll(prog.target, v1, rel ? &v1Scale : nullptr, &prog.budget.noiseNodes) : std::vector<double>();
   const std::vector<double>* qs = rel ? &quickScale : nullptr;
   const std::vector<double>* vs = rel ? &v1Scale : nullptr;
   if (rule)

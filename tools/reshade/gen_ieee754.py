@@ -19,7 +19,8 @@ sys.dont_write_bytecode = True
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+FONT = next((f for f in ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "C:/Windows/Fonts/DejaVuSansMono.ttf")
+             if os.path.exists(f)), "DejaVuSansMono.ttf")
 GW, GH = 7, 13  # glyph cell (pixels at scale 1)
 
 # kind: ieee = IEEE 754 / HLSL language rule (red FAIL), d3d = Direct3D's rule where Vulkan / OpenGL leave it to the
@@ -103,25 +104,80 @@ GROUPS = [
         ("FLT_MIN / 2 kept", "(1.17549435e-38 * ONE * 0.5) > 0.0", "info", ""),
         ("1e-40 kept", "(1e-40 * ONE) > 0.0", "info", ""),
     ]),
+    # Three ways to write isfinite for backends without it (owner, 2026-11-23, for ReShade): abs(x) <= FLT_MAX (one
+    # ordered compare), !(isinf(x) || isnan(x)), and the exponent bit test. "bits" values are made with asfloat from a
+    # run-time integer, like a NaN read from a texture: the compiler cannot see or fold how they were made.
+    ("isfinite forms", [
+        ("abs<=MAX: MAX finite", "finCmp(MAXF)", "ieee", ""),
+        ("abs<=MAX: NaN not", "!finCmp(N)", "ieee", ""),
+        ("abs<=MAX: +inf not", "!finCmp(PINF)", "ieee", ""),
+        ("abs<=MAX: -inf not", "!finCmp(NINF)", "ieee", ""),
+        ("abs<=MAX: NaN bits not", "!finCmp(NB)", "ieee", "sm4"),
+        ("abs<=MAX: +inf bits not", "!finCmp(PB)", "ieee", "sm4"),
+        ("isinf|nan: MAX finite", "finIs(MAXF)", "ieee", ""),
+        ("isinf|nan: NaN not", "!finIs(N)", "ieee", ""),
+        ("isinf|nan: +inf not", "!finIs(PINF)", "ieee", ""),
+        ("isinf|nan: -inf not", "!finIs(NINF)", "ieee", ""),
+        ("isinf|nan: NaN bits not", "!finIs(NB)", "ieee", "sm4"),
+        ("isinf|nan: +inf bits not", "!finIs(PB)", "ieee", "sm4"),
+        ("bits: MAX finite", "finBits(MAXF)", "ieee", "sm4"),
+        ("bits: NaN not", "!finBits(N)", "ieee", "sm4"),
+        ("bits: +inf not", "!finBits(PINF)", "ieee", "sm4"),
+        ("bits: -inf not", "!finBits(NINF)", "ieee", "sm4"),
+        ("bits: NaN bits not", "!finBits(NB)", "ieee", "sm4"),
+        ("bits: +inf bits not", "!finBits(PB)", "ieee", "sm4"),
+        # ReShade's own isfinite (added after 6.8.0): set SOPT_HAS_ISFINITE to 1 in the overlay on such a build.
+        ("isfinite: MAX finite", "isfinite(MAXF)", "ieee", "isf"),
+        ("isfinite: NaN not", "!isfinite(N)", "ieee", "isf"),
+        ("isfinite: +inf not", "!isfinite(PINF)", "ieee", "isf"),
+        ("isfinite: -inf not", "!isfinite(NINF)", "ieee", "isf"),
+        ("isfinite: NaN bits not", "!isfinite(NB)", "ieee", "isf sm4"),
+        ("isfinite: +inf bits not", "!isfinite(PB)", "ieee", "isf sm4"),
+    ]),
+    # Direct3D 9 multiplies with 0 * inf = 0 (NVIDIA's FMZ rule), so N = 0 / 0 is 0 there, not NaN; inf - inf has no
+    # multiply. The checks go through functions, as an effect would write them.
+    ("NaN as inf - inf", [
+        ("isnan(x)", "isnan(PINF - PINF2)", "ieee", ""),
+        ("x != x", "neqSelf(PINF - PINF2)", "ieee", ""),
+        ("!(x == x)", "notEqSelf(PINF - PINF2)", "ieee", ""),
+        ("x != x, x precise", "neqPrecise(PINF - PINF2)", "ieee", ""),
+    ]),
+    # fxc's shader model 3 isinf is rcp(x) == 0: true for |x| > 1 / FLT_MIN (~8.5e37) once rcp flushes the denormal.
+    ("isinf forms", [
+        ("isinf: +inf", "isinf(PINF)", "ieee", ""),
+        ("isinf: -inf", "isinf(NINF)", "ieee", ""),
+        ("isinf: MAX not", "!isinf(MAXF)", "ieee", ""),
+        ("isinf: 1e38 not", "!isinf(1e38 * ONE)", "ieee", ""),
+        ("isinf: 8e37 not", "!isinf(8e37 * ONE)", "ieee", ""),
+        ("abs>MAX: +inf", "infCmp(PINF)", "ieee", ""),
+        ("abs>MAX: -inf", "infCmp(NINF)", "ieee", ""),
+        ("abs>MAX: MAX not", "!infCmp(MAXF)", "ieee", ""),
+        ("abs>MAX: 1e38 not", "!infCmp(1e38 * ONE)", "ieee", ""),
+        ("abs>MAX: 8e37 not", "!infCmp(8e37 * ONE)", "ieee", ""),
+    ]),
 ]
 
 SUBST = {
     # Folded: literals only.
-    "A": {"N": "(0.0 / 0.0)", "N2": "(0.0 / 0.0)", "PINF": "(1.0 / 0.0)", "PINF2": "(1.0 / 0.0)", "NINF": "(-1.0 / 0.0)", "Z": "0.0", "NZ": "(-0.0)", "ONE": "1.0"},
+    "A": {"N": "(0.0 / 0.0)", "N2": "(0.0 / 0.0)", "PINF": "(1.0 / 0.0)", "PINF2": "(1.0 / 0.0)", "NINF": "(-1.0 / 0.0)", "Z": "0.0", "NZ": "(-0.0)", "ONE": "1.0",
+          "MAXF": "3.402823466e38", "NB": "asfloat(0x7FC00000u)", "PB": "asfloat(0x7F800000u)"},
     # Literal: the value folded into a literal, used at run time.
     "B": {"N": "((0.0 / 0.0) * one)", "N2": "((0.0 / 0.0) * one)", "PINF": "((1.0 / 0.0) * one)",
           "PINF2": "((1.0 / 0.0) * one)", "NINF": "((-1.0 / 0.0) * one)",
-          "Z": "(0.0 * one)", "NZ": "(-0.0 * one)", "ONE": "one"},
+          "Z": "(0.0 * one)", "NZ": "(-0.0 * one)", "ONE": "one",
+          "MAXF": "(3.402823466e38 * one)", "NB": "(asfloat(0x7FC00000u) * one)", "PB": "(asfloat(0x7F800000u) * one)"},
     # Run time: made on the GPU.
     # Four different run-time zeros, so the compiler cannot use x / x = 1 or x - x = 0 (fxc does).
     "C": {"N": "(zz.x / zz.y)", "N2": "(zz.z / zz.w)", "PINF": "(one / zz.x)", "PINF2": "(one / zz.w)",
-          "NINF": "(-one / zz.z)", "Z": "zz.w", "NZ": "(-zz.z)", "ONE": "one"},
+          "NINF": "(-one / zz.z)", "Z": "zz.w", "NZ": "(-zz.z)", "ONE": "one",
+          "MAXF": "(3.402823466e38 + zz.x)", "NB": "asfloat(0x7FC00000u + uint(zz.x))",
+          "PB": "asfloat(0x7F800000u + uint(zz.y))"},
 }
 
 
 def subst(expr, col):
     import re
-    return re.sub(r"\b(NINF|PINF2|PINF|NZ|N2|N|Z|ONE)\b", lambda m: SUBST[col][m.group(1)], expr)
+    return re.sub(r"\b(NINF|PINF2|PINF|NZ|N2|NB|N|PB|Z|ONE|MAXF)\b", lambda m: SUBST[col][m.group(1)], expr)
 
 
 def font_table():
@@ -216,6 +272,9 @@ def main():
     w('uniform float sopt_timer < source = "timer"; >;')
     w("")
     w("#define SOPT_SM4 (__RENDERER__ >= 0xa000)")
+    w("#ifndef SOPT_HAS_ISFINITE")
+    w("\t#define SOPT_HAS_ISFINITE 0 // 1 on a ReShade with the isfinite intrinsic (after 6.8.0)")
+    w("#endif")
     w("")
     w(f"static const int kTests = {len(tests)};")
     w(f"static const int kRows = {rows};")
@@ -230,6 +289,17 @@ def main():
     w("#if SOPT_SM4")
     w("bool isnanBits(float x) { return (asuint(x) & 0x7FFFFFFFu) > 0x7F800000u; }")
     w("#endif")
+    w("// isfinite written three ways (ReShade FX has none).")
+    w("bool finCmp(float x) { return abs(x) <= 3.402823466e38; }")
+    w("bool finIs(float x) { return !(isinf(x) || isnan(x)); }")
+    w("bool infCmp(float x) { return abs(x) > 3.402823466e38; }")
+    w("bool neqSelf(float x) { return x != x; }")
+    w("bool notEqSelf(float x) { return !(x == x); }")
+    w("// fxc folds isnan(v) even on a precise v for shader model 3, but keeps v != v (as v - v and a cmp).")
+    w("bool neqPrecise(float x) { precise float v = x; return v != v; }")
+    w("#if SOPT_SM4")
+    w("bool finBits(float x) { return (asuint(x) & 0x7F800000u) != 0x7F800000u; }")
+    w("#endif")
     w("")
     w("// Results: bit 0 Folded, bit 1 Literal, bit 2 Run time (1 = test true); 8 = not available here.")
     w("uint runTest(int id, float4 zz, float one)")
@@ -239,14 +309,20 @@ def main():
     w("\t{")
     for i, (label, expr, kind, req) in enumerate(tests):
         w(f"\tcase {i}: // {label}")
+        if "isf" in req:
+            w("#if SOPT_HAS_ISFINITE")
         w("#if SOPT_SM4")
         w(f"\t\tr = (({subst(expr, 'A')}) ? 1u : 0u)")
         w(f"\t\t  + (({subst(expr, 'B')}) ? 2u : 0u)")
         w(f"\t\t  + (({subst(expr, 'C')}) ? 4u : 0u);")
         w("#else")
         # Shader model 3 allows no NaN / inf literals: run time only.
-        w("\t\tr = 8u;" if req == "sm4" else f"\t\tr = (({subst(expr, 'C')}) ? 4u : 0u);")
+        w("\t\tr = 8u;" if "sm4" in req else f"\t\tr = (({subst(expr, 'C')}) ? 4u : 0u);")
         w("#endif")
+        if "isf" in req:
+            w("#else")
+            w("\t\tr = 8u;")
+            w("#endif")
         w("\t\tbreak;")
     w("\t}")
     w("\treturn r;")
@@ -319,7 +395,7 @@ float drawNumber(uint n, int last, int cell, int2 p)
 
 float3 IEEE754PS(float4 vpos : SV_Position) : SV_Target
 {
-	int s = max(1, min(BUFFER_HEIGHT / 540, BUFFER_WIDTH / 800)); // pixel scale
+	int s = max(1, min(BUFFER_HEIGHT / ((kRows + 5) * kGlyphH), BUFFER_WIDTH / 800)); // pixel scale: every row fits
 	int cw = kGlyphW * s;
 	int lh = kGlyphH * s;
 	int2 px = int2(vpos.xy) - int2(2 * cw, lh / 2);
@@ -414,7 +490,7 @@ BODY_SM3 = r"""
 // = needs shader model 4).
 float3 IEEE754PS(float4 vpos : SV_Position) : SV_Target
 {
-	float2 c = floor(vpos.xy / float2(48.0, 14.0));
+	float2 c = floor(vpos.xy / float2(48.0, 10.0));
 	int id = int(c.y) - 1;
 	if (id < 0 || id >= kTests || c.x != 1.0) return float3(0.08, 0.09, 0.11);
 	float r = float(result(id));

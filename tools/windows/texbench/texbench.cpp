@@ -1491,6 +1491,8 @@ std::vector<Test> makeTests() {
   std::set<std::string> names;
   for (const Test& t : v)
     if (!names.insert(t.name).second) fail("two tests named " + t.name);
+  for (const Test& t : v)  // main looks bases up by name: a missing one would be a null test
+    if (!t.base.empty() && !names.count(t.base)) fail(t.name + ": no base test named " + t.base);
   return v;
 }
 
@@ -2002,7 +2004,7 @@ double writePass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader
   std::vector<double> runs;
   for (int n = 0; n < reps * 3 && int(runs.size()) < reps; ++n)
     if (const double m = timeDraws(draws); m > 0.0) runs.push_back(m / draws);
-  return median(runs);
+  return runs.empty() ? std::nan("") : median(runs);  // NaN: no timing worked
 }
 
 // Blending: the median time of one pass (in ms). A unit restores both targets' content (noise, a plain
@@ -2048,7 +2050,8 @@ double blendPass(Gpu& g, ID3D11RenderTargetView* const rtv[2], ID3D11PixelShader
   g.ctx->OMSetRenderTargets(1, &nullRtv, nullptr);
   g.ctx->OMSetBlendState(nullptr, factor, 0xffffffffu);
   g.ctx->PSSetShaderResources(0, 1, &nullSrv);
-  return median(runs);
+  // NaN: no timing worked. Not below 0: a pass costs something, a negative median is the restores' noise.
+  return runs.empty() ? std::nan("") : std::max(0.0, median(runs));
 }
 
 // ---------------------------------------------------------------------------
@@ -2946,24 +2949,26 @@ int main(int argc, char** argv) {
   };
   auto printPass = [&](const std::string& sec) {
     double maxP = 0.0;
-    int barW = kBarWidth;
+    int barW = kBarWidth, w = 26;  // w: the section's longest name ("lut dither 16^2 const r of rgb x8")
     for (const Test* t : tests)
       if (t->section == sec) {
         maxP = std::max(maxP, passMs[t->name].value);
+        w = std::max(w, int(t->name.size()));
         if (t->per) barW = std::max(8, kBarWidth - 22);  // room for "  12.3 fma per exchange"
       }
-    print("\n  %s%s%s\n  %s%-26s %8s  %-*s%s\n", st.c("\x1b[1;96m"), (sec + sectionWhy(st, sec)).c_str(),
-                st.reset(), st.c("\x1b[97m"), "Test", "ms/pass", kBarWidth, "", st.reset());
+    barW = std::max(8, barW - (w - 26));  // a longer name column takes its room from the graph
+    print("\n  %s%s%s\n  %s%-*s %8s  %-*s%s\n", st.c("\x1b[1;96m"), (sec + sectionWhy(st, sec)).c_str(),
+                st.reset(), st.c("\x1b[97m"), w, "Test", "ms/pass", barW, "", st.reset());
     for (const Test* t : tests)
       if (t->section == sec) {
         const double each = perEach(t);
         char extra[48] = "";
         if (each > -1e9) std::snprintf(extra, sizeof(extra), "  %5.1f fma per %s", each, t->per);
         if (const double pc = vsPs(t); pc > -1e9) std::snprintf(extra, sizeof(extra), "  %+4.0f%%", pc);
-        print("  %-26s %8.3f  %s%s\n", t->name.c_str(), passMs[t->name].value,
+        print("  %-*s %8.3f  %s%s\n", w, t->name.c_str(), passMs[t->name].value,
                     bar(passMs[t->name].value, maxP, barW, st, kCyan).c_str(), extra);
       }
-    print("%*s%s(shorter is better)%s\n", 2 + 26 + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
+    print("%*s%s(shorter is better)%s\n", 2 + w + 1 + 8 + 2, "", st.c("\x1b[90m"), st.reset());
     const Test* best = nullptr;  // compute layouts: the fastest, against the pixel shader
     for (const Test* t : tests)
       if (t->section == sec && vsPs(t) > -1e9 && (!best || passMs[t->name].value < passMs[best->name].value)) best = t;
@@ -3127,7 +3132,7 @@ int main(int argc, char** argv) {
       std::vector<double> runs;
       for (int k = 0; k < reps * 3 && int(runs.size()) < reps; ++k)
         if (const double m = timed(n); m > 0.0) runs.push_back(m / n);
-      rd.push_back(median(runs));
+      if (!runs.empty()) rd.push_back(median(runs));  // else every timing failed: no reading
       progress.step();
     }
     passMs[t->name] = consensus(rd, 0.0);
@@ -3576,7 +3581,7 @@ int main(int argc, char** argv) {
       UINT draws = 0;
       std::vector<double>& rd = blendReadings[t->name];
       for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
-        rd.push_back(blendPass(g, rtv, restore, ps, srv, bs, reps, draws));
+        if (const double ms = blendPass(g, rtv, restore, ps, srv, bs, reps, draws); !std::isnan(ms)) rd.push_back(ms);
         progress.step();
       }
       blendMs[t->name] = consensus(rd, 0.0);
@@ -3616,11 +3621,11 @@ int main(int argc, char** argv) {
       std::vector<double>& rd = writeReadings[t->name];
       for (int pass = 0; pass < kMaxPasses && (pass < 2 || !consensus(rd, 0.0).ok); ++pass) {
         const double ms = writePass(g, rtv, ps, reps, draws, w, h);
-        rd.push_back(double(w) * h * t->format->bytes / (ms * 1e6));  // GB/s
+        if (ms > 0.0) rd.push_back(double(w) * h * t->format->bytes / (ms * 1e6));  // GB/s
         progress.step();
       }
       writeUnits[t->name] = consensus(rd, 0.0);
-      writeMs[t->name] = double(kRtW) * kRtH * t->format->bytes / (writeUnits[t->name].value * 1e6);
+      writeMs[t->name] = writeUnits[t->name].value > 0.0 ? double(kRtW) * kRtH * t->format->bytes / (writeUnits[t->name].value * 1e6) : 0.0;
       ID3D11RenderTargetView* nullRtv = nullptr;
       g.ctx->OMSetRenderTargets(1, &nullRtv, nullptr);
       release(ps);
@@ -3652,16 +3657,17 @@ int main(int argc, char** argv) {
         const Result m = measureAt(g, ref, rk, c, iters[c.name][ref.name], reps);
         bind(g, *t, b, k);
         const Result r = t == &ref ? m : measureAt(g, *t, k, c, iters[c.name][t->name], reps);
+        progress.step();
+        if (!(m.ms > 0.0 && r.ms > 0.0)) continue;  // every timing failed: no reading (more passes may follow)
         if (std::strcmp(c.name, "tput") == 0) refs.push_back(m.nsPerStep);
         x.readings.push_back(4.0 * r.nsPerStep / m.nsPerStep);
         sum.iters = r.iters;
         sum.ms += r.ms;
         sum.nsPerStep += r.nsPerStep;
-        progress.step();
       }
       x.r = sum;
-      x.r.ms /= double(x.readings.size());
-      x.r.nsPerStep /= double(x.readings.size());
+      x.r.ms /= std::max<double>(1.0, double(x.readings.size()));
+      x.r.nsPerStep /= std::max<double>(1.0, double(x.readings.size()));
       x.units = consensus(x.readings);
     }
     ID3D11ShaderResourceView* nullViews[4] = {nullptr, nullptr, nullptr, nullptr};

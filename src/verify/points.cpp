@@ -241,6 +241,173 @@ std::vector<std::vector<float>> thresholdPoints(const Program& prog, Rng& rng) {
   return pts;
 }
 
+// Comparison boundaries (2026-11-08): a comparison of expressions (abs(uv.x - pos.x) < 0.003, a character box
+// step(0.0, min(p.x, p.y))) can hold only in a window that random points never hit, so a candidate without it (0.0 for
+// a marker, Out without its character) passed as bit-exact. From random starts, each comparison component in turn is
+// flipped by a search along one input it depends on (a scan of the range, zoomed in on the closest approach when no
+// sample flips it), and the point stays there for the next comparison, so several conditions hold together
+// (all(abs(d) < r)). Kept: the point inside each flip and the two floats on either side of its boundary.
+// The same search, other flips (owner, 2026-11-10: verdicts there decided by the seed): Jumps, where floor / ceil /
+// round / trunc / frac change their integer part (step(0.024, y % 0.025)); Cancels, where an add / sub / mad / dot
+// crosses zero (dot(c, w) + 0.5 * hash ~ 0: the relative error of a near-cancellation).
+enum class Flip { Compare, Jump, Cancel };
+std::vector<std::vector<float>> boundaryPoints(const Program& prog, Rng& rng, Flip kind = Flip::Compare) {
+  const Expr& e = prog.target;
+  const std::vector<InputDecl> slots = slotDecls(prog.inputs);
+  const std::vector<uint32_t> first = inputSlots(prog.inputs);
+  std::vector<std::vector<float>> pts;
+  // The inputs each node depends on (bit i: input i; inputs past 63 count as every input).
+  std::vector<uint64_t> deps(e.nodes.size(), 0);
+  for (size_t i = 0; i < e.nodes.size(); ++i) {
+    const Node& n = e.nodes[i];
+    if (n.op == Op::Input) deps[i] = n.input < 64 ? uint64_t{1} << n.input : ~uint64_t{0};
+    for (unsigned a = 0; a < n.nargs; ++a) deps[i] |= deps[n.args[a]];
+  }
+  struct Cmp {
+    uint32_t node;
+    unsigned c;
+    std::vector<size_t> slots;  // with a finite range, that the comparison depends on
+  };
+  std::vector<Cmp> cmps;
+  for (uint32_t i = 0; i < e.nodes.size() && cmps.size() < 64; ++i) {
+    const Node& n = e.nodes[i];
+    const Op o = n.op;
+    const bool take = kind == Flip::Compare ? (o >= Op::Lt && o <= Op::Ne) || o == Op::Step
+                      : kind == Flip::Jump  ? o == Op::Floor || o == Op::Ceil || o == Op::Round || o == Op::Trunc ||
+                                                 o == Op::Frac
+                                            : o == Op::Add || o == Op::Sub || o == Op::Mad || o == Op::Dot;
+    if (!take) continue;
+    std::vector<size_t> on;
+    for (size_t in = 0; in < prog.inputs.size(); ++in) {
+      if (!(deps[i] >> std::min<size_t>(in, 63) & 1)) continue;
+      const size_t end = in + 1 < first.size() ? first[in + 1] : slots.size();
+      for (size_t s = first[in]; s < end; ++s)
+        if (std::isfinite(slots[s].lo) && std::isfinite(slots[s].hi) && slots[s].hi > slots[s].lo) on.push_back(s);
+    }
+    if (on.empty()) continue;
+    const unsigned w = width(n.type);
+    for (unsigned c = 0; c < w; ++c) cmps.push_back({i, c, on});
+  }
+  if (cmps.empty()) return pts;
+  constexpr size_t kScan = 128;
+  PointSet line;
+  line.cols.resize(slots.size());
+  line.slot = first;
+  BlockEvaluator ev;
+  auto evalAt = [&](const std::vector<float>& pt, size_t s, const std::vector<float>& xs) {
+    for (size_t k = 0; k < slots.size(); ++k) line.cols[k].assign(xs.size(), pt[k]);
+    line.cols[s] = xs;
+    ev.eval(e, line, 0, xs.size(), kProfileRef);
+  };
+  auto at = [&](uint32_t a, unsigned c, size_t j) { return double(ev.ptr[a][width(e.nodes[a].type) == 1 ? 0 : c][j]); };
+  auto out = [&](const Cmp& k, size_t j) -> double {  // what flips: the result, frac's integer part, a sum's sign
+    const double v = at(k.node, k.c, j);
+    if (kind == Flip::Cancel) return v > 0.0 ? 1.0 : v < 0.0 ? -1.0 : 0.0;
+    if (e.nodes[k.node].op == Op::Frac) return std::floor(at(e.nodes[k.node].args[0], k.c, j));
+    return v;
+  };
+  auto gap = [&](const Cmp& k, size_t j) {  // how close it is to flipping
+    const Node& n = e.nodes[k.node];
+    if (kind == Flip::Cancel) return std::fabs(at(k.node, k.c, j));
+    if (kind == Flip::Jump) {  // distance to the next integer (round: to the next half)
+      const double x = at(n.args[0], k.c, j) + (n.op == Op::Round ? 0.5 : 0.0);
+      return std::fabs(x - std::nearbyint(x));
+    }
+    return std::fabs(at(n.args[0], k.c, j) - at(n.args[1], k.c, j));
+  };
+  size_t work = 0;  // line evaluations: bounds the time on regions with many comparisons that never flip
+  for (int base = 0; base < 8 && pts.size() < 1024 && work < 4000; ++base) {
+    std::vector<float> pt(slots.size());
+    for (size_t k = 0; k < pt.size(); ++k) pt[k] = sampleInput(slots[k], rng);
+    std::vector<size_t> order(cmps.size());
+    for (size_t k = 0; k < order.size(); ++k) order[k] = k;
+    for (size_t k = order.size(); k > 1; --k) std::swap(order[k - 1], order[rng.next() % k]);
+    // Per input moved: the window it was moved into. Points spread over all of them together reach what lies
+    // inside the windows (a character's lit pixels inside its box: floor steps, no comparison), 2026-11-08.
+    std::vector<std::pair<float, float>> window(slots.size(), {NAN, NAN});
+    for (size_t ci : order) {
+      const Cmp& k = cmps[ci];
+      bool moved = false;
+      for (size_t t = 0, off = rng.next() % k.slots.size(); t < k.slots.size() && !moved && work < 4000; ++t) {
+        const size_t s = k.slots[(t + off) % k.slots.size()];
+        const InputDecl& d = slots[s];
+        evalAt(pt, s, {pt[s]});
+        const double cur = out(k, 0);
+        double lo = d.lo, hi = d.hi;
+        std::vector<float> xs(kScan);
+        bool rejected = false;
+        float bestX = pt[s];  // Cancel: the closest approach to zero so far
+        double bestG = gap(cmps[ci], 0);
+        for (int zoom = 0; zoom < 6 && !moved && !rejected && hi > lo; ++zoom, ++work) {
+          for (size_t j = 0; j < kScan; ++j) xs[j] = snap(d, lo + (hi - lo) * double(j) / double(kScan - 1));
+          evalAt(pt, s, xs);
+          size_t hit = kScan, best = kScan;
+          double maxGap = 0.0;
+          for (size_t j = 0; j < kScan; ++j) {
+            const double g = gap(k, j);
+            if (!std::isfinite(g)) continue;
+            maxGap = std::max(maxGap, g);
+            if (out(k, j) != cur && (hit == kScan || std::fabs(xs[j] - pt[s]) < std::fabs(xs[hit] - pt[s]))) hit = j;
+            if (best == kScan || g < gap(k, best)) best = j;
+          }
+          if (best < kScan && gap(k, best) < bestG) bestG = gap(k, best), bestX = xs[best];
+          if (hit < kScan) {
+            // The flipped stretch of the scan (and one sample past each end): spread points go there below.
+            size_t a = hit, b = hit;
+            while (a > 0 && out(k, a - 1) != cur) --a;
+            while (b + 1 < kScan && out(k, b + 1) != cur) ++b;
+            const std::pair<float, float> win = {xs[a > 0 ? a - 1 : a], xs[b + 1 < kScan ? b + 1 : b]};
+            const float inside = xs[hit];
+            // The boundary between the flipped sample and its neighbour towards the start, by bisection.
+            float in = xs[hit], other = hit > 0 && xs[hit - 1] != in ? xs[hit - 1] : xs[std::min(hit + 1, kScan - 1)];
+            evalAt(pt, s, {other});
+            if (out(k, 0) == cur)
+              for (int it = 0; it < 40; ++it) {
+                const float mid = snap(d, 0.5 * (double(in) + double(other)));
+                if (mid == in || mid == other) break;
+                evalAt(pt, s, {mid});
+                (out(k, 0) != cur ? in : other) = mid;
+              }
+            if (kind == Flip::Cancel) {  // a sign flip across a jump (a hash's frac) is no cancellation: next input
+              evalAt(pt, s, {in, other});
+              if (!(gap(k, 0) <= 1e-4 * maxGap && gap(k, 1) <= 1e-4 * maxGap)) {
+                rejected = true;
+                continue;
+              }
+            }
+            window[s] = win;
+            std::vector<float> q = pt;
+            for (float x : {in, other}) q[s] = x, pts.push_back(q);
+            pt[s] = inside;  // well inside the flip: stays true while the next comparisons move
+            pts.push_back(pt);
+            moved = true;
+          } else if (best < kScan) {
+            const size_t a = best > 0 ? best - 1 : 0, b = std::min(best + 1, kScan - 1);
+            lo = xs[a];
+            hi = xs[b];
+          }
+        }
+        // Cancel: no zero crossing along this input: keep its closest approach, the next input goes on from there
+        // (a sum that reaches zero only with two inputs at once: dot(c, w) + 0.5 * hash, NightVision.fx).
+        if (kind == Flip::Cancel && !moved) pt[s] = bestX;
+      }
+    }
+    for (int j = 0; j < 32; ++j) {
+      std::vector<float> q = pt;
+      bool any = false;
+      for (size_t s = 0; s < slots.size(); ++s)
+        if (!std::isnan(window[s].first)) {
+          const double u = double(rng.next() >> 11) * 0x1p-53;
+          q[s] = snap(slots[s], window[s].first + (double(window[s].second) - window[s].first) * u);
+          any = true;
+        }
+      if (!any) break;
+      pts.push_back(q);
+    }
+  }
+  return pts;
+}
+
 }  // namespace
 
 void PointSet::add(const std::vector<float>& point) {
@@ -293,7 +460,7 @@ float domainValue(const InputDecl& d, uint64_t k) {
   return fromOrdered(orderedBits(static_cast<float>(d.lo)) + static_cast<uint32_t>(k));
 }
 
-PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed, bool coincidences) {
+PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed, bool coincidences, bool more) {
   Rng rng(seed);
   const std::vector<InputDecl> slots = slotDecls(prog.inputs);
   PointSet ps;
@@ -302,13 +469,18 @@ PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed, bool
   auto specials = specialPoints(prog, rng);
   const size_t maxSpecial = std::max<size_t>(1, (count * 2) / 3);
   for (size_t i = 0; i < specials.size() && i < maxSpecial; ++i) ps.add(specials[i]);
+  // Extra points (the flags) come on top of the random ones, before them and from their own generator: the random
+  // points stay what they are without the flags, and stay last (the top-down lookup points). They used to replace
+  // the random points, which left the lookups on flat zero points (2026-11-05).
+  Rng rx(seed + 77);
+  const size_t before = ps.size();
+  std::vector<float> p(slots.size());
+  auto random = [&]() {
+    for (size_t i = 0; i < p.size(); ++i) p[i] = sampleInput(slots[i], rx);
+  };
   if (coincidences) {
-    // 0 where the domain holds it (else its nearest end); the others random. At most half the points.
+    // 0 where the domain holds it (else its nearest end); the others random. At most count / 2.
     const size_t limit = ps.size() + count / 2;
-    std::vector<float> p(slots.size());
-    auto random = [&]() {
-      for (size_t i = 0; i < p.size(); ++i) p[i] = sampleInput(slots[i], rng);
-    };
     for (size_t i = 0; i < p.size(); ++i) p[i] = snap(slots[i], 0.0);
     if (ps.size() < limit) ps.add(p);
     for (size_t i = 0; i < slots.size() && ps.size() < limit; ++i)
@@ -319,8 +491,22 @@ PointSet makeTestPoints(const Program& prog, uint32_t count, uint64_t seed, bool
         ps.add(p);
       }
   }
-  while (ps.size() < count) {
-    std::vector<float> p(slots.size());
+  if (more) {
+    // --fp-more: the special points that did not fit, threshold points (an input at a comparison / min / max / step
+    // operand's value) and every pair of inputs equal. At most count / 2.
+    const size_t limit = ps.size() + count / 2;
+    for (size_t i = maxSpecial; i < specials.size() && ps.size() < limit; ++i) ps.add(specials[i]);
+    for (const auto& q : thresholdPoints(prog, rx))
+      if (ps.size() < limit) ps.add(q);
+    for (size_t i = 0; i < slots.size() && ps.size() < limit; ++i)
+      for (size_t j = i + 1; j < slots.size() && ps.size() < limit; ++j) {
+        random();
+        p[j] = snap(slots[j], p[i]);
+        ps.add(p);
+      }
+  }
+  const size_t extra = ps.size() - before;
+  while (ps.size() < count + extra) {
     for (size_t i = 0; i < p.size(); ++i) p[i] = sampleInput(slots[i], rng);
     ps.add(p);
   }
@@ -388,6 +574,22 @@ PointSet makeRandomPoints(const Program& prog, size_t count, uint64_t seed, bool
       if (ps.size() >= count) break;
       ps.add(p);
     }
+    Rng rb(seed + 99);  // its own generator: the points after these stay what they were
+    for (const auto& p : boundaryPoints(prog, rb)) {
+      if (ps.size() >= count) break;
+      ps.add(p);
+    }
+    Rng rj(0x7a3b), rc(0xca9c);  // fixed sets (owner, 2026-11-10): the same points for every seed
+    if (prog.budget.jumpPoints)
+      for (const auto& p : boundaryPoints(prog, rj, Flip::Jump)) {
+        if (ps.size() >= count) break;
+        ps.add(p);
+      }
+    if (prog.budget.cancelPoints)
+      for (const auto& p : boundaryPoints(prog, rc, Flip::Cancel)) {
+        if (ps.size() >= count) break;
+        ps.add(p);
+      }
     for (const auto& p : coincidencePoints(slots, rng, std::min<size_t>(4096, count / 8))) {
       if (ps.size() >= count) break;
       ps.add(p);

@@ -16,6 +16,7 @@ float4 MPS(float4 p : SV_Position) : SV_Target
 	float2 h = mul(Rot(Angle), c.xy) * 2.0 + c.zx;
 	float3 u = mul(Mix, c) * c.g;
 	float3 w = mul(c, Mix) + c.b;
-	return float4(l + float3(q, h.x) + u * w, h.y);
+	float3 t = mul(transpose(float3x3(0.5, 0.25, 0.25, 0.1, 0.8, 0.1, 0.2, 0.2, 0.6)), c) * c.b;
+	return float4(l + float3(q, h.x) + u * w + t, h.y);
 }
 technique M { pass { VertexShader = MVS; PixelShader = MPS; } }

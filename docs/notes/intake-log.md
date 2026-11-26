@@ -603,6 +603,12 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 5: stagebench, NVIDIA GeForce RTX 5070 Ti (driver 32.0.16.1742): `docs/stagebench/nvidia-rtx-5070-ti-vs.csv` (StageBench 0.10.0)
 - upload 5: texbench, NVIDIA GeForce RTX 5070 Ti (driver 32.0.16.1742): `docs/texbench/nvidia-rtx-5070-ti.csv`, `docs/texbench/nvidia-rtx-5070-ti-order.png`, `docs/texbench/nvidia-rtx-5070-ti-order-zoom.png` (TexBench 0.10.0)
 
+## 2026-11-10 16:57 UTC
+- upload 1: opbench, Intel(R) UHD Graphics 770 (driver 31.0.101.4502): `docs/opbench/intel-uhd-770.csv` (OpBench 0.10.0)
+- upload 1: shaderinfo, Intel(R) UHD Graphics 770 (driver Intel Corporation Intel driver (101.4502)): `docs/shaderinfo/intel-uhd-770-3.txt`
+- upload 1: stagebench, Intel(R) UHD Graphics 770 (driver 31.0.101.4502): `docs/stagebench/intel-uhd-770-ps.csv` (StageBench 0.10.0)
+- upload 1: stagebench, Intel(R) UHD Graphics 770 (driver 31.0.101.4502): `docs/stagebench/intel-uhd-770-vs.csv` (StageBench 0.10.0)
+- upload 1: texbench, Intel(R) UHD Graphics 770 (driver 31.0.101.4502): `docs/texbench/intel-uhd-770.csv`, `docs/texbench/intel-uhd-770-order.png`, `docs/texbench/intel-uhd-770-order-zoom.png` (TexBench 0.10.0)
 ## 2026-11-07 21:59 UTC
 - upload 1: opbench, NVIDIA GeForce GT 1030 (driver 32.0.15.8278): `docs/opbench/nvidia-gt-1030-3.csv` (OpBench 0.10.5)
 - upload 1: shaderinfo, NVIDIA GeForce GT 1030 (driver NVIDIA 582.78 (582.78)): `docs/shaderinfo/nvidia-gt-1030-2.txt`

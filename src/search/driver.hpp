@@ -80,6 +80,39 @@ struct Options {
   //   Bool expressions that differ only there (z != 0 || w != 0 vs z != 0) stay apart in the bank.
   bool libraryRegroup = false;
   bool fpCoincidence = false;
+  // Points where exact math is not finite (the original is finite only by float rounding, e.g. x / (y + 1e-10) at
+  //   y = -1e-10) are don't-care, like points where the original is not finite. Default since 2026-11-10 (owner);
+  //   --no-exact-undefined turns it off.
+  bool exactUndefined = true;
+  // Verification points at jumps (floor / ceil / round / trunc / frac change their integer part) and at cancellations
+  //   (an add / sub / mad / dot crosses zero), found like the comparison boundaries (owner, 2026-11-10: results
+  //   there must not depend on the seed). --no-jump-points / --no-cancel-points turn them off.
+  bool jumpPoints = true;
+  bool cancelPoints = true;
+  // Search experiments (owner, 2026-11-05: the goal is the most optimal shaders; corpus decides):
+  // --fp-more: fingerprint points also at the special points that did not fit, threshold points and inputs pairwise
+  //   equal (on top of the random points). --keep-survivors: candidates that passed stage 2 stay candidates after a
+  //   CEGIS restart (they were dropped). --full-restarts: each restart gets the whole time limit (it got what was
+  //   left, at least a tenth). --seeds N: the search runs with N seeds, each starting from the earlier seeds' finds
+  //   (as a later run starts from sopt-cache.txt); the cheapest result is kept.
+  bool fpMore = false;
+  bool keepSurvivors = true;   // default (owner, 2026-11-08, corpus); --no-keep-survivors
+  bool fullRestarts = true;    // default (owner, 2026-11-08, corpus); --no-full-restarts
+  // --bound-recheck: when nothing that passed full verification is at or below the bound the search started with
+  //   (a library form or an earlier find that passed stage 2 only), search once more without that bound.
+  bool boundRecheck = false;
+  // --keep-accepted: a restart after full verification (another candidate gave a counterexample) keeps the forms
+  //   that passed it as candidates, as --keep-survivors does for the restart after stage 2.
+  bool keepAccepted = false;
+  uint32_t seeds = 1;
+  // --refine N: up to N rounds with the same seed, each starting from the earlier rounds' finds (their parts become
+  // shared leaves); stops after a round that finds nothing cheaper (2026-11-08, cause of --seeds' wins).
+  uint32_t refine = 3;  // default (owner, 2026-11-08, corpus); --refine 1 turns it off
+  bool noiseShare = true;  // default (owner, 2026-11-08, corpus); --no-noise-share; see followsExact
+  bool noiseParts = true;  // the noise guard on every part too (owner, 2026-11-12); --no-noise-parts; see followsExact
+  // --parts-always: subtree and cut searches also when the bottom-up search finished within its limits. "Finished" only means
+  // nothing cheaper in the bank's space (no vector constructors, no helpers), so a region found its form only when it ran out of time.
+  bool partsAlways = true;  // default (owner, 2026-11-09, corpus at 5 s); --no-parts-always
   // The previous run's results (owner, 2026-10-09: "the next run could start with the variants found in the previous
   // run"; sopt-fx keeps them in sopt-cache.txt): candidates over this program's inputs, verified again like the
   // library's forms; the cheapest that passes stage 2 starts the best-so-far bound. previousOnly: nothing about the
@@ -144,6 +177,7 @@ struct RunResult {
   uint64_t rejectedStage2 = 0;
   uint64_t rejectedV1 = 0;
   uint64_t rejectedProfiles = 0;
+  uint32_t boundRechecks = 0;  // --bound-recheck: searches run again without the starting bound
   uint64_t rejectedV2 = 0;
   uint64_t v2Checks = 0;  // candidates checked on every point (V2)
   uint32_t subtreeSearches = 0;  // Options::subtrees: subexpressions searched (not cached)

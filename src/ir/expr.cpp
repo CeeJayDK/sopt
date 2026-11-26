@@ -544,7 +544,7 @@ bool isSugarCall(std::string_view name, size_t arity) {
   if (arity == 1)
     return name == "radians" || name == "degrees" || name == "log10" || name == "tan" || name == "asin" || name == "acos" ||
            name == "atan" || name == "all" || name == "any";
-  return arity == 2 && (name == "cross" || name == "fmod" || name == "atan2");
+  return arity == 2 && (name == "cross" || name == "fmod" || name == "atan2" || name == "reflect");
 }
 
 uint32_t buildSugarCall(ExprBuilder& b, std::string_view name, const uint32_t* args, size_t arity) {
@@ -633,6 +633,12 @@ uint32_t buildSugarCall(ExprBuilder& b, std::string_view name, const uint32_t* a
   if (name == "log10") {
     const uint32_t l = b.op(Op::Log2, args[0]);
     return b.op(Op::Mul, l, b.constant(0.30102999566398120f));
+  }
+  // reflect(i, n) = i - 2 dot(n, i) n, as fxc writes it: d = dot(n, i), mad(-(d + d), n, i).
+  if (name == "reflect") {
+    if (ns[args[0]].type != ns[args[1]].type) throw std::invalid_argument("reflect needs operands of one type");
+    const uint32_t d = b.op(Op::Dot, args[1], args[0]);
+    return b.op(Op::Mad, b.op(Op::Neg, b.op(Op::Add, d, d)), args[1], args[0]);
   }
   if (name == "tan") {
     const uint32_t s = b.op(Op::Sin, args[0]);

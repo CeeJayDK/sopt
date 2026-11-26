@@ -2787,3 +2787,516 @@ The full CLAUDE.md as it stood on 2026-10-09: decisions, measurements and report
 - bench/logic: 10 problems (any / all of 3 and 4, || and && chains, min / max chains). 30 s each, rdna3 and nvidia-ampere:
   --library-regroup and --fp-coincidence give the same best cost as neither on every problem. max4 and minabs3 have nothing
   cheaper with or without them.
+- Corpus A/B of the same flags (19,868 regions, 1 s per region, two runs without flags, one run per flag). Total cost about
+  1,036,000. Run 1 vs run 2: 56 regions differ, 24 cheaper (186), 32 dearer (155), total -31. --library-regroup vs each run:
+  53 / 65 differ, 19 / 29 cheaper (205 / 189), 34 / 36 dearer (107 / 122), total -98 / -67: about the noise, with a few real
+  finds (MaskGlowAdvanced.fx:752 81 -> 66, also WinUaeMaskGlow.fx). --fp-coincidence vs each run: 148 / 150 differ, 64 / 69
+  cheaper (386 / 317), 84 / 81 dearer (436 / 398), total +50 / +81. Wins neither other run found: VirtualResolution.fx:130
+  82 -> 58, SharpContrast.fx:421 62 -> 41, PD80_00_Blend_Modes.fxh:134 253 -> 241. Why it loses is not known yet; a slower
+  search within the time limit is only a guess. Owner's decision: both stay off by default; --fp-coincidence is a good idea
+  but flawed and fixing it comes first; --library-regroup rarely finds anything, revisit later or replace it. The goal is the
+  most optimal shaders, not a shorter sopt run.
+
+## Search flag investigation (2026-11-05)
+
+- Correction to the A/B above: it counted regions with assumed ranges, whose variants are never written. Written regions
+  only: --fp-coincidence wins 22 (saved 93), loses 16 (added 44); --library-regroup 0 wins, 3 losses (12). The big wins
+  (VirtualResolution.fx:130 82 -> 58, SharpContrast.fx:421) are in regions with assumed ranges.
+- Why --fp-coincidence lost: its zero points replaced random test points, so the last two test points (the top-down
+  lookup points) were often zero points, where many stored values are equal; each lookup checks at most 64 candidates
+  and missed the right operand. Fix: the zero points come on top of the random points, from their own generator.
+  Locally (1 s) this restored all four written losses (StageDepthPlus.fx:521 25, SunsetFilter.fx:79 25, Transform.fxh:19
+  62, PD80_06_Film_Grain.fx:230 23), kept AdaptiveTonemapper.fx:249 141 and VirtualResolution.fx:130 58, and lost three
+  of the old flag's wins (FlexibleCA 85, DepthAlpha 44, SharpContrast:421 41; probably found through the other lookup
+  points by chance).
+- Found on the way, in the default search: a CEGIS restart drops the candidates that already passed stage 2. Keeping
+  them was never worse in 45 runs (9 regions x 5 seeds), better in 4. And the seed alone moves results as much as the
+  flag (Zenteon_TurboGI.fx:492 56 / 77, Halftone.fx:79 25 / 39): the lookup points after a restart are counterexamples.
+- New flags to measure (corpus): --fp-more, --keep-survivors, --full-restarts, --td-random-points, --td-spread,
+  --td-pairs N, --seeds N (each seed starts from the earlier seeds' finds, as a later run does from sopt-cache.txt).
+- Corpus A/B (2026-11-06 / 08, 1 s per region, written regions where two runs without flags agree; the two runs
+  without flags differ in 23): --seeds 3 wins 69 (804) / loses 7 (16); --full-restarts 31 (315) / 8 (13);
+  --keep-survivors 28 (304) / 1 (4); --fp-more 13 (108) / 26 (80); --fp-coincidence (fixed) 12 (98) / 5 (11);
+  --td-spread 10 (44) / 2 (4); --td-pairs 3 10 (70) / 28 (186); --td-random-points 2 (5) / 10 (59). Together
+  (--keep-survivors --full-restarts --fp-coincidence --td-spread) 44 (376) / 14 (24): the fixes overlap. With --seeds 3
+  on top 92 (1055) / 17 (34); --seeds 3 vs the four alone: 68 (735) / 20 (63). Owner: --keep-survivors and
+  --full-restarts default; find the cause behind what more seeds find. (The older plain runs were not comparable:
+  PR #110 removed the two-add round trick, e.g. Dither.fx:127 148 -> 68 is gone.)
+- Verification hole (2026-11-08): --seeds 3's cost-0 "wins" were wrong variants. Smart_Sharp.fx:690-692 (a ring marker,
+  0.004% of the screen) as 0.0 "bit-exact"; DLAA_Plus.fx:363 (a full stop drawn in a box) as Out "more accurate": no
+  stage-2 / V1 point landed in the window (more seeds: more chances that none does). Fix: comparison boundary points
+  (verify/points.cpp boundaryPoints, in every verification point set): from random starts each comparison is flipped by a
+  scan along an input it depends on (zoomed in on the closest approach), the point stays for the next comparison
+  (several conditions together), plus the floats on both sides of each boundary and 32 points spread over the windows
+  found (the lit pixel inside a character box is floor steps, not a comparison). Both regions now: no variant / 176.
+  Corpus after the boundary points (2026-11-08, runs 42426859864 / 42426865135 plain, 42426870969 --seeds 3): plain vs plain
+  4 wins / 9 losses (noise); the earlier combo run vs plain 37 regions dearer now, e.g. 11 Smart_Sharp box tests whose
+  "variant" ignored dy (all(abs(d) < float2(0.002, 0.009))): rejected now. --seeds 3 vs plain: 58 written regions cheaper
+  (-415), 12 dearer (+38): seeds' wins are mostly real search misses.
+
+## Reports 2026-11-07 (GT 1030, 0.10.5, driver 582.78)
+
+- OpBench / StageBench: nvidia-pascal, no differences; tput drift 30% as before on this card.
+- precise check: D3D9 wrong (round, floor-frac, float2 round), D3D10 / D3D11 pixel and compute / D3D12 right
+  (GTX 1660: D3D9 wrong, D3D12 wrong for the float2 form only; UHD 630: D3D10 wrong).
+- Small tables (fma per lookup, x8): texture 11.1; best forms 6.0 (packed 4 x 4, "Bayer packed", packed int), Bayer add 7.7
+  (4 x 4 and 8 x 8; 1660: 2.0), 2 multiplies 8.6 / 9.3 (1660 2.8 / 3.7): Pascal's integer multiply is not full rate, so the
+  bitsearch decoders win less. R2 3.0, IGN 5.2. static const 54 / 109 / 190 (4 x 4 / 8 x 8 / 16 x 16), cbuffer the same.
+  1D noisy index, 16 / 32 / 64: const 14 / 27 / 47, select tree 19 / 37 / 76: on Pascal the select tree loses to a static
+  const table (1660: tree 6.9 / 18 / 39 wins). 2D 4 x 4: select 23, const 54. 1D 64 smooth index: const 3.7, texture 10.4.
+  3D 4^3: const 11 (slow colors) / 103 (noisy), texture 17. Owner (2026-11-08): keep classic.cpp's tree on all
+  NVIDIA, Pascal too: up to 32 entries the tree is at most 1.4x the const table, the const table up to 2.3x the tree
+  (2D dither index 4 x 4: const 54, tree 23), and the index pattern of real tables is not known.
+
+## Report 2026-11-08 (RX 580, Polaris, GCN 4, 0.10.0, driver 31.0.21924.61)
+Second GCN 4 card, first GCN 4 StageBench. Float tests equal the RX 590: only 9 of 156 cs tests differ, all integer / barrier ones, and the
+integer ones are a changed base test (the RX 590 report is OpBench 0.6.0, base ixmul; now int). Against Vega 7 again 33 of 156: sin / cos 16.5 vs
+10.6 (so the branch tests built on them too), fp16 = fp32 (mad16 -0.07 vs -2.9). Confirms the earlier estimate: a GCN 4 model = amd-gcn5 with
+sin / cos ~1.6x and fp16 at fp32 cost (still needs the owner's go; RX 580 / 570 are about 1.5% of Steam and map to amd-gcn5 today).
+Open item 10's pair: shladd5 8.3 (fxc's imul x, 5) vs shladd5-od 4.15 (shift + add) in cs and ps: fxc's imul costs twice the code as written here;
+Renoir ps has 1.93 for both. ps = cs apart from the array tests. vs differs in 24 tests (mul +1.9 vs -1.4, normalize 19.0 vs 11.4, any / all): not investigated.
+fp32 6.14 TFLOPS, ps 6.14, vs 4.67 (drift 6.7% on ps / vs); TexBench 150 s, 171.7 GTexels/s, 43.0 GPixels/s, 214.9 GB/s (0.87x the RX 590, as the clocks).
+
+## Cause of --seeds' wins (2026-11-08)
+followsExact compared the largest error over 4096 random points: x % c is off by a whole period only just below each multiple, so one point decided
+whether the accuracy rule was on, and that depended on the seed (Timer % 1000: seeds 1, 1000004, 6, 7 off; 2000007, 5, 8 on). --noise-share: over 1% of
+the points must be far off. Second cause: a run never builds on its own finds (--refine N). Corpus, written regions, against two plain runs that agree
+(plain vs plain: 4 cheaper / 9 dearer): --noise-share 22 cheaper (-298) / 3 dearer (+13); --noise-share --refine 3 52 (-396) / 8 (+25); --seeds 3 58 (-415) /
+12 (+38). --seeds 3 vs --noise-share --refine 3 directly: 34 / 31 regions (292 / 288), level. Regions that need value ranges: --seeds 3 still clearly ahead
+(115 / 14 against 41 / 31 for --noise-share --refine 3). Not explained yet. Small regions still seed-dependent: Border.fx:58 (10 -> 5), Clarity2.fx:297 (13 -> 8).
+
+step() is two-valued (2026-11-09). Clarity2.fx:297 `a * (1 - s) + s * b` with s = step(...): seeds gave nothing, 8, 9 or 10, independent of the time limit (0.2 s = 5 s). Every candidate was "less accurate" and passed only if no random point hit a cancellation (a's range was [-7588, 6982] from interval blow-up). A .sopt copy, 8 seeds each: wide range with s continuous 8 / 9 / 12; s grid 1 (wide or unit range) `mad(b, s, mad(a, -s, a))` 9 bit-exact on all 8; unit range with s continuous `lerp` 8 on all 8. Range of step() now has grid 1. Not done: the blow-up itself, sign() ({-1, 0, 1}), float(bool).
+
+## Tighter ranges for values that repeat a variable (2026-11-10)
+Clarity2.fx:297: sharpMin in [-7588, 6982] where the true range is about [-3.6, 93]. Two causes: lerp was bounded as a + (b - a) * t (a counted twice; [0, 1] gave [-1, 2]; now the 8 corners, exact) and interval arithmetic treats each use of a variable as independent. `Extractor::splitRange` (leaf ranges only): up to 3 most-used scalar variables, 64 pieces each (or each grid value), intersected. Same value = same variable, access chain and reaching definitions. Not split: whole-vector loads, values through a call's arguments, anything using a variable stored inside a loop around the load. Other range() users (proofs) do not get it.
+
+## --seeds 3 vs time, and mod's range (2026-11-10)
+Corpus at equal total time, written regions: --seeds 3 vs --time 0.03: 26 / 58 regions (seeds better / time better); needs ranges 85 / 46. At 0.01 s
+many corpus "misses" are only the time limit (UniqFX_ConditionalUIMask.fx:1502 clamp -> min: found at 0.005 s locally, not 0.003; CI runners are
+slower). At 0.1 s: --seeds 3 vs plain 41 / 18 (written), 78 / 28 (needs ranges); plain 0.1 vs 0.01: 2263 / 2212 written, 42283 / 41816 saved.
+Same commit twice at 0.01: 2212 / 2214 written, 41816 / 41826 saved, packages within +-2 regions / +-240.
+VHS_RA.fx:111: --seeds 3 gave 224 -> 1 (`look.x`, the jitter term dropped), class "too exact", written behind SOPT_TOO_EXACT. Cause: fc =
+mod(float(FrameCount), 7.0) with `#define mod(x,y) (x-y*floor(x/y))` had range [-2^31, 2^31], where the original's own float math is noise and a
+point with small fc decided. `modRange`: x - y * floor(x / y) is [0, y] plus |x| * 2^-22 (float rounding; [-512, 519] here). Now 224 -> 209.
+Still open: a candidate can pass as "too exact" wherever part of a wide domain makes the original noisy.
+0.10.11 at 0.1 s: 2265 / 42298 (plain 0.10.11-less 2263 / 42283, noise). Plain 0.3 s (= --seeds 3 at 0.1 in total time): 2292 written / 42550
+saved vs --seeds 3 at 0.1 2277 / 42722; per region (seeds vs 0.3) written 31 better (459) / 61 worse (215), needs ranges 78 (336) / 50 (172).
+Most of the gap is time (ReShade.fxh:105 13 vs 16 and SharpContrast.fx:298 48 -> 28 found every time at 0.3 s).
+
+## --exact-undefined, and lerp exact at t = 1 (2026-11-10, owner's go)
+Glitch.fx:109 (rgb2hsv, rgb from a sampler parameter: assumed [-1000, 1000]): 151 at 20 s with the default seed, 139 with seed 1000004
+(the DH effects, rgb known [0, 1], always 139). The 139 form fails at rgb = (-45.48, -1e-10, -606.31): lerp(c, y, step(c, y)) is
+c + (y - c) = 0 in float, so s = d / (q.x + 1e-10) stays finite; real math gives y = -1e-10 and a division by zero. Whether a seed's
+points hit that point decided the result. (A likely [0, 1] from the name does not apply: regions that compare take no name guess.)
+Two changes: the exact evaluator's lerp returns b at t = 1 (in double, a + (b - a) lost 1e-10 next to 606, so "exact" was a finite 6e15);
+--exact-undefined (Budget::exactUndefined, Options::exactUndefined): points where exact math is not finite are don't-care in verification
+and in the enumerator, like points where the original is not finite. Glitch.fx:109 with the flag: 139 on seeds 1 and 2.
+Corpus 0.1 s: lerp fix alone (0.10.11 -> 0.10.12 plain) 2265 -> 2268 written, 42298 -> 42332 saved, written 17 / 16 regions, needs ranges
+25 / 18 (noise level). --exact-undefined vs 0.10.12 plain: 2268 -> 2270, 42332 -> 42327; written 21 (74) / 16 (58), needs ranges 22 (182) /
+12 (39): the DH rgb2hsv regions 151 -> 139. Parse failures 0. Other seed wins traced: NightVision.fx:26 (268 "less accurate" with seed 1:
+one near-cancellation point, dot(c, w) + 0.5 * hash ~ 0, fails only under gpu+ / gpu-), Sketch / PiecewiseFilmicTonemap / cMath (step or frac
+of a large argument: whether points land near a jump). Questions to the owner on both.
+
+## Jump and cancellation points, --exact-undefined default (2026-11-10, owner's answers: fixed points, jump points yes)
+0.10.13: makeRandomPoints adds boundaryPoints of two more kinds, from fixed generators (the same for every seed): Jump (floor / ceil
+/ round / trunc / frac change their integer part) and Cancel (add / sub / mad / dot cross zero; a flip across a jump of a hash is
+rejected: |v| at the boundary must be <= 1e-4 of the scan's largest; with no crossing, the input keeps its closest approach and the next
+input goes on from there). Budget::jumpPoints / cancelPoints, --no-jump-points / --no-cancel-points. --exact-undefined default
+(--no-exact-undefined). test_eval's fmod check: at a jump fxc's form is one period off C's fmod (found by the jump points at once).
+NightVision.fx:26 stays seed-dependent (268 "within budget" on 4 of 6 seeds): its failures are at iGlobalTime ~ 3.75e6 where the
+candidate's reassociated sin argument changes the hash noise itself, not a cancellation.
+Corpus 0.1 s, same build: off 2267 / 42345; jump only 2268 / 42269 (written 8 / 15, needs ranges 18 / 9: neutral; ReShade.fxh:105 13 vs 16
+is timing, the region has no jumps); both 2252 / 41983 (cancel vs jump only: written 9 (13) / 40 (246), needs ranges 22 (66) / 122 (1947)).
+Cancel losses checked: SuperDepth3D.fx:4545 / 4547 (cursor SDF, `> 0 ? 1 : 0`): without the points a constant 0 was accepted (no point
+inside the cursor): a real bug caught. dh_anime.fx:661 lerp(black, color, m) for color * m + (1 - m) * black: at color 0, m 0.99966 the
+lerp's black - m * black cancels (2e-8 abs, 1e-4 rel; the original's (1 - m) * black is exact, budget rel 1e-6 intermediate): less accurate
+by the rules, passed before only because random m rarely lands that close to 1.
+
+## UHD 770 reports (2026-11-10, via the owner)
+UHD Graphics 770 (Xe-LP, driver 31.0.101.4502), first OpBench / StageBench / TexBench of the card: OpBench family intel-gen12, 0.71 TFLOPS
+(fp16 min16float 1.33), drift 7 / 17 / 13%, 73 s; differs: gsread4 14.0 (8.2), arraywrite 173 (8633). StageBench ps / vs 25 s each, drift 15%;
+ps fp16 1.86x, vs fp16 = fp32 (0.70); ps differs: ddx / ddy 6.3 (3.6), the max ops ~10 (7.4), scale2 0.8 (4.0); vs: ilp1 / ilp2 4.9 / 4.5
+(7.8 / 7.1). TexBench drift 35%, 179 s, 23.9 GTexels/s. ShaderInfo -3. Gen12 holds; expected.hpp regenerated.
+
+## Output budgets, ranges, reflect / transpose (2026-11-11, owner's go)
+Output budgets (plan in local notes; WIP branch output-budgets stage 1 ported): the pixel shader runs symbolically
+(CallScope's entry mode: parameters stay inputs, the SV_Target / COLOR out parameter at the end, several returns as
+selects; variables stored in loops or switch cases are not followed and stay inputs, loopFree checks that nothing there
+depends on the value). The value is kept with its own expression plus a perturbation input (sampling it apart from the
+other inputs, stage 1's way, made 2754 of 3446 values "not looser": combinations that never happen). Budget: the largest
+abs e (bisection on scale 2^-k) keeping the output within an eighth of a code (16F 2^-13 rel; plan step 4's share),
+tightest over every pixel shader reached, strict (vsExact off). A composed final check was built and dropped: with the
+value sampled jointly it would refuse what the derivation allows. Work limit 200000 collect steps per build (PD80
+Selective Color took > 300 s), fold memo in CallScope (reads that see the same stores share one value). The codegen now
+records the block after a switch (it counted as unknown, with everything after it). Reach, main package: 102 regions
+(was 3); listing 102 s -> 705 s. Blockers by value: used in a loop 19535, helper with switch 5810, bool / int variables
+~9000, parameter changed under a condition 4486, blending / sRGB 3948, too large 3900, not looser 2250.
+Ranges ("needs value ranges", root causes traced through calls and call-site arguments, package set 2, per attempt):
+written in a loop ~26k, texture reads ~12k (float formats), preprocessor definitions ~4.8k, division / pow ~4.5k,
+uniforms without ui range ~1.5k. Float render targets now get the union of what their writers return (+0): 1856 ->
+1846 (main), 1581 -> 1558 (set 2) unknown inputs. Tried and dropped: loop-carried variables by interval iteration
+(trip bound x stores, or until stable, 256 steps): 1558 -> 1551 at 10x the listing time; per variable most ranges are
+lost inside the body (float texture reads, divisions), not by the loop.
+Corpus 0.1 s, output budgets on (43050247655) vs --no-output-budgets (43050257523), package 18 left out (cancelled at the
+120 min job limit with them on; now 300): written 1402 -> 1490, saved 23762 -> 26647; per region written 102 better (3547) /
+10 worse (290), needs ranges 16 (203) / 4 (17). Job time 695 -> 893 min in all.
+After the speedups (sample points once per pixel shader, bound once per value, bisection on 1024 points), all 44
+packages: on (43143435165) vs off (43143442457): written 2293 -> 2395, saved 42431 -> 46392 (+9.3%); job time 712 ->
+750 min in all, package 18 (RSRetroArch) 41 -> 60 min.
+The losses (21 written regions, 344): time-limit noise (ReShade.fxh:105 16 at 0.1 s, 13 at 1 s in both modes; NightVision
+at 1 s the same or better with them on), seed luck (GuestCRT.fx:572 flips the other way locally), and VHSPro.fx:1607,
+where off wrote `ns` alone (cost 0, "too exact"): the film grain hash dropped. The noise guard looked at the whole sum
+only (grain <= 0.1 next to ns up to 200: error 0.05% of the range). Fix (owner's go, 2026-11-12): followsExact checks
+every part too (--no-noise-parts), a part also off by 0.1% of its own size (1.0 + x * 1e-7 is rounding, not noise).
+First version (both rules off on a noisy part), corpus on (43264440913) vs off (43264446572): written 2409 -> 2408, saved
+46688 -> 46308; lost real wins (Clarity2.fx:303 lerp -> mad, phosphor 0.5 * rcp(1/3) * 2 -> 3, PD80 Posterize,
+CurvedMonitor) and rightly refused CRT-NewPixie.fx:246 (304: the hash's input rewritten, error 0.015 = other noise).
+Now (owner's go, option C): a noisy part turns "closer to exact" off and lists its nodes (Budget::noiseNodes); the error
+scale restarts at |value| there, so the hash's inner terms (x 43758) no longer loosen the budget. Locally: the four wins
+back, VHSPro refused, CRT-NewPixie 308 at error 6e-8 (the noise kept). cuts / generalize clear the list (other target).
+Corpus (43326705987 vs off 43264446572): written 2409 -> 2412, saved 46688 -> 46722, 671 vs 712 min. Written: 20 better
+(181) / 39 worse (165); GloomAO.fx:479 (11 vs 17) is the same locally (CI timing). Open: phosphor-mask-calculations.fxh
+(package 17, ~10 regions, ~4-36 each) loses its exp-argument rewrites; the original is off by 1.55e35 at overflow-sized
+values, so a part looks like noise though it is rounding amplified by exp (not checked: source not local).
+Checked (CRT-Royale, package 17): the noisy part is frac(x_adj * 3.0 - 0.5) (triangle_wave), x_adj derived as
+[-2.15e9, 0.5] (texcoord * a frequency factor from rcp of uniforms). At such values float frac is garbage, so the guard
+is right for that range; the old wins (401 -> 365 etc.) passed only because frac carried x_adj * 3's huge error scale
+(the CRT-NewPixie flaw). A realistic x_adj (thousands) would not be noise: a range problem (divisions), not the guard's.
+Review of the branch (2026-11-13), each confirmed with a small effect, fixed, tested (fx_output_budgets,
+noise_parts_skip_integers; output budgets had no test before):
+- Output budgets, math that repeats: abs(frac(v * 64.0) - 0.5) is the same at v + 1/64, + 1, + 64, and the search for
+  the bound moves v by powers of two: v got a budget of 64 and 0.0 was written as proven. Fix: a fourth pattern, a random
+  share of e per point (the same shares for every e). frac alone was saved by the jump points, a triangle wave is not.
+- Output budgets, discard: what decides a discard is not in the returned value (float m = v * 2.0 - 1.0; if (m < 0.0)
+  discard; gave v 0.25). Fix: none in a pixel shader that has a discard or calls a function with one (Function::discards).
+- Output budgets, a helper called more than once: the one perturbation moves every call's value together, so
+  lum(a) - lum(b) never changes (lum's sum got 1024). Fix: none when the value's function is reached by more than one
+  call path. Better later: one perturbation per call.
+- Noise parts: a uint node is its bit pattern in the float32 evaluator and its value in the exact one, so every region
+  with integer math counted as noisy (PD80 Posterize's float(asint(pixel_size - 1u))). Fix: uint nodes skipped.
+- Float render-target ranges: a one or two channel target reads 1 for alpha: the range now holds 1.
+- ui_min / ui_max and int constants (whole-code review, the same day): `signed ? as_int : as_uint` is one ?: of int and
+  uint, so both sides are uint: ui_min = -1; ui_max = 1 on a float uniform gave the range [1, 4.29e9] (CRT-Royale's
+  phosphor_offset_x; the "derived" [0.5, 2.15e9] of center_offsets_x), a negative int constant 4.29e9. Every region
+  reading such a uniform was verified on the wrong values. Fix: each side as double; test fx_ui_range_negative_int.
+- Casts in ranges: a chain's cast kept the source range. uint u = uint(Shift), Shift from -4 to 4, stayed [-4, 4] (a
+  negative int wraps to 4.29e9). Fix: to bool = 0 or 1, a negative float to uint = 0, a negative int to uint = the whole
+  uint range, a uint above INT_MAX to int = the whole int range. An out parameter of a helper was labelled "vertex shader".
+  Tested fine: ranges after inout / out calls, loop-carried variables (assumed), int counters.
+Open, the owner's call (2): acos / asin / atan / atan2 / float % are built as fxc writes them (polynomials, frac form).
+  A variant of such a region prints that expansion, with no API condition: on Vulkan / OpenGL the original is the
+  driver's own acos (GLSL.std.450), so the variant is fxc's polynomial there, up to 6.8e-5 rad from the original while
+  listed "within budget" (rel 1e-6). ac1.fx: acos(uv.x) * K + .. -> mad(K, mad(sqrt(1.0 - abs(uv.x)), mad(abs(uv.x), ..
+  Suggested: such regions' variants only while __RENDERER__ < 0x10000 (the region's guard), none in easy mode.
+Corpus with the six fixes (43358036217) vs before them (43326705987): written 2412 -> 2402, saved 46722 -> 45499, 678
+min. Written: 45 better (234) / 39 worse (1533), and the worse ones are what the fixes were for: variants written
+before under an output budget of 4096, e.g. FilmGrain2.fx:65 / 72 / 79 / 86 and PD80_06_Film_Grain.fx:230.. (Perlin
+noise: n001 = dot(grad001, pf - ...) -> 0.0, "proven"), VHS_RA.fx:104 (step(c, sin(..)) -> c).
+Read in that review, nothing found: ir/eval.cpp, verify/exact.cpp, verify/verify.cpp, verify/bound.cpp (the interval
+proof), the driver's stage 2 / V1 / V2 flow, the printer (expr.cpp), the variant writer (variants.cpp), hoist.cpp's
+degrees; a window does not inline a temporary across a store to what it reads (tested).
+Open, the owner's call: a pixel shader input whose vertex shader value has no known range falls back to the TEXCOORD
+convention [0, 1] (frontend.cpp, entry()), also where the vertex shader plainly computes something else (CRT-Royale's
+viewport_frequency_factor : TEXCOORD1 = content size / triad width, listed as [0, 1]).
+Seen, not changed: followsExact evaluates each part separately (quadratic in nodes, on every optimize call; one pass
+over all nodes would do); a texture shared by name with another effect file can hold what that effect writes; an output
+budget treats an intermediate render target as the output (later passes may amplify), and its variants are no longer
+8-bit identical (1/8 code at the output); boundaryPoints takes the first 64 comparison components only; loopFree's
+call scan starts at the first statement's seq (a call inside the first statement is before it); obStat is still in.
+Integer / and % (owner's go): the U rewrite takes 14 of 37 proven lines in package set 2; the rest have a float division
+on the line (the count match fails) or macros. Matching operators by the division's column failed: a binary op's
+location is not its left operand's start (sum += i / 2: column 14). Done instead (2026-11-12, owner's go): lines with
+float divisions too match operators to divisions by order (intDivisions records float ones, isFloat, and seq); text and
+emission order agree unless a division sits in another's right operand, so every right operand must be readable and
+hold no other operator. Package set 2: 14 -> 20 of 37 proven lines (Zenteon_ATA: floor(i / 3.0), int(uint(i) % 3u)).
+Still not: macros on the line (FRAME_MOD, BUFFER_SIZE, mod()), a division in a right operand (DINN's x % 3 inside
+/ (...)).
+Integer math otherwise left for now (owner, 2026-11-12), why: the other skipped integer statements (int2 / int4 math,
+results that stay integers such as PCG hashes, integer min / max; 172 in package set 2) are mostly 1-3 instructions
+with nothing cheaper; they need vector integer ops, integer region results and GLSL's strict int / uint conversions in
+the printers. Revisit if effects turn up where integer math is a real share of the cost.
+reflect(i, n) as fxc writes it (mad(-(d + d), n, i)); mul(transpose(constant matrix), v) = mul(v, M) (GTU's YIQ macros).
+Derivative hints (owner): a "Hints" section in sopt-report.md for every ddx / ddy / ddx_coarse / ddy_coarse. StageBench ps,
+84 reports, medians in mad steps: plain = coarse everywhere (82 / 83 of 84 within 10%); fine vs plain: Turing 8.0 vs 23.8,
+Ampere / Blackwell 20 vs 47, Fermi 7.0 vs 14.4; AMD (GCN 5, RDNA 2, TeraScale 2) the same; Intel ddx_fine the same, ddy_fine
+10.4 vs 4.1 (Gen9), 10.2 vs 6.3 (Gen12), 49.5 vs 3.9 (Xe2). Not a variant: fine and coarse give different results.
+
+## amd-gcn4 (2026-11-08, owner's go)
+amd-gcn5's table with sin / cos 32 (measured 16.5 = twice rcp, RX 580 and RX 590 alike; 10.6 on Vega), no HalfCosts entry (fp16 = fp32) and fuse bits only bfi / bfe (or3, and_or, add3, lshl_add, add_lshl are GFX9 and measure as separate steps). Cards: RX 4[6-9]0, 5[5-9]0, 640; GCN 1-3 (R7 / R9) use it as the nearest measured family. Steam share follows at the next steam-survey cron. fxc's imul for (x << k) + x on GCN 4 (open item 10) is not modelled yet.
+
+## fxc X3556 "integer modulus / divides may be much slower, try using uints" (2026-11-08)
+Tested on the existing reports (udiv / umod / idiv / imod, variable divisor, units with mad = 4; 162 cs, 83 ps, 84 vs reports). imod / umod median 1.17 cs, 1.15 ps, 1.16 vs. By family (cs): RDNA 2 / 3 / 4 1.3, Ampere / Ada / Blackwell / Turing 1.2, Xe2 1.2, Pascal / Maxwell 2 1.1, TeraScale 2 1.5, Gen6 1.6; no difference on Gen7.5 / Gen9 / Gen12 and Maxwell 1 cs. So true on most cards, but +15-30%, not "much". The division itself is the cost: umod 34-140 units.
+DXBC has only udiv: int adds imax for abs (one per variable operand), ineg, and for the sign, movc. x % 7: 1 instruction vs 5. Constant power of two: uint x % 16u is one and, int x % 16 is 5 (and, imax, and, ineg, movc); x / 16 ushr vs 6. OpBench has no constant-divisor test, so that case is DXBC only, not measured.
+
+## Division candidates (2026-11-08)
+Exactness on the CPU, float32, every d in 1..4096, rcp up to 3 steps off: uint(float(y) * rcp(float(d))) is wrong already at y = 41 (d = 41); uint((float(y) + 0.5) * rcp(float(d))) is right below y = 1,051,900 (so y < 2^20).
+OpBench 0.10.6 adds: constant divisors (umodc16, imodc16, udivc16, idivc16, umodc7, imodc7, udivc7, idivc7), signed power-of-2 forms for any int (idivs16, imods16) and, for a dividend below 65536 (base uhi): udivs / umods, udivs7 / umods7, multiply and shift (udivm7, umodm7), through float with the +0.5 (udivf7, umodf7, udivvf, umodvf). --skips counts integer divisions per kind ("count: ...").
+
+## int to uint, count of integer divisions, --parts-always (2026-11-09)
+
+Range analysis follow-up (same day). Integer `%`, `<<`, `>>` and truncating `/` now have ranges (`intModR`, `intShiftR`, `intDivR`;
+an operand the type cannot hold counts as the whole type). On their own these proved nothing new: in the 6 packages with 78 of the
+101 unknown signed divisions, 16 of 73 distinct lines were proven before and after. The missing facts were the leaves.
+Checked in ReShade's runtime.cpp: framecount is `unsigned(_frame_count % UINT_MAX)`, a bool reads it as 0 / 1 alternating;
+random is `min + rand() % (|max - min| + 1)`. Ranges: framecount [0, 2^31 - 1] as int (owner: never negative is fine, 172 days
+nonstop at 144 fps), [0, 2^32 - 2] otherwise; random [min, min + 32767], `max` ignored because `BUFFER_WIDTH*BUFFER_HEIGHT` is
+only seen at sopt's placeholder size. With both: 32 of 73 proven. Still unknown there: value from a slider or pixel size
+(CMYK 12, dh_uber_rt 9), Floyd-Steinberg error (really negative, 5), function parameters, tex2Dsize.
+Owner's go. Classic rewrite (intDivRewrites in fx/classic.cpp, switch U, D3D10+ only: shader model 3 has no integers, ReShade writes uint as int there and fxc has no power-of-two path). Written only where the dividend is proven >= 0 and the divisor >= 1 from known ranges (none assumed or likely), every / and % on the line matched one to one. fxc ps_5_0: int / 16 is 8 instructions, int(uint(i) / 16u) 3; int % 7 is 7, the uint form 3.
+Corpus count (run 42533622065, generated copies, not source lines): 4270 integer divisions, of which 3393 are one CONST_LOG2 macro over BUFFER_WIDTH on 22 lines of one package (compile time). --skips now reports the dividend as compile-time, proven or unknown.
+--parts-always vs defaults at 5 s, 7 packages, one run each: written 6 wins (-58), 1 loss (+2); needs ranges 5 wins (-15), 2 losses (+13). At 1 s, full corpus: 0 wins, 4 losses of 1, time +0.6%. Default since 2026-11-09 (--no-parts-always).
+int to uint, first corpus run: dh_uber_rt.fx failed the variant check (uint2(scalar) does not parse in FX mode: X3014, the variant check drops such a rewrite, so it was missing from the report). Fixed: lines with a macro are skipped, operands keep their written size. The check run also counted int2(BUFFER_WIDTH, BUFFER_HEIGHT) as run-time; constructors of constants are compile-time now.
+
+## Whole-code review, part 2 (2026-11-13, owner's go on both decisions)
+
+Decisions (owner): (1) TEXCOORD is [0, 1] by convention only where what the vertex shader writes there depends on the
+vertex number alone; (2) acos / asin / atan / atan2 / float % variants for DirectX only, not in easy mode; plain HLSL
+keeps them (fxc compiles it).
+- (1) `inputConvention` / `idOnlyVar` / `idOnlyStore` / `idOnlyValue` in frontend.cpp: per output (out parameter, struct
+  member by its semantic, returned struct), through helper calls (out arguments, return values), conditions included;
+  a uniform, a definition (BUFFER_WIDTH), a texture, a loop or a switch: no convention, the input is unknown (assumed,
+  or likely by its name). Plain HLSL / GLSL have no passes: convention as before. Known limit: an output that depends
+  on the vertex number alone but is not a coordinate (uv * 2 - 1 from bit tricks, where the range analysis gives up)
+  still gets [0, 1].
+- (2) `fxcOnly`: the region's guard gets `__RENDERER__ < 0x10000` (easyPicks and the zero guard, blend and hoist
+  rewrites already leave guarded regions alone). GLSL mode built acos / atan(y, x) as fxc's polynomial too, where it is
+  always the driver's function: skipped now ("intrinsic acos (the driver's own function in GLSL)"). GLSL mod() is its
+  own definition (x - y * floor(x / y)), unchanged.
+Bugs found reading guard.cpp and blend.cpp, each reproduced with a small effect first:
+- Zero guard, helper with a discard: `float3 fx = Tone(color, uv); color = lerp(color, fx, Strength);` with a discard
+  inside Tone got `if (Strength == 0.0) return color;` before the call: at 0 the pixels were no longer thrown away. A
+  discard in the shader itself was safe only by accident (the if around it starts a new block). Now: no zero guard in a
+  shader that can discard (itself or a helper).
+- Zero guard, local stored twice: `float coef = Strength * 2.0; ... coef = coef + Offset; color = lerp(color, fx, coef);`
+  got `if (Strength == 0.0) return color;` (the local's first statement is 0 at Strength 0, the later store was not
+  looked at). Now the local must be stored once.
+- Blend rewrite with `ClearRenderTargets = true` on a back buffer pass: ReShade clears the back buffer too
+  (runtime.cpp: load_op clear for every target), so the blend unit would blend with the cleared target while the
+  shader read the copy. Refused now. Not reproduced in ReShade, read from its source.
+Read, nothing found: classic.cpp (table rewrite, select tree, int to uint text handling), CallScope (stores folded
+into selects, early returns), subtrees.cpp / cuts.cpp (their candidates go through the driver's checks as a whole;
+the cut's sampled range is only a search aid).
+
+## Whole-code review, part 3 (2026-11-15)
+- Corpus 43498617378 (851829d, time 0.1) against 43358036217: written 2402 -> 2343, saved 45499 -> 44684. 44 of
+  the 59 are CRT-Royale (71 -> 27): its vertex shaders write TEXCOORDs from settings (bloom_sigma, geom_aspect,
+  viewport_frequency_factor; texcoord.x = use_deinterlacing_tex * 2, left_coord / right_coord), which had been
+  taken as [0, 1]. The owner's decision working as meant. Depth3D: the package itself changed (922 -> 876 regions).
+- The run failed on Depth3D: 90 of 105 variant checks did not parse. A helper seen through (MW_Divergence) calls
+  another with out arguments; the value it returns reads ReShade's nameless temporary for the out argument, which
+  became an input with an empty name ("float2(-.x, .y)"). The check dropped the two regions, so the written file
+  was fine, with exit 1. leafOf now refuses a nameless variable as an input ("ReShade's copy of a call argument");
+  the output's math (never written) names it "__t<id>", so two such temporaries stay two inputs there (pointsFor
+  matches inputs by name: both were "" before). tests/fx/sopt_outarg.fx. SuperDepth3D after: 874 regions, 0 of 105.
+- Read, nothing found: reshape.cpp (its forms are candidates the driver verifies). generalize.cpp, seen, not
+  changed: with five or more scalar constants that each have many matching expressions, the option product passes
+  20000 at the break and every combination is then filtered out (r.size() != options.size()), so the candidate is
+  dropped without trying its literals; padding the unfinished combinations with the literal would keep it. Not
+  seen in practice (matches within 2e-5 are rare for constants that do not come from the setting).
+- ReShade's source (owner's question): fxc at O0 to O3 gives identical DXBC on four shaders incl. a stress shader
+  (nested loops, break, branches, helpers), so the default level outside performance mode costs nothing. The back
+  buffer copy is made before a pass whether or not it samples the COLOR texture (tools/reshade/FEATURE-REQUESTS.md
+  item 4). Text scan of the 529 effects in ReShade's package list: about 5 never read the back buffer (solid
+  colour, checkerboard, letterbox, a test pattern), so it helps few effects as they are written; it matters for
+  what the blend-stage rewrite produces. One copy per effect remains the larger cost (two-texture ping-pong: notes).
+- Read (2026-11-15), small fixes: ir/parser.cpp parseProgram read past a short line's tokens ("input x": kw(3) on
+  three tokens; the usual error came out by luck in release builds), now bounds-checked, test parser_short_lines;
+  driverstats.cpp "# vendor:" with strtoul (stoul threw on a damaged line); isa.cpp quotes --asic in GLSL mode too.
+  Nothing found: library.cpp (its forms are candidates the driver verifies; conditions and pos() signs are sampled,
+  which is fine for that reason), backends.cpp, isa.cpp.
+- Found, not changed (a search change: owner's call): the library seed's cost (and a previous run's) becomes the
+  enumerator's starting bound once the form passes stage 2 (driver.cpp, cfg.seedBound) and is never withdrawn. When
+  that form then is not accepted (less accurate on V1, or fails another profile), the search still only looked below
+  it. Measured with a temporary counter over 4 packages (74 effects, 1720 regions searched, time 0.05, no parts): 827
+  runs started with such a bound; in 11 (1.3 %) no strictly accepted form was at or below it (8 ended above it, 249
+  cost units in total between bound and best; 3 ended with nothing). Fits open item 9 (another seed gives other
+  stage-2 points, so the seed may fail there and set no bound). Possible form, behind a flag: when nothing accepted
+  is at or below the starting bound, search once more without it.
+
+## --bound-recheck (2026-11-16, owner's go; off: corpus A/B inside the noise)
+- driver.cpp: at the end of the CEGIS loop, when the search started under a bound (cfg.seedBound) and no strictly
+  accepted form is at or below it, the bound becomes the cheapest strictly accepted cost (none: no bound) and the
+  loop runs once more (one extra iteration when it was the last); what was accepted stays a candidate. Counter
+  RunResult::boundRechecks; in the cache key (br). Test bound_recheck_withdraws_a_failed_bound (a previous find wrong
+  on a band of 0.0004 around x = 0.4337, stage 2 with 64 points): it checks that the recheck runs and the result
+  holds, not a gain.
+- Why no gain in the test, and why the measured share is small: shared leaves count 0 in the objective, so an answer
+  built from the target's own parts is found under the bound anyway (y * max(|3x - 1.3011|, 6e-4) under a bound of
+  10: one multiply over a shared part). The bound hides only answers that are not made of the target's or the seed's
+  parts. Without shared leaves the bank alone did not reach the test's answer in 2 s either way.
+- Related, found while reading enumerator.cpp, not changed: the enumerator's own hits lower its bound after
+  plausible() (512 extra points, reference profile only). A hit that then fails under another profile
+  (rejectedProfiles: no counterexample is added, so no restart) has pruned dearer answers in that run for good.
+  Checking the profiles in plausible() would close it at the source. Measured with a temporary counter (4 packages,
+  74 effects, time 0.05, defaults; 8110 searches counting part searches and refine rounds): in 62 (0.8 %) a form
+  from the enumerator that passed stage 2 and was then rejected was cheaper than the cheapest strictly accepted form
+  (57 rejected by a profile, 5 by V1 / V2 in the last iteration; in 48 of the 62 nothing was accepted at all). An
+  upper bound: the enumerator keeps alternatives up to a slack above its bound, so not every one of them lost an
+  answer. Read, nothing found: hoist.cpp.
+- Read, nothing found: diskstore.cpp (a file that cannot be opened turns disk mode off), sass.cpp, the enumerator's
+  setup (budgets, memory, packing), variants.cpp's writer and easy picks.
+- Corpus A/B (ecf9cf4, time 0.1; runs 43778080307 without, 43778091489 with): package 11 aside (see the next
+  section), written regions 2314 -> 2315, saved cost 44336 -> 44414 (+0.18 %), inside the run-to-run noise
+  (ReShade.fxh:105 is 13 in one run and 16 in the other, in both directions). With the flag: ArcaneBloom.fx:604,
+  AspectRatioSuite.fx:191, Transform.fxh:19 / 21 found (none without), Flashlight.fx:90 44 -> 41; lost: one
+  statement of CRT.fx:157 / GuestCRT.fx:572 (18 -> 10 without, none with), BETA_ZenRCAO.fx:877-889 24 -> 29. Stays off.
+
+## Shared headers: ranges of every effect (2026-11-16, review)
+- Found through the A/B above: package 11 (Warp-FX) wrote 43 regions in one run and 30 in the other, as in the 32
+  earlier runs kept. Cause: a statement of a header that several effects include was taken from the first effect that
+  reads it (fx_main.cpp, `seen`), with that effect's ranges. Blending.fxh's Blend(.., blending) is called with a
+  [0, 1] uniform by Drunk.fx and with a computed value of unknown range by BulgePinch.fx; the corpus job passed the
+  effects in directory order (os.walk, not sorted on Linux; sorted now), so whichever came first decided for all: 13 variants
+  were written into the header on a range that only some of its effects prove. Locally: 60 or 61 unknown inputs by
+  the first effect.
+- Fix: fx::mergeShared (variants.cpp): the same statement in a later effect widens every input to both ranges
+  (scRGB inputs too), a range one effect does not know is not known, a grid is kept only when both agree; other
+  math, types, compile-time values or another budget: the statement is left alone (skip reason "a header statement
+  that reads differently in another effect"; none in Warp-FX). Test fx_shared_header_ranges_of_every_effect.
+  Package 11 gives 61 unknown inputs in every order now.
+- Corpus at 33e487c (defaults, time 0.1; run 43797772264) against the run before the fix (43778091489): regions
+  20805 -> 20699, written 2345 -> 2300, saved 44785 -> 44036. 106 statements read differently in another effect
+  (23 of 44 packages; prod80 18, Depth3D 11, BFBFX 10). Why, on those three packages (52 merges, a temporary
+  print): 33 another budget, 14 other math, 5 other inputs. Other math / inputs: one file compiled with other
+  definitions per effect (SuperDepth3D.fx, PD80_LUT_v2.fxh:120): the first effect's variant was wrong for the
+  others. Another budget: always the general budget (rel 1e-06) in one effect against an output budget in the
+  other (abs 2^-17 ... 2^-5: the value reaches that effect's output through math alone). Neither is the tighter one
+  everywhere (rel 1e-06 is looser than abs 7.6e-06 where |value| > 7.6), so they were not merged at first.
+- Owner, 2026-11-16: a budget that holds both. Budget::also (expr.hpp): further budgets that must all hold, checked
+  with the main budget's loose factor, and with the accuracy rule / error scale only where the main one has them
+  (alsoBudgets, verify.hpp; so the driver's switches on the main budget cover them). Enforced in compareRange
+  (stage 2, V1, V2, the enumerator's plausible(), generalize, the format checks), in the enumerator's accepts()
+  (or a form outside the second budget would be found again after every counterexample) and in proveBound (each
+  budget proven on its own). acceptHull stays the main budget's (a superset). mergeShared puts every effect's budget
+  in: the main one by the budgets alone (an exact one alone; else relative first, stricter switches, smaller limit),
+  so the effect order does not matter; in the search key. sopt-fx's back buffer format checks change every budget
+  of the region (a merged reason keeps "back buffer" when one effect's had it). No .sopt syntax for it. Tests
+  budget_also_every_budget_holds, fx_shared_header_ranges_of_every_effect. prod80: 18 -> 4 statements left alone,
+  BFBFX 10 -> 0 (locally).
+- Corpus (e577a05, time 0.1; run 43978297615) against the baseline 43805632166: statements left alone 106 -> 68,
+  regions 20699 -> 20737, written 2301 -> 2305, saved 43938 -> 44027. Clear gains where the budgets differed:
+  BFBFX (38) 22 -> 29 written, 582 -> 621 saved; package 37 15 -> 17 written; the rest within the noise. The 68 left
+  differ in math or inputs (one file compiled with other definitions per effect).
+
+## Review, last part (2026-11-18)
+- Report intake (report_intake.py): the "# stage:" header value went into the saved file name unchecked (StageBench:
+  classify's ps / vs check could match another "# stage:" line than the header's; OpBench / TexBench: any value was
+  appended). A name or note there would have been published in a file name (GDPR); a path was stopped only by the
+  OS (no such folder). Now ps / vs only: other StageBench values are junk, other tools leave it out. Test in
+  test_report_intake.py (fails without the fix).
+- sopt-report.md: two lines of the 2026-11-17 corpus were cut at 511 characters and ran into the next one (a long
+  expression under "Regions without cheaper variants"; snprintf into buf[512]). That line, the input lines and the
+  variant files' "likely range" note are joined as strings now.
+- Read, nothing found: shapeOf, the rest of spanGuard, the report writer's tail (foundRewrites, the run cache,
+  culpritSwitch), main.cpp's second half, gen_expected.py (test names filtered, device ids from the repo), the site's
+  pages (uploaded text only through textContent; FINDINGS.md is the repo's), the workflows (inputs only through env;
+  the intake adds docs/ only).
+- Windows tools: sopt-timer wrote sopt-timer.csv with std::fopen on ReShade's base path, which is UTF-8, while fopen
+  reads a narrow path in the ANSI code page: a Test Host unpacked under a folder such as C:\Users\Søren\ could not
+  write it (run-bench.ps1: "no sopt-timer.csv"). _wfopen on the fs::path now; builds, not run under ReShade here.
+  Read, nothing found: the timer's bench / shot logic, the PowerShell runners (common, run-test, run-bench,
+  zip-reports), OpBench's calibration, measurement and base ordering (a base is always measured before its tests).
+  Noted, not changed: OpBench / TexBench / ShaderInfo find Reports\ through GetModuleFileNameA (a folder name with
+  characters outside the ANSI code page would fail; consistent within the programs otherwise); a test whose every
+  timing came back disjoint would read 0 (or a NaN against a 0 reference, which the intake then rejects); the timer's
+  header promises the disjoint check for D3D10 too, only D3D11 has it.
+- Then the rest (owner: "check those too"). sopt-host --image widened the ANSI file name byte by byte for WIC, so a
+  name such as Søren.png was not found (the scripts never pass --image); MultiByteToWideChar now (ran 5 frames on
+  dx11 with such a file). Read, nothing found: ShaderInfo (driver version decoding, --batch reflection and
+  pipelines, the fp16 rate test, the report), sopt-host (options, adapter choice, the D3D11 and D3D12 frame loops),
+  TexBench's timing, calibration, write / blend passes, CSV and PNG writers. Noted, not changed: ShaderInfo's fp16
+  rate test does not check the return values of its buffer / memory / pool creation; two cards with the same name
+  write one shaderinfo file; TexBench's blend pass can read slightly negative when the restore draws alone measure
+  slower than with the pass. Not read: TexBench's test definitions (makeTests, about 500 lines of tables), its
+  order and precision passes beyond the PNG writer, sopt-host's D3D9 / D3D10 / OpenGL / Vulkan setup.
+- Then those too (owner: "check the rest"). A scratch harness (#includes texbench.cpp) compiled every test's shaders
+  offline: 1575, all compile; every base exists, has the same stage and starts with the same coordinate code (the
+  atomics' base shares their argument by design); no compute blur test needs the noise texture or table that only
+  the pixel shader gets. makeTests now fails on a base name that does not exist (main looked bases up by name and
+  would have used a null test; `--check` in CI catches it). Order and precision passes, blur / scatter / pass
+  loops, sopt-host D3D9 / D3D10 / OpenGL / Vulkan read: nothing found. Noted, not changed: sopt-host stops with
+  exit code 0 when Direct3D 9 loses its device or a Vulkan swap chain goes out of date (window resized or
+  minimized), so a --bench run cut short that way looks like a finished one; fixed (owner): a
+  failed Present (D3D9 device lost, DXGI Present failing on dx10 / dx11 / dx12, which dx10 / dx11 ignored) or Vulkan
+  acquire / present now fails with a message and exit code 1; a closed window still ends with 0 (WM_QUIT is seen
+  before the next Present). Ran 60 frames on all six APIs: exit 0.
+- Then the noted-not-changed items (owner, 2026-11-21: "fix 1 to 8"):
+  1. The cost model names: one table (kNamedModels, ops.cpp) feeds costModelByName and the "unknown cost model"
+     list (costModelNames), which missed intel-gen6, nvidia-turing-rtx, rdna3-rga.
+  2. Reports\ in a folder outside the ANSI code page: already works. app.manifest sets activeCodePage UTF-8
+     (Windows 10 1903+), so GetModuleFileNameA, fopen and argv are UTF-8; ShaderInfo run from a folder named
+     with CJK letters and ø wrote both reports. Only older Windows (7, 8, 10 before 1903) keeps the ANSI limit;
+     a fix there means every file open in the three programs going through wide paths. Not done.
+  3. OpBench / TexBench: a reading whose timings all failed (disjoint, not ready) is left out instead of read as
+     0 (ms 0 gave a 0 reading, or NaN against a 0 reference); the passes go on, and with no reading at all the
+     test shows "no consensus" with 0. Averages divide by at least 1. writePass / blendPass return NaN for no
+     timing, TexBench's pass / blur units push nothing.
+  4. sopt-timer: D3D10 gets the timestamp-disjoint query too (ID3D10Query, begun / ended / read on the query);
+     builds, not run under ReShade on D3D10 here.
+  5. ShaderInfo's fp16 rate test checks every create / allocate (and a memory type that fits); a failure ends
+     the test with its VkResult in the report instead of timing with null handles.
+  6. ShaderInfo: two cards of one name in one run write -2, -3 ... (report and batch CSV); a new run still
+     replaces the old files. Not run with two identical cards.
+  7. TexBench's blend pass reads at least 0 (a negative median is the restores' noise).
+  8. sopt-host: no message box under --bench or SOPT_TIMER_SHOT (run-bench / run-test); stderr and exit code 1
+     as before. The interactive run of run-test.ps1 (no SOPT_TIMER_SHOT) keeps the box.
+  Checked (above): built (MSVC), sopt's model list and lookups (intel-gen6, nvidia-maxwell alias), sopt-host --bench with
+  a bad --api (no box, exit 1), ShaderInfo on the GTX 1660 + UHD 630 (fp16 rates as before), TexBench "RGBA8 add"
+  and "RGBA8 write" on the GTX 1660 (sane readings, consensus).
+
+## sopt-found.md (2026-11-22)
+
+- From a ReShade shader author's feedback (via the owner): sopt-found.txt named inputs that are not plain names
+  (texture reads, member chains) in1, in2 ... with a key above the rule, put every input's range on one "where" line,
+  and was plain text while the rest is markdown. Owner: make sopt-found.md with tables and real names; the form can
+  change again ("finding the perfect form is a process"). Now: one section per faster form (file:line, function,
+  cost, class), original and faster form in hlsl / glsl code blocks with the inputs as the shader reads them, a
+  table of input / type / range, then the other numbers (AMD, NVIDIA, Intel, DXBC, max abs error, vs exact,
+  proven, problems) on one line. The aliases existed only for the library's syntax; nothing reads the file, rules
+  are generalized by hand before they go into library/rewrites.txt (the library format and parser are unchanged).
+  library/found/corpus-2026-10-08.txt keeps the old format. Test: fx_found_markdown.
+- Not changed, same pattern: the classical rewrites (tables, vertex shader moves, int divisions, zero guard, blend
+  stage) are taken from the first effect that includes a header (`rewriteSeen`; classic.cpp says so for int
+  divisions). A header one sopt-fx run does not see (another package's effect including it) is outside what a run
+  can know.
+
+## --keep-accepted, --bound-profiles, two enumerator fixes (2026-11-16, owner's go; both flags off, A/B pending)
+- --keep-accepted (driver.cpp): the restart after V1 / V2 (another candidate gave a counterexample) dropped the
+  forms that had passed; the next round had to find them again on other test points. With the flag they stay
+  candidates, as --keep-survivors does for the restart after stage 2. Suspected in the --bound-recheck run's lost
+  CRT.fx:157 statement (the recheck adds a round), not confirmed.
+- --bound-profiles (enumerator.cpp, plausible()): a hit lowers the bound, and stays a hit at pruneHits, only when
+  it holds on the 512 extra points under all six profiles (was: the reference profile). In the cache key (ka, bp).
+  Test keep_accepted_and_bound_profiles_hold: the same answer with both on (the code runs; gains are for the corpus).
+- Fixed without a flag (wrong, not a technique): commitHits lowered the bound by every fitted hit first and stored
+  them after, only while the hit list (10000) had room; the list is cleared out every 4096 candidates, a batch is
+  16384, so a new best fitted hit arriving on a full list set the bound and was dropped (in phase 1, slack -1,
+  that prunes every other hit too). A hit that lowers the bound is stored now. Not measured how often it happened.
+- Fixed: the top-down lookup index sorted (value at the lookup point, entry) pairs, NaN values included: no order
+  for std::sort / inplace_merge / lower_bound (undefined; no crash seen). Non-finite values are left out: the
+  lookup range is finite, they could not match.
+- Read, nothing found: the rest of enumerator.cpp (hashing, insert, folds, fits, flush, levels, disk tiles, shared
+  leaves, extract), console.cpp, options.cpp (its "unknown cost model" list is written by hand and misses
+  intel-gen6, nvidia-turing-rtx, rdna3-rga). variants.cpp's report: an input line or a class cell over 511
+  characters is cut without its line end (snprintf into buf[512]); not seen, not changed.
+- Corpus A/B (f1ba972, time 0.1; written regions / saved cost): before the two enumerator fixes (43797772264)
+  2300 / 44036; baseline with them (43805632166) 2301 / 43938; --keep-accepted (43805642992) 2297 / 43851;
+  --bound-profiles (43805653778) 2299 / 43945. All inside the run-to-run noise (about +-100 saved: the same regions
+  flip between runs, ReShade.fxh:105 13 / 16, BETA_ZenRCAO.fx:877-889 24 / 29, package 06 15 / 17 written). Both
+  flags stay off; nothing measured for or against the two fixes.
+- Read, nothing found: codegen.cpp, fx_main.cpp's search and results part, main.cpp's first half, frontend.cpp's
+  end (the window loop of Extractor::run, parseRange, readUserRanges, extractRegions' second parse, settingValues,
+  settingRegions), nameInScope, constGuard, the start of spanGuard.
+
+## fxc /O1 vs /O3 (2026-11-24)
+
+- ReShade compiles Direct3D shaders with fxc /O1 in normal mode and /O3 in performance mode (+ /Ges on SM4+; no /Gis,
+  source/effect_codegen_dxbc.cpp). Owner: most players run normal mode. sopt, fxstat and sopt-fxc judge DXBC at /O3.
+- fxc-levels Action (tools/corpus/fxc_levels.py, run 45293326721: 46 packages, 514 effects, fxstat 6.8.0.7 with
+  d3dcompiler_47 on Windows):
+  - sm50: /O1 and /O3 give identical code for all 2533 entry points. sopt's /O3 checks hold for normal mode on D3D10-12.
+  - sm30: 1442 of 1944 identical, 347 other code with the same count, 83 longer and 72 shorter at /O1; total 181636 vs
+    181605. Small, both ways.
+  - Normal vs performance mode (uniforms constant, default values): +63% instructions in normal mode (sm50 262009 vs
+    160781, sm30 179112 vs 109447); 1171 of 2515 sm50 entry points longer. The mode matters, the /O level does not.
+  - Not compiled: 42 effects on sm30 (D3D9-only failures), 2 sm50 performance-mode compiles.

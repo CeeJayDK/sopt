@@ -2,7 +2,7 @@
 # with ReShade's logs (owner, 2026-10-06: one test host for every API ReShade supports). Started by Test-Host.bat.
 #
 #   run-test.ps1 [-Apis all|dx9,dx10,dx11,dx12,vulkan,gl] [-Effect sopt_IEEE754.fx | -Effect ?] [-Width 1920]
-#                [-Height 1080] [-Frames 30] [-ReShade path\ReShade64.dll]
+#                [-Height 1080] [-Frames 30] [-ReShade path\ReShade64.dll] [-Gpu 630]   (-Gpu: not for OpenGL)
 #   run-test.ps1 -Interactive -Apis dx11     (opens the host with every effect available; press Home for the overlay)
 #
 # Effects come from the Effects folder next to Test-Host.bat (subfolders too: a whole reshade-shaders folder can go
@@ -15,7 +15,8 @@ param(
   [int]$Width = 1920,
   [int]$Height = 1080,
   [int]$Frames = 30,
-  [string]$ReShade = ""
+  [string]$ReShade = "",
+  [string]$Gpu = ""
 )
 . (Join-Path $PSScriptRoot "common.ps1")
 
@@ -29,8 +30,9 @@ New-Item -ItemType Directory -Force -Path $shots | Out-Null
 
 function Start-Host([string]$api, [int]$timeoutSeconds) {
   Enable-ReShade $run $api
-  $p = Start-Process -FilePath (Join-Path $run "sopt-host.exe") -WorkingDirectory $run -PassThru `
-    -ArgumentList @("--api", $api, "--width", $Width, "--height", $Height)
+  $hostArgs = @("--api", $api, "--width", $Width, "--height", $Height)
+  if ($Gpu -and $api -ne "gl") { $hostArgs += @("--gpu", "`"$Gpu`"") }  # OpenGL: Windows picks the card
+  $p = Start-Process -FilePath (Join-Path $run "sopt-host.exe") -WorkingDirectory $run -PassThru -ArgumentList $hostArgs
   $ok = $true
   if ($timeoutSeconds -gt 0) {
     if (-not $p.WaitForExit($timeoutSeconds * 1000)) {

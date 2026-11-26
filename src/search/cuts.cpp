@@ -135,6 +135,7 @@ Program topProgram(const Program& prog, const Cut& cut, std::vector<uint32_t>& i
   }
   top.target = b.finish(map[e.root]);
   top.budget = prog.budget;
+  top.budget.noiseNodes.clear();  // indices of the old target (the driver finds them again)
   return top;
 }
 
