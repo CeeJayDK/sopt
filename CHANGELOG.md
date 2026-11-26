@@ -5,38 +5,20 @@ builds (`## <version>` up to the next `## `) into the release notes, so add to t
 Write for players, not programmers: short, plain words, what changes for the user. Technical details go in
 docs/notes/history.md.
 
-## 0.10.13
+## 0.11.0
 
 ### SweetOpt
-- **Easier to read list of findings:** every faster form sopt finds now goes into sopt-found.md, a Markdown file. It shows the inputs as your shader reads them, and a table lists each input with its type and range.
-- **Fixed:** a file shared by several effects was judged by the first effect alone, so a faster version could be written that is only safe for some of the effects that use the file. Every effect that uses the file now counts.
-- **Fixed:** a setting whose lowest value is negative and written as a whole number (for example -1 to 1) was read with the wrong range, so changes that use it were checked on the wrong values.
-- **Fixed:** in three cases a faster version could change the picture: shaders that throw pixels away, repeating patterns such as stripes and grids, and helper functions used several times (as in edge detection).
-- **Fixed:** a faster version of math with `acos`, `asin`, `atan`, `atan2` or `%` could be slightly off on Vulkan and OpenGL, where the graphics driver works these out in its own way. Such changes are now used on DirectX only and are left out of easy mode. In GLSL shaders this math is left alone.
-- **Fixed:** SweetOpt took every value a vertex shader hands to the pixel shader as a screen coordinate between 0 and 1. A value worked out from a setting can be anything, so changes that use one now wait for a known range.
-- **Fixed:** the change that skips an effect's work while its strength is 0 could also skip throwing pixels away, or miss that the strength is changed again further down.
-- **Fixed:** moving the final blend to the graphics card's blend stage was offered for passes that clear the screen first, which leaves nothing to blend with.
-- **Fixed:** for a helper function that gets values back from another helper, SweetOpt could write a change that does not compile. It noticed, reported an error and dropped the change; now it leaves that line alone from the start.
-- **Fixed:** a faster version could leave out a small noise or film grain effect that is added on top of a bigger value. SweetOpt now spots noise inside a calculation, not only when the whole calculation is noise.
-- **Faster whole-number division:** where a shader divides whole numbers that can never be negative, SweetOpt now offers a cheaper version with exactly the same result.
-- **Looks harder at small pieces of math:** SweetOpt now also tries the parts of a calculation when it has time left, and finds cheaper versions it used to miss.
-- **Radeon RX 400 and RX 500:** these cards now have their own measurements, so SweetOpt no longer treats them like newer Vega cards when it picks the fastest version.
-- **More reliable results:** whether SweetOpt found a cheaper version of some math could depend on chance. It now builds on what it finds and no longer gives up on these for a random reason, so more effects get faster, the same way every run.
-- **Finds more changes that give the same picture:** math whose result ends up in an 8-bit color may now be a little less exact where the final color cannot show it. In a test on every effect package, 6% more spots got cheaper.
-- **Tips for shader authors:** the report now points out screen-space derivatives (`ddx`, `ddy`) and how much faster their per-pixel versions run on NVIDIA cards, and where they are slower (Intel).
-- **Checks the tricky spots:** SweetOpt now always tests math where values jump (rounding, stripes, repeating patterns) or nearly cancel out, so whether it accepts a faster version no longer depends on luck there.
-- **Small details kept:** SweetOpt could offer a variant that drops a small on-screen marker or letter, because its checks never landed inside such a small area. It now looks for those areas and checks inside them.
-- **Finds more:** the search no longer throws away good candidates when it has to start over, and a fresh start gets its full time. In a test on every effect package, dozens more spots in shaders got cheaper.
-- **Wrong pixels fixed:** SweetOpt could replace `round`, `floor`, `ceil` or `frac` with a trick that some graphics drivers undo, which broke the picture on those cards. It no longer uses that trick. Effects optimized with an older version should be optimized again.
-- **More GLSL:** GLSL vertex and compute shaders (.vert, .comp) are read too, and more of the GLSL that Vulkan projects use: named uniform blocks, multisampled textures, more built-in values and bit functions. Vertex shaders of other projects (plain HLSL and GLSL) are optimized too.
-- **Older NVIDIA cards:** SweetOpt now knows what math costs on GeForce GT / GTX 400 and 500 cards (Fermi).
-- **Settings used beyond their slider:** when an effect's code handles values beyond a slider's range (you can type them in), SweetOpt no longer treats the slider's ends as limits there.
-- **No more guesses in the lists:** changes that could only be checked on guessed value ranges are no longer listed in sopt-found.txt and the report; the report just says which values need ranges. Changes that compile to exactly the same shader are not listed either.
-- **No guessing where the code checks itself:** where an effect's code clamps or tests a value (like an on-screen check), SweetOpt no longer guesses that value's range from its name.
-- **lerp stays lerp:** changes are written with lerp() where that is what they compute, instead of a harder to read mad().
-- **Also math with matrix settings:** color and position math that uses a matrix setting of an effect is now optimized too.
-- **Header files in packages:** effects in a downloaded package's own Shaders folder now find header files in its subfolders, as they do in ReShade.
-- **Fixed:** the search of some small pieces of math (one setting or color value over a wide range) could run far past its time limit. It is much shorter now.
+- **Finds more:** the search keeps good candidates when it starts over, also tries the parts of a calculation, and no longer depends on luck, so more effects get faster, the same way every run.
+- **Same picture, less work:** math whose result ends up in an 8-bit color may be a little less exact where the final color cannot show it (6% more spots got cheaper in a test on every effect package). Whole-number division that can never be negative gets a cheaper version with exactly the same result.
+- **Safer changes:** SweetOpt now always checks the tricky spots: rounding, stripes and grids, values that nearly cancel out, small on-screen markers and letters, and small noise or film grain on top of a bigger value. Several cases where a faster version could change the picture are fixed.
+- **Wrong pixels fixed:** SweetOpt no longer replaces `round`, `floor`, `ceil` or `frac` with a trick that some graphics drivers undo. Effects optimized with an older version should be optimized again.
+- **No guessing:** changes that could only be checked on guessed value ranges are no longer written or listed; the report says which values need ranges. Settings with a negative whole-number range, values typed in beyond a slider, and values a vertex shader hands on are now read right.
+- **DirectX only where needed:** changes to math with `acos`, `asin`, `atan`, `atan2` or `%` are used on DirectX only, because Vulkan and OpenGL drivers work these out their own way.
+- **Shared files:** a file used by several effects is now judged for all of them, and header files in a package's subfolders are found as in ReShade.
+- **Easier to read findings:** sopt-found.md lists every faster form with its inputs as your shader reads them. Changes are written with lerp() where that is what they compute, and the report has tips on `ddx` / `ddy`.
+- **More shaders:** GLSL vertex and compute shaders, more of the GLSL that Vulkan projects use, vertex shaders of plain HLSL and GLSL projects, and math with matrix settings.
+- **More cards:** own measurements for GeForce GT / GTX 400 and 500 and Radeon RX 400 and 500, so SweetOpt picks better versions for them.
+- **Fixed:** the skip-at-strength-0 change, the blend-stage change on passes that clear the screen first, changes that did not compile, and a search that could run far past its time limit.
 
 ### GPU Blueprint
 - **Sending reports:** a report is no longer lost when the connection to Dropbox fails while it is being collected, and a report sent with ShaderInfo alone now arrives.
