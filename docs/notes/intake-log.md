@@ -649,3 +649,11 @@ Written by tools/site/report_intake.py (the report-intake workflow): what came i
 - upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.2114): `docs/stagebench/nvidia-gtx-1660-vs-17.csv` (StageBench 0.11.0)
 - upload 1: texbench, Intel(R) UHD Graphics 630 (driver 31.0.101.2145): `docs/texbench/intel-uhd-630-27.csv`, `docs/texbench/intel-uhd-630-27-order.png`, `docs/texbench/intel-uhd-630-27-order-zoom.png` (TexBench 0.11.0)
 - upload 1: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.2114): `docs/texbench/nvidia-gtx-1660-23.csv`, `docs/texbench/nvidia-gtx-1660-23-order.png`, `docs/texbench/nvidia-gtx-1660-23-order-zoom.png` (TexBench 0.11.0)
+
+## 2026-11-27 08:48 UTC
+- upload 1: opbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.2114): `docs/opbench/nvidia-gtx-1660-25.csv` (OpBench 0.11.0)
+- upload 1: shaderinfo, Intel(R) UHD Graphics 630 (driver Intel Corporation Intel driver (101.2145)): `docs/shaderinfo/intel-uhd-630-20.txt`
+- upload 1: shaderinfo, NVIDIA GeForce GTX 1660 (driver NVIDIA 621.14 (621.14)): `docs/shaderinfo/nvidia-gtx-1660-17.txt`
+- upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.2114): `docs/stagebench/nvidia-gtx-1660-ps-18.csv` (StageBench 0.11.0)
+- upload 1: stagebench, NVIDIA GeForce GTX 1660 (driver 32.0.16.2114): `docs/stagebench/nvidia-gtx-1660-vs-18.csv` (StageBench 0.11.0)
+- upload 1: texbench, NVIDIA GeForce GTX 1660 (driver 32.0.16.2114): `docs/texbench/nvidia-gtx-1660-24.csv`, `docs/texbench/nvidia-gtx-1660-24-order.png`, `docs/texbench/nvidia-gtx-1660-24-order-zoom.png` (TexBench 0.11.0)
